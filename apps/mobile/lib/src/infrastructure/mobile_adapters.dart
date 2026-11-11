@@ -545,10 +545,16 @@ class FilePickerExportSaver implements PrivacyExportSaver {
 /// zip are written only where the person chooses (docs/mobile.md#file-downloads).
 Future<bool> saveWithSystemDialog(
     String fileName, Uint8List bytes, String dialogTitle) async {
+  final lower = fileName.toLowerCase();
   final path = await FilePicker.saveFile(
     dialogTitle: dialogTitle,
     fileName: fileName,
     bytes: bytes,
+    mimeType: lower.endsWith('.zip')
+        ? 'application/zip'
+        : lower.endsWith('.csv')
+            ? 'text/csv'
+            : 'application/octet-stream',
   );
   return path != null;
 }

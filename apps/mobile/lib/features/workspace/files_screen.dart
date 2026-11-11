@@ -835,9 +835,15 @@ class _FolderStrip extends StatelessWidget {
                     onPressed: () => _newFolder(context),
                     icon: const Icon(Icons.create_new_folder_outlined),
                     label: Text(s.t('org.newFolder'))),
+              if (trail.isNotEmpty && trail.last.canManage && c.canUpload)
+                _FolderMenu(controller: c, folder: trail.last),
             ],
           ),
         ),
+        if (trail.isNotEmpty && !trail.last.canManage && c.canUpload)
+          Text(s.t('org.folder.manageNote'),
+              key: const Key('folder-manage-note'),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         if (c.searching)
           Text(s.t('org.searchEverywhere'),
               style: TextStyle(color: p.muted, fontSize: AnumType.sm))
@@ -883,6 +889,15 @@ class _TagStrip extends StatelessWidget {
           ActionChip(
               label: Text(s.t('org.clearTag')),
               onPressed: () => c.setTagFilter(null)),
+        ActionChip(
+            key: const Key('tags-manage'),
+            avatar: const Icon(Icons.sell_outlined, size: 18),
+            label: Text(s.t('org.tags.manage')),
+            onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                showDragHandle: true,
+                builder: (_) => _ManageTagsSheet(controller: c))),
       ]),
     );
   }
@@ -972,6 +987,19 @@ class _BulkBar extends StatelessWidget {
                         TextStyle(color: p.text, fontWeight: FontWeight.w700))),
             TextButton(
                 onPressed: c.selectAll, child: Text(s.t('org.selectAll'))),
+            Semantics(
+              button: true,
+              label: s.t('org.downloadLabel'),
+              excludeSemantics: true,
+              child: OutlinedButton.icon(
+                  key: const Key('files-download-zip'),
+                  onPressed: c.selected.isEmpty || c.downloading
+                      ? null
+                      : () => _report(context, c.downloadSelected(s)),
+                  icon: const Icon(Icons.download_outlined),
+                  label: Text(
+                      s.t(c.downloading ? 'org.downloading' : 'org.download'))),
+            ),
             OutlinedButton.icon(
                 onPressed: allowed ? () => _move(context) : null,
                 icon: const Icon(Icons.drive_file_move_outline),
@@ -1169,4 +1197,371 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
       ],
     );
   }
+}
+
+/// Rename, move and delete the open folder (docs/files.md#folders): the
+/// person who created it or an owner.
+class _FolderMenu extends StatelessWidget {
+  const _FolderMenu({required this.controller, required this.folder});
+  final FilesController controller;
+  final FileFolder folder;
+
+  Future<void> _report(BuildContext context, Future<String?> work) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final problem = await work;
+    if (problem != null) {
+      messenger.showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
+  Future<void> _rename(BuildContext context) async {
+    final s = FileStrings.of(context);
+    final name = await showDialog<String>(
+        context: context,
+        builder: (_) => _NameDialog(
+            title: s.t('org.folder.rename'),
+            label: s.t('org.folderName'),
+            initial: folder.name,
+            maxLength: 255,
+            save: s.t('org.save'),
+            cancel: s.t('org.cancel')));
+    if (name == null || !context.mounted) return;
+    await _report(context, controller.renameFolder(folder, name, s));
+  }
+
+  Future<void> _move(BuildContext context) async {
+    final s = FileStrings.of(context);
+    final blocked = controller.folderBranch(folder);
+    final target = await showModalBottomSheet<(String?,)>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(shrinkWrap: true, children: [
+          ListTile(
+              title: Text(s.t('org.folder.moveTitle', {'name': folder.name}),
+                  style: const TextStyle(fontWeight: FontWeight.w700))),
+          if (folder.parentId != null)
+            ListTile(
+                key: const Key('folder-move-root'),
+                leading: const Icon(Icons.home_outlined),
+                title: Text(s.t('org.root')),
+                onTap: () => Navigator.pop(context, (null,))),
+          for (final f in folderChoices(controller.folders))
+            if (!blocked.contains(f.id) && f.id != folder.parentId)
+              ListTile(
+                  key: Key('folder-move-${f.id}'),
+                  leading: Padding(
+                      padding: EdgeInsetsDirectional.only(
+                          start: 16.0 * (f.depth - 1)),
+                      child: const Icon(Icons.folder_outlined)),
+                  title: Text(f.name),
+                  onTap: () => Navigator.pop(context, (f.id,))),
+        ]),
+      ),
+    );
+    if (target == null || !context.mounted) return;
+    await _report(context, controller.moveFolder(folder, target.$1, s));
+  }
+
+  Future<void> _delete(BuildContext context) async {
+    final s = FileStrings.of(context);
+    final inside = controller.folderContents(folder);
+    final parent = folder.parentId == null
+        ? s.t('org.root')
+        : controller.folders
+                .where((f) => f.id == folder.parentId)
+                .firstOrNull
+                ?.name ??
+            s.t('org.root');
+    final contents = await showDialog<String>(
+        context: context,
+        builder: (_) => _DeleteFolderDialog(
+            name: folder.name,
+            files: inside.files,
+            folders: inside.folders,
+            parent: parent));
+    if (contents == null || !context.mounted) return;
+    await _report(context, controller.deleteFolder(folder, contents, s));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = FileStrings.of(context);
+    return PopupMenuButton<String>(
+      key: const Key('folder-menu'),
+      tooltip: s.t('org.folder.actions', {'name': folder.name}),
+      icon: const Icon(Icons.more_vert),
+      onSelected: (value) => switch (value) {
+        'rename' => _rename(context),
+        'move' => _move(context),
+        _ => _delete(context),
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+            key: const Key('folder-rename'),
+            value: 'rename',
+            child: Text(s.t('org.folder.rename'))),
+        PopupMenuItem(
+            key: const Key('folder-move'),
+            value: 'move',
+            child: Text(s.t('org.folder.move'))),
+        PopupMenuItem(
+            key: const Key('folder-delete'),
+            value: 'delete',
+            child: Text(s.t('org.folder.delete'))),
+      ],
+    );
+  }
+}
+
+/// Deleting a folder is a choice when it holds anything: move its contents
+/// up, or delete them too. Answers `refuse`, `move_up` or `delete`.
+class _DeleteFolderDialog extends StatefulWidget {
+  const _DeleteFolderDialog(
+      {required this.name,
+      required this.files,
+      required this.folders,
+      required this.parent});
+  final String name, parent;
+  final int files, folders;
+  @override
+  State<_DeleteFolderDialog> createState() => _DeleteFolderDialogState();
+}
+
+class _DeleteFolderDialogState extends State<_DeleteFolderDialog> {
+  String _choice = 'move_up';
+
+  @override
+  Widget build(BuildContext context) {
+    final s = FileStrings.of(context);
+    final p = context.palette;
+    final empty = widget.files == 0 && widget.folders == 0;
+    return AlertDialog(
+      title: Text(s.t('org.folder.deleteTitle', {'name': widget.name})),
+      content: SingleChildScrollView(
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (empty)
+                Text(s.t('org.folder.deleteEmpty'))
+              else ...[
+                Text(s.t('org.folder.deleteFull', {
+                  'files': s.count('org.filesIn', widget.files),
+                  'folders': s.count('org.folder.subfolders', widget.folders),
+                })),
+                RadioGroup<String>(
+                  groupValue: _choice,
+                  onChanged: (v) => setState(() => _choice = v ?? _choice),
+                  child: Column(children: [
+                    RadioListTile<String>(
+                        key: const Key('folder-delete-move-up'),
+                        contentPadding: EdgeInsets.zero,
+                        value: 'move_up',
+                        title: Text(s.t('org.folder.keepContents',
+                            {'parent': widget.parent}))),
+                    RadioListTile<String>(
+                        key: const Key('folder-delete-all'),
+                        contentPadding: EdgeInsets.zero,
+                        value: 'delete',
+                        title: Text(s.t('org.folder.deleteContents')),
+                        subtitle: Text(s.t('org.folder.deleteContentsHint'),
+                            style: TextStyle(color: p.warn))),
+                  ]),
+                ),
+              ],
+            ]),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(s.t('org.cancel'))),
+        FilledButton(
+            key: const Key('folder-delete-confirm'),
+            onPressed: () => Navigator.pop(context, empty ? 'refuse' : _choice),
+            child: Text(s.t('org.folder.delete'))),
+      ],
+    );
+  }
+}
+
+/// A name in a dialog: the current name selected, Save and Cancel.
+class _NameDialog extends StatefulWidget {
+  const _NameDialog(
+      {required this.title,
+      required this.label,
+      required this.initial,
+      required this.maxLength,
+      required this.save,
+      required this.cancel});
+  final String title, label, initial, save, cancel;
+  final int maxLength;
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  late final _field = TextEditingController(text: widget.initial)
+    ..selection =
+        TextSelection(baseOffset: 0, extentOffset: widget.initial.length);
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(widget.title),
+        content: TextField(
+          key: const Key('name-dialog-field'),
+          controller: _field,
+          autofocus: true,
+          maxLength: widget.maxLength,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(labelText: widget.label),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(widget.cancel)),
+          FilledButton(
+              key: const Key('name-dialog-save'),
+              onPressed: _field.text.trim().isEmpty ||
+                      _field.text.trim() == widget.initial
+                  ? null
+                  : () => Navigator.pop(context, _field.text.trim()),
+              child: Text(widget.save)),
+        ],
+      );
+}
+
+/// Every tag of the workspace with its file count; rename and delete for the
+/// person who created it or an owner (docs/files.md#tags).
+class _ManageTagsSheet extends StatelessWidget {
+  const _ManageTagsSheet({required this.controller});
+  final FilesController controller;
+
+  Future<void> _report(BuildContext context, Future<String?> work) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final problem = await work;
+    if (problem != null) {
+      messenger.showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
+  Future<void> _rename(BuildContext context, FileTag tag) async {
+    final s = FileStrings.of(context);
+    final name = await showDialog<String>(
+        context: context,
+        builder: (_) => _NameDialog(
+            title: s.t('org.tag.renameOf', {'name': tag.name}),
+            label: s.t('org.tagName'),
+            initial: tag.name,
+            maxLength: 64,
+            save: s.t('org.save'),
+            cancel: s.t('org.cancel')));
+    if (name == null || !context.mounted) return;
+    await _report(context, controller.renameTag(tag, name, s));
+  }
+
+  Future<void> _delete(BuildContext context, FileTag tag) async {
+    final s = FileStrings.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.t('org.tag.deleteOf', {'name': tag.name})),
+        content: Text(s.t('org.tag.confirmDelete', {
+          'name': tag.name,
+          'count': s.count('org.filesIn', tag.fileCount)
+        })),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(s.t('org.keep'))),
+          FilledButton(
+              key: const Key('tag-delete-confirm'),
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(s.t('org.tag.delete'))),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    await _report(context, controller.deleteTag(tag, s));
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final s = FileStrings.of(context);
+        final p = context.palette;
+        final c = controller;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.85),
+            child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(
+                    AnumSpacing.md, 0, AnumSpacing.md, AnumSpacing.lg),
+                children: [
+                  Text(s.t('org.tags.manage'),
+                      style: TextStyle(
+                          color: p.text,
+                          fontSize: AnumType.lgPlus,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: AnumSpacing.xs),
+                  Text(s.t('org.tags.manageHelp'),
+                      style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
+                  const SizedBox(height: AnumSpacing.sm),
+                  if (c.tags.isEmpty)
+                    AnumEmpty(
+                        icon: Icons.sell_outlined,
+                        title: s.t('org.tags.none'),
+                        message: s.t('org.tags.noneText'))
+                  else
+                    for (final tag in c.tags)
+                      Padding(
+                        key: Key('tag-row-${tag.id}'),
+                        padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
+                        child: Wrap(
+                            spacing: AnumSpacing.xs,
+                            runSpacing: AnumSpacing.xxs,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                  '${tag.name} · ${s.count('org.filesIn', tag.fileCount)}',
+                                  style: TextStyle(
+                                      color: p.text,
+                                      fontWeight: FontWeight.w600)),
+                              if (tag.canManage) ...[
+                                TextButton(
+                                    key: Key('tag-rename-${tag.id}'),
+                                    onPressed: () => _rename(context, tag),
+                                    child: Semantics(
+                                        label: s.t('org.tag.renameOf',
+                                            {'name': tag.name}),
+                                        excludeSemantics: true,
+                                        child: Text(s.t('org.tag.rename')))),
+                                TextButton(
+                                    key: Key('tag-delete-${tag.id}'),
+                                    onPressed: () => _delete(context, tag),
+                                    child: Semantics(
+                                        label: s.t('org.tag.deleteOf',
+                                            {'name': tag.name}),
+                                        excludeSemantics: true,
+                                        child: Text(s.t('org.tag.delete')))),
+                              ] else
+                                Text(s.t('org.tag.manageDenied'),
+                                    style: TextStyle(
+                                        color: p.faint, fontSize: AnumType.xs)),
+                            ]),
+                      ),
+                ]),
+          ),
+        );
+      });
 }

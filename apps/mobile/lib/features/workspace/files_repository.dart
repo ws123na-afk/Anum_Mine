@@ -57,6 +57,22 @@ abstract interface class FilesRepository {
   Future<WorkspaceFile> tagFile(String id, List<String> tagIds);
   Future<WorkspaceFile> untagFile(String id, String tagId);
   Future<FileTag> createTag(String name);
+
+  // Folder and tag management (docs/files.md#folders, #tags): the creator or
+  // an owner; the API answers 403 to anyone else.
+  Future<FileFolder> renameFolder(String id, String name);
+
+  /// Moves a folder under [parentId] (null: the root).
+  Future<FileFolder> moveFolder(String id, String? parentId);
+
+  /// [contents] is `refuse` (only an empty folder), `move_up` or `delete`.
+  Future<void> deleteFolder(String id, String contents);
+  Future<FileTag> renameTag(String id, String name);
+  Future<void> deleteTag(String id);
+
+  /// The files as one zip through the system save dialog
+  /// (`POST /files/bulk/download`); false when the dialog was closed.
+  Future<bool> downloadZip(List<String> fileIds, String dialogTitle);
   Future<WorkspaceFile> upload(String path,
       {required String name,
       required void Function(int sent, int total) onProgress,
@@ -139,6 +155,41 @@ class ApiFilesRepository implements FilesRepository {
   @override
   Future<FileTag> createTag(String name) async => parseFileTag(JsonReader(
       await api.request('POST', '/api/v1/files/tags', body: {'name': name})));
+
+  @override
+  Future<FileFolder> renameFolder(String id, String name) async =>
+      parseFileFolder(JsonReader(await api.request(
+          'PATCH', '/api/v1/files/folders/${_id(id)}',
+          body: {'name': name})));
+
+  @override
+  Future<FileFolder> moveFolder(String id, String? parentId) async =>
+      parseFileFolder(JsonReader(await api.request(
+          'PATCH', '/api/v1/files/folders/${_id(id)}',
+          body: {'parent_id': parentId})));
+
+  @override
+  Future<void> deleteFolder(String id, String contents) async {
+    await api.request('DELETE',
+        '/api/v1/files/folders/${_id(id)}?contents=${Uri.encodeQueryComponent(contents)}');
+  }
+
+  @override
+  Future<FileTag> renameTag(String id, String name) async => parseFileTag(
+      JsonReader(await api.request('PATCH', '/api/v1/files/tags/${_id(id)}',
+          body: {'name': name})));
+
+  @override
+  Future<void> deleteTag(String id) async {
+    await api.request('DELETE', '/api/v1/files/tags/${_id(id)}');
+  }
+
+  @override
+  Future<bool> downloadZip(List<String> fileIds, String dialogTitle) =>
+      api.download('POST', '/api/v1/files/bulk/download',
+          body: {'file_ids': fileIds},
+          fileName: 'files.zip',
+          dialogTitle: dialogTitle);
 
   @override
   Future<FileUsage> usage() async => FileUsage.fromJson(
