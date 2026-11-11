@@ -23,11 +23,13 @@ ALERT_PERCENTS = (50, 75, 90, 100)
 NOTICE_KIND = "budget_alert"
 
 
-def crossed(before: float, after: float, limit: float | None) -> list[int]:
-    """The alert percents a change from ``before`` to ``after`` passes (``limit`` > 0)."""
+def crossed(before: float, after: float, limit: float | None, extra: int | None = None) -> list[int]:
+    """The alert percents a change from ``before`` to ``after`` passes (``limit`` > 0): the fixed
+    ones and, when a budget carries its own ``alert_percent``, that one too (each once)."""
     if not limit or limit <= 0:
         return []
-    return [p for p in ALERT_PERCENTS if before < p / 100 * limit <= after]
+    percents = sorted(set(ALERT_PERCENTS) | ({extra} if extra else set()))
+    return [p for p in percents if before < p / 100 * limit <= after]
 
 
 def _amount(kind: str, limit: float) -> str:

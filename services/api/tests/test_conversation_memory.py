@@ -153,7 +153,7 @@ class FakeGateway:
 def test_extraction_is_a_small_non_streaming_call_metered_against_the_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     recorded: list[ModelUsage] = []
     monkeypatch.setattr("anum_api.model_budget.check_model_budget", lambda context, now=None: None)
-    monkeypatch.setattr("anum_api.model_budget.record_model_usage", lambda context, usage, now=None: recorded.append(usage))
+    monkeypatch.setattr("anum_api.model_budget.record_model_usage", lambda context, usage, now=None, **_: recorded.append(usage))
     inner = FakeGateway()
     facts = asyncio.run(extract_facts("I prefer tea.", "Noted.", BudgetedModelGateway(inner, ctx())))
     assert facts == ["The user prefers tea."]

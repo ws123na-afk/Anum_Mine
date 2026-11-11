@@ -104,3 +104,50 @@ def test_memory_list_limit_keeps_the_newest_notes(
         now = FIXED_NOW + timedelta(hours=1)
         assert [n.id for n in repository.list(context, MemoryListFilters(limit=2), now)] == created[2:]
         assert [n.id for n in repository.list(context, MemoryListFilters(), now)] == created
+
+
+def test_workspace_notes_edit_count_and_page_in_postgres(
+    seed_scopes: None,
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    from sqlalchemy import text
+
+    from anum_api.memory import MemoryUpdate
+
+    context = tenant_context()
+    other = context.model_copy(update={"user_id": "user_other"})
+    with app_session(context, commit=True) as session:
+        service = MemoryService(SqlAlchemyMemoryRepository(session), clock=lambda: FIXED_NOW)
+        notes = [
+            service.create(context, MemoryCreate(content=f"Workspace fact {index}", source_type="user"))
+            for index in range(3)
+        ]
+        assert all(note.task_id is None and note.owner_user_id is None for note in notes)
+        kinds = session.execute(text("select distinct kind from memories")).scalars().all()
+        assert kinds == ["workspace_note"]
+
+    with app_session(other, commit=True) as session:
+        service = MemoryService(SqlAlchemyMemoryRepository(session), clock=lambda: FIXED_NOW + timedelta(minutes=5))
+        # Shared with the workspace: another member lists and counts them, pages them, and an owner edits.
+        access = MemoryAccess(can_read_all_workspace_tasks=True)
+        assert [n.content for n in service.list(other, access)] == [f"Workspace fact {i}" for i in range(3)]
+        assert service.count(other, MemoryListFilters()) == 3
+        page = service.list(other, access, MemoryListFilters(limit=1, offset=1))
+        assert [n.content for n in page] == ["Workspace fact 1"]
+        assert service.count(other, MemoryListFilters(query="fact 2")) == 1
+        with pytest.raises(PermissionError):
+            service.update(other, notes[0].id, MemoryUpdate(content="not mine"), access)
+        edited = service.update(other, notes[0].id, MemoryUpdate(content="Edited by an owner"), MemoryAccess(can_read_all_workspace_tasks=True, can_edit_any=True))
+        assert edited is not None and edited.updated_at == FIXED_NOW + timedelta(minutes=5)
+
+    with app_session(context) as session:
+        stored = SqlAlchemyMemoryRepository(session).get(notes[0].id, context)
+        assert stored is not None and stored.content == "Edited by an owner"
+        assert stored.provenance.created_by_user_id == context.user_id
+        assert stored.provenance.metadata["last_edited_by"] == "user_other"
+
+    elsewhere = tenant_context(context.tenant_id, "workspace_test_a2")
+    with app_session(elsewhere) as session:
+        repository = SqlAlchemyMemoryRepository(session)
+        assert repository.count(elsewhere, MemoryListFilters(), FIXED_NOW) == 0
+        assert repository.update_content(notes[0].id, elsewhere, "x", notes[0].provenance, FIXED_NOW) is None

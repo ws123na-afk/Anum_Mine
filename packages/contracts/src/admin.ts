@@ -163,6 +163,12 @@ export type BudgetKind = 'cost' | 'tokens';
 export interface ModelBudgetLimits {
   monthlyCostLimitUsd: number | null;
   monthlyTokenLimit: number | null;
+  /**
+   * The owner's own alert threshold (1 to 99, a percent of either limit): the workspace owners are
+   * told in the app when a call crosses it, like the fixed 50, 75, 90 and 100 percent notices
+   * (docs/model-gateway.md#budget-alerts). Null means only the fixed ones.
+   */
+  alertPercent?: number | null;
 }
 
 export interface ModelBudget extends ModelBudgetLimits {

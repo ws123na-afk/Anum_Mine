@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -59,7 +61,9 @@ class MemoryNote(BaseModel):
 
 
 class MemoryCreate(BaseModel):
-    task_id: str = Field(min_length=1)
+    # None: a workspace memory, shared with the workspace and attached to no task
+    # (docs/memory.md#workspace-memories).
+    task_id: str | None = Field(default=None, min_length=1)
     content: str = Field(min_length=1, max_length=16_000)
     source_type: str = Field(min_length=1, max_length=80)
     source_id: str | None = Field(default=None, max_length=200)
@@ -79,6 +83,45 @@ class MemoryCreate(BaseModel):
         return value
 
 
+class MemoryUpdate(BaseModel):
+    """``PATCH /api/v1/memories/{id}``: the new text of a note (its author or a workspace owner)."""
+
+    content: str = Field(min_length=1, max_length=16_000)
+
+
+class MemoryGovernanceRules(BaseModel):
+    """The organisation's memory governance as the memory routes read it (governance.py's
+    ``MemoryGovernance`` has these fields; None = not configured)."""
+
+    default_retention_days: int = 365
+    allow_permanent_retention: bool = True
+    require_provenance: bool = True
+    allowed_source_types: list[str] = Field(default_factory=list)
+
+
+def apply_memory_governance(request: MemoryCreate, rules: MemoryGovernanceRules | None, now: datetime) -> MemoryCreate:
+    """A workspace memory (no task) under the tenant's memory governance (docs/memory.md#governance).
+
+    Raises ``ValueError`` when the source type is not allowed. ``task`` retention means nothing
+    without a task: it becomes ``indefinite``, and when permanent retention is not allowed, an
+    expiry ``default_retention_days`` from now (the rule remembered chat facts follow)."""
+    if request.task_id is not None:
+        return request
+    if rules is not None and rules.allowed_source_types:
+        allowed = {value.strip().casefold() for value in rules.allowed_source_types}
+        if request.source_type.strip().casefold() not in allowed:
+            raise ValueError(
+                f"memory governance does not allow memories of source type '{request.source_type}' "
+                f"(allowed: {', '.join(sorted(allowed))})"
+            )
+    retention = request.retention
+    if retention.kind == RetentionKind.TASK:
+        retention = RetentionPolicy(kind=RetentionKind.INDEFINITE)
+    if retention.kind == RetentionKind.INDEFINITE and rules is not None and not rules.allow_permanent_retention:
+        retention = RetentionPolicy(kind=RetentionKind.EXPIRES_AT, expires_at=now + timedelta(days=rules.default_retention_days))
+    return request.model_copy(update={"retention": retention})
+
+
 # GET /api/v1/memories returns at most this many notes (the newest), oldest first.
 MEMORY_LIST_DEFAULT_LIMIT = 200
 MEMORY_LIST_MAX_LIMIT = 500
@@ -91,6 +134,8 @@ class MemoryListFilters(BaseModel):
     include_expired: bool = False
     # Keep only the newest ``limit`` matches (still returned oldest first); None = no bound.
     limit: int | None = None
+    # Skip the newest ``offset`` matches first: the next page of an older history.
+    offset: int = 0
     # Only the caller's own private memories (owner_user_id is the caller), never shared notes.
     owner_only: bool = False
 
@@ -99,6 +144,8 @@ class MemoryAccess(BaseModel):
     readable_task_ids: set[str] = Field(default_factory=set)
     can_read_all_workspace_tasks: bool = False
     can_delete_any: bool = False
+    # Workspace owners edit any shared note; everyone else only their own.
+    can_edit_any: bool = False
 
     def can_read(self, task_id: str | None) -> bool:
         # A memory without a task (from a conversation) is private to its owner, which
@@ -116,6 +163,10 @@ class MemoryRepository(Protocol):
     def list(
         self, context: TenantContext, filters: MemoryListFilters, now: datetime
     ) -> list[MemoryNote]: ...
+
+    def count(self, context: TenantContext, filters: MemoryListFilters, now: datetime) -> int:
+        """How many notes ``filters`` match in all (``limit`` and ``offset`` aside)."""
+        ...
 
     def delete(self, note_id: str, context: TenantContext) -> bool: ...
 
@@ -149,6 +200,18 @@ class InMemoryMemoryRepository:
     def list(
         self, context: TenantContext, filters: MemoryListFilters, now: datetime
     ) -> list[MemoryNote]:
+        notes = self._matching(context, filters, now)
+        notes.sort(key=lambda note: (note.created_at, note.id))
+        if filters.offset > 0:
+            notes = notes[: -filters.offset] if filters.offset < len(notes) else []
+        if filters.limit is not None:
+            notes = notes[-filters.limit :] if filters.limit > 0 else []
+        return notes
+
+    def count(self, context: TenantContext, filters: MemoryListFilters, now: datetime) -> int:
+        return len(self._matching(context, filters, now))
+
+    def _matching(self, context: TenantContext, filters: MemoryListFilters, now: datetime) -> list[MemoryNote]:
         query_terms = tuple((filters.query or "").casefold().split())
         notes = []
         for note in self._notes.values():
@@ -166,9 +229,6 @@ class InMemoryMemoryRepository:
             if query_terms and not all(term in content for term in query_terms):
                 continue
             notes.append(note.model_copy(deep=True))
-        notes.sort(key=lambda note: (note.created_at, note.id))
-        if filters.limit is not None:
-            notes = notes[-filters.limit :] if filters.limit > 0 else []
         return notes
 
     def delete(self, note_id: str, context: TenantContext) -> bool:
@@ -239,6 +299,9 @@ class MemoryService:
             if access.can_read(note.task_id)
         ]
 
+    def count(self, context: TenantContext, filters: MemoryListFilters | None = None) -> int:
+        return self.repository.count(context, filters or MemoryListFilters(), self.clock())
+
     def delete(
         self, context: TenantContext, note_id: str, access: MemoryAccess
     ) -> bool:
@@ -248,6 +311,26 @@ class MemoryService:
         if note.provenance.created_by_user_id != context.user_id and not access.can_delete_any:
             return False
         return self.repository.delete(note_id, context)
+
+    def update(
+        self, context: TenantContext, note_id: str, request: MemoryUpdate, access: MemoryAccess
+    ) -> MemoryNote | None:
+        """Replace a note's text: its author, or a workspace owner for a shared note.
+
+        None when the note is not visible to the caller; ``PermissionError`` when it is but the
+        caller may not edit it. The provenance keeps who created it and records the editor."""
+        note = self.repository.get(note_id, context)
+        if note is None or not access.can_read(note.task_id):
+            return None
+        own = note.provenance.created_by_user_id == context.user_id
+        if not own and not (access.can_edit_any and note.owner_user_id is None):
+            raise PermissionError("only the memory's author or a workspace owner can edit it")
+        now = self.clock()
+        metadata = dict(note.provenance.metadata)
+        metadata["last_edited_by"] = context.user_id
+        metadata["last_edited_at"] = now.isoformat()
+        provenance = note.provenance.model_copy(update={"metadata": metadata})
+        return self.repository.update_content(note_id, context, request.content, provenance, now)
 
 
 def _in_scope(note: MemoryNote, context: TenantContext) -> bool:

@@ -62,6 +62,24 @@ def test_crossings_are_exact_and_once() -> None:
     assert crossed(9.5, 9.6, 10) == []
     assert crossed(0, 10, 10) == [50, 75, 90, 100]
     assert crossed(0, 10, None) == [] and crossed(0, 10, 0) == []
+    # A budget's own alert percent joins the fixed ones, once, in order.
+    assert crossed(0, 2.5, 10, extra=20) == [20]
+    assert crossed(0, 10, 10, extra=20) == [20, 50, 75, 90, 100]
+    assert crossed(0, 10, 10, extra=50) == [50, 75, 90, 100]
+    assert crossed(0, 10, 10, extra=None) == [50, 75, 90, 100]
+
+
+def test_an_owners_own_alert_percent_notifies_the_owners_once(client: TestClient) -> None:
+    memory_model_budget_store.set_budget(
+        CTX, BudgetScope.WORKSPACE, ModelBudgetLimits(monthly_cost_limit_usd=10, alert_percent=20), utc_now()
+    )
+    record_model_usage(CTX, usage(2.0))
+    first = notices("owner_1", "budget_alert")
+    assert len(first) == 1 and "20%" in first[0].title
+    record_model_usage(CTX, usage(0.5))
+    assert len(notices("owner_1", "budget_alert")) == 1
+    record_model_usage(CTX, usage(3.0))
+    assert sorted("50%" in n.title for n in notices("owner_1", "budget_alert")) == [False, True]
 
 
 def test_workspace_budget_alerts_reach_owners_in_the_app_only(client: TestClient) -> None:

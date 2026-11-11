@@ -8,6 +8,7 @@ from anum_api.memory import (
     MemoryCreate,
     MemoryListFilters,
     MemoryService,
+    MemoryUpdate,
     RetentionKind,
     RetentionPolicy,
 )
@@ -169,3 +170,45 @@ def test_cross_scope_delete_does_not_reveal_or_remove_note(service: MemoryServic
     assert service.delete(context(workspace_id="workspace_b"), note.id, elevated) is False
     assert service.delete(context(tenant_id="tenant_b"), note.id, elevated) is False
     assert service.list(owner, MemoryAccess(readable_task_ids={"task_a"})) == [note]
+
+
+def test_workspace_notes_need_no_task_and_only_their_author_or_an_owner_edits_them(service: MemoryService) -> None:
+    author, other = context(user_id="user_a"), context(user_id="user_b")
+    note = service.create(author, MemoryCreate(content="Shared fact", source_type="user", retention=RetentionPolicy(kind=RetentionKind.INDEFINITE)))
+    assert note.task_id is None and note.owner_user_id is None
+    assert [n.id for n in service.list(other, MemoryAccess())] == [note.id]
+
+    edited = service.update(author, note.id, MemoryUpdate(content="Shared fact, corrected"), MemoryAccess())
+    assert edited is not None and edited.content == "Shared fact, corrected" and edited.updated_at == NOW
+    assert edited.provenance.created_by_user_id == "user_a" and edited.provenance.metadata["last_edited_by"] == "user_a"
+    with pytest.raises(PermissionError):
+        service.update(other, note.id, MemoryUpdate(content="no"), MemoryAccess())
+    by_owner = service.update(other, note.id, MemoryUpdate(content="Owner edit"), MemoryAccess(can_edit_any=True))
+    assert by_owner is not None and by_owner.provenance.metadata["last_edited_by"] == "user_b"
+    # Invisible notes answer None (another workspace, or a task the caller cannot read).
+    assert service.update(context(workspace_id="workspace_z"), note.id, MemoryUpdate(content="x"), MemoryAccess(can_edit_any=True)) is None
+    task_note = create_note(service, author, task_id="task_private")
+    assert service.update(other, task_note.id, MemoryUpdate(content="x"), MemoryAccess(readable_task_ids=set(), can_edit_any=True)) is None
+    # A private chat memory is invisible to everyone but its owner: an owner's edit finds nothing.
+    private = service.repository.create(note.model_copy(update={"id": "memory_private", "owner_user_id": "user_a", "provenance": note.provenance}))
+    assert service.update(context(user_id="user_c"), private.id, MemoryUpdate(content="x"), MemoryAccess(can_edit_any=True)) is None
+    assert service.update(author, private.id, MemoryUpdate(content="mine"), MemoryAccess()) is not None
+
+
+def test_offset_skips_the_newest_matches_and_count_ignores_paging(service: MemoryService) -> None:
+    ctx = context()
+    repository = service.repository
+    for index in range(5):
+        service.clock = lambda index=index: NOW + timedelta(minutes=index)
+        create_note(service, ctx, content=f"note {index}")
+    service.clock = lambda: NOW + timedelta(hours=1)
+    everything = service.list(ctx, MemoryAccess(can_read_all_workspace_tasks=True))
+    assert [n.content for n in everything] == [f"note {i}" for i in range(5)]
+    page = service.list(ctx, MemoryAccess(can_read_all_workspace_tasks=True), MemoryListFilters(limit=2, offset=1))
+    assert [n.content for n in page] == ["note 2", "note 3"]
+    tail = service.list(ctx, MemoryAccess(can_read_all_workspace_tasks=True), MemoryListFilters(limit=2, offset=4))
+    assert [n.content for n in tail] == ["note 0"]
+    assert service.list(ctx, MemoryAccess(can_read_all_workspace_tasks=True), MemoryListFilters(limit=2, offset=7)) == []
+    assert service.count(ctx, MemoryListFilters(limit=2, offset=4)) == 5
+    assert service.count(ctx, MemoryListFilters(query="note 3")) == 1
+    assert repository.count(context(workspace_id="other"), MemoryListFilters(), NOW) == 0

@@ -70,10 +70,13 @@ from .memory import (
     MemoryCreate,
     MEMORY_LIST_DEFAULT_LIMIT,
     MEMORY_LIST_MAX_LIMIT,
+    MemoryGovernanceRules,
     MemoryListFilters,
     MemoryNote,
     MemoryRepository,
     MemoryService,
+    MemoryUpdate,
+    apply_memory_governance,
 )
 from .repository import AnumRepository, UnknownCursorError
 from .realtime import live_event_source
@@ -1997,10 +2000,19 @@ async def create_memory(
     require_permission(context, Permission.MEMORY_CREATE)
 
     def create() -> MemoryNote:
-        if repository.get_task(payload.task_id, context) is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        request = payload
+        if request.task_id is not None:
+            if repository.get_task(request.task_id, context) is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        else:
+            # A workspace memory: shared, attached to no task, under the organisation's memory
+            # governance (docs/memory.md#workspace-memories).
+            try:
+                request = apply_memory_governance(request, _memory_governance_rules(context), utc_now())
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         try:
-            return MemoryService(memories).create(context, payload)
+            return MemoryService(memories).create(context, request)
         except ValueError as exc:
             raise HTTPException(
                 status_code=422,
@@ -2013,28 +2025,100 @@ async def create_memory(
     return note
 
 
+def _memory_governance_rules(context: TenantContext) -> MemoryGovernanceRules | None:
+    """The tenant's memory governance for a workspace memory; None when not configured."""
+    from .governance import open_governance_store
+
+    with open_governance_store(context) as store:
+        governance = store.get_memory_governance(context)
+    if governance is None:
+        return None
+    return MemoryGovernanceRules(
+        default_retention_days=governance.default_retention_days,
+        allow_permanent_retention=governance.allow_permanent_retention,
+        require_provenance=governance.require_provenance,
+        allowed_source_types=list(governance.allowed_source_types),
+    )
+
+
+MEMORY_TOTAL_HEADER = "X-Total-Count"
+
+
 @app.get("/api/v1/memories", response_model=list[MemoryNote])
 def list_memories(
+    response: Response,
     task_id: str | None = None,
     query: str | None = None,
     source_type: list[str] = Query(default_factory=list),
     include_expired: bool = False,
     limit: int = Query(default=MEMORY_LIST_DEFAULT_LIMIT, ge=1, le=MEMORY_LIST_MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
 ) -> list[MemoryNote]:
+    """The newest ``limit`` matches after skipping the newest ``offset`` (oldest first within the
+    page); ``X-Total-Count`` says how many match in all, so clients know when a page is the last."""
     require_permission(context, Permission.MEMORY_READ)
-    return MemoryService(memories).list(
-        context,
-        MemoryAccess(can_read_all_workspace_tasks=True),
-        MemoryListFilters(
-            task_id=task_id,
-            query=query,
-            source_types=set(source_type),
-            include_expired=include_expired,
-            limit=limit,
-        ),
+    filters = MemoryListFilters(
+        task_id=task_id,
+        query=query,
+        source_types=set(source_type),
+        include_expired=include_expired,
+        limit=limit,
+        offset=offset,
     )
+    service = MemoryService(memories)
+    notes = service.list(context, MemoryAccess(can_read_all_workspace_tasks=True), filters)
+    response.headers[MEMORY_TOTAL_HEADER] = str(service.count(context, filters))
+    return notes
+
+
+@app.patch("/api/v1/memories/{memory_id}", response_model=MemoryNote)
+async def update_memory(
+    memory_id: str,
+    payload: MemoryUpdate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+    memories: MemoryRepository = Depends(memory_repository_context),
+) -> MemoryNote:
+    """Change a memory's text: its author, or a workspace owner for a shared note (audited,
+    re-indexed). 404 for a memory the caller cannot see, 403 for one they may not edit."""
+    require_permission(context, Permission.MEMORY_CREATE)
+    is_owner = "owner" in {role.lower() for role in context.roles}
+
+    def update() -> MemoryNote:
+        try:
+            note = MemoryService(memories).update(
+                context, memory_id, payload, MemoryAccess(can_read_all_workspace_tasks=True, can_edit_any=is_owner)
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        if note is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+        repository.record_audit(
+            AuditRecord(
+                id=new_id("audit"),
+                tenant_id=context.tenant_id,
+                workspace_id=context.workspace_id,
+                actor=context.user_id,
+                action="memory.update",
+                target=note.id,
+                outcome="succeeded",
+                correlation_id=new_id("correlation"),
+                created_at=utc_now(),
+                metadata={
+                    "task_id": note.task_id or "",
+                    "source_type": note.provenance.source_type,
+                    "author": note.provenance.created_by_user_id,
+                    "content_length": len(note.content),
+                },
+            )
+        )
+        return note
+
+    note = await asyncio.to_thread(update)  # the store work, off the event loop
+    await index_memory_note(context, note, memories)
+    return note
 
 
 class MemoryBulkDeleteResult(BaseModel):

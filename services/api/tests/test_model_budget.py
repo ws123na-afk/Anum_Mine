@@ -22,7 +22,10 @@ from anum_api.model_budget import (
     BudgetScope,
     ModelBudgetExceededError,
     ModelBudgetLimits,
+    UsageGroup,
     check_model_budget,
+    feature_for_module,
+    feature_scope,
     memory_model_budget_store,
     month_start,
     next_month_start,
@@ -389,7 +392,7 @@ def test_owners_set_and_read_budgets_and_every_change_is_audited() -> None:
     ]
     assert audits[0].actor == "user_budget"
     assert audits[0].metadata["previous_limits"] == "none"
-    assert audits[0].metadata["limits"] == "cost_usd=25.5 tokens=2000000"
+    assert audits[0].metadata["limits"] == "cost_usd=25.5 tokens=2000000 alert_percent=none"
 
 
 def test_budget_api_is_owner_only_and_validated() -> None:
@@ -442,6 +445,13 @@ def test_task_runs_record_usage_against_the_budget() -> None:
     usage = client.get("/api/v1/model-budgets", headers=_headers()).json()["workspace"]["usage"]
     assert usage["calls"] == 1
     assert usage["input_tokens"] > 0
+    # The same call is attributed to the feature (a task run), the caller and the default assistant.
+    by_feature = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "feature"}).json()
+    assert [(row["key"], row["calls"]) for row in by_feature["rows"]] == [("tasks", 1)]
+    by_agent = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "agent"}).json()
+    assert [(row["key"], row["label"]) for row in by_agent["rows"]] == [("assistant", "ANUM assistant")]
+    by_user = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "user"}).json()
+    assert [row["key"] for row in by_user["rows"]] == ["user_budget"]
 
 
 def test_voice_says_the_budget_is_used_up_instead_of_failing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -508,3 +518,127 @@ def test_durable_worker_fails_the_run_when_the_budget_is_used_up(monkeypatch: py
     run = store.runs[dispatcher.started[-1].run_id]
     assert "monthly model budget" in run.steps[-1].summary
     assert store.tasks[task["id"]].status == "failed"
+
+
+# ---------------------------------------------------------------------------- spend breakdown
+
+
+def _usage(cost: float, tokens: int = 10, model: str = "m") -> ModelUsage:
+    return ModelUsage(input_tokens=tokens, output_tokens=tokens, provider="p", model=model, estimated_cost_usd=cost)
+
+
+def test_usage_breakdown_groups_the_recorded_spend_by_day_person_agent_feature_and_month() -> None:
+    day1 = datetime(2026, 10, 3, 9, 0, tzinfo=timezone.utc)
+    day2 = datetime(2026, 10, 4, 23, 30, tzinfo=timezone.utc)
+    september = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+    other_workspace = _context(workspace="workspace_budget_2")
+    record_model_usage(_context(), _usage(1.0), now=day1, agent_id="assistant", feature="tasks")
+    record_model_usage(_context(), _usage(2.0), now=day2, agent_id="agent_x", feature="voice")
+    record_model_usage(
+        TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="user_two", roles=["member"]),
+        _usage(0.5), now=day2, agent_id="assistant", feature="tasks",
+    )
+    record_model_usage(other_workspace, _usage(4.0), now=day2, agent_id="assistant", feature="email")
+    record_model_usage(_context(), _usage(7.0), now=september, agent_id="assistant", feature="tasks")
+    params = {"from": "2026-10-01", "to": "2026-10-31"}
+
+    by_day = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={**params, "group_by": "day"}).json()
+    assert [(row["key"], row["calls"], row["estimated_cost_usd"]) for row in by_day["rows"]] == [
+        ("2026-10-03", 1, 1.0), ("2026-10-04", 2, 2.5),
+    ]
+    assert by_day["total"] == {"input_tokens": 30, "output_tokens": 20 + 10, "estimated_cost_usd": 3.5, "calls": 3, "unpriced_calls": 0}
+    assert by_day["count"] == 2 and by_day["truncated"] is False and by_day["scope"] == "workspace"
+    assert by_day["from_day"] == "2026-10-01" and by_day["to_day"] == "2026-10-31" and by_day["recorded_since"] is None
+
+    # People, agents and features are ranked by cost (then tokens, then key).
+    by_user = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={**params, "group_by": "user"}).json()
+    assert [row["key"] for row in by_user["rows"]] == ["user_budget", "user_two"]
+    by_agent = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={**params, "group_by": "agent"}).json()
+    assert [(row["key"], row["label"], row["estimated_cost_usd"]) for row in by_agent["rows"]] == [
+        ("agent_x", None, 2.0), ("assistant", "ANUM assistant", 1.5),
+    ]
+    by_feature = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={**params, "group_by": "feature"}).json()
+    assert [(row["key"], row["total_tokens"]) for row in by_feature["rows"]] == [("voice", 20), ("tasks", 40)]
+
+    # The organization scope sums every workspace; the month view reads the exact monthly rows.
+    tenant = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={**params, "group_by": "feature", "scope": "tenant"}).json()
+    assert [(row["key"], row["estimated_cost_usd"]) for row in tenant["rows"]] == [("email", 4.0), ("voice", 2.0), ("tasks", 1.5)]
+    months = client.get(
+        "/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "month", "from": "2026-09-01", "to": "2026-10-31"}
+    ).json()
+    assert [(row["key"], row["estimated_cost_usd"]) for row in months["rows"]] == [("2026-09-01", 7.0), ("2026-10-01", 3.5)]
+
+    # Paging: the second page of one, with the truncation flag on the first.
+    first = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={**params, "group_by": "day", "limit": 1}).json()
+    second = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={**params, "group_by": "day", "limit": 1, "offset": 1}).json()
+    assert first["truncated"] is True and [row["key"] for row in first["rows"]] == ["2026-10-03"]
+    assert second["truncated"] is False and [row["key"] for row in second["rows"]] == ["2026-10-04"] and second["count"] == 2
+
+    # A range that starts before the first recorded day says so.
+    early = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "day", "from": "2026-08-01", "to": "2026-10-31"}).json()
+    assert early["recorded_since"] == "2026-09-20"
+
+
+def test_usage_breakdown_exports_csv_and_checks_its_input() -> None:
+    record_model_usage(_context(), _usage(1.25), now=datetime(2026, 10, 3, 9, 0, tzinfo=timezone.utc), agent_id="assistant", feature="=tasks")
+    response = client.get(
+        "/api/v1/model-budgets/usage", headers=_headers(),
+        params={"group_by": "feature", "from": "2026-10-01", "to": "2026-10-31", "format": "csv", "limit": 1, "offset": 5},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert 'filename="model-usage-workspace-feature-2026-10-01-2026-10-31.csv"' in response.headers["content-disposition"]
+    lines = response.text.splitlines()
+    assert lines[0] == "feature,label,calls,input_tokens,output_tokens,total_tokens,estimated_cost_usd,unpriced_calls"
+    # The whole range, not the page; a key a spreadsheet would run as a formula is quoted.
+    assert lines[1] == "'=tasks,,1,10,10,20,1.250000,0"
+
+    assert client.get("/api/v1/model-budgets/usage", headers=_headers(role="member")).status_code == 403
+    assert client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "planet"}).status_code == 422
+    assert client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"from": "2026-10-05", "to": "2026-10-01"}).status_code == 422
+    assert client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"from": "2024-01-01", "to": "2026-10-01"}).status_code == 422
+    assert client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"format": "xml"}).status_code == 422
+    empty = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "user", "from": "2027-01-01", "to": "2027-01-31"}).json()
+    assert empty["rows"] == [] and empty["count"] == 0 and empty["total"]["calls"] == 0
+
+
+def test_calls_are_attributed_to_the_feature_of_the_module_that_asked_for_the_gateway() -> None:
+    assert feature_for_module("anum_api.voice") == "voice"
+    assert feature_for_module("anum_api.main") == "tasks"
+    assert feature_for_module("anum_api.worker") == "tasks"
+    assert feature_for_module("anum_api.finance.sms_ai") == "finance"
+    assert feature_for_module("anum_api.marketing.assist") == "marketing"
+    assert feature_for_module("anum_api.email_inbox") == "email"
+    assert feature_for_module("anum_api.knowledge_base") == "knowledge"
+    assert feature_for_module(None) == "other" and feature_for_module("") == "other"
+
+    class _Inner:
+        provider = "mock"
+        model = "m"
+
+        async def generate_text(self, prompt: str) -> ModelResponse:
+            return ModelResponse(text="ok", usage=_usage(0.1))
+
+    # The gateway's own feature wins; without one, the feature scope in force; else "other".
+    asyncio.run(BudgetedModelGateway(_Inner(), _context(), agent_id="assistant", feature="meetings").generate_text("x"))
+    with feature_scope("business"):
+        asyncio.run(BudgetedModelGateway(_Inner(), _context(), agent_id="assistant").generate_text("x"))
+    asyncio.run(BudgetedModelGateway(_Inner(), _context(), agent_id="assistant").generate_text("x"))
+    # The budgeted gateway built for a module keeps that module's feature through for_agent.
+    asyncio.run(onboarding.budgeted_model_gateway(_context(), _Inner(), feature="calls").for_agent("agent_y").generate_text("x"))
+    gateway = onboarding.budgeted_model_gateway(_context(), _Inner())
+    assert gateway.feature == feature_for_module(__name__)
+    rows = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "feature"}).json()["rows"]
+    assert sorted(row["key"] for row in rows) == ["business", "calls", "meetings", "other"]
+    agents = client.get("/api/v1/model-budgets/usage", headers=_headers(), params={"group_by": "agent"}).json()["rows"]
+    assert {row["key"]: row["calls"] for row in agents} == {"assistant": 3, "agent_y": 1}
+
+
+def test_an_owner_sets_an_alert_percent_with_the_limits() -> None:
+    saved = client.put("/api/v1/model-budgets/workspace", headers=_headers(), json={"monthly_cost_limit_usd": 10, "alert_percent": 20})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["workspace"]["budget"]["alert_percent"] == 20
+    assert client.put("/api/v1/model-budgets/workspace", headers=_headers(), json={"alert_percent": 100}).status_code == 422
+    assert client.put("/api/v1/model-budgets/workspace", headers=_headers(), json={"alert_percent": 0}).status_code == 422
+    cleared = client.put("/api/v1/model-budgets/workspace", headers=_headers(), json={"monthly_cost_limit_usd": 10})
+    assert cleared.json()["workspace"]["budget"]["alert_percent"] is None

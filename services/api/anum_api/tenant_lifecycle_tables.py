@@ -450,6 +450,7 @@ _ORDER = (
     "automation_triggers",
     "automation_schedules",
     "automation_workflows",
+    "model_usage_daily",
     "model_usage_monthly",
     "model_budgets",
     "workspace_approval_policies",

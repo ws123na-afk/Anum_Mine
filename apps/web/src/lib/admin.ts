@@ -34,7 +34,7 @@ export interface ApiInvitation {
 export interface ApiInvitationEmail { status: string; to?: string | null; attempts?: number; error?: string | null; link_included?: boolean }
 export interface ApiInvitationCreated { invitation: ApiInvitation; token: string; email?: ApiInvitationEmail }
 export interface ApiInvitationAccepted { invitation: ApiInvitation; membership: ApiMember }
-interface ApiBudget { scope: string; monthly_cost_limit_usd: number | null; monthly_token_limit: number | null; updated_at: string; updated_by: string }
+interface ApiBudget { scope: string; monthly_cost_limit_usd: number | null; monthly_token_limit: number | null; alert_percent?: number | null; updated_at: string; updated_by: string }
 interface ApiScopeView {
   budget: ApiBudget | null;
   usage: { input_tokens: number; output_tokens: number; estimated_cost_usd: number; calls: number; unpriced_calls: number };
@@ -86,7 +86,7 @@ export const mapAcceptedInvitation = (value: ApiInvitationAccepted): AcceptedInv
 
 function mapBudget(value: ApiBudget | null): ModelBudget | null {
   if (!value) return null;
-  return { scope: value.scope === 'tenant' ? 'tenant' : 'workspace', monthlyCostLimitUsd: value.monthly_cost_limit_usd, monthlyTokenLimit: value.monthly_token_limit, updatedAt: value.updated_at, updatedBy: value.updated_by };
+  return { scope: value.scope === 'tenant' ? 'tenant' : 'workspace', monthlyCostLimitUsd: value.monthly_cost_limit_usd, monthlyTokenLimit: value.monthly_token_limit, alertPercent: value.alert_percent ?? null, updatedAt: value.updated_at, updatedBy: value.updated_by };
 }
 
 function mapScope(value: ApiScopeView): ModelBudgetScopeView {
@@ -103,8 +103,8 @@ export function mapBudgetOverview(value: ApiBudgetOverview): ModelBudgetOverview
   return { periodStart: value.period_start, resetsOn: value.resets_on, tenant: mapScope(value.tenant), workspace: mapScope(value.workspace), canManageTenantBudget: value.can_manage_tenant_budget === true };
 }
 
-export function limitsBody(limits: ModelBudgetLimits): { monthly_cost_limit_usd: number | null; monthly_token_limit: number | null } {
-  return { monthly_cost_limit_usd: limits.monthlyCostLimitUsd, monthly_token_limit: limits.monthlyTokenLimit };
+export function limitsBody(limits: ModelBudgetLimits): { monthly_cost_limit_usd: number | null; monthly_token_limit: number | null; alert_percent: number | null } {
+  return { monthly_cost_limit_usd: limits.monthlyCostLimitUsd, monthly_token_limit: limits.monthlyTokenLimit, alert_percent: limits.alertPercent ?? null };
 }
 
 // ------------------------------------------------------------------ invitations
@@ -272,12 +272,13 @@ export function formatResetDate(isoDate: string, withZone = true): string {
   return withZone ? t('budgets.utc', { date: text }, { isolate: false }) : text;
 }
 
-export type LimitDraft = { cost: string; tokens: string };
+export type LimitDraft = { cost: string; tokens: string; alert: string };
 
 export function limitDraft(budget: ModelBudget | null): LimitDraft {
   return {
     cost: budget?.monthlyCostLimitUsd === null || budget?.monthlyCostLimitUsd === undefined ? '' : String(budget.monthlyCostLimitUsd),
     tokens: budget?.monthlyTokenLimit === null || budget?.monthlyTokenLimit === undefined ? '' : String(budget.monthlyTokenLimit),
+    alert: budget?.alertPercent === null || budget?.alertPercent === undefined ? '' : String(budget.alertPercent),
   };
 }
 
@@ -295,5 +296,13 @@ export function parseLimits(draft: LimitDraft): DraftResult<ModelBudgetLimits> {
     tokens = Number(tokenText);
     if (!Number.isSafeInteger(tokens) || tokens < 0 || tokens > 10 ** 15) return { ok: false, error: t('budgets.err.tokens') };
   }
-  return { ok: true, value: { monthlyCostLimitUsd: cost, monthlyTokenLimit: tokens } };
+  // The alert percent is a whole number from 1 to 99 (the API's bounds); empty keeps the fixed alerts only.
+  const alertText = (draft.alert ?? '').trim().replace(/%$/, '');
+  let alert: number | null = null;
+  if (alertText) {
+    alert = Number(alertText);
+    if (!Number.isSafeInteger(alert) || alert < 1 || alert > 99) return { ok: false, error: t('budgets.err.alert') };
+    if (cost === null && tokens === null) return { ok: false, error: t('budgets.err.alertNeedsLimit') };
+  }
+  return { ok: true, value: { monthlyCostLimitUsd: cost, monthlyTokenLimit: tokens, alertPercent: alert } };
 }
