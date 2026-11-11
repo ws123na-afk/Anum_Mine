@@ -17,7 +17,7 @@ from ..dependencies import repository_context, tenant_context
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from .common import get_or_404, manage, read
-from .invoice_models import PortalAccess, PortalAccessStatus
+from .invoice_models import PortalAccess, PortalAccessStatus, SignInStatus
 from .portal_auth import mint
 from .service import audit, http_error, record_activity
 from .store import BusinessStore, Query, open_business_store
@@ -119,6 +119,64 @@ def revoke_access(access_id: str, context: TenantContext = Depends(tenant_contex
             record_activity(store, context, "portal_access_revoked", f"Portal link of {item.contact_name} turned off.", account_id=item.account_id, metadata={"access_id": access_id})
         view = _view(store, item, now)
     audit(repository, context, "business.portal.access_revoked", access_id, metadata={"account_id": item.account_id})
+    return view
+
+
+# -- signing in with an emailed code (docs/business-portal.md#signing-in-with-an-emailed-code) -----------------------
+
+
+class SignInSettings(BaseModel):
+    enabled: bool
+    # Whether this ANUM server can email the codes (a mail server is set up).
+    email_configured: bool
+    # The address customers sign in at, without the origin: ``/portal#signin=<tenant>.<workspace>``.
+    sign_in_path: str
+    # Codes asked for and sign-ins in the last 30 days (counts only).
+    codes_last_30_days: int
+    sign_ins_last_30_days: int
+
+
+class SignInUpdate(BaseModel):
+    enabled: bool
+
+
+def _sign_in_settings(store: BusinessStore, context: TenantContext) -> SignInSettings:
+    from ..notifications import email_configured
+
+    since = utc_now() - timedelta(days=30)
+    return SignInSettings(
+        enabled=store.get_settings().portal_code_sign_in, email_configured=email_configured(),
+        sign_in_path=f"/portal#signin={context.tenant_id}.{context.workspace_id}",
+        codes_last_30_days=store.count("portal_sign_ins", Query(where={}, created_from=since)),
+        sign_ins_last_30_days=store.count("portal_sign_ins", Query(where={"status": {SignInStatus.SIGNED_IN, SignInStatus.ENDED}}, created_from=since)),
+    )
+
+
+@router.get("/sign-in", response_model=SignInSettings)
+def get_sign_in(context: TenantContext = Depends(tenant_context)) -> SignInSettings:
+    read(context)
+    with open_business_store(context) as store:
+        return _sign_in_settings(store, context)
+
+
+@router.put("/sign-in", response_model=SignInSettings)
+def put_sign_in(payload: SignInUpdate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> SignInSettings:
+    """Owners only. Customers who already have portal access may then sign in with a code sent to their contact's email address."""
+    from ..notifications import email_configured
+
+    manage(context)
+    if payload.enabled and not email_configured():
+        raise http_error(409, "This ANUM server has no mail server set up, so no code could be sent. Ask the person who runs ANUM to set up SMTP first.")
+    now = utc_now()
+    with open_business_store(context) as store:
+        current = store.get_settings()
+        if current.portal_code_sign_in != payload.enabled:
+            store.save_settings(current.model_copy(update={"portal_code_sign_in": payload.enabled, "updated_by": context.user_id, "updated_at": now}))
+            record_activity(store, context, "portal_code_sign_in_changed",
+                            "Customers may now sign in to the portal with an emailed code." if payload.enabled else "Signing in to the portal with an emailed code was turned off.",
+                            metadata={"enabled": payload.enabled})
+        view = _sign_in_settings(store, context)
+    audit(repository, context, "business.portal.code_sign_in_changed", context.workspace_id, metadata={"enabled": payload.enabled})
     return view
 
 

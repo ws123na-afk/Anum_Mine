@@ -14,13 +14,13 @@ import hashlib
 import hmac
 import re
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import Header, HTTPException, status
 from pydantic import BaseModel
 
 from ..schemas import TenantContext, utc_now
-from .invoice_models import PortalAccess, PortalAccessStatus
+from .invoice_models import PortalAccess, PortalAccessStatus, SignInStatus
 from .models import Account, Contact
 from .store import open_business_store
 
@@ -29,6 +29,9 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 # How often a request refreshes "last used" (a write on a read route is kept rare).
 TOUCH_EVERY = timedelta(minutes=10)
 INVALID = "This link is not valid. Ask the business that sent it for a new one."
+# The id part of a session token made by the emailed code sign-in (portal_signin.py) rather than an access link.
+SIGN_IN_PREFIX = "bpsign_"
+SESSION_INVALID = "You are signed out. Sign in again with a new code."
 
 
 class PortalSession(BaseModel):
@@ -36,6 +39,10 @@ class PortalSession(BaseModel):
     access: PortalAccess
     account: Account
     contact: Contact
+    # How the customer got in: their access link, or an emailed code (a session that ends sooner).
+    via: str = "link"
+    sign_in_id: str | None = None
+    expires_at: datetime | None = None
 
 
 def secret_hash(secret: str) -> str:
@@ -71,12 +78,25 @@ def resolve(token: str) -> PortalSession:
     if parsed is None:
         raise _unauthorized()
     tenant_id, workspace_id, access_id, secret = parsed
-    context = portal_context(tenant_id, workspace_id, access_id)
     now = utc_now()
+    sign_in = None
+    if access_id.startswith(SIGN_IN_PREFIX):
+        # A session from the emailed code sign-in: it signs in to the access the code was sent for.
+        with open_business_store(portal_context(tenant_id, workspace_id, access_id)) as store:
+            sign_in = store.get("portal_sign_ins", access_id)
+            if (sign_in is None or sign_in.status != SignInStatus.SIGNED_IN or sign_in.session_hash is None or sign_in.access_id is None
+                    or not hmac.compare_digest(sign_in.session_hash, secret_hash(secret))):
+                raise _unauthorized(SESSION_INVALID)
+            if sign_in.session_expires_at is None or sign_in.session_expires_at <= now:
+                raise _unauthorized("Your sign-in has ended. Sign in again with a new code.")
+            if not store.get_settings().portal_code_sign_in:
+                raise _unauthorized("This business turned off signing in with a code. Open the link it sent you.")
+        access_id = sign_in.access_id
+    context = portal_context(tenant_id, workspace_id, access_id)
     with open_business_store(context) as store:
         access = store.get("portal_access", access_id)
         # The same answer for an unknown link and a wrong secret.
-        if access is None or not hmac.compare_digest(access.token_hash, secret_hash(secret)):
+        if access is None or (sign_in is None and not hmac.compare_digest(access.token_hash, secret_hash(secret))):
             raise _unauthorized()
         if access.status != PortalAccessStatus.ACTIVE:
             raise _unauthorized("This link was turned off. Ask the business that sent it for a new one.")
@@ -91,7 +111,10 @@ def resolve(token: str) -> PortalSession:
         if access.last_used_at is None or now - access.last_used_at >= TOUCH_EVERY:
             access = access.model_copy(update={"last_used_at": now, "updated_at": now})
             store.save("portal_access", access)
-    return PortalSession(context=context, access=access, account=account, contact=contact)
+    if sign_in is not None:
+        return PortalSession(context=context, access=access, account=account, contact=contact, via="code", sign_in_id=sign_in.id,
+                             expires_at=min(access.expires_at, sign_in.session_expires_at or access.expires_at))
+    return PortalSession(context=context, access=access, account=account, contact=contact, expires_at=access.expires_at)
 
 
 def portal_session(authorization: str | None = Header(default=None)) -> PortalSession:

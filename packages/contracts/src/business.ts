@@ -574,6 +574,8 @@ export interface PortalDecisionRow {
 
 export interface PortalMe {
   business_name: string; account_name: string; contact_name: string; expires_at: string; can_decide: boolean;
+  /** "code" after signing in with an emailed code (the customer can sign out); older servers send none. */
+  signed_in_with?: 'link' | 'code';
   counts: { offers_waiting: number; change_orders_waiting: number; invoices_open: number; invoices_overdue: number; tickets_open: number };
   projects: { id: string; name: string }[];
 }
@@ -630,4 +632,15 @@ export interface PortalTicket extends PortalTicketSummary {
   can_reply?: boolean;
 }
 export interface PortalMessageInput { body: string; idempotency_key: string }
+/** Signing in to the portal with an emailed code (docs/business-portal.md#signing-in-with-an-emailed-code). */
+export interface PortalCodeRequest { workspace: string; email: string }
+export interface PortalCodeAnswer { challenge_id: string; expires_in_seconds: number; message: string }
+export interface PortalCodeVerify { workspace: string; challenge_id: string; code: string }
+export interface PortalCodeSession { token: string; expires_at: string }
+/** The owner's switch (Business, Customer portal). */
+export interface PortalSignInSettings {
+  enabled: boolean; email_configured: boolean;
+  /** `/portal#signin=<tenant>.<workspace>`: put the app's address in front. */
+  sign_in_path: string; codes_last_30_days: number; sign_ins_last_30_days: number;
+}
 export interface PortalTicketInput { title: string; description: string; severity?: 'low' | 'normal' | 'high'; project_id?: string | null }

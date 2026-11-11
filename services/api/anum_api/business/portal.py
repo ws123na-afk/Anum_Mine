@@ -120,6 +120,8 @@ class PortalMe(BaseModel):
     contact_name: str
     expires_at: datetime
     can_decide: bool
+    # "code" when the customer signed in with an emailed code (they can sign out); "link" for an access link.
+    signed_in_with: Literal["link", "code"] = "link"
     counts: PortalCounts
     projects: list[PortalProject]
 
@@ -397,8 +399,8 @@ def me(session: PortalSession = Depends(portal_session)) -> PortalMe:
         projects, _ = store.find("projects", Query(where={"account_id": account_id}, order_by="name", descending=False, limit=100))
         business = _business_name(store)
     return PortalMe(
-        business_name=business, account_name=session.account.name, contact_name=session.contact.name, expires_at=session.access.expires_at,
-        can_decide=session.access.can_decide,
+        business_name=business, account_name=session.account.name, contact_name=session.contact.name,
+        expires_at=session.expires_at or session.access.expires_at, can_decide=session.access.can_decide, signed_in_with="code" if session.via == "code" else "link",
         counts=PortalCounts(offers_waiting=len(waiting_offers), change_orders_waiting=len(waiting_changes), invoices_open=len(open_invoices),
                             invoices_overdue=sum(1 for item in open_invoices if payment_state(item, today)["overdue"]), tickets_open=tickets),
         projects=[PortalProject(id=item.id, name=item.name) for item in projects if item.status != ProjectStatus.CLOSED],
