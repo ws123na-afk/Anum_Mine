@@ -133,6 +133,17 @@ class FinanceSettingsSection extends StatelessWidget {
               icon: Icons.auto_fix_high_outlined,
               children: [
                 Text(d.t('set.links.onWeb'), style: muted),
+                if (finance.more != null)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: FilledButton.icon(
+                      key: const Key('set-open-rules'),
+                      onPressed: () => openFinanceMore(
+                          context, finance, FinanceMorePage.rules),
+                      icon: const Icon(Icons.rule),
+                      label: Text(d.t('set.links.open')),
+                    ),
+                  ),
                 for (final view in ['rules', 'merchants', 'automation'])
                   FinanceWebLink(
                       key: Key('set-link-$view'),

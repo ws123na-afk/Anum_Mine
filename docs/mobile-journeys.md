@@ -48,6 +48,7 @@ flutter test integration_test -d flutter-tester
 | Files: upload, then the file is in the list | `journeys/files.dart` |
 | Notifications: filter by read state, mark unread, delete after a confirmation | `journeys/notifications_favorites.dart` |
 | Favorites: in My order, move one up (sent with its anchor), then search | `journeys/notifications_favorites.dart` |
+| Finance: a reconciliation's statement row posted as a correcting entry with its payload hash, the session completed, then a new rule approved with its payload hash | `journeys/finance.dart` |
 | Session: Sign out in Settings leaves only the sign-in screen (also when the server cannot be told); a session that expires mid-use returns to sign-in with a notice; the next person to sign in sees nothing of the previous one | `journeys/session.dart` |
 
 ## Broken journeys these tests found and fixed

@@ -67,7 +67,8 @@ class FinanceDepthStrings extends ModuleStrings {
     'set.links.merchants': 'Merchants and subcategories',
     'set.links.automation': 'Automatic filing',
     'set.links.onWeb':
-        'Rules, merchants and automatic filing are edited on the web: Finance, Suggestions.',
+        'Rules, merchants and automatic filing are edited here (More in Finance, Rules and merchants) or on the web.',
+    'set.links.open': 'Open rules and merchants',
     'set.data.title': 'Statements and connections',
     'set.data.subtitle': 'Where your records come from',
     'set.data.health': 'Connection health',
@@ -252,7 +253,8 @@ class FinanceDepthStrings extends ModuleStrings {
     'set.links.merchants': 'التجار والفئات الفرعية',
     'set.links.automation': 'التصنيف التلقائي',
     'set.links.onWeb':
-        'تُعدَّل القواعد والتجار والتصنيف التلقائي على الويب: المالية، الاقتراحات.',
+        'تُعدَّل القواعد والتجار والتصنيف التلقائي من هنا (المزيد في المالية، القواعد والتجار) أو على الويب.',
+    'set.links.open': 'فتح القواعد والتجار',
     'set.data.title': 'الكشوف والاتصالات',
     'set.data.subtitle': 'من أين تأتي سجلاتك',
     'set.data.health': 'سلامة الاتصالات',

@@ -499,11 +499,10 @@ void main() {
       await tester.pumpAndSettle();
       await show(tester, c, FinanceSection.connections);
       expect(find.text('No statement imported yet'), findsOneWidget);
-      expect(find.textContaining('Statements are imported on the web'),
-          findsOneWidget);
-      expect(
-          find.textContaining('completing a reconciliation are done on the '
-              'web'),
+      // The phone imports and reconciles now; without the parity pages the
+      // card still points to the web.
+      expect(find.textContaining('Import a statement here'), findsOneWidget);
+      expect(find.textContaining('Reconcile with Open reconciliation above'),
           findsOneWidget);
       repo.reviewFailure = const ApiException(503, 'Database down');
       await c.loadReconciliation();

@@ -29,7 +29,8 @@ import 'finance_tools_strings.dart';
 
 /// Finance on the phone (docs/finance.md): the signed-in person's own month,
 /// transactions, accounts, bills, debts and goals. Read only: nothing here
-/// pays, transfers or trades. Statement import is on the web.
+/// pays, transfers or trades. Statement import, SMS review, rules and
+/// reconciling are in its menu (More in Finance).
 class FinanceScreen extends StatefulWidget {
   const FinanceScreen(
       {required this.controller,
