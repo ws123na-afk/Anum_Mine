@@ -67,6 +67,7 @@ export const invoiceSchedulesEn = {
   'rinv.form.endDate': 'Last date',
   'rinv.form.count': 'Number of invoices',
   'rinv.form.scheduleLocked': 'Invoices are already drafted up to {date}. A new first date must be after that.',
+  'rinv.form.linesHelp': 'Every invoice carries these lines, priced when it is drafted. A line without a tax rate has no tax.',
   'rinv.form.send': 'Each new draft',
   'rinv.issue.draft': 'Waits as a draft for someone to check and send',
   'rinv.issue.request_approval': 'Is sent for an owner\'s approval straight away',

@@ -195,6 +195,28 @@ test('the customer opens a request and reads the replies they were sent', async 
   expect(mock.requests.find((request) => request.method === 'POST' && request.path === '/tickets')?.body).toEqual({ title: 'Add a contact form', description: 'Please add a contact form to the footer.', severity: 'high', project_id: 'bprj_1' });
 });
 
+test('the customer writes inside a request, once per submit, and a resolved one reopens', async ({ page }) => {
+  const mock = await mockPortal(page);
+  await open(page);
+  await page.getByRole('navigation', { name: 'Portal sections' }).getByRole('button', { name: /Requests/ }).click();
+  await page.getByRole('button', { name: 'Logo is cut off on mobile' }).click();
+  const request = page.getByRole('article');
+  await expect(request.getByRole('heading', { name: 'Conversation' })).toBeVisible();
+  const form = request.getByRole('form', { name: 'Write in this request' });
+  await form.getByRole('button', { name: 'Send message' }).click();
+  await expect(form.getByText('Write your message first.')).toBeVisible();
+  await form.getByLabel('Your message').fill('It is still cut off on the iPad.');
+  await form.getByRole('button', { name: 'Send message' }).click();
+  await expect(request.getByText('Sent. The business sees it in your request.')).toBeVisible();
+  await expect(request.getByRole('listitem').filter({ hasText: 'It is still cut off on the iPad.' })).toBeVisible();
+  await expect(request.getByText('In progress').first()).toBeVisible();
+  const sent = mock.requests.filter((item) => item.method === 'POST' && item.path === '/tickets/btkt_1/messages');
+  expect(sent).toHaveLength(1);
+  expect((sent[0].body as { body: string }).body).toBe('It is still cut off on the iPad.');
+  expect(String((sent[0].body as { idempotency_key: string }).idempotency_key).length).toBeGreaterThanOrEqual(8);
+  await expect(form.getByLabel('Your message')).toHaveValue('');
+});
+
 test('a read-only link reads everything but hides the approve buttons and says why', async ({ page }) => {
   await mockPortal(page, { canDecide: false });
   await open(page);

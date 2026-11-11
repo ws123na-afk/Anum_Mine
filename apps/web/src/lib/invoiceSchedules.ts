@@ -83,10 +83,10 @@ export const statusLabel = (status: ScheduleStatus) => t(`rinv.status.${status}`
 export const statusTone = (status: ScheduleStatus): Tone => (status === 'active' ? 'success' : status === 'paused' ? 'warning' : 'neutral');
 
 /** What the schedule does next, in one line. */
-export function nextText(schedule: Pick<InvoiceSchedule, 'status' | 'next_date' | 'end_reason'>): string {
+export function nextText(schedule: Pick<InvoiceSchedule, 'status' | 'next_date' | 'end_reason'>, formatDay: (iso: string) => string = (iso) => iso): string {
   if (schedule.status === 'paused') return t('rinv.next.paused');
   if (schedule.status === 'ended') return t(`rinv.next.ended.${schedule.end_reason || 'owner'}` as MessageKey);
-  return schedule.next_date ? t('rinv.next.on', { date: schedule.next_date }) : t('rinv.next.none');
+  return schedule.next_date ? t('rinv.next.on', { date: formatDay(schedule.next_date) }) : t('rinv.next.none');
 }
 
 /** The last daily pass in one sentence; null before it ever ran. */

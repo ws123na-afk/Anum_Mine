@@ -55,7 +55,7 @@ export function RecurringInvoices({ setup, onOpenInvoice }: { setup: BusinessSet
             <small dir="auto">{item.account_name ?? t('biz.unknown')}</small></th>
           <td><div className="invBadges"><Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge>{item.last_error && <Badge tone="dangerTone">{t('rinv.needsYou')}</Badge>}</div></td>
           <td className="bzHideMd">{frequencyText(item)}</td>
-          <td className="nowrap">{nextText(item)}</td>
+          <td className="nowrap">{nextText(item, day)}</td>
           <td className="num">{money(item.total, item.currency)}</td>
         </tr>)}</tbody></table></div>
       <Pager shown={list.items.length} total={list.total} busy={list.more.busy} error={list.more.error} onMore={() => void list.loadMore()} />
@@ -185,7 +185,7 @@ function ScheduleDialog({ existing, onClose, onSaved }: { existing?: InvoiceSche
         </div>
         {existing && existing.created_count > 0 && <p className="muted bzHint">{t('rinv.form.scheduleLocked', { date: existing.last_period ?? '-' })}</p>}
       </fieldset>
-      <ManualLines lines={draft.lines} onChange={(lines) => set({ lines })} taxHint="0" />
+      <ManualLines lines={draft.lines} onChange={(lines) => set({ lines })} taxHint="0" help={t('rinv.form.linesHelp')} />
       <fieldset className="bzFieldset">
         <legend>{t('rinv.form.send')}</legend>
         <label className="bzCheck"><input type="radio" name="issue" checked={draft.issueMode === 'draft'} onChange={() => set({ issueMode: 'draft' })} />{t('rinv.issue.draft')}</label>
@@ -246,7 +246,7 @@ function ScheduleDrawer({ id, write, onClose, onChanged, onDeleted, onOpenInvoic
         <dl className="bzFacts">
           <div><dt>{t('rinv.col.client')}</dt><dd dir="auto">{s.account_name ?? t('biz.unknown')}</dd></div>
           <div><dt>{t('rinv.col.repeats')}</dt><dd>{frequencyText(s)}</dd></div>
-          <div><dt>{t('rinv.col.next')}</dt><dd>{nextText(s)}</dd></div>
+          <div><dt>{t('rinv.col.next')}</dt><dd>{nextText(s, day)}</dd></div>
           <div><dt>{t('rinv.col.total')}</dt><dd>{money(s.total, s.currency)}</dd></div>
           <div><dt>{t('rinv.form.start')}</dt><dd>{day(s.start_date)}</dd></div>
           <div><dt>{t('rinv.form.ends')}</dt><dd>{s.end_date ? day(s.end_date) : s.max_count ? t('rinv.endsAfter', { count: s.max_count }) : t('rinv.form.ends.never')}</dd></div>

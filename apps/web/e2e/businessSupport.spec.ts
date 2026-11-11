@@ -74,6 +74,32 @@ test('open, assign, work, reply through Approvals and resolve a ticket', async (
   expect(mock.calls.some((call) => call.path.endsWith('/request-approval'))).toBe(true);
 });
 
+test('the customer portal conversation is read and answered in the ticket', async ({ page }) => {
+  const mock = await mockSupport(page);
+  mock.seed({ title: 'Totals differ in the report', account_id: 'bacc_1', created_by: 'portal:bpacc_1', portal_link: true, source: 'manual',
+    portal_messages: [{ id: 'btmsg_0', ticket_id: 'x', account_id: 'bacc_1', author: 'customer', author_name: 'Sara Khan', access_id: 'bpacc_1', contact_id: 'bcon_1',
+      body: 'The VAT line is missing on page 2.', client_key: 'k1', read_at: null, read_by: null, created_by: 'portal:bpacc_1', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }] });
+  // The ticket's account and its contact, as the accounts API answers them.
+  const account = { id: 'bacc_1', name: 'Acme Trading', contacts: 1, open_leads: 0, do_not_contact: false };
+  await page.route(/http:\/\/localhost:8000\/api\/v1\/business\/accounts(\/bacc_1)?(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify(route.request().url().includes('/accounts/bacc_1') ? { ...account, contacts: [{ id: 'bcon_1', account_id: 'bacc_1', name: 'Sara Khan' }], leads: [] }
+      : { items: [account], total: 1, limit: 100, offset: 0 }) }));
+  await page.goto('/#business-support');
+  await expect(page.getByText('1 new portal message')).toBeVisible();
+  await page.getByRole('button', { name: 'Totals differ in the report' }).click();
+  const ticket = page.getByRole('dialog', { name: 'Totals differ in the report' });
+  const thread = ticket.getByRole('region', { name: 'Customer portal conversation' });
+  await expect(thread.getByText('The VAT line is missing on page 2.')).toBeVisible();
+  await expect.poll(() => mock.calls.some((call) => call.path.endsWith('/portal-messages/read'))).toBe(true);
+  await thread.getByRole('button', { name: 'Answer in the portal' }).click();
+  await expect(ticket.getByText('Write the answer first.')).toBeVisible();
+  await thread.getByRole('textbox', { name: 'Answer in the portal' }).fill('Fixed, please check the report again.');
+  await thread.getByRole('button', { name: 'Answer in the portal' }).click();
+  await expect(ticket.getByText('Answered. The customer sees it in their portal.')).toBeVisible();
+  await expect(thread.getByText('Fixed, please check the report again.')).toBeVisible();
+  expect(mock.calls.find((call) => call.method === 'POST' && call.path.endsWith('/portal-messages'))?.body).toEqual({ body: 'Fixed, please check the report again.' });
+});
+
 test('a member cannot reopen a closed ticket and reads the policy', async ({ page }) => {
   const mock = await mockSupport(page, { role: 'member' });
   const closedId = mock.seed({ title: 'Old login issue', status: 'closed', resolution_code: 'fixed', resolution_summary: 'Reset the password policy.', resolved_at: new Date().toISOString() });

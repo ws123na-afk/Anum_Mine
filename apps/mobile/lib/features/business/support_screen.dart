@@ -9,6 +9,7 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'business_controller.dart';
+import 'invoice_models.dart' show dayOfDate;
 import 'support_controller.dart';
 import 'support_models.dart';
 
@@ -896,6 +897,7 @@ class _TicketScreenState extends State<TicketScreen> {
   String? notice;
   final reply = TextEditingController();
   final note = TextEditingController();
+  final portalAnswer = TextEditingController();
   bool responded = false;
 
   SupportController get c => widget.controller;
@@ -911,6 +913,7 @@ class _TicketScreenState extends State<TicketScreen> {
   void dispose() {
     reply.dispose();
     note.dispose();
+    portalAnswer.dispose();
     super.dispose();
   }
 
@@ -922,6 +925,11 @@ class _TicketScreenState extends State<TicketScreen> {
     try {
       final next = await c.repository.ticket(widget.ticketId);
       if (mounted) setState(() => detail = next);
+      if (next.portalUnread > 0 && c.canWrite) {
+        // Opening the ticket marks the customer's new portal messages read.
+        final read = await c.repository.readPortalMessages(widget.ticketId);
+        if (mounted) setState(() => detail = read);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1026,6 +1034,20 @@ class _TicketScreenState extends State<TicketScreen> {
       done: context.anum.t('biz.support.replySaved'),
     );
     if (ok && mounted) reply.clear();
+  }
+
+  Future<void> answerInPortal() async {
+    final text = portalAnswer.text.trim();
+    if (text.isEmpty) {
+      setState(
+          () => actionError = context.anum.t('biz.support.portal.required'));
+      return;
+    }
+    final ok = await run(
+      () => c.repository.answerInPortal(widget.ticketId, text),
+      done: context.anum.t('biz.support.portal.answered'),
+    );
+    if (ok && mounted) portalAnswer.clear();
   }
 
   Future<void> editReply(TicketReply item) async {
@@ -1258,6 +1280,7 @@ class _TicketScreenState extends State<TicketScreen> {
         second: _fields(context, t, write),
       ),
       _replies(context, d, write),
+      if (d.accountId != null) _portal(context, d, write),
       if (write) _noteBox(context),
       AnumSurface(
         child: Column(
@@ -1409,6 +1432,67 @@ class _TicketScreenState extends State<TicketScreen> {
             const SizedBox(height: AnumSpacing.xxs),
             Text(t.description),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// The conversation in the customer portal (docs/business-portal.md#replying-inside-a-request).
+  Widget _portal(BuildContext context, TicketDetail d, bool write) {
+    final l = context.anum;
+    final p = context.palette;
+    return AnumSurface(
+      key: const Key('support-portal'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnumHeader(
+            title: l.t('biz.support.portal.title'),
+            subtitle: l.t('biz.support.portal.help'),
+          ),
+          if (d.portalMessages.isEmpty)
+            Text(l.t('biz.support.portal.none'),
+                style: TextStyle(color: p.muted)),
+          for (final m in d.portalMessages)
+            AnumRow(
+              title: m.body,
+              subtitle: [
+                m.fromCustomer ? m.authorName : l.t('biz.support.portal.team'),
+                dayOfDate(m.createdAt),
+              ].join(' · '),
+              icon: m.fromCustomer
+                  ? Icons.person_outline
+                  : Icons.support_agent_outlined,
+            ),
+          if (write && d.portalOpen) ...[
+            const SizedBox(height: AnumSpacing.sm),
+            TextField(
+              key: const Key('support-portal-answer'),
+              controller: portalAnswer,
+              enabled: !busy,
+              minLines: 2,
+              maxLines: 8,
+              maxLength: 4000,
+              decoration:
+                  InputDecoration(labelText: l.t('biz.support.portal.label')),
+            ),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: FilledButton(
+                key: const Key('support-portal-send'),
+                onPressed: busy ? null : answerInPortal,
+                child: Text(l.t('biz.support.portal.answer')),
+              ),
+            ),
+          ] else
+            Text(
+              l.t(!write
+                  ? 'biz.support.portal.readOnly'
+                  : d.ticket.status == 'closed'
+                      ? 'biz.support.portal.closed'
+                      : 'biz.support.portal.noLink'),
+              style: TextStyle(color: p.muted),
+            ),
         ],
       ),
     );

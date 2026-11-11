@@ -67,6 +67,7 @@ export const invoiceSchedulesAr = {
   'rinv.form.endDate': 'آخر تاريخ',
   'rinv.form.count': 'عدد الفواتير',
   'rinv.form.scheduleLocked': 'أُعدت فواتير حتى {date}. يجب أن يكون التاريخ الأول الجديد بعد ذلك.',
+  'rinv.form.linesHelp': 'تحمل كل فاتورة هذه البنود، وتُسعّر عند إعدادها. البند الذي لا نسبة ضريبة له لا ضريبة عليه.',
   'rinv.form.send': 'كل مسودة جديدة',
   'rinv.issue.draft': 'تنتظر كمسودة حتى يراجعها أحد ويرسلها',
   'rinv.issue.request_approval': 'تُرسل لموافقة المالك فورا',

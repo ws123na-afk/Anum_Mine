@@ -29,6 +29,8 @@ export interface FinanceState {
   holdings: Record<string, unknown>[];
   /** One-off income the forecast expects (docs/finance.md#forecast). */
   expectedIncome?: Record<string, unknown>[];
+  /** Own transfer pairs by transaction id (docs/finance.md#own-transfers): `GET /links/transfer`, unpaired by `POST /links/{id}/void`. */
+  transferPairs?: Record<string, Record<string, unknown>>;
   denied: boolean;
   failSummary: boolean;
   // Stages 3 to 5.
@@ -720,6 +722,14 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   if (report && method === 'GET') {
     const id = decodeURIComponent(report[1]);
     return reportList(state.reports ?? 0).some((r) => r.id === id) ? ok(reportDetail(id)) : ok({ error: { code: 'not_found', message: 'Report not found.', correlation_id: 'c', details: [] } }, 404);
+  }
+  if (sub === '/links/transfer' && method === 'GET') {
+    return ok(state.transferPairs?.[url.searchParams.get('transaction_id') ?? ''] ?? { paired: false, link_id: null, link_version: null, role: null, other: null });
+  }
+  const voided = /^\/links\/([^/]+)\/void$/.exec(sub);
+  if (voided && method === 'POST') {
+    for (const [key, pair] of Object.entries(state.transferPairs ?? {})) if (pair.link_id === voided[1]) delete state.transferPairs![key];
+    return ok({ id: voided[1], status: 'void', dimension: 'transfer' });
   }
   const register = registerReply(state, method, sub, url);
   if (register) return register;

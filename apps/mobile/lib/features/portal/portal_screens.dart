@@ -1878,9 +1878,116 @@ class _PortalTicketState extends State<PortalTicketScreen>
           ],
         ),
       ),
-      Text(l.t('portal.ticket.followUp'),
-          style: TextStyle(color: context.palette.muted)),
+      _conversation(context, t),
     ];
+  }
+
+  final message = TextEditingController();
+  String? messageError;
+
+  /// One key per message until it is sent: a retry after a lost answer is the same message.
+  String? _messageKey;
+
+  static String _newMessageKey() {
+    final random = Random.secure();
+    return List.generate(
+            4, (_) => random.nextInt(1 << 32).toRadixString(16).padLeft(8, '0'))
+        .join();
+  }
+
+  @override
+  void dispose() {
+    message.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send(PortalTicket t) async {
+    final l = context.anum;
+    final text = message.text.trim();
+    if (text.isEmpty) {
+      setState(() => messageError = l.t('portal.msg.required'));
+      return;
+    }
+    setState(() {
+      busy = true;
+      messageError = null;
+      problem = null;
+      notice = null;
+    });
+    try {
+      final key = _messageKey ??= _newMessageKey();
+      final next = await controller.repository
+          .writeInTicket(t.id, body: text, idempotencyKey: key);
+      if (!mounted) return;
+      _messageKey = null;
+      message.clear();
+      setState(() {
+        record = next;
+        notice = l.t('portal.msg.sent');
+      });
+    } catch (e) {
+      controller.noteError(e);
+      if (mounted) setState(() => problem = PortalController.messageOf(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Widget _conversation(BuildContext context, PortalTicket t) {
+    final l = context.anum;
+    return AnumSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnumHeader(title: l.t('portal.msg.title')),
+          if (t.messages.isEmpty)
+            Text(l.t('portal.msg.none'),
+                style: TextStyle(color: context.palette.muted)),
+          for (final m in t.messages)
+            AnumRow(
+              title: m.body,
+              subtitle: [
+                m.mine ? l.t('portal.msg.you') : m.authorName,
+                dayOfDate(m.createdAt),
+              ].join(' · '),
+              icon: m.mine ? Icons.person_outline : Icons.storefront_outlined,
+            ),
+          if (notice != null)
+            Text(notice!,
+                key: const Key('portal-message-notice'),
+                style: TextStyle(color: context.palette.ok)),
+          if (problem != null)
+            Text(problem!,
+                key: const Key('portal-message-problem'),
+                style: TextStyle(color: context.palette.stop)),
+          if (t.canReply) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: message,
+              enabled: !busy,
+              minLines: 2,
+              maxLines: 6,
+              maxLength: 4000,
+              decoration: InputDecoration(
+                  labelText: l.t('portal.msg.label'), errorText: messageError),
+            ),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: FilledButton.icon(
+                onPressed: busy ? null : () => _send(t),
+                icon: const Icon(Icons.send_outlined),
+                label: Text(l.t('portal.msg.send')),
+              ),
+            ),
+          ] else
+            Text(
+                l.t(t.status == 'closed'
+                    ? 'portal.msg.closed'
+                    : 'portal.msg.paused'),
+                style: TextStyle(color: context.palette.muted)),
+        ],
+      ),
+    );
   }
 }
 

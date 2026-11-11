@@ -154,11 +154,11 @@ function FieldsForm({ draft, onChange, disabled, billToHelp }: { draft: FieldsDr
   </fieldset>;
 }
 
-export function ManualLines({ lines, onChange, taxHint }: { lines: ManualLineDraft[]; onChange: (next: ManualLineDraft[]) => void; taxHint: string }) {
+export function ManualLines({ lines, onChange, taxHint, help }: { lines: ManualLineDraft[]; onChange: (next: ManualLineDraft[]) => void; taxHint: string; help?: string }) {
   const set = (index: number, patch: Partial<ManualLineDraft>) => onChange(lines.map((line, at) => (at === index ? { ...line, ...patch } : line)));
   return <fieldset className="bzFieldset">
     <legend>{t('inv.form.manual')}</legend>
-    <p className="muted bzHint">{t('inv.form.manualHelp')}</p>
+    <p className="muted bzHint">{help ?? t('inv.form.manualHelp')}</p>
     <div className="bzRows">{lines.map((line, index) => <div key={index} className="bzRow invLineRow" role="group" aria-label={t('inv.form.lineN', { number: index + 1 })}>
       <label className="field"><span>{t('inv.form.lineDesc')}</span><input value={line.description} onChange={(event) => set(index, { description: event.target.value })} dir="auto" /></label>
       <label className="field"><span>{t('inv.form.lineKind')}</span><select value={line.kind} onChange={(event) => set(index, { kind: event.target.value as ManualLineDraft['kind'] })}>{LINE_KINDS.map((kind) => <option key={kind} value={kind}>{lineKindLabel(kind)}</option>)}</select></label>

@@ -45,7 +45,7 @@ const candidates = {
   ],
 };
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, shown: Record<string, unknown> = preview) {
   const state = financeState({});
   const sent: { path: string; body: unknown }[] = [];
   await page.route('http://localhost:8000/**', async (route) => {
@@ -61,7 +61,7 @@ async function mockApi(page: Page) {
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals' || path === '/api/v1/conversations') return json([]);
     if (path === '/api/v1/finance/imports/pdf/templates') return json([]);
     const body = request.postData() ? request.postDataJSON() : null;
-    if (path === '/api/v1/finance/imports/preview') { sent.push({ path, body }); return json(preview); }
+    if (path === '/api/v1/finance/imports/preview') { sent.push({ path, body }); return json(shown); }
     if (path === '/api/v1/finance/imports' && request.method() === 'POST') {
       sent.push({ path, body });
       const created = { id: 'fin_imp_1', account_id: 'fin_acct_current', filename: 'november.csv', preset: 'generic', date_format: '%Y-%m-%d', row_count: 5, imported_count: 3,
@@ -105,6 +105,27 @@ test('the preview groups rows by what the import will do and sends the ticks', a
   await expect(page.getByText(/Imported 3 rows; 2 were already there/)).toContainText('paired 1 transfers');
   const confirm = sent.find((r) => r.path === '/api/v1/finance/imports')?.body as { decisions: unknown[] };
   expect(confirm.decisions).toEqual([{ line: 2, correct: false }, { line: 3, action: 'import' }, { line: 4, bill: false }]);
+});
+
+test('one row for several recorded payments: the person ticks the group and the import sends exactly it', async ({ page }) => {
+  // docs/finance.md#one-row-for-several-recorded-payments
+  const part = (id: string, amount: string) => ({ ...sms, record_id: `${id}:fin_acct_current`, canonical_id: id, amount, description: 'EXAMPLE MARKET' });
+  const split = { ...rows[0], line: 2, amount: '-150.00', description: 'POS EXAMPLE MARKET', fx: null,
+    match: matchOf({ status: 'new', code: 'no_match', splits: [[part('fin_je_21', '-100.00'), part('fin_je_22', '-50.00')]] }) };
+  const sent = await mockApi(page, { ...preview, rows: [split], row_count: 1, valid_count: 1, new_count: 1, duplicate_count: 0,
+    counts: { new: 1, exact_duplicate: 0, matched_existing: 0, possible_duplicate: 0, bills: 0, transfers: 0, splits: 1 } });
+  await page.goto('/#finance-import');
+  await page.getByLabel('Statement file (CSV or PDF)').setInputFiles({ name: 'november.csv', mimeType: 'text/csv', buffer: Buffer.from('Date,Description,Amount\n2026-11-04,EXAMPLE MERCHANT,-1.00\n') });
+  await page.getByRole('button', { name: 'Preview' }).click();
+  const engine = page.getByRole('region', { name: 'What this import will do' });
+  const decide = engine.locator('details[data-group="decide"]');
+  const group = decide.getByRole('group', { name: 'Several recorded payments add up to this row' });
+  await expect(group).toContainText('EXAMPLE MARKET');
+  await group.getByLabel('This row is these 2 payments together').check();
+  await expect(engine.getByText(/Adds 0, confirms 1 already recorded/)).toBeVisible();
+  await page.getByRole('button', { name: 'Import 0 rows' }).click();
+  const confirm = sent.find((r) => r.path === '/api/v1/finance/imports')?.body as { decisions: unknown[] };
+  expect(confirm.decisions).toEqual([{ line: 2, split: ['fin_je_21:fin_acct_current', 'fin_je_22:fin_acct_current'] }]);
 });
 
 test('Find transfers previews pairs already in the ledger and pairs only the ticked ones', async ({ page }) => {

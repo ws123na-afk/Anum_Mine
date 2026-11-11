@@ -556,6 +556,28 @@ class PortalReply {
   final DateTime? sentAt;
 }
 
+/// One message of the conversation inside a request: yours (`you`) or the
+/// business's (docs/business-portal.md#replying-inside-a-request).
+class PortalMessage {
+  const PortalMessage(
+      {required this.id,
+      required this.author,
+      required this.authorName,
+      required this.body,
+      required this.createdAt});
+  final String id, author, authorName, body;
+  final DateTime createdAt;
+  bool get mine => author == 'you';
+
+  factory PortalMessage.fromJson(JsonReader r) => PortalMessage(
+        id: r.string('id'),
+        author: r.string('author'),
+        authorName: r.optString('author_name') ?? '',
+        body: r.optString('body') ?? '',
+        createdAt: r.date('created_at'),
+      );
+}
+
 class PortalTicket extends PortalTicketSummary {
   const PortalTicket({
     required super.id,
@@ -571,10 +593,18 @@ class PortalTicket extends PortalTicketSummary {
     required this.replies,
     super.projectName,
     this.resolvedAt,
+    this.messages = const [],
+    this.canReply = false,
   });
   final String description, resolutionSummary;
   final DateTime? resolvedAt;
   final List<PortalReply> replies;
+
+  /// The conversation inside the request, oldest first.
+  final List<PortalMessage> messages;
+
+  /// The customer may write in it (not closed, the business not paused).
+  final bool canReply;
 
   factory PortalTicket.fromJson(JsonReader r) {
     final s = PortalTicketSummary.fromJson(r);
@@ -593,6 +623,8 @@ class PortalTicket extends PortalTicketSummary {
       resolvedAt: r.optDate('resolved_at'),
       replies: r.optObjects('replies',
           (x) => PortalReply(x.optString('body') ?? '', x.optDate('sent_at'))),
+      messages: r.optObjects('messages', PortalMessage.fromJson),
+      canReply: r.optBool('can_reply') ?? false,
     );
   }
 }

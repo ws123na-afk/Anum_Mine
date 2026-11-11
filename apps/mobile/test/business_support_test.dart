@@ -106,7 +106,15 @@ class FakeSupport implements SupportRepository {
         'activities': activities,
         'can_reply': status != 'closed',
         'reply_channel': 'email',
+        'account_id': 'bacc_1',
+        'portal_messages': portalMessages,
+        'portal_open': status != 'closed',
+        'portal_unread': portalMessages
+            .where((m) => m['read_at'] == null && m['author'] == 'customer')
+            .length,
       };
+
+  final portalMessages = <Map<String, Object?>>[];
 
   TicketDetail detail() => TicketDetail.fromJson(JsonReader.of(detailJson()));
 
@@ -276,6 +284,29 @@ class FakeSupport implements SupportRepository {
   Future<TicketDetail> discardReply(String id, String replyId) async {
     requests.add('discard $replyId');
     replies.firstWhere((r) => r['id'] == replyId)['status'] = 'discarded';
+    return detail();
+  }
+
+  @override
+  Future<TicketDetail> answerInPortal(String id, String body) async {
+    requests.add('portal-answer $body');
+    portalMessages.add({
+      'id': 'btmsg_${portalMessages.length + 1}',
+      'author': 'staff',
+      'author_name': '',
+      'body': body,
+      'created_at': '2026-10-19T08:00:00Z',
+      'read_at': null,
+    });
+    return detail();
+  }
+
+  @override
+  Future<TicketDetail> readPortalMessages(String id) async {
+    requests.add('portal-read');
+    for (final m in portalMessages) {
+      m['read_at'] ??= '2026-10-19T08:00:00Z';
+    }
     return detail();
   }
 
@@ -512,6 +543,35 @@ void main() {
     await tester.tap(find.byKey(const Key('support-note-save')));
     await tester.pumpAndSettle();
     expect(repo.requests, contains('note btkt_0 Called Sara back true'));
+  });
+
+  testWidgets('the portal conversation is read and answered in the ticket',
+      (tester) async {
+    sized(tester, 390, 5000);
+    final repo = FakeSupport();
+    repo.portalMessages.add({
+      'id': 'btmsg_0',
+      'author': 'customer',
+      'author_name': 'Sara Example',
+      'body': 'The VAT line is missing.',
+      'created_at': '2026-10-18T08:00:00Z',
+      'read_at': null,
+    });
+    final c = SupportController(repo);
+    await c.load();
+    await tester
+        .pumpWidget(app(TicketScreen(controller: c, ticketId: 'btkt_0')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('support-portal')), findsOneWidget);
+    expect(find.text('The VAT line is missing.'), findsOneWidget);
+    expect(repo.requests, contains('portal-read'));
+    await tester.enterText(
+        find.byKey(const Key('support-portal-answer')), 'Fixed, please check.');
+    await tester.ensureVisible(find.byKey(const Key('support-portal-send')));
+    await tester.tap(find.byKey(const Key('support-portal-send')));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('portal-answer Fixed, please check.'));
+    expect(find.text('Fixed, please check.'), findsOneWidget);
   });
 
   testWidgets('a reply draft, edit, then ask for approval waits in Approvals',

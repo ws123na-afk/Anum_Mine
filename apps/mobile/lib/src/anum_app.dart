@@ -68,6 +68,7 @@ import '../features/business/support_controller.dart';
 import '../features/business/support_repository.dart';
 import '../features/business/invoice_controller.dart';
 import '../features/business/invoice_repository.dart';
+import '../features/business/recurring_invoices.dart';
 import '../features/portal/portal_controller.dart';
 import '../features/portal/portal_repository.dart';
 import '../features/portal/portal_screens.dart';
@@ -516,7 +517,8 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         money: ApiProjectMoney(api),
         support: SupportController(ApiSupportRepository(api)),
         invoices: InvoicesController(ApiInvoicesRepository(api),
-            books: ApiBooksRepository(api)),
+            books: ApiBooksRepository(api),
+            recurring: ApiRecurringRepository(api)),
         catalog: CatalogController(ApiCatalogRepository(api)),
         accounts: AccountsController(ApiAccountsRepository(api)),
         deals: ApiDealsRepository(api));

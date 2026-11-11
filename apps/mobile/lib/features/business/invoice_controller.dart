@@ -6,6 +6,7 @@ import '../books/books_data.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
 import 'invoice_models.dart';
+import 'recurring_invoices.dart' show RecurringRepository;
 import 'invoice_repository.dart';
 
 /// State of the Invoices and Clients sections of Business
@@ -14,7 +15,7 @@ import 'invoice_repository.dart';
 /// screen talks to [repository] and calls [refresh] after each change so the
 /// list and the tiles stay current.
 class InvoicesController extends ChangeNotifier {
-  InvoicesController(this.repository, {this.books}) {
+  InvoicesController(this.repository, {this.books, this.recurring}) {
     invoices = PagedList(
       (offset) => repository.list(filter, offset: offset, limit: pageSize),
     );
@@ -30,6 +31,9 @@ class InvoicesController extends ChangeNotifier {
   /// Document vault (docs/business-books.md#supporting-documents-and-evidence);
   /// null hides that section.
   final BooksRepository? books;
+
+  /// Recurring invoices and the planned emails (docs/business.md#recurring-invoices); null hides them.
+  final RecurringRepository? recurring;
   static const pageSize = 20;
 
   /// Who the caller is; set from the Business setup once it is loaded.

@@ -428,6 +428,40 @@ class AutomationPolicy {
 /// The routes behind Finance settings, the reserve form, the FX section of
 /// a transaction and the exception notices. Every record is the caller's
 /// own; the server checks `finance:read` and `finance:manage`.
+/// Whether a transaction is one side of an own transfer, and the other side.
+class TransferPairOf {
+  const TransferPairOf(
+      {required this.paired,
+      this.linkId,
+      this.linkVersion,
+      this.role,
+      this.otherAccount,
+      this.otherDay,
+      this.otherAmount,
+      this.otherCurrency,
+      this.otherText});
+  final bool paired;
+  final String? linkId, role, otherAccount, otherDay, otherAmount;
+  final String? otherCurrency, otherText;
+  final int? linkVersion;
+
+  factory TransferPairOf.fromJson(JsonReader r) {
+    final o = r.optObject('other');
+    final amount = o?.json['amount'];
+    return TransferPairOf(
+      paired: r.optBool('paired') ?? false,
+      linkId: r.optString('link_id'),
+      linkVersion: r.optInt('link_version'),
+      role: r.optString('role'),
+      otherAccount: o?.optString('account_name'),
+      otherDay: o?.optString('posted_on'),
+      otherAmount: amount?.toString(),
+      otherCurrency: o?.optString('currency'),
+      otherText: o?.optString('description'),
+    );
+  }
+}
+
 abstract interface class FinanceDepthRepository {
   Future<FinanceSettingsData> settings();
   Future<void> saveSettings(Map<String, Object?> body);
@@ -444,6 +478,12 @@ abstract interface class FinanceDepthRepository {
   /// Separates or links the FX fee shown, with the view's `plan_hash`.
   /// Answers `split` or `link`.
   Future<String> separateFee(String transactionId, String planHash);
+
+  /// The own transfer this transaction is one side of (docs/finance.md#own-transfers).
+  Future<TransferPairOf> transferPair(String transactionId);
+
+  /// Unpairs it by voiding the pair's link (the links API).
+  Future<void> unpair(String linkId, int? version);
   Future<AutomationPolicy> automation();
   Future<AutomationPolicy> saveAutomation(Map<String, Object?> body);
 }
@@ -502,6 +542,17 @@ class ApiFinanceDepthRepository implements FinanceDepthRepository {
               body: {'plan_hash': planHash}))
           .optString('mode') ??
       'split';
+
+  @override
+  Future<TransferPairOf> transferPair(String transactionId) async =>
+      TransferPairOf.fromJson(JsonReader.of(await api.request(
+          'GET', '$base/links/transfer?transaction_id=${_id(transactionId)}')));
+
+  @override
+  Future<void> unpair(String linkId, int? version) async {
+    await api.request('POST', '$base/links/${_id(linkId)}/void',
+        body: {if (version != null) 'version': version});
+  }
 
   @override
   Future<AutomationPolicy> automation() async => AutomationPolicy.fromJson(

@@ -108,6 +108,7 @@ class DepthApi {
     'notice_uncategorized_min': '500',
   };
   Map<String, Object?> fx = fxJson();
+  Map<String, Object?> transfer = {'paired': false};
   bool deny = false;
 
   Map<String, Object?> _body(ApiRequest r) => r.body == null
@@ -163,6 +164,11 @@ class DepthApi {
             'fee_transaction_id': 'fin_txn_9',
             'mode': 'split'
           });
+        }(),
+      ('GET', '/links/transfer') => ok(transfer),
+      ('POST', '/links/fin_link_1/void') => () {
+          transfer = {'paired': false};
+          return ok({'id': 'fin_link_1', 'status': 'void'});
         }(),
       _ => null,
     };
@@ -355,6 +361,35 @@ void main() {
       expect(
           find.text('Fee recorded as its own bank fee line'), findsOneWidget);
       expect(find.byKey(const Key('fx-split')), findsNothing);
+    });
+
+    testWidgets('shows the own transfer pair and unpairs it', (tester) async {
+      final d = DepthApi()
+        ..transfer = {
+          'paired': true,
+          'link_id': 'fin_link_1',
+          'link_version': 2,
+          'role': 'out',
+          'other': {
+            'transaction_id': 'fin_txn_2',
+            'account_id': 'card',
+            'account_name': 'Card',
+            'posted_on': '2026-11-05',
+            'amount': '1000.00',
+            'currency': 'AED',
+            'description': 'EXAMPLE PAYMENT',
+          },
+        };
+      await openFx(tester, d);
+      expect(find.byKey(const Key('transfer-pair')), findsOneWidget);
+      expect(find.textContaining('Card'), findsWidgets);
+      await tapVisible(tester, find.byKey(const Key('transfer-unpair')));
+      await tapVisible(
+          tester, find.byKey(const Key('transfer-unpair-confirm')));
+      expect(d.last('POST', '/links/fin_link_1/void'), {'version': 2});
+      expect(find.byKey(const Key('transfer-pair')), findsNothing);
+      expect(
+          find.text('Unpaired. Both rows stay as they are.'), findsOneWidget);
     });
 
     testWidgets('link the fee row', (tester) async {
