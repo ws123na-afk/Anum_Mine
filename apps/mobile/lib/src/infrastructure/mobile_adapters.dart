@@ -540,3 +540,15 @@ class FilePickerExportSaver implements PrivacyExportSaver {
     return path != null;
   }
 }
+
+/// The system save dialog for [HttpApiDownloads]: CSV exports and the files
+/// zip are written only where the person chooses (docs/mobile.md#file-downloads).
+Future<bool> saveWithSystemDialog(
+    String fileName, Uint8List bytes, String dialogTitle) async {
+  final path = await FilePicker.saveFile(
+    dialogTitle: dialogTitle,
+    fileName: fileName,
+    bytes: bytes,
+  );
+  return path != null;
+}

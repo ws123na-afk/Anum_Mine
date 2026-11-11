@@ -1,3 +1,4 @@
+import 'api_downloads.dart';
 import 'api_models.dart';
 import 'session_store.dart';
 
@@ -101,6 +102,22 @@ class AnumApiClient {
   /// the person to confirm an approval decision, docs/mobile.md#app-lock);
   /// null lets it through.
   Future<String?> Function(String method, String path)? guard;
+
+  /// Saves files the API sends as bytes (CSV exports, the files zip) through
+  /// the system save dialog; set by the app (docs/mobile.md#file-downloads).
+  ApiDownloads? downloads;
+
+  /// [ApiDownloads.save] through [downloads]; refuses plainly when the app
+  /// has none (a test that never downloads).
+  Future<bool> download(String method, String path,
+      {JsonMap? body, required String fileName, required String dialogTitle}) {
+    final saver = downloads;
+    if (saver == null) {
+      throw const ApiException(0, 'Downloads are not available here.');
+    }
+    return saver.save(method, path,
+        body: body, fileName: fileName, dialogTitle: dialogTitle);
+  }
 
   static Uri _normalizeBaseUri(Uri value) {
     if (!value.hasScheme || value.host.isEmpty) {

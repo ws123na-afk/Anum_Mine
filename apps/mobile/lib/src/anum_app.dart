@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../data/api_client.dart';
+import '../data/api_downloads.dart';
 import '../data/api_models.dart';
 import '../data/session_store.dart';
 import '../features/books/books_data.dart';
@@ -314,7 +315,12 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
       baseUri: Uri.parse(configuredUrl),
       transport: HttpApiTransport(client: newClient?.call()),
       sessions: sessions,
-    );
+    )..downloads = HttpApiDownloads(
+        baseUri: Uri.parse(configuredUrl),
+        sessions: sessions,
+        saveBytes: saveWithSystemDialog,
+        client: newClient?.call(),
+      );
     // Phone push (docs/notifications.md): off unless this build carries the
     // owner's Firebase files and the server has ANUM_FCM_SERVICE_ACCOUNT_JSON.
     push = PushController(
