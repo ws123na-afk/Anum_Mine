@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -500,7 +501,7 @@ def plug_finance_links() -> None:
 
 # -- business allocations as a vehicle's cost (docs/vehicles.md#business-allocations) ----------------------------------
 
-_allocation_lock = __import__("threading").Lock()
+_allocation_lock = threading.Lock()  # in-process; PostgreSQL adds a workspace advisory lock
 ALLOCATION_KINDS = ("fuel_entry", "service_record")
 
 
