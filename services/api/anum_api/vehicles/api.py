@@ -233,6 +233,7 @@ def overview(start: date | None = None, end: date | None = None, context: Tenant
         window = S.preferences(store, context).reminder_days
         readings = {v.id: store.readings(context, v.id) for v in vehicles}
         due = _due(store, context, vehicles, window, readings)
+    fuel, service = S.refresh_allocations(context, fuel), S.refresh_allocations(context, service)
     result = A.overview(vehicles, fuel, service, start=start, end=end)
     result.update(A.usage(vehicles, readings, fuel, start=start, end=end))
     result["vehicles"] = len(vehicles)
@@ -287,6 +288,29 @@ def put_preferences(body: PreferencesInput, context: TenantContext = Depends(ten
         saved = S.preferences(store, context)
     _audit(repository, context, "vehicle.preferences", context.user_id, {"trip_places": body.trip_places})
     return saved.model_dump(mode="json", exclude={"tenant_id", "workspace_id"})
+
+
+BUSINESS_DENIED = "Using a business allocation needs read access to this business (owners, members and accountants)."
+
+
+class AllocationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allocation_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+
+def _allocation_access(context: TenantContext) -> None:
+    _write(context)
+    _need(context, Permission.BUSINESS_READ, BUSINESS_DENIED)
+
+
+@router.get("/allocations", response_model=None)
+@refusals
+def allocations(around: date | None = None, amount: Decimal | None = Query(default=None, gt=0, lt=Decimal("1000000000")),
+                limit: int = Query(default=20, ge=1, le=50), context: TenantContext = Depends(tenant_context)) -> Any:
+    """This business's allocations you made from your own payments that no vehicle record counts yet."""
+    _allocation_access(context)
+    return {"items": S.allocation_candidates(context, around=around, amount=amount, limit=limit)}
 
 
 @router.get("/payments", response_model=None)
@@ -386,6 +410,7 @@ def report(vehicle_id: str, start: date | None = None, end: date | None = None, 
         readings = store.readings(context, vehicle_id)
         fuel = store.records_for(context, "fuel", [vehicle_id])
         service = store.records_for(context, "service", [vehicle_id])
+    fuel, service = S.refresh_allocations(context, fuel), S.refresh_allocations(context, service)
     return A.vehicle_report(vehicle, readings, fuel, service, start=start, end=end, today=utc_now().date())
 
 
@@ -645,6 +670,7 @@ def _record_routes(kind: RecordKind) -> None:
         with open_vehicle_store(context) as store:
             S.get_vehicle(store, context, vehicle_id)
             items, total = store.list_records(context, kind, vehicle_id, query=(q or "").strip() or None, start=start, end=end, limit=limit, offset=offset)
+        items = S.refresh_allocations(context, items)  # a business allocation's cost as it is now (its own short unit)
         return _page([record_view(context, r) for r in items], total, limit, offset)
 
     @router.post(f"/{{vehicle_id}}/{kind}", status_code=201, name=f"create_{kind}", response_model=None)
@@ -770,12 +796,46 @@ def unlink_payment(kind: CostKind, record_id: str, context: TenantContext = Depe
     return Response(status_code=204)
 
 
+# -- business allocations as a vehicle's cost (docs/vehicles.md#business-allocations) ------------------------------
+
+@router.post("/costs/{kind}/{record_id}/allocation", response_model=None)
+@refusals
+def use_allocation(kind: Literal["fuel_entry", "service_record"], record_id: str, body: AllocationInput,
+                   context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Any:
+    _allocation_access(context)
+    payment, replayed = S.use_allocation(context, kind, record_id, body.allocation_id)
+    if not replayed:
+        _audit(repository, context, "vehicle.allocation.use", record_id, {"kind": kind, "allocation_id": body.allocation_id})
+    return JSONResponse(status_code=200 if replayed else 201, content={"payment": payment.model_dump(mode="json"), "replayed": replayed})
+
+
+@router.delete("/costs/{kind}/{record_id}/allocation", status_code=204, response_class=Response, response_model=None)
+@refusals
+def release_allocation(kind: Literal["fuel_entry", "service_record"], record_id: str, context: TenantContext = Depends(tenant_context),
+                       repository: AnumRepository = Depends(repository_context)) -> Any:
+    _allocation_access(context)
+    target, _vehicle = S.payment_target(context, kind, record_id)
+    current = target.payment
+    if current is not None and current.source != "allocation":
+        raise S.VehicleError(409, "This record's cost is a linked payment. Remove the payment link instead.", "not_an_allocation")
+    S.unlink_payment(context, kind, record_id)
+    _audit(repository, context, "vehicle.allocation.release", record_id, {"kind": kind})
+    return Response(status_code=204)
+
+
 # -- export --------------------------------------------------------------------------------------------
 
 
 def _cell(value: Any) -> str:
     text = "" if value is None else str(value)
     return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+def _paid_status(payment: Any) -> str:
+    """The export's payment status: a business allocation says so (docs/vehicles.md#business-allocations)."""
+    if payment is None:
+        return "not_linked"
+    return f"allocation_{payment.status}" if payment.source == "allocation" else str(payment.status)
 
 
 @router.get("/{vehicle_id}/export.csv", response_model=None)
@@ -789,6 +849,7 @@ def export_csv(vehicle_id: str, context: TenantContext = Depends(tenant_context)
         service = store.records_for(context, "service", [vehicle_id])
         trips = store.records_for(context, "trips", [vehicle_id])
         readings = store.readings(context, vehicle_id)
+    fuel, service = S.refresh_allocations(context, fuel), S.refresh_allocations(context, service)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(["type", "date", "detail", "litres", "odometer_km", "distance_km", "paid_amount", "paid_currency", "payment_status", "notes"])
@@ -796,11 +857,11 @@ def export_csv(vehicle_id: str, context: TenantContext = Depends(tenant_context)
     for f in fuel:
         p = f.payment
         rows.append((f.filled_at.isoformat(), ["fuel", f.filled_at.isoformat(), f.station, f.litres, f.odometer_km, None,
-                                               p.amount if p else None, p.currency if p else None, p.status if p else "not_linked", f.notes]))
+                                               p.amount if p else None, p.currency if p else None, _paid_status(p), f.notes]))
     for s in service:
         p = s.payment
         rows.append((s.service_on.isoformat(), [f"service:{s.kind}", s.service_on.isoformat(), s.workshop or s.description, None, s.odometer_km, None,
-                                                p.amount if p else None, p.currency if p else None, p.status if p else "not_linked", s.reference]))
+                                                p.amount if p else None, p.currency if p else None, _paid_status(p), s.reference]))
     for t in trips:
         rows.append((t.started_at.isoformat(), [f"trip:{t.purpose}", t.started_at.isoformat(), t.purpose_note, None, t.end_odometer_km, t.distance_km,
                                                 None, None, None, t.notes]))

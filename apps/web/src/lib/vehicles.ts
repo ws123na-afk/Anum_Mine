@@ -72,8 +72,12 @@ export function paymentState(payment: VehiclePayment | null | undefined): Paymen
 export function paymentText(payment: VehiclePayment | null | undefined): string {
   const state = paymentState(payment);
   if (state === 'none') return t('veh.pay.none');
-  if (state === 'void') return payment?.status_reason === 'transaction_undone' ? t('veh.pay.undone') : t('veh.pay.removed');
+  if (state === 'void') {
+    if (payment?.status_reason === 'allocation_removed') return t('veh.pay.allocationRemoved');
+    return payment?.status_reason === 'transaction_undone' ? t('veh.pay.undone') : t('veh.pay.removed');
+  }
   const amount = formatAmount(payment!.amount, payment!.currency);
+  if (payment!.source === 'allocation') return t('veh.pay.allocated', { amount });
   return state === 'needs_review' ? t('veh.pay.review', { amount }) : amount;
 }
 

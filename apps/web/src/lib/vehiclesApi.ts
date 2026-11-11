@@ -1,7 +1,7 @@
 // Vehicles over the live API (docs/vehicles.md#api). The server checks vehicle:read / vehicle:write on every route,
 // and finance:manage for linking a payment; a personal vehicle of someone else answers 404.
 import type {
-  FinanceAccount, Vehicle, VehicleCashInput, VehicleCostKind, VehicleFuelEntry, VehicleFuelInput, VehicleInput, VehicleLinkInput,
+  FinanceAccount, Vehicle, VehicleAllocationCandidate, VehicleCashInput, VehicleCostKind, VehicleFuelEntry, VehicleFuelInput, VehicleInput, VehicleLinkInput,
   VehicleOdometerReading, VehicleOverview, VehiclePage, VehiclePatch, VehiclePaymentCandidate, VehiclePaymentResult, VehiclePreferences,
   VehicleRecordKind, VehicleReport, VehicleServiceInput, VehicleServiceRecord, VehicleTrip, VehicleTripInput,
 } from '@anum/contracts';
@@ -58,6 +58,12 @@ export const linkPayment = (kind: VehicleCostKind, recordId: string, body: Vehic
 export const recordCash = (kind: VehicleCostKind, recordId: string, body: VehicleCashInput, key: string) =>
   send<VehiclePaymentResult>('POST', `/costs/${kind}/${id(recordId)}/cash`, body, key);
 export const unlinkPayment = (kind: VehicleCostKind, recordId: string) => apiRequestVoid(`${BASE}/costs/${kind}/${id(recordId)}/payment`, { method: 'DELETE' });
+/** A business vehicle's cost from a business allocation (docs/vehicles.md#business-allocations). */
+export const allocationCandidates = (around?: string | null, amount?: string | null) =>
+  get<{ items: VehicleAllocationCandidate[] }>(`/allocations${query({ around, amount })}`);
+export const applyAllocation = (kind: VehicleCostKind, recordId: string, allocationId: string) =>
+  send<VehiclePaymentResult>('POST', `/costs/${kind}/${id(recordId)}/allocation`, { allocation_id: allocationId });
+export const releaseAllocation = (kind: VehicleCostKind, recordId: string) => apiRequestVoid(`${BASE}/costs/${kind}/${id(recordId)}/allocation`, { method: 'DELETE' });
 
 export const financeAccounts = () => apiRequest<FinanceAccount[]>('/api/v1/finance/accounts', { method: 'GET' });
 

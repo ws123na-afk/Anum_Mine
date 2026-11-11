@@ -43,7 +43,7 @@ The owner allocates a personal transaction, or part of it, to a business workspa
 
 One payment can be split across a business's projects (one allocation per project; the total stays within the payment). A repeated request for the same business and project returns the first allocation.
 
-Members of the business workspace with `business:read` read the rows (`GET /api/v1/business/ledger-allocations`, with totals per currency, never added across currencies). They cannot read the owner's journal, links or messages: those tables keep their restrictive owner policy. Removing the allocation, undoing the payment or the owner's privacy deletion removes the row. The same refusal (`403 workspace_not_allowed`) answers a workspace that does not exist, is in another tenant or where the owner cannot write.
+A business vehicle's fuel or service record can count one of these rows as its cost, picked by the member who logged it and allocated the payment ([Vehicles, business allocations](vehicles.md#business-allocations)). Members of the business workspace with `business:read` read the rows (`GET /api/v1/business/ledger-allocations`, with totals per currency, never added across currencies). They cannot read the owner's journal, links or messages: those tables keep their restrictive owner policy. Removing the allocation, undoing the payment or the owner's privacy deletion removes the row. The same refusal (`403 workspace_not_allowed`) answers a workspace that does not exist, is in another tenant or where the owner cannot write.
 
 ## API
 

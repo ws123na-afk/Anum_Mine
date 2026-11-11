@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Archive, ArchiveRestore, CarFront, Download, Fuel, Gauge, Link2, Pencil, Plus, Route, Trash2, Unlink, Wrench } from 'lucide-react';
 import type {
-  FinanceAccount, Vehicle, VehicleCostKind, VehicleFuelEntry, VehicleFuelType, VehicleOdometerReading, VehiclePage, VehiclePayment,
+  FinanceAccount, Vehicle, VehicleAllocationCandidate, VehicleCostKind, VehicleFuelEntry, VehicleFuelType, VehicleOdometerReading, VehiclePage, VehiclePayment,
   VehiclePaymentCandidate, VehicleRecordKind, VehicleReport, VehicleServiceKind, VehicleServiceRecord, VehicleTrip, VehicleTripPurpose,
   VehicleType,
 } from '@anum/contracts';
@@ -210,7 +210,7 @@ function RecordsPanel({ kind, vehicle, onChanged }: { kind: VehicleRecordKind; v
     {paying && COST_KIND[kind] && <PaymentDialog kind={COST_KIND[kind]!} recordId={paying.id} payment={'payment' in paying ? paying.payment : null}
       hint={{ day: kind === 'fuel' ? (paying as VehicleFuelEntry).filled_at.slice(0, 10) : (paying as VehicleServiceRecord).service_on,
         amount: kind === 'fuel' ? (paying as VehicleFuelEntry).total : (paying as VehicleServiceRecord).receipt_total, currency: (paying as VehicleFuelEntry).currency }}
-      onClose={() => setPaying(null)} onDone={(text) => done(text)} />}
+      business={vehicle.ownership === 'business'} onClose={() => setPaying(null)} onDone={(text) => done(text)} />}
     {removing && <ConfirmDialog title={t('veh.rec.deleteTitle')} confirmLabel={t('veh.rec.delete')} danger busy={busy} onConfirm={() => void remove()} onCancel={() => setRemoving(null)}>
       <p>{t('veh.rec.deleteText', { what: rowTitle(kind, removing) })}</p>
       {'payment' in removing && removing.payment && removing.payment.status !== 'void' && <p className="muted">{t('veh.rec.deletePaid')}</p>}
@@ -344,11 +344,20 @@ export function RecordForm({ kind, vehicle, record, onClose, onSaved }: { kind: 
 
 // ---- The payment picker --------------------------------------------------------------------------------
 
-export function PaymentDialog({ kind, recordId, payment, hint, onClose, onDone }: {
+export function PaymentDialog({ kind, recordId, payment, hint, business = false, onClose, onDone }: {
   kind: VehicleCostKind; recordId: string; payment: VehiclePayment | null; hint: { day: string | null; amount: string | null; currency: string };
+  /** A business vehicle's fuel or service record may count a business allocation (docs/vehicles.md#business-allocations). */
+  business?: boolean;
   onClose: () => void; onDone: (text: string) => void;
 }) {
-  const [mode, setMode] = useState<'link' | 'cash'>('link');
+  const [mode, setMode] = useState<'link' | 'cash' | 'allocation'>('link');
+  const [allocations, setAllocations] = useState<Load<VehicleAllocationCandidate[]>>({ kind: 'loading' });
+  const canAllocate = business && kind !== 'purchase';
+  const loadAllocations = useCallback(async () => {
+    setAllocations({ kind: 'loading' });
+    try { setAllocations({ kind: 'ready', value: (await api.allocationCandidates(hint.day, hint.amount)).items }); } catch (e) { setAllocations(failed(e)); }
+  }, [hint.day, hint.amount]);
+  useEffect(() => { if (mode === 'allocation') void loadAllocations(); }, [mode, loadAllocations]);
   const [q, setQ] = useState('');
   const [list, setList] = useState<Load<VehiclePaymentCandidate[]>>({ kind: 'loading' });
   const [accounts, setAccounts] = useState<Load<FinanceAccount[]>>({ kind: 'loading' });
@@ -376,15 +385,33 @@ export function PaymentDialog({ kind, recordId, payment, hint, onClose, onDone }
     {linked && <div className="vehPayNow">
       <p><strong>{paymentText(payment)}</strong>{payment!.recorded_as_cash ? ` · ${t('veh.pay.cashRecorded')}` : ''}</p>
       {payment!.status === 'needs_review' && <Notice>{t('veh.pay.reviewText')}</Notice>}
+      {payment!.source === 'allocation' && <p className="muted vehNote">{t('veh.alloc.from', { ref: payment!.source_ref ?? '-' })}</p>}
       {payment!.link_id && <button type="button" className="secondary danger" disabled={busy} onClick={() => void act(() => api.unlinkPayment(kind, recordId), t('veh.pay.unlinked'))}><Unlink aria-hidden="true" />{t('veh.pay.unlink')}</button>}
-      <p className="muted vehNote">{t('veh.pay.unlinkNote')}</p>
+      {payment!.source === 'allocation' && <button type="button" className="secondary danger" disabled={busy} onClick={() => void act(() => api.releaseAllocation(kind, recordId), t('veh.alloc.released'))}><Unlink aria-hidden="true" />{t('veh.alloc.release')}</button>}
+      {payment!.source !== 'allocation' && <p className="muted vehNote">{t('veh.pay.unlinkNote')}</p>}
     </div>}
     {!linked && <>
       {payment?.status === 'void' && <Notice>{paymentText(payment)}</Notice>}
       <div className="cmSegment" role="radiogroup" aria-label={t('veh.pay.how')}>
         <button type="button" role="radio" aria-checked={mode === 'link'} onClick={() => setMode('link')}>{t('veh.pay.modeLink')}</button>
         <button type="button" role="radio" aria-checked={mode === 'cash'} onClick={() => setMode('cash')}>{t('veh.pay.modeCash')}</button>
+        {canAllocate && <button type="button" role="radio" aria-checked={mode === 'allocation'} onClick={() => setMode('allocation')}>{t('veh.pay.modeAllocation')}</button>}
       </div>
+      {mode === 'allocation' && <>
+        <p className="muted vehNote">{t('veh.alloc.rule')}</p>
+        {allocations.kind === 'loading' && <Notice busy>{t('veh.alloc.loading')}</Notice>}
+        {allocations.kind === 'denied' && <Notice>{t('veh.alloc.noBusiness')}</Notice>}
+        {allocations.kind === 'error' && <LoadError message={t('veh.error.payments', { message: allocations.message })} retry={() => void loadAllocations()} />}
+        {allocations.kind === 'ready' && allocations.value.length === 0 && <p className="muted">{t('veh.alloc.none')}</p>}
+        {allocations.kind === 'ready' && allocations.value.length > 0 && <ul className="cmList vehPayList">{allocations.value.map((a) => {
+          const amount = formatAmount(a.amount, a.currency);
+          return <li key={a.allocation_id}>
+            <div><strong dir="ltr">{amount}</strong><small>{t('veh.alloc.line', { day: a.posted_on, amount, category: a.category, ref: a.source_ref })}{a.memo ? <> · <bdi dir="auto">{a.memo}</bdi></> : null}</small></div>
+            <button type="button" className="secondary" disabled={busy} aria-label={t('veh.alloc.useLabel', { amount, day: a.posted_on })}
+              onClick={() => void act(() => api.applyAllocation(kind, recordId, a.allocation_id), t('veh.alloc.used'))}>{t('veh.alloc.use')}</button>
+          </li>;
+        })}</ul>}
+      </>}
       {mode === 'link' && <>
         <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); void search(q.trim()); }}>
           <label className="cmInline cmSearch"><span>{t('veh.pay.search')}</span><input type="search" dir="auto" value={q} maxLength={80} onChange={(e) => setQ(e.target.value)} /></label>

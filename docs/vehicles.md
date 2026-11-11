@@ -60,6 +60,17 @@ The record keeps a **read copy** of its link (`payment`: link id, canonical id, 
 
 Deleting a record removes its link first (the payment stays). A vehicle with any linked record cannot be deleted (`409 has_payments`): archive it to keep its history.
 
+## Business allocations
+
+A business vehicle is often paid from the owner's personal card: the payment sits in the owner's own Finance ledger (their personal workspace) and the owner allocates it to the business under Finance ([Business allocations](finance-links.md#business-allocations)). The business workspace sees only the allocation row (date, amount, currency, category, memo, the six character source reference), never the card, account or merchant text. That allocation is now shown as the business vehicle's cost (`vehicles/service.py`):
+
+- **Use a business allocation.** On a fuel entry or service record of a **business** vehicle, the person who logged it opens **Payment**, **Business allocation**, and picks one of this business's allocations they made that no vehicle record counts yet (`GET /api/v1/vehicles/allocations?around&amount`, nearest to the record's figure and date first). `POST /api/v1/vehicles/costs/{fuel_entry|service_record}/{id}/allocation {allocation_id}` stores it as the record's cost (`payment.source: allocation`, the allocation id and its source reference; `link_id` and `canonical_id` stay empty, so no ledger id ever reaches the business). Needs `vehicle:write` and `business:read`; a personal vehicle is refused (`422 not_business_vehicle`), a record someone else logged (`403 not_record_owner`), an allocation that is not this business's or not the caller's (`404 allocation_not_found`), one another record already counts (`409 allocation_used`, checked under a workspace advisory lock) and a record that already has a cost (`409 already_linked`). Repeating it answers the same cost (`200`, `replayed`).
+- **Counted like a payment.** It is the record's cost in the overview, the vehicle's report, cost per km and total cost of ownership, per currency, like an active payment link; the record shows "SAR 150.00 (business allocation)" and the vehicle's CSV export says `allocation_active` (or `allocation_void`) in `payment_status`.
+- **Follows Finance.** The record is read with the allocation row as it is now: if the owner takes the allocation back or the payment is undone (the row is removed), the record reads `void` with `allocation_removed` ("The allocation was taken back in Finance") and is not counted. The stored copy is not rewritten on a read; picking another allocation or **Remove allocation** (`DELETE .../allocation`, idempotent) replaces it.
+- **Both are never one record.** A record has one cost: a linked payment or an allocation (`409 already_linked` either way). The vehicle's purchase is linked as a payment only.
+
+Audit: `vehicle.allocation.use`, `vehicle.allocation.release` (ids only). No migration: the cost lives in the record's existing `payment` JSON (expand only; the previous release reads it as a payment of that amount). Tests: `services/api/tests/test_vehicle_allocations.py`, `tests/test_postgres_finance_links.py::test_a_business_vehicle_counts_the_owners_allocation_as_its_cost`, web `test/vehicles.test.ts`, `e2e/vehicles.spec.ts`, phone `apps/mobile/test/vehicles/vehicles_test.dart`.
+
 ## Analytics
 
 Pure functions in `vehicles/analytics.py`, tested on their own:
@@ -107,6 +118,7 @@ iOS may delay automations while the phone is locked or in Low Power Mode, and Ca
 | `GET`, `POST /api/v1/vehicles/{id}/{fuel,trips,service}` (`q`, `start`, `end`, paging; `Idempotency-Key`) | records; a replay answers 200 with `replayed: true` |
 | `PATCH`, `DELETE /api/v1/vehicles/{fuel,trips,service}/{record_id}` | the record's author or `vehicle:manage` |
 | `GET /api/v1/vehicles/payments`, `POST /costs/{fuel_entry,service_record,purchase}/{id}/payment`, `/cash`, `DELETE .../payment` | plus `finance:manage`; the caller's own payments only |
+| `GET /api/v1/vehicles/allocations`, `POST`, `DELETE /costs/{fuel_entry,service_record}/{id}/allocation` | plus `business:read`; a business vehicle's cost from this business's allocations the caller made ([Business allocations](#business-allocations)) |
 | `GET /api/v1/vehicles/{id}/export.csv` | the vehicle's log; cells that start with `=`, `+`, `-` or `@` are escaped |
 | `POST /api/v1/vehicles/device/sessions` | the iPhone (above) |
 
@@ -123,7 +135,7 @@ Not built: fleet-wide Fuel and mileage, Service and Documents tabs (each vehicle
 
 ## Mobile
 
-Menu, **Vehicles** (`/vehicles`, `apps/mobile/lib/features/vehicles/`, [Record modules](mobile.md#record-modules)): the list with search, active or archived, paging and the reminders due (`GET /reminders`); a vehicle with its details, due items, and its fuel, trips and service records, each paged; adding a vehicle, a fuel entry, a trip with its start and end odometer and times, a service record (with the next due date or kilometres), and an odometer reading. Each add sends one `Idempotency-Key` per form, so a retry after a lost answer is stored once. The `odometer_decrease` refusal is shown with the server's sentence (the reading and date it conflicts with) and an **Add a correction** button that opens the reading form with the typed kilometres and the correction switch on; the correction needs a reason. **Link a payment** lists the person's own Finance payments (`GET /payments`) and links one to a fuel entry or service record; linking adds no money. People who may not change a vehicle see why. From 840 px the list and the selected vehicle sit side by side. Trip places (from, to) and the CSV export stay on the web. Tests: `apps/mobile/test/vehicles/vehicles_test.dart`.
+Menu, **Vehicles** (`/vehicles`, `apps/mobile/lib/features/vehicles/`, [Record modules](mobile.md#record-modules)): the list with search, active or archived, paging and the reminders due (`GET /reminders`); a vehicle with its details, due items, and its fuel, trips and service records, each paged; adding a vehicle, a fuel entry, a trip with its start and end odometer and times, a service record (with the next due date or kilometres), and an odometer reading. Each add sends one `Idempotency-Key` per form, so a retry after a lost answer is stored once. The `odometer_decrease` refusal is shown with the server's sentence (the reading and date it conflicts with) and an **Add a correction** button that opens the reading form with the typed kilometres and the correction switch on; the correction needs a reason. **Link a payment** lists the person's own Finance payments (`GET /payments`) and links one to a fuel entry or service record; linking adds no money. People who may not change a vehicle see why. From 840 px the list and the selected vehicle sit side by side. Trip places (from, to) and the CSV export stay on the web. Tests: `apps/mobile/test/vehicles/vehicles_test.dart`. On a business vehicle a fuel or service record also offers **Use a business allocation** (the same picker, this business's allocations the caller made) and shows such a cost as a business allocation, or that it was taken back in Finance.
 
 ## Storage, privacy and deletion
 
@@ -138,5 +150,4 @@ The privacy export includes the person's own vehicles, their records on business
 ## Not built here
 
 - On the phone: editing or archiving a vehicle, trip places, recording a cost as cash, preferences and the analytics (on the web).
-- Business vehicles paid from a personal card: allocate the payment to the business under Finance; reading business allocations as vehicle costs is not built.
 - Tyre Pulse fleet vehicles stay a read-only snapshot in the Tyre module; there is no link from a Tyre Pulse vehicle to an ANUM vehicle yet.

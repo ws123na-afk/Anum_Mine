@@ -19,11 +19,12 @@ import '../records/records_harness.dart';
 Map<String, Object?> vehicleJson(String id,
         {String registration = 'DXB A 12345',
         bool canEdit = true,
+        String ownership = 'personal',
         List<Map<String, Object?>> due = const []}) =>
     {
       'id': id,
       'owner_user_id': 'user_me',
-      'ownership': 'personal',
+      'ownership': ownership,
       'registration': registration,
       'vin': '••••1234',
       'vin_masked': true,
@@ -103,8 +104,8 @@ Map<String, Object?> page(List<Map<String, Object?>> items,
 
 /// The vehicles API over an in-memory list.
 class VehiclesApi {
-  VehiclesApi({this.empty = false});
-  bool empty;
+  VehiclesApi({this.empty = false, this.business = false});
+  bool empty, business;
   bool decreaseOnce = false;
   final fuel = <Map<String, Object?>>[fuelJson('vfuel_1')];
   late final api = FakeApi(route);
@@ -129,7 +130,45 @@ class VehiclesApi {
       });
     }
     if (r.method == 'GET' && path == '/api/v1/vehicles/veh_1') {
-      return ok(vehicleJson('veh_1', due: [dueJson('veh_1')]));
+      return ok(vehicleJson('veh_1',
+          due: [dueJson('veh_1')],
+          ownership: business ? 'business' : 'personal'));
+    }
+    // A business vehicle's cost from a business allocation
+    // (docs/vehicles.md#business-allocations).
+    if (r.method == 'GET' && path == '/api/v1/vehicles/allocations') {
+      return ok({
+        'items': [
+          {
+            'allocation_id': 'alloc_1',
+            'posted_on': '2026-11-02',
+            'amount': '130.05',
+            'currency': 'AED',
+            'category': 'fuel',
+            'memo': 'Van diesel',
+            'source_ref': 'a1b2c3',
+          }
+        ]
+      });
+    }
+    if (r.method == 'POST' &&
+        path == '/api/v1/vehicles/costs/fuel_entry/vfuel_1/allocation') {
+      final payment = {
+        'link_id': '',
+        'canonical_id': '',
+        'status': 'active',
+        'status_reason': null,
+        'amount': '130.05',
+        'currency': 'AED',
+        'paid_by': 'user_me',
+        'recorded_as_cash': false,
+        'linked_at': '2026-11-02T09:00:00Z',
+        'source': 'allocation',
+        'allocation_id': r.body!['allocation_id'],
+        'source_ref': 'a1b2c3',
+      };
+      fuel[fuel.length - 1] = fuelJson('vfuel_1', payment: payment);
+      return ok({'payment': payment, 'replayed': false}, 201);
     }
     if (r.method == 'GET' && path == '/api/v1/vehicles/veh_1/fuel') {
       return ok(page(fuel));
@@ -368,6 +407,36 @@ void main() {
           hasLength(1));
       expect(find.textContaining('linked'), findsWidgets);
       expectClean(tester);
+    });
+
+    testWidgets('a business vehicle uses a business allocation as its cost',
+        (tester) async {
+      final fake = VehiclesApi(business: true);
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('record-menu-vfuel_1')));
+      await tester.tap(find.byKey(const Key('menu-allocate')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('ref a1b2c3'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('candidate-alloc_1')));
+      expect(
+          fake.api
+              .sent('POST',
+                  '/api/v1/vehicles/costs/fuel_entry/vfuel_1/allocation')
+              .single
+              .body,
+          {'allocation_id': 'alloc_1'});
+      expect(find.textContaining('business allocation'), findsWidgets);
+      expectClean(tester);
+    });
+
+    testWidgets('a personal vehicle offers no business allocation',
+        (tester) async {
+      final fake = VehiclesApi();
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('record-menu-vfuel_1')));
+      expect(find.byKey(const Key('menu-allocate')), findsNothing);
     });
 
     testWidgets('empty list offers to add a vehicle', (tester) async {

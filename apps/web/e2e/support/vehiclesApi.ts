@@ -19,6 +19,8 @@ export interface VehiclesState {
   failOverview: boolean;
   links: number;
   cashTransactions: Set<string>;
+  /** This business's allocations the caller made (docs/vehicles.md#business-allocations). */
+  allocations: Row[];
 }
 
 const vehicle = (id: string, registration: string, extra: Row = {}): Row => ({
@@ -35,8 +37,11 @@ const child = (id: string, vehicleId: string, extra: Row): Row => ({
 const payment = (amount: string): Row => ({ link_id: 'fin_link_1', canonical_id: 'fin_je_fuel', status: 'active', status_reason: null, amount, currency: 'SAR',
   paid_by: 'user_local', recorded_as_cash: false, linked_at: stamp });
 
-export function vehiclesState({ empty = false, denied = false, failOverview = false, many = false }: { empty?: boolean; denied?: boolean; failOverview?: boolean; many?: boolean } = {}): VehiclesState {
+export function vehiclesState({ empty = false, denied = false, failOverview = false, many = false, vanFuel = false }: { empty?: boolean; denied?: boolean; failOverview?: boolean; many?: boolean;
+  /** A fuel entry the caller logged on the business van, waiting for its cost. */ vanFuel?: boolean } = {}): VehiclesState {
   const vehicles = empty ? [] : [vehicle('veh_car', 'ABC 1234'), vehicle('veh_van', 'VAN 77', { ownership: 'business', make: 'Ford', model: 'Transit', vehicle_type: 'van', fuel_type: 'diesel', due: [], can_edit: false, mine: false, owner_user_id: 'user_manager' })];
+  const van = vanFuel ? [child('vfuel_van', 'veh_van', { visibility: 'business', vehicle_owner_id: 'user_manager', filled_at: ago(26), station: 'Example Diesel Point', fuel_type: 'diesel',
+    litres: '60.000', price_per_litre: '2.500', total: '150.00', currency: 'SAR', odometer_km: null, full_tank: true, payment_method: 'card', payment: null, document_id: null, notes: null })] : [];
   if (many) for (let i = 0; i < 23; i += 1) vehicles.push(vehicle(`veh_${i}`, `FLT ${100 + i}`, { due: [] }));
   return {
     vehicles,
@@ -45,6 +50,7 @@ export function vehiclesState({ empty = false, denied = false, failOverview = fa
         odometer_km: '10400.0', full_tank: true, payment_method: 'apple_pay', payment: null, document_id: null, notes: null }),
       child('vfuel_1', 'veh_car', { filled_at: ago(200), station: 'Example Station South', fuel_type: 'petrol_91', litres: '42.000', price_per_litre: '2.330', total: '97.86', currency: 'SAR',
         odometer_km: '10000.0', full_tank: true, payment_method: 'card', payment: payment('97.86'), document_id: null, notes: null }),
+      ...van,
     ],
     trips: empty ? [] : [child('vtrip_1', 'veh_car', { status: 'closed', started_at: ago(50), ended_at: ago(49), start_odometer_km: '10300.0', end_odometer_km: '10342.5', distance_km: '42.5',
       distance_basis: 'typed', purpose: 'business', purpose_note: 'Site visit', project_id: null, origin: null, destination: null, notes: null, source: 'device', device_id: null })],
@@ -62,6 +68,7 @@ export function vehiclesState({ empty = false, denied = false, failOverview = fa
     ],
     accounts: [{ id: 'fin_acc_cash', name: 'Wallet', kind: 'cash', currency: 'SAR' }],
     denied, failOverview, links: 1, cashTransactions: new Set(),
+    allocations: vanFuel ? [{ allocation_id: 'alloc_1', posted_on: day(-1), amount: '150.00', currency: 'SAR', category: 'fuel', memo: 'Van diesel', source_ref: 'a1b2c3' }] : [],
   };
 }
 
@@ -123,6 +130,19 @@ export function vehiclesReply(state: VehiclesState, method: string, url: URL, bo
     return { status: 200, body: state.preferences };
   }
   if (method === 'GET' && sub === '/payments') return { status: 200, body: { items: state.candidates } };
+  if (method === 'GET' && sub === '/allocations') return { status: 200, body: { items: state.allocations } };
+  const allocation = sub.match(/^\/costs\/(fuel_entry|service_record)\/([^/]+)\/allocation$/);
+  if (allocation) {
+    const [, kind, id] = allocation;
+    const row = (kind === 'fuel_entry' ? state.fuel : state.service).find((r) => r.id === id);
+    if (!row) return refusal(404, 'Record not found.', 'not_found');
+    if (method === 'DELETE') { row.payment = null; return { status: 204, body: null }; }
+    const picked = state.allocations.find((a) => a.allocation_id === b.allocation_id);
+    if (!picked) return refusal(404, 'Allocation not found in this business. Allocate the payment to this business under Finance first.', 'allocation_not_found');
+    row.payment = { ...payment(String(picked.amount)), link_id: '', canonical_id: '', source: 'allocation', allocation_id: picked.allocation_id, source_ref: picked.source_ref };
+    state.allocations = state.allocations.filter((a) => a !== picked);
+    return { status: 201, body: { payment: row.payment, replayed: false } };
+  }
   const cost = sub.match(/^\/costs\/(fuel_entry|service_record|purchase)\/([^/]+)\/(payment|cash)$/);
   if (cost) {
     const [, kind, id, action] = cost;
