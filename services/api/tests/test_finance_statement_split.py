@@ -144,3 +144,15 @@ def test_undoing_the_import_detaches_the_group_too() -> None:
     assert client.delete(f"{API}/imports/{done['id']}", headers=OWNER).status_code == 204
     fresh = preview(s["card"]["id"], ROW)["rows"][0]["match"]
     assert fresh["status"] == "new" and len(fresh["splits"]) == 1
+
+
+def test_a_pick_on_a_row_that_is_already_recorded_is_ignored() -> None:
+    """A stale preview's pick on a row that has since been recorded neither attaches nor holds it twice."""
+    s = sms_setup()
+    send_sms(s["token"], FIRST)
+    send_sms(s["token"], SECOND)
+    group = preview(s["card"]["id"], ROW)["rows"][0]["match"]["splits"][0]
+    ids = [r["record_id"] for r in group]
+    do_import(s["card"]["id"], ROW, decisions=[{"line": 2, "split": ids}])
+    again = do_import(s["card"]["id"], ROW, decisions=[{"line": 2, "split": ids}])
+    assert (again["split_matched"], again["held_for_review"], again["duplicate_count"]) == (0, 0, 2)

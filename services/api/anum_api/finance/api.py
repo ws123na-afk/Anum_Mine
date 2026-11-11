@@ -1150,11 +1150,11 @@ def record_import(
                 subcategory_id=classified.subcategory_id,
             ), classified.typed)
             split_ids = sorted(getattr(choice, "split", None) or [])
-            if split_ids and action != "skip":
+            if split_ids and action != "skip" and match.status in ("new", "possible_duplicate"):
                 # One bank row for several recorded payments: the group must still be one the engine offers on the live
                 # ledger, and none of its records used by another row of this import. All of it or none of it.
                 group = next((g for g in match.splits if sorted(r.record_id for r in g) == split_ids), None)
-                if match.status not in ("new", "possible_duplicate") or group is None or any(r.record_id in split_used for r in group):
+                if group is None or any(r.record_id in split_used for r in group):
                     SL.hold(sms, context, account, item, record.id, now=now, reference=reference)
                     outcome.review += 1
                     rows_done[row.line] = _disposition(row.line, row, "held_for_review", reason="split_changed")

@@ -288,3 +288,15 @@ def test_due_step_counts_thresholds() -> None:
     assert invoice_jobs.due_step(base.model_copy(update={"due_date": today - timedelta(days=13)}), today) == 2
     assert invoice_jobs.due_step(base.model_copy(update={"due_date": today - timedelta(days=40)}), today) == 4
     assert invoice_jobs.due_step(base.model_copy(update={"due_date": today - timedelta(days=40), "amount_paid": 100}), today) == 0
+
+
+def test_a_period_that_cannot_be_drafted_says_why_without_new_versions() -> None:
+    """A schedule whose account is gone keeps the reason; repeated passes do not bump its version (an edit is not interrupted)."""
+    schedule = ok(create(**schedule_body(account_id())), 201)
+    business_store.scoped(SCOPE).delete("accounts", schedule["account_id"])
+    assert invoice_jobs.run()["invoices_drafted"] == 0
+    first = ok(client.get(f"{BASE}/invoice-schedules/{schedule['id']}", headers=MEMBER))
+    assert "account" in first["last_error"] and first["created_count"] == 0
+    invoice_jobs.run()
+    again = ok(client.get(f"{BASE}/invoice-schedules/{schedule['id']}", headers=MEMBER))
+    assert again["version"] == first["version"] == schedule["version"]

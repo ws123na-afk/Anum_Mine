@@ -53,6 +53,7 @@ Members of the business workspace with `business:read` read the rows (`GET /api/
 | `GET /api/v1/finance/links/transactions/{canonical_id}` | the payment's amounts, what is left per dimension, and its links |
 | `POST /api/v1/finance/links` (optional `Idempotency-Key` header) | `finance:manage`; 201, or 200 with `replayed: true` |
 | `POST /api/v1/finance/links/{id}/void`, `/confirm` (`{version}`) | `finance:manage` |
+| `GET /api/v1/finance/links/transfer?transaction_id=` | `finance:read`, own rows: whether the transaction is one side of an own transfer, the link and its version, and the other side ([Own transfers](finance.md#own-transfers)); the **Unpair** button voids that link |
 | `POST /api/v1/finance/allocations`, `DELETE /api/v1/finance/allocations/{link_id}` | `finance:manage`, plus `business:write` in the target workspace |
 | `GET /api/v1/business/ledger-allocations` | `business:read` in the business workspace |
 

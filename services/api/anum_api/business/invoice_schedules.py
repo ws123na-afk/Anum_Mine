@@ -258,8 +258,13 @@ def materialize(store: BusinessStore, context: TenantContext, schedule_id: str, 
         })
     if current.status == ScheduleStatus.ACTIVE and current.next_date is not None and (reason := finished(current, current.next_date)):
         current = end(current, reason, now, actor)
-    if error or current is not schedule or schedule.last_error:
+    if current is not schedule:
+        # Progress: a new version (an edit made against the old one is refused and reloads).
         current = current.model_copy(update={"last_error": error[:500], "version": schedule.version + 1, "updated_at": now})
+        store.save("invoice_schedules", current)
+    elif error[:500] != schedule.last_error:
+        # Only the reason changed: no new version, so a person editing it is not interrupted by a pass that keeps failing.
+        current = current.model_copy(update={"last_error": error[:500], "updated_at": now})
         store.save("invoice_schedules", current)
     return current, made
 
