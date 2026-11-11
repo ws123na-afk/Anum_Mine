@@ -10,6 +10,7 @@ import 'package:anum_mobile/features/finance/finance_depth_controller.dart';
 import 'package:anum_mobile/features/finance/finance_depth_models.dart';
 import 'package:anum_mobile/features/finance/finance_income_screens.dart';
 import 'package:anum_mobile/features/finance/finance_keyword_rules.dart';
+import 'package:anum_mobile/features/finance/finance_salary_screen.dart';
 import 'package:anum_mobile/features/finance/finance_screen.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
@@ -260,6 +261,76 @@ void main() {
     });
   });
 
+  group('salary profile', () {
+    testWidgets('edits the profile, adds a deduction, removes an advance',
+        (tester) async {
+      final api = MoreFinanceApi();
+      var changed = 0;
+      await pumpModule(
+          tester,
+          SalaryProfileScreen(
+              repository: api.repo(), onChanged: () => changed++));
+      expect(find.text('AED 8,600.00'), findsOneWidget);
+      expect(find.text('Left to repay: AED 2,000.00'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('sal-edit')));
+      await enter(tester, 'pay_day', '40');
+      await submit(tester);
+      expect(find.text('Enter a pay day from 1 to 31.'), findsOneWidget);
+      await enter(tester, 'pay_day', '25');
+      await submit(tester);
+      final body = api.fake.sent('PUT', '$fin/salary/profile').single.body!;
+      expect(body['pay_day'], 25);
+      expect(body['account_id'], 'acc_1');
+      expect(body.containsKey('rules'), isTrue);
+      expect(body['rules'], isNull);
+      expect(changed, 1);
+      await clearToasts(tester);
+      await tapVisible(tester, find.byKey(const Key('sal-add-deduction')));
+      await enter(tester, 'amount', '300');
+      await enter(tester, 'starts', '2026-13');
+      await submit(tester);
+      expect(find.textContaining('YYYY-MM'), findsWidgets);
+      await enter(tester, 'starts', '2026-11');
+      await enter(tester, 'ends', '2026-10');
+      await submit(tester);
+      expect(find.text('The last month cannot be before the first.'),
+          findsOneWidget);
+      await enter(tester, 'ends', '2027-10');
+      await submit(tester);
+      final rules = (api.fake
+          .sent('PUT', '$fin/salary/profile')
+          .last
+          .body!['rules'] as List<Object?>);
+      expect(rules, hasLength(3));
+      expect(rules.last, containsPair('starts', '2026-11'));
+      expect(rules.last, containsPair('ends', '2027-10'));
+      expect(rules.first, containsPair('id', 'rule_1'));
+      await clearToasts(tester);
+      await tapVisible(tester, find.byKey(const Key('sal-rule-remove-1')));
+      await tester.tap(find.byKey(const Key('records-confirm')));
+      await tester.pumpAndSettle();
+      final after = (api.fake
+          .sent('PUT', '$fin/salary/profile')
+          .last
+          .body!['rules'] as List<Object?>);
+      expect(after.map((r) => (r! as Map)['id']), isNot(contains('rule_2')));
+      expectClean(tester);
+    });
+
+    testWidgets('no profile offers one; delete asks first', (tester) async {
+      final api = MoreFinanceApi()..noSalary = true;
+      await pumpModule(tester, SalaryProfileScreen(repository: api.repo()));
+      expect(find.text('No salary profile yet'), findsOneWidget);
+      api.noSalary = false;
+      await pumpModule(tester, SalaryProfileScreen(repository: api.repo()));
+      await tapVisible(tester, find.byKey(const Key('sal-delete')));
+      await tester.tap(find.byKey(const Key('records-confirm')));
+      await tester.pumpAndSettle();
+      expect(api.fake.sent('DELETE', '$fin/salary/profile'), hasLength(1));
+      expect(find.text('No salary profile yet'), findsOneWidget);
+    });
+  });
+
   group('statement keyword rules', () {
     testWidgets('add, refuse a duplicate, edit and delete', (tester) async {
       final api = MoreFinanceApi();
@@ -371,6 +442,7 @@ void main() {
     for (final page in const [
       'advisor',
       'plan',
+      'salary',
       'recon',
       'loans',
       'payslips',
@@ -415,6 +487,7 @@ void main() {
           SendHomeScreen(repository: api.repo()),
           RemittanceScreen(repository: api.repo(), id: 'rem_1'),
           KeywordRulesScreen(controller: depthFor(api)),
+          SalaryProfileScreen(repository: api.repo()),
         ];
         for (final screen in screens) {
           await pumpModule(tester, screen,

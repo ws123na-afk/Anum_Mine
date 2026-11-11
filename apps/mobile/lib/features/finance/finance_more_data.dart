@@ -942,4 +942,19 @@ class FinanceMoreRepository {
 
   Future<void> unlinkRecord(String kind, String id, String linkId) =>
       api.request('DELETE', '$base/$kind/${_id(id)}/links/${_id(linkId)}');
+
+  // the salary profile
+
+  /// The profile, or null until one is added.
+  Future<SalaryProfileData?> salaryProfile() async {
+    final r = await _get('/salary/profile');
+    final profile = r.optObject('profile');
+    return profile == null ? null : SalaryProfileData.fromJson(profile);
+  }
+
+  Future<void> saveSalaryProfile(Map<String, Object?> body) =>
+      api.request('PUT', '$base/salary/profile', body: body);
+
+  Future<void> deleteSalaryProfile() =>
+      api.request('DELETE', '$base/salary/profile');
 }

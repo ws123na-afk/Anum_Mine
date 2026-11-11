@@ -8,6 +8,7 @@ import 'finance_keyword_rules.dart';
 import 'finance_loans_screens.dart';
 import 'finance_more_strings.dart';
 import 'finance_recon_screens.dart';
+import 'finance_salary_screen.dart';
 import 'finance_tags_screens.dart';
 
 /// The Finance app bar menu (docs/finance.md#clients): the pages the phone
@@ -16,6 +17,7 @@ import 'finance_tags_screens.dart';
 enum FinanceMorePage {
   advisor,
   plan,
+  salary,
   recon,
   loans,
   payslips,
@@ -66,6 +68,8 @@ Future<void> openFinanceMore(
     builder: (_) => switch (page) {
       FinanceMorePage.advisor => AdvisorScreen(repository: more),
       FinanceMorePage.plan => PlanScreen(repository: more),
+      FinanceMorePage.salary => SalaryProfileScreen(
+          repository: more, onChanged: () => controller.personal?.loadSalary()),
       FinanceMorePage.recon =>
         ReconciliationScreen(repository: more, saver: saver),
       FinanceMorePage.loans => BankLoansScreen(repository: more),

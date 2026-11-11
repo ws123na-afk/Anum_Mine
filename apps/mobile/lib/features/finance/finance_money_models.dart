@@ -462,3 +462,100 @@ class RemitProvider {
         latestRate: dec(r, 'latest_effective_rate'),
       );
 }
+
+// -- the salary profile ------------------------------------------------------------
+
+const salaryReasons = ['loan', 'absence', 'social_insurance', 'other'];
+
+/// One rule of the salary profile: a monthly deduction, or an advance
+/// repaid by [amount] a month until [total] is back.
+class SalaryRuleData {
+  const SalaryRuleData({
+    required this.kind,
+    required this.reason,
+    required this.amount,
+    required this.starts,
+    this.id,
+    this.label,
+    this.ends,
+    this.total,
+    this.receivedOn,
+  });
+  final String kind, reason, amount, starts;
+  final String? id, label, ends, total, receivedOn;
+  bool get advance => kind == 'advance';
+
+  factory SalaryRuleData.fromJson(JsonReader r) => SalaryRuleData(
+        id: r.optString('id'),
+        kind: r.string('kind'),
+        reason: r.optString('reason') ?? 'other',
+        label: r.optString('label'),
+        amount: decOr(r, 'amount'),
+        starts: r.string('starts'),
+        ends: r.optString('ends'),
+        total: dec(r, 'total'),
+        receivedOn: r.optString('received_on'),
+      );
+
+  Map<String, Object?> toJson() => {
+        if (id != null) 'id': id,
+        'kind': kind,
+        'reason': advance ? 'advance' : reason,
+        'label': label,
+        'amount': amount,
+        'starts': starts,
+        'ends': advance ? null : ends,
+        'total': advance ? total : null,
+        'received_on': advance ? receivedOn : null,
+      };
+}
+
+/// The person's salary profile (`SalaryProfileView`).
+class SalaryProfileData {
+  const SalaryProfileData({
+    required this.employer,
+    required this.joinedOn,
+    required this.currency,
+    required this.expectedGross,
+    required this.payDay,
+    required this.rules,
+    required this.expectedNet,
+    required this.nextPayOn,
+    required this.advancesLeft,
+    this.accountId,
+  });
+  final String employer, joinedOn, currency, expectedGross, expectedNet;
+  final String nextPayOn;
+  final int payDay;
+  final String? accountId;
+  final List<SalaryRuleData> rules;
+
+  /// What is left to repay of each advance, by rule id.
+  final Map<String, String> advancesLeft;
+
+  factory SalaryProfileData.fromJson(JsonReader r) => SalaryProfileData(
+        employer: r.string('employer'),
+        joinedOn: r.string('joined_on'),
+        currency: r.string('currency'),
+        expectedGross: decOr(r, 'expected_gross'),
+        payDay: r.optInt('pay_day') ?? 1,
+        accountId: r.optString('account_id'),
+        rules: r.optObjects('rules', SalaryRuleData.fromJson),
+        expectedNet: decOr(r, 'expected_net'),
+        nextPayOn: r.optString('next_pay_on') ?? '',
+        advancesLeft: {
+          for (final a in r.optObjects('advances', (j) => j))
+            a.string('rule_id'): decOr(a, 'left'),
+        },
+      );
+
+  Map<String, Object?> body({List<SalaryRuleData>? rules}) => {
+        'employer': employer,
+        'joined_on': joinedOn,
+        'currency': currency,
+        'expected_gross': expectedGross,
+        'pay_day': payDay,
+        'account_id': accountId,
+        'rules': rules?.map((r) => r.toJson()).toList(),
+      };
+}

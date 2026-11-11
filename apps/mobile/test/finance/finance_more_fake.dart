@@ -341,6 +341,56 @@ class MoreFinanceApi {
   bool batchUndone = false;
   final tags = [tagJson(1), tagJson(2, kind: 'project', links: 0)];
   final loanSplit = <String>[];
+  bool noSalary = false;
+  Map<String, Object?>? salaryProfile;
+
+  Map<String, Object?> salaryJson() =>
+      salaryProfile ??
+      {
+        'id': 'sal_1',
+        'employer': 'Example Co',
+        'joined_on': '2024-03-01',
+        'currency': 'AED',
+        'expected_gross': '10000.00',
+        'pay_day': 27,
+        'account_id': 'acc_1',
+        'rules': [
+          {
+            'id': 'rule_1',
+            'kind': 'deduction',
+            'reason': 'social_insurance',
+            'label': null,
+            'amount': '900.00',
+            'starts': '2024-03',
+            'ends': null,
+            'total': null,
+            'received_on': null,
+          },
+          {
+            'id': 'rule_2',
+            'kind': 'advance',
+            'reason': 'advance',
+            'label': 'Example advance',
+            'amount': '500.00',
+            'starts': '2026-09',
+            'ends': null,
+            'total': '3000.00',
+            'received_on': '2026-08-20',
+          },
+        ],
+        'created_at': '2024-03-01T08:00:00Z',
+        'updated_at': '2026-10-01T08:00:00Z',
+        'expected_net': '8600.00',
+        'next_pay_on': '2026-11-27',
+        'advances': [
+          {
+            'rule_id': 'rule_2',
+            'label': 'Example advance',
+            'total': '3000.00',
+            'left': '2000.00'
+          }
+        ],
+      };
 
   FinanceMoreRepository repo() => FinanceMoreRepository(fake.client());
   AnumApiClient client() => fake.client();
@@ -856,6 +906,25 @@ class MoreFinanceApi {
           if (!unlinked.contains('link_r1')) link('link_r1'),
         ]));
       }
+    }
+    // -- the salary profile
+    if (path == '$fin/salary/profile') {
+      if (r.method == 'GET') {
+        return ok({'profile': noSalary ? null : salaryJson()});
+      }
+      if (r.method == 'DELETE') {
+        noSalary = true;
+        return const ApiResponse(statusCode: 204);
+      }
+      final body = r.body!;
+      noSalary = false;
+      salaryProfile = {
+        ...salaryJson(),
+        for (final e in body.entries)
+          if (e.value != null) e.key: e.value,
+        if (body['rules'] == null) 'rules': salaryJson()['rules'],
+      };
+      return ok(salaryProfile!);
     }
     // -- Finance settings (the keyword rules)
     if (r.method == 'GET' && path == '$fin/settings') {
