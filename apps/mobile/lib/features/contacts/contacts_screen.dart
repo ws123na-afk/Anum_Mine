@@ -6,13 +6,15 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'contacts_controller.dart';
+import 'contacts_manage.dart';
 import 'contacts_models.dart';
 import 'contacts_repository.dart';
 
 /// The Contacts directory (docs/contacts.md#mobile): everyone once over the
 /// Phone calls, Business and WhatsApp contacts. Search, the list 25 at a time,
-/// and a person page with the channel facts and the do-not-contact controls.
-/// Possible duplicates, merging, editing and export stay on the web.
+/// and a person page with the channel facts and the do-not-contact controls;
+/// Add person, Possible duplicates (merge or dismiss), Edit, Merge with,
+/// Delete (owners) and Export CSV (owners).
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen(
       {required this.controller, required this.repository, super.key});
@@ -88,6 +90,41 @@ class _ContactsScreenState extends State<ContactsScreen> {
             'proposals': c.openProposals
           }),
           style: Theme.of(context).textTheme.bodySmall),
+      Wrap(
+          spacing: AnumSpacing.xs,
+          runSpacing: AnumSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (c.canWrite)
+              FilledButton.icon(
+                  key: const Key('contacts-add'),
+                  onPressed: () => _add(context),
+                  icon: const Icon(Icons.person_add_alt_outlined),
+                  label: Text(l.t('contacts.add'))),
+            OutlinedButton.icon(
+                key: const Key('contacts-duplicates'),
+                onPressed: () => _duplicates(context),
+                icon: const Icon(Icons.call_merge),
+                label: Text(
+                    l.f('contacts.duplicates', {'count': c.openProposals}))),
+            if (c.canExport)
+              OutlinedButton.icon(
+                  key: const Key('contacts-export'),
+                  onPressed: c.exporting ? null : () => unawaited(c.export(l)),
+                  icon: const Icon(Icons.download_outlined),
+                  label: Text(l.t(
+                      c.exporting ? 'contacts.exporting' : 'contacts.export'))),
+          ]),
+      if (c.exportNotice != null)
+        Semantics(
+          liveRegion: true,
+          child: Text(c.exportNotice!,
+              key: const Key('contacts-export-notice'),
+              style: TextStyle(
+                  color: c.exportFailed
+                      ? context.palette.stop
+                      : context.palette.ok)),
+        ),
       TextField(
         key: const Key('contacts-search'),
         controller: _search,
@@ -156,7 +193,38 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Future<void> _open(BuildContext context, Person person) async {
     final controller = PersonController(widget.repository, person.id);
     await Navigator.of(context).push(MaterialPageRoute<void>(
-        builder: (_) => PersonScreen(controller: controller)));
+        builder: (_) => PersonScreen(
+            controller: controller, repository: widget.repository)));
+    controller.dispose();
+    unawaited(widget.controller.load());
+  }
+
+  Future<void> _add(BuildContext context) async {
+    final l = AnumLocalizations.of(context);
+    PersonDetail? created;
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => PersonFormScreen(save: (draft) async {
+              try {
+                created = await createPerson(widget.repository, draft, l);
+                return null;
+              } on FormatException catch (e) {
+                return e.message;
+              }
+            })));
+    if (saved != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(SnackBar(
+        content: Text(l.t(created!.openProposals > 0
+            ? 'contacts.form.proposalNote'
+            : 'contacts.form.saved'))));
+    unawaited(widget.controller.load());
+    if (context.mounted) await _open(context, created!.person);
+  }
+
+  Future<void> _duplicates(BuildContext context) async {
+    final controller = DuplicatesController(widget.repository);
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => DuplicatesScreen(controller: controller)));
     controller.dispose();
     unawaited(widget.controller.load());
   }
@@ -203,8 +271,12 @@ class _PersonRow extends StatelessWidget {
 /// One person: numbers and addresses, linked records, the per-channel facts
 /// and the do-not-contact controls.
 class PersonScreen extends StatefulWidget {
-  const PersonScreen({required this.controller, super.key});
+  const PersonScreen(
+      {required this.controller, required this.repository, super.key});
   final PersonController controller;
+
+  /// For the merge picker's search.
+  final ContactsRepository repository;
 
   @override
   State<PersonScreen> createState() => _PersonScreenState();
@@ -273,6 +345,30 @@ class _PersonScreenState extends State<PersonScreen> {
               style: theme.bodyMedium),
         ),
       _PersonRow(person: p),
+      if (d.canWrite || d.canManage)
+        Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
+          if (d.canWrite)
+            OutlinedButton.icon(
+                key: const Key('person-edit'),
+                onPressed: c.busy ? null : () => _edit(context, l, c, p),
+                icon: const Icon(Icons.edit_outlined),
+                label: Text(l.t('contacts.person.edit'))),
+          if (d.canWrite)
+            OutlinedButton.icon(
+                key: const Key('person-merge'),
+                onPressed: c.busy ? null : () => _merge(context, l, c, p),
+                icon: const Icon(Icons.call_merge),
+                label: Text(l.t('contacts.person.merge'))),
+          if (d.canManage)
+            OutlinedButton.icon(
+                key: const Key('person-delete'),
+                onPressed: c.busy ? null : () => _delete(context, l, c, p),
+                icon: const Icon(Icons.delete_outline),
+                label: Text(l.t('contacts.person.delete'))),
+        ]),
+      if (d.openProposals > 0)
+        Text(l.f('contacts.person.proposals', {'count': d.openProposals}),
+            style: theme.bodySmall),
       if (p.notes.isNotEmpty)
         AnumSurface(
             child:
@@ -300,7 +396,6 @@ class _PersonScreenState extends State<PersonScreen> {
           accent: channel.canContact ? null : context.palette.stop,
           child: _ChannelCard(summary: channel, detail: d, controller: c),
         ),
-      Text(l.t('contacts.person.webOnly'), style: theme.bodySmall),
     ];
     // One scroll view with every part built: the page is bounded (a handful of cards).
     return SingleChildScrollView(
@@ -317,6 +412,66 @@ class _PersonScreenState extends State<PersonScreen> {
           ),
       ]),
     );
+  }
+}
+
+extension on _PersonScreenState {
+  void _say(BuildContext context, String text) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(text)));
+
+  Future<void> _edit(BuildContext context, AnumLocalizations l,
+      PersonController c, Person p) async {
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => PersonFormScreen(
+            title: l.f('contacts.form.editTitle', {'name': p.name}),
+            initial: PersonDraft.of(p),
+            save: (draft) => c.save(draft, l))));
+    if (saved == true && context.mounted) {
+      _say(context, l.t('contacts.form.saved'));
+    }
+  }
+
+  Future<void> _merge(BuildContext context, AnumLocalizations l,
+      PersonController c, Person p) async {
+    final other = await pickPersonToMerge(context, widget.repository, p);
+    if (other == null || !context.mounted) return;
+    final problem = await c.merge(other, l);
+    if (context.mounted) {
+      _say(
+          context,
+          problem ??
+              l.f('contacts.merge.done',
+                  {'other': other.name, 'name': p.name}));
+    }
+  }
+
+  Future<void> _delete(BuildContext context, AnumLocalizations l,
+      PersonController c, Person p) async {
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text(l.f('contacts.person.deleteTitle', {'name': p.name})),
+              content: Text(l.t('contacts.person.deleteBody')),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: Text(l.t('contacts.dnc.cancel'))),
+                FilledButton(
+                    key: const Key('person-delete-confirm'),
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: Text(l.t('contacts.person.delete'))),
+              ],
+            ));
+    if (ok != true || !context.mounted) return;
+    final problem = await c.delete(l);
+    if (!context.mounted) return;
+    if (problem != null) {
+      _say(context, problem);
+      return;
+    }
+    _say(context, l.f('contacts.person.deleted', {'name': p.name}));
+    Navigator.of(context).pop();
   }
 }
 

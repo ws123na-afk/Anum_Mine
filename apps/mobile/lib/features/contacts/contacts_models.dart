@@ -165,7 +165,8 @@ class PeoplePage {
       required this.marked,
       required this.openProposals,
       required this.canWrite,
-      required this.canManage});
+      required this.canManage,
+      this.canExport = false});
   factory PeoplePage.fromJson(JsonReader j) {
     final counts = j.object('counts');
     return PeoplePage(
@@ -176,15 +177,127 @@ class PeoplePage {
       openProposals: counts.integer('open_proposals'),
       canWrite: j.boolean('can_write'),
       canManage: j.boolean('can_manage'),
+      canExport: j.optBool('can_export') ?? j.boolean('can_manage'),
     );
   }
   final List<Person> items;
   final int total, people, marked, openProposals;
   final bool canWrite, canManage;
+
+  /// Owners export the directory as CSV (`GET /contacts/export`).
+  final bool canExport;
 }
 
 /// A do-not-contact reason as the API takes it: 3 to 300 characters.
 String? reasonProblem(String reason) {
   final text = reason.trim();
   return text.length < 3 || text.length > 300 ? 'reason' : null;
+}
+
+/// Two people who share a number or an address under different names
+/// (docs/contacts.md#merging-and-proposals); either may be gone (null).
+class MergeProposal {
+  const MergeProposal(
+      {required this.id,
+      required this.reason,
+      required this.matchedValue,
+      required this.status,
+      this.a,
+      this.b});
+  factory MergeProposal.fromJson(JsonReader j) {
+    final a = j.optObject('a');
+    final b = j.optObject('b');
+    return MergeProposal(
+        id: j.string('id'),
+        reason: j.string('reason'),
+        matchedValue: j.optString('matched_value') ?? '',
+        status: j.optString('status') ?? 'open',
+        a: a == null ? null : Person.fromJson(a),
+        b: b == null ? null : Person.fromJson(b));
+  }
+  final String id, reason, matchedValue, status;
+  final Person? a, b;
+}
+
+class ProposalPage {
+  const ProposalPage(
+      {required this.items, required this.total, required this.canWrite});
+  factory ProposalPage.fromJson(JsonReader j) => ProposalPage(
+      items: j.objects('items', MergeProposal.fromJson),
+      total: j.integer('total'),
+      canWrite: j.optBool('can_write') ?? false);
+  final List<MergeProposal> items;
+  final int total;
+  final bool canWrite;
+}
+
+/// The person form: one value per line (or comma) in the two lists.
+class PersonDraft {
+  const PersonDraft(
+      {this.name = '',
+      this.organisation = '',
+      this.notes = '',
+      this.phones = '',
+      this.emails = ''});
+  factory PersonDraft.of(Person p) => PersonDraft(
+      name: p.name,
+      organisation: p.organisation,
+      notes: p.notes,
+      phones:
+          p.phones.map((i) => i.label.isEmpty ? i.value : i.label).join('\n'),
+      emails:
+          p.emails.map((i) => i.label.isEmpty ? i.value : i.label).join('\n'));
+  final String name, organisation, notes, phones, emails;
+}
+
+/// One value per line, comma or semicolon; blanks dropped.
+List<String> splitValues(String text) => text
+    .split(RegExp(r'[\n,;]+'))
+    .map((v) => v.trim())
+    .where((v) => v.isNotEmpty)
+    .toList();
+
+/// A phone number by the API's rule: 8 to 15 digits once the formatting is
+/// gone (`00` and UAE `05x` are read by the API too).
+bool looksLikePhone(String value) {
+  final digits = value.replaceAll(RegExp(r'\D'), '');
+  return digits.length >= 8 && digits.length <= 15;
+}
+
+bool looksLikeEmail(String value) =>
+    RegExp(r'^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$').hasMatch(value.trim());
+
+/// The `POST /contacts` or `PATCH /contacts/{id}` body, or the first problem
+/// as a message key with its values (`contacts.err.*`).
+({Map<String, Object?>? body, String? error, String? value}) personBody(
+    PersonDraft draft) {
+  final name = draft.name.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (name.isEmpty || name.length > 200) {
+    return (body: null, error: 'contacts.err.name', value: null);
+  }
+  final phones = splitValues(draft.phones), emails = splitValues(draft.emails);
+  if (phones.length > 10 || emails.length > 10) {
+    return (body: null, error: 'contacts.err.tooMany', value: null);
+  }
+  for (final v in phones) {
+    if (!looksLikePhone(v)) {
+      return (body: null, error: 'contacts.err.phone', value: v);
+    }
+  }
+  for (final v in emails) {
+    if (!looksLikeEmail(v)) {
+      return (body: null, error: 'contacts.err.email', value: v);
+    }
+  }
+  return (
+    body: {
+      'name': name,
+      'organisation': draft.organisation.trim(),
+      'notes': draft.notes.trim(),
+      'phones': phones,
+      'emails': emails,
+    },
+    error: null,
+    value: null
+  );
 }
