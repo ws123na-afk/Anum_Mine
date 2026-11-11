@@ -2,7 +2,7 @@
 // caller, filtered by kind and read state, paged with Previous and Next over the API's cursor, with
 // mark read or unread, mark all read and delete. Opened from the bell's "See all notifications".
 // Only the recipient can read or change a notification; the API (RLS on user) decides that.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, BellRing, CheckCheck, ExternalLink, Mail, MailOpen, Trash2 } from 'lucide-react';
 import type { NotificationKindCount, UserNotification } from '@anum/contracts';
 import * as team from './lib/teamApi';
@@ -39,7 +39,12 @@ export function NotificationsPage({ onOpenWork, onChanged, signal }: { onOpenWor
   useEffect(() => { void fetchPage(); }, [fetchPage]);
   useEffect(() => { void fetchKinds(); }, [fetchKinds]);
   // A new notification for this person (the shell's live signal) refreshes the list in place.
-  useEffect(() => { if (signal) { void fetchPage(true); void fetchKinds(); } }, [signal, fetchPage, fetchKinds]);
+  const seenSignal = useRef(signal);
+  useEffect(() => {
+    if (!signal || signal === seenSignal.current) return;
+    seenSignal.current = signal;
+    void fetchPage(true); void fetchKinds();
+  }, [signal, fetchPage, fetchKinds]);
   // Deleting the last row of a later page steps back instead of showing an empty page.
   useEffect(() => { if (load.kind === 'ready' && load.items.length === 0 && trail.trail.length > 1) setTrail(previousPage(trail)); }, [load, trail]);
 

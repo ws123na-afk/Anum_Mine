@@ -190,4 +190,6 @@ button.secondary.dangerText { color: var(--d-stop); }
   .favList { padding: 0 var(--d-s3); }
   .favRow .cellActions .iconButton { height: 44px; width: 44px; }
   .favGrip { display: none; }
+  .favToolbar { justify-content: flex-start; }
+  .favSearch, .favSort { flex-basis: 100%; max-width: none; }
 }
