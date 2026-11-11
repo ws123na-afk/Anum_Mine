@@ -119,7 +119,19 @@ def test_notifications_are_readable_only_by_their_recipient(client: TestClient, 
             assert connection.execute(text("delete from user_notifications")).rowcount == 0
         finally:
             transaction.rollback()
+    # The Notifications page: kinds counted, read state and kind filters, unread again, delete; recipient only.
+    assert client.get("/api/v1/notifications/kinds", headers=AHMED).json()["items"] == [{"kind": "work_assigned", "total": 1, "unread": 1}]
+    assert client.get("/api/v1/notifications/kinds", headers=OWNER).json()["items"] == []
+    ntf = mine["items"][0]["id"]
+    assert client.get("/api/v1/notifications?state=read", headers=AHMED).json()["items"] == []
+    assert client.post(f"/api/v1/notifications/{ntf}/unread", headers=OWNER).status_code == 404
+    assert client.delete(f"/api/v1/notifications/{ntf}", headers=OWNER).status_code == 404
     assert client.post("/api/v1/notifications/read-all", headers=AHMED).json() == {"updated": 1}
+    assert client.get("/api/v1/notifications?state=read&kind=work_assigned", headers=AHMED).json()["items"][0]["id"] == ntf
+    assert client.post(f"/api/v1/notifications/{ntf}/unread", headers=AHMED).json()["read_at"] is None
+    assert client.get("/api/v1/notifications/kinds", headers=AHMED).json()["items"][0]["unread"] == 1
+    assert client.delete(f"/api/v1/notifications/{ntf}", headers=AHMED).status_code == 204
+    assert len(_rows(database_engine, APP_ROLE, stmt, TENANT_A, WORKSPACE_A, "user_ahmed")) == 0
 
 
 def test_activity_feed_is_append_only(client: TestClient, database_engine: Engine) -> None:

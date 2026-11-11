@@ -90,6 +90,11 @@ def test_versions_search_and_paging() -> None:
     page = client.get("/api/v1/skills/versions?limit=1&offset=1", headers=OWNER).json()
     assert [v["version"] for v in page] == ["1.1.0"]
     assert client.get("/api/v1/skills/versions?limit=0", headers=OWNER).status_code == 422
+    client.post("/api/v1/skills/installations", headers=OWNER, json={"skill_id": "acme.release-notes", "version": "1.0.0"})
+    assert [i["skill_id"] for i in client.get("/api/v1/skills/installations?q=RELEASE", headers=OWNER).json()] == ["acme.release-notes"]
+    assert client.get("/api/v1/skills/installations?q=nothing-matches", headers=OWNER).json() == []
+    assert client.get("/api/v1/skills/installations?limit=1&offset=1", headers=OWNER).json() == []
+    assert client.get("/api/v1/skills/installations?limit=501", headers=OWNER).status_code == 422
 
 
 def test_rollback_is_for_org_admins_never_widens_grants_and_is_audited() -> None:

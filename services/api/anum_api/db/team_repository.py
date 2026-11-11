@@ -550,9 +550,20 @@ class SqlAlchemyTeamStore:
         return notification
 
     def list_notifications(
-        self, context: TenantContext, *, limit: int, before: str | None, unread_only: bool
+        self,
+        context: TenantContext,
+        *,
+        limit: int,
+        before: str | None,
+        unread_only: bool,
+        read_only: bool = False,
+        kind: str | None = None,
     ) -> list[UserNotification]:
         clauses: list[Any] = [self._mine(context)]
+        if read_only:
+            clauses.append(user_notifications.c.read_at.is_not(None))
+        if kind is not None:
+            clauses.append(user_notifications.c.kind == kind)
         if before is not None:
             anchor = self.session.execute(
                 select(user_notifications.c.created_at, user_notifications.c.id).where(
@@ -600,6 +611,21 @@ class SqlAlchemyTeamStore:
             )
         )
         return notification
+
+    def notification_kinds(self, context: TenantContext) -> list[tuple[str, int, int]]:
+        unread = func.count().filter(user_notifications.c.read_at.is_(None))
+        rows = self.session.execute(
+            select(user_notifications.c.kind, func.count(), unread)
+            .where(self._mine(context))
+            .group_by(user_notifications.c.kind)
+        ).all()
+        return sorted(((str(r[0]), int(r[1]), int(r[2])) for r in rows), key=lambda row: (-row[1], row[0]))
+
+    def delete_notification(self, context: TenantContext, notification_id: str) -> bool:
+        result = self.session.execute(
+            delete(user_notifications).where(self._mine(context), user_notifications.c.id == notification_id)
+        )
+        return bool(result.rowcount)
 
     def mark_all_read(self, context: TenantContext, at: datetime) -> int:
         result = self.session.execute(

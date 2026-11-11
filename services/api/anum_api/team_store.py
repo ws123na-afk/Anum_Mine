@@ -92,8 +92,19 @@ class TeamStore(Protocol):
     # notifications
     def add_notification(self, context: TenantContext, notification: UserNotification) -> UserNotification: ...
     def list_notifications(
-        self, context: TenantContext, *, limit: int, before: str | None, unread_only: bool
+        self,
+        context: TenantContext,
+        *,
+        limit: int,
+        before: str | None,
+        unread_only: bool,
+        read_only: bool = False,
+        kind: str | None = None,
     ) -> list[UserNotification]: ...
+    def notification_kinds(self, context: TenantContext) -> list[tuple[str, int, int]]:
+        """(kind, total, unread) of the caller's notifications, most first."""
+        ...
+    def delete_notification(self, context: TenantContext, notification_id: str) -> bool: ...
     def count_unread(self, context: TenantContext) -> int: ...
     def get_notification(self, context: TenantContext, notification_id: str) -> UserNotification | None: ...
     def save_notification(self, context: TenantContext, notification: UserNotification) -> UserNotification: ...
@@ -308,7 +319,14 @@ class InMemoryTeamStore:
         return notification
 
     def list_notifications(
-        self, context: TenantContext, *, limit: int, before: str | None, unread_only: bool
+        self,
+        context: TenantContext,
+        *,
+        limit: int,
+        before: str | None,
+        unread_only: bool,
+        read_only: bool = False,
+        kind: str | None = None,
     ) -> list[UserNotification]:
         rows = self._mine(context)
         if before is not None:
@@ -318,7 +336,24 @@ class InMemoryTeamStore:
             rows = rows[index + 1 :]
         if unread_only:
             rows = [n for n in rows if n.read_at is None]
+        if read_only:
+            rows = [n for n in rows if n.read_at is not None]
+        if kind is not None:
+            rows = [n for n in rows if n.kind == kind]
         return rows[:limit]
+
+    def notification_kinds(self, context: TenantContext) -> list[tuple[str, int, int]]:
+        counts: dict[str, list[int]] = {}
+        for notification in self._mine(context):
+            entry = counts.setdefault(notification.kind, [0, 0])
+            entry[0] += 1
+            entry[1] += notification.read_at is None
+        return sorted(((k, v[0], v[1]) for k, v in counts.items()), key=lambda row: (-row[1], row[0]))
+
+    def delete_notification(self, context: TenantContext, notification_id: str) -> bool:
+        if self.get_notification(context, notification_id) is None:
+            return False
+        return self._ws(context).notifications.pop(notification_id, None) is not None
 
     def count_unread(self, context: TenantContext) -> int:
         return sum(1 for n in self._mine(context) if n.read_at is None)

@@ -133,11 +133,15 @@ SELF_SCOPED_ROUTES: dict[str, str] = {
     "GET /api/v1/favorites": "The caller's own favorites.",
     "DELETE /api/v1/favorites": "The caller's own favorites.",
     "DELETE /api/v1/favorites/{favorite_id}": "The caller's own favorite.",
+    "POST /api/v1/favorites/{favorite_id}/move": "Reorders the caller's own favorites only (RLS on user).",
     "GET /api/v1/notification-channels": "Which channels can reach the caller.",
     "POST /api/v1/notification-channels/email-test": "Sends only to the caller's own address; five, then one a minute.",
     "GET /api/v1/notifications": "The caller's own notifications.",
     "POST /api/v1/notifications/{notification_id}/read": "The caller's own notification (recipient-only update).",
     "POST /api/v1/notifications/read-all": "The caller's own notifications.",
+    "GET /api/v1/notifications/kinds": "Counts of the caller's own notifications by kind.",
+    "POST /api/v1/notifications/{notification_id}/unread": "The caller's own notification (recipient-only update).",
+    "DELETE /api/v1/notifications/{notification_id}": "The caller's own notification (recipient-only delete).",
 }
 
 _STORE_OPENERS = ("open_", "_unit_of_work", "units(", "SessionLocal", "session(", "_store(")

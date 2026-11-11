@@ -345,6 +345,33 @@ def test_notifications_read_and_read_all(client: TestClient) -> None:
     assert client.get("/api/v1/notifications?cursor=ntf_unknown", headers=AHMED).status_code == 400
 
 
+def test_notifications_page_filters_unread_and_delete(client: TestClient) -> None:
+    for n in range(3):
+        create(client, title=f"Task {n}", assignee={"type": "user", "id": "user_ahmed"})
+    kinds = client.get("/api/v1/notifications/kinds", headers=AHMED).json()["items"]
+    assert kinds == [{"kind": "work_assigned", "total": 3, "unread": 3}]
+    assert client.get("/api/v1/notifications/kinds", headers=SARA).json()["items"] == []
+    first = client.get("/api/v1/notifications", headers=AHMED).json()["items"][0]["id"]
+    client.post(f"/api/v1/notifications/{first}/read", headers=AHMED)
+    read = client.get("/api/v1/notifications?state=read", headers=AHMED).json()
+    assert [n["id"] for n in read["items"]] == [first] and read["unread"] == 2
+    assert len(client.get("/api/v1/notifications?state=unread", headers=AHMED).json()["items"]) == 2
+    assert client.get("/api/v1/notifications?kind=work_assigned", headers=AHMED).json()["items"][0]["kind"] == "work_assigned"
+    assert client.get("/api/v1/notifications?kind=work_comment", headers=AHMED).json()["items"] == []
+    assert client.get("/api/v1/notifications?kind=Bad%20Kind", headers=AHMED).status_code == 422
+    assert client.get("/api/v1/notifications?state=archived", headers=AHMED).status_code == 422
+    # Mark unread again: only the recipient.
+    assert client.post(f"/api/v1/notifications/{first}/unread", headers=SARA).status_code == 404
+    again = client.post(f"/api/v1/notifications/{first}/unread", headers=AHMED)
+    assert again.status_code == 200 and again.json()["read_at"] is None
+    assert client.get("/api/v1/notifications", headers=AHMED).json()["unread"] == 3
+    # Delete: only the recipient, once.
+    assert client.delete(f"/api/v1/notifications/{first}", headers=SARA).status_code == 404
+    assert client.delete(f"/api/v1/notifications/{first}", headers=AHMED).status_code == 204
+    assert client.delete(f"/api/v1/notifications/{first}", headers=AHMED).status_code == 404
+    assert client.get("/api/v1/notifications/kinds", headers=AHMED).json()["items"][0]["total"] == 2
+
+
 def test_email_follows_the_recipients_preference_and_is_sent_after_commit(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="user_ahmed", roles=["member"])
     _notifications.save(ctx, NotificationPreferences(email_enabled=True))
