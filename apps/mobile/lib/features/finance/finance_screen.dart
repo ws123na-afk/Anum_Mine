@@ -17,6 +17,7 @@ import 'finance_models.dart';
 import 'finance_more_menu.dart';
 import 'finance_more_strings.dart';
 import '../records_kit/records_export.dart';
+import '../records_kit/record_module_routes.dart';
 import 'finance_personal_strings.dart';
 import 'finance_personal_view.dart';
 import 'finance_plan_models.dart';
@@ -34,7 +35,12 @@ class FinanceScreen extends StatefulWidget {
       this.webAppUrl = configuredWebAppUrl,
       this.openLink = openMoneyLink,
       this.saver = const SystemExportSaver(),
+      this.openVehicles = openVehiclesRoute,
       super.key});
+
+  /// Opens the Vehicles module (`/vehicles`), where a vehicle cost with no
+  /// record yet is recorded; null hides the button. Replaced in tests.
+  final void Function(BuildContext context)? openVehicles;
   final FinanceController controller;
 
   /// Where an exported CSV goes (the system save dialog); replaced in tests.
@@ -156,6 +162,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
               appUrl: widget.webAppUrl,
               openLink: widget.openLink,
               onOpenTransactions: () => c.select(FinanceSection.transactions),
+              onOpenVehicles: widget.openVehicles == null
+                  ? null
+                  : () => widget.openVehicles!(context),
               onReview: c.depth == null
                   ? null
                   : (id) => _openTransaction(context, c, id))
@@ -1462,3 +1471,7 @@ String _amountError(FinanceStrings s, String text, {required bool signed}) =>
     amountHint(AnumLocalizations(Locale(s.arabic ? 'ar' : 'en')),
         readAmount(text, signed: signed)) ??
     s.t('badAmount');
+
+/// Opens the Vehicles module by its named route (docs/vehicles.md#mobile).
+void openVehiclesRoute(BuildContext context) =>
+    Navigator.of(context).pushNamed(RecordModuleRoutes.vehicles);

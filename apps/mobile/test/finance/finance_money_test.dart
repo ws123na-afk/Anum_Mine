@@ -10,7 +10,11 @@ import 'package:anum_mobile/features/finance/finance_depth_controller.dart';
 import 'package:anum_mobile/features/finance/finance_depth_models.dart';
 import 'package:anum_mobile/features/finance/finance_income_screens.dart';
 import 'package:anum_mobile/features/finance/finance_keyword_rules.dart';
+import 'package:anum_mobile/features/finance/finance_screen.dart';
+import 'package:anum_mobile/src/localization/anum_localizations.dart';
+import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../finance_test.dart' show FakeFinance, app, open;
@@ -299,6 +303,59 @@ void main() {
       await pumpModule(tester, KeywordRulesScreen(controller: depthFor(api)));
       expect(find.byKey(const Key('records-denied')), findsOneWidget);
     });
+  });
+
+  testWidgets('a vehicle cost with no record opens Vehicles on the phone',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final finance = FakeFinance()
+      ..suggestionItems.add({
+        'key': 'attribution:vehicle_record:fin_txn_9',
+        'producer': 'attribution',
+        'kind': 'attribution',
+        'detected': 'This looks like a fuel or parking cost of Example car.',
+        'why': 'Record it on the vehicle to track its cost.',
+        'params': {
+          'dimension': 'vehicle',
+          'vehicle': 'Example car',
+          'record': 'none'
+        },
+        'evidence': <Object?>[],
+        'confidence': '0.5',
+        'effect': <Object?>[],
+        'action': {
+          'kind': 'none',
+          'transaction_ids': <String>[],
+          'category': null,
+          'subcategory_id': null,
+          'transaction_type': null,
+        },
+        'href': '#vehicles',
+        'occurred_on': '2026-11-01',
+        'payload_hash': 'cd12' * 16,
+      });
+    final c = FinanceController(finance);
+    var opened = 0;
+    await tester.pumpWidget(MaterialApp(
+      theme: AnumTheme.dark(),
+      localizationsDelegates: const [
+        AnumLocalizations.delegate,
+        ...GlobalMaterialLocalizations.delegates
+      ],
+      home: FinanceScreen(controller: c, openVehicles: (_) => opened++),
+    ));
+    await tester.pumpAndSettle();
+    await c.select(FinanceSection.suggestions);
+    await tester.pumpAndSettle();
+    final button = find
+        .byKey(const Key('sug-vehicles-attribution:vehicle_record:fin_txn_9'));
+    await tester.dragUntilVisible(
+        button, find.byType(Scrollable).first, const Offset(0, -300));
+    await tapVisible(tester, button);
+    expect(opened, 1);
+    expect(find.text('Record it in Vehicles'), findsOneWidget);
   });
 
   testWidgets('the Finance menu reaches every parity page', (tester) async {
