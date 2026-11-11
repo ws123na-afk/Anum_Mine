@@ -758,3 +758,58 @@ def test_download_and_delete_my_data_cover_my_calls(client: TestClient) -> None:
     remaining = client.get("/api/v1/calls/log", headers=OTHER).json()
     assert remaining["total"] == 1 and remaining["items"][0]["notes"] == "theirs"
     assert client.get(f"/api/v1/calls/contacts/{sara['id']}", headers=OTHER).status_code == 200
+
+
+def test_an_approved_ai_call_does_its_store_work_off_the_event_loop(client: TestClient, twilio: Twilio, gateway: FakeGateway,
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """``place_ai_call`` is an async tool handler on the loop that serves every user: the calls store, the Contacts
+    directory's do-not-contact read and the workspace model lookup run in worker threads (docs/realtime.md#event-loop),
+    as ``test_routes_off_event_loop.py`` checks for routes. Success and a provider failure both write off the loop."""
+    from contextlib import contextmanager
+
+    from anum_api.contacts import service as contacts_service
+
+    connect(client)
+    sara = contact(client)
+    consent(client, sara["id"])
+    on_loop: list[str] = []
+
+    def note(name: str) -> None:
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(name)
+        except RuntimeError:
+            pass  # a worker thread: allowed
+
+    original_store = service.open_calls_store
+
+    @contextmanager
+    def guarded_store(context: TenantContext):  # type: ignore[no-untyped-def]
+        note("open_calls_store")
+        with original_store(context) as store:
+            yield store
+
+    original_block, original_gateway = contacts_service.do_not_contact_block, ai.call_gateway
+
+    def guarded_block(*args: Any, **kwargs: Any) -> Any:
+        note("do_not_contact_block")
+        return original_block(*args, **kwargs)
+
+    def guarded_gateway(context: TenantContext) -> Any:
+        note("call_gateway")
+        return original_gateway(context)
+
+    monkeypatch.setattr(service, "open_calls_store", guarded_store)
+    monkeypatch.setattr(contacts_service, "do_not_contact_block", guarded_block)
+    monkeypatch.setattr(ai, "call_gateway", guarded_gateway)
+    owner = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_calls", roles=["owner"])
+    args = {"contact_id": sara["id"], "phone_number": "+971501234567", "purpose": "Confirm delivery", "script": "Ask about Thursday.", "max_seconds": 60}
+
+    placed = asyncio.run(service.place_ai_call(ToolCall(name=service.AI_CALL_TOOL, arguments=args), owner))
+    assert placed.status == "succeeded" and len(twilio.placed()) == 1
+    twilio.fail_calls = True
+    failed = asyncio.run(service.place_ai_call(ToolCall(name=service.AI_CALL_TOOL, arguments=args), owner))
+    assert failed.status == "failed" and "unverified" in failed.summary
+    assert on_loop == []
+    statuses = sorted(item["status"] for item in client.get("/api/v1/calls/ai-calls", headers=MEMBER).json()["items"])
+    assert statuses == ["calling", "failed"]

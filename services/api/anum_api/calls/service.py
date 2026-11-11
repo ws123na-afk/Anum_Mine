@@ -6,6 +6,7 @@ agent tools (``calls.tools``), so every path applies the same checks.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -270,6 +271,35 @@ async def place_ai_call(call: ToolCall, context: TenantContext) -> ToolResult:
         max_seconds = 0
     if not purpose or not script or max_seconds < 30:
         return _failed("Not called: the approved call has no purpose, script or length.")
+    # Every database step runs in a worker thread, each its own short unit of work: the tool handler
+    # runs on the event loop that serves every user (docs/realtime.md#event-loop).
+    claimed = await asyncio.to_thread(_claim_ai_call, context, args, number, purpose, script, language, max_seconds)
+    if isinstance(claimed, ToolResult):
+        return claimed
+    entry, request, contact, route, sender, provider = claimed
+    try:
+        placed = await provider.place_call(
+            to=number, from_=sender, answer_url=webhook_url(route, "ai", entry.id),
+            status_url=webhook_url(route, "status", entry.id), time_limit=max_seconds,
+        )
+    except ProviderError as exc:
+        await asyncio.to_thread(_record_ai_call_failed, context, entry.id, request.id, exc.detail)
+        return _failed(f"Not called: {exc.detail}", stage="provider")
+    await asyncio.to_thread(_record_ai_call_placed, context, entry.id, placed.provider_call_id)
+    return ToolResult(
+        status="succeeded",
+        summary=f"Calling {contact.name} with the AI assistant (at most {max_seconds} seconds).",
+        output={"call_id": entry.id, "request_id": request.id},
+        audit_metadata={"tool": AI_CALL_TOOL, "call_id": entry.id, "request_id": request.id, "max_seconds": max_seconds},
+    )
+
+
+def _claim_ai_call(context: TenantContext, args: dict[str, Any], number: str, purpose: str, script: str, language: str,
+                   max_seconds: int) -> ToolResult | tuple[CallEntry, AiCallRequest, CallContact, str, str, VoiceProvider]:
+    """Check the approval against the records as they are now and record the call as dialling (worker thread).
+
+    Returns a refusal, or what the provider call needs. The model gateway is looked up here too: it reads the
+    workspace's model settings."""
     gateway = ai.call_gateway(context)
     now = utc_now()
     request_id = str(args.get("request_id") or "")
@@ -314,32 +344,24 @@ async def place_ai_call(call: ToolCall, context: TenantContext) -> ToolResult:
         store.add_call(entry)
         request = request.model_copy(update={"status": AiRequestStatus.CALLING, "call_id": entry.id, "decided_by": context.user_id, "updated_at": now})
         store.save_request(request)
-        route, sender = account.route_id, account.from_number
-        provider = voice(account)
-    try:
-        placed = await provider.place_call(
-            to=number, from_=sender, answer_url=webhook_url(route, "ai", entry.id),
-            status_url=webhook_url(route, "status", entry.id), time_limit=max_seconds,
-        )
-    except ProviderError as exc:
-        with open_calls_store(context) as store:
-            failed = store.get_call(entry.id)
-            if failed is not None:
-                store.save_call(failed.model_copy(update={"status": CallStatus.FAILED, "outcome": Outcome.FAILED, "updated_at": utc_now()}))
-            current = store.get_request(request.id)
-            if current is not None:
-                store.save_request(current.model_copy(update={"status": AiRequestStatus.FAILED, "error": exc.detail, "updated_at": utc_now()}))
-        return _failed(f"Not called: {exc.detail}", stage="provider")
+        return entry, request, contact, account.route_id, account.from_number, voice(account)
+
+
+def _record_ai_call_failed(context: TenantContext, call_id: str, request_id: str, detail: str) -> None:
     with open_calls_store(context) as store:
-        current = store.get_call(entry.id)
+        failed = store.get_call(call_id)
+        if failed is not None:
+            store.save_call(failed.model_copy(update={"status": CallStatus.FAILED, "outcome": Outcome.FAILED, "updated_at": utc_now()}))
+        current = store.get_request(request_id)
         if current is not None:
-            store.save_call(current.model_copy(update={"provider_call_id": placed.provider_call_id, "updated_at": utc_now()}))
-    return ToolResult(
-        status="succeeded",
-        summary=f"Calling {contact.name} with the AI assistant (at most {max_seconds} seconds).",
-        output={"call_id": entry.id, "request_id": request.id},
-        audit_metadata={"tool": AI_CALL_TOOL, "call_id": entry.id, "request_id": request.id, "max_seconds": max_seconds},
-    )
+            store.save_request(current.model_copy(update={"status": AiRequestStatus.FAILED, "error": detail, "updated_at": utc_now()}))
+
+
+def _record_ai_call_placed(context: TenantContext, call_id: str, provider_call_id: str | None) -> None:
+    with open_calls_store(context) as store:
+        current = store.get_call(call_id)
+        if current is not None:
+            store.save_call(current.model_copy(update={"provider_call_id": provider_call_id, "updated_at": utc_now()}))
 
 
 AI_CALL_DEFINITION = ToolDefinition(
