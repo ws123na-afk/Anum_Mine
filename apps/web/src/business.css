@@ -27,6 +27,11 @@
 /* Tables: the first column carries the name and a muted second line; low-priority columns hide on small screens. */
 .bzTable th[scope="row"] { min-width: 160px; }
 .bzTable .linkButton { font-weight: 600; text-align: start; }
+/* Sortable column headers (Accounts): the header text is the button; the arrow only hints. */
+.bzSortButton { align-items: center; background: none; border: 0; box-shadow: none; color: inherit; display: inline-flex; font: inherit; font-weight: inherit; gap: 4px; min-height: 0; padding: 0; text-transform: inherit; }
+.bzSortButton svg { height: 14px; opacity: .6; width: 14px; }
+.bzSortButton:hover, .bzSortButton:focus-visible { background: none; color: var(--d-text); text-decoration: underline; }
+.bzTable th[aria-sort="ascending"] .bzSortButton svg, .bzTable th[aria-sort="descending"] .bzSortButton svg { opacity: 1; }
 @media (max-width: 1023px) { .bzHideMd { display: none; } }
 @media (max-width: 599px) { .bzHideSm { display: none; } .bzTable th[scope="row"] { min-width: 0; } }
 .bzMore { display: grid; gap: var(--d-s2); justify-items: center; }

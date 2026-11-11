@@ -273,7 +273,7 @@ test('the Accounts tab says there are no accounts and gives the next step', asyn
   await page.route('http://localhost:8000/api/v1/business/accounts?*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, limit: 25, offset: 0 }) }));
   await page.goto('/#business-accounts');
   await expect(page.getByRole('heading', { name: 'No client accounts yet' })).toBeVisible();
-  await expect(page.getByText(/An account is created with its first lead/)).toBeVisible();
+  await expect(page.getByText(/Add the first one here, or add a lead in Leads/)).toBeVisible();
 });
 
 test('the Accounts tab shows a failed list with a retry that works', async ({ page }) => {

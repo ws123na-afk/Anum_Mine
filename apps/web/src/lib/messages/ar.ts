@@ -70,6 +70,7 @@ import { businessPipelineAr } from './businessPipeline.ar.ts';
 import { businessSupportAr } from './businessSupport.ar.ts';
 import { filesVersionsAr } from './filesVersions.ar.ts';
 import { invoiceMoneyAr } from './invoiceMoney.ar.ts';
+import { businessAccountsAr } from './businessAccounts.ar.ts';
 import { invoiceSendAr } from './invoiceSend.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
 import { portalAr } from './portal.ar.ts';
@@ -173,6 +174,7 @@ export const ar: Record<MessageKey, Message> = {
   ...filesVersionsAr,
   ...invoicesAr,
   ...invoiceMoneyAr,
+  ...businessAccountsAr,
   ...invoiceSendAr,
   ...portalAr,
   ...brevoAr,

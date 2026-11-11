@@ -11,6 +11,7 @@ import type {
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
 import { ticketQuery, type TicketListQuery } from './businessSupport';
+import { fileNameFromDisposition, saveBlob } from './fileSave';
 
 const BASE = '/api/v1/business';
 const json = (method: string, body?: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -64,7 +65,7 @@ export function logActivity(leadId: string, kind: string, summary: string, key: 
   return apiRequest(`${BASE}/leads/${id(leadId)}/activities`, { ...json('POST', { kind, summary }), headers: { 'content-type': 'application/json', 'idempotency-key': key } });
 }
 
-export const updateContact = (contactId: string, body: { consent_basis?: ConsentBasis; role_title?: string }) => apiRequest<BusinessContact>(`${BASE}/contacts/${id(contactId)}`, json('PATCH', body));
+export const updateContact = (contactId: string, body: { consent_basis?: ConsentBasis; role_title?: string } | Record<string, unknown>) => apiRequest<BusinessContact>(`${BASE}/contacts/${id(contactId)}`, json('PATCH', body));
 export const contactDoNotContact = (contactId: string, on: boolean, reason: string) => apiRequest<BusinessContact>(`${BASE}/contacts/${id(contactId)}/do-not-contact`, json('POST', { on, reason }));
 export const addContact = (accountId: string, body: Record<string, unknown>) => apiRequest<BusinessAccountDetail>(`${BASE}/accounts/${id(accountId)}/contacts`, json('POST', body));
 
@@ -134,9 +135,22 @@ export const deleteUsage = (entryId: string) => apiRequestVoid(`${BASE}/usage/${
 export const importAiUsage = (body: Record<string, unknown>) => apiRequest<BusinessUsageEntry>(`${BASE}/usage/import-ai`, json('POST', body));
 export const getProfitability = (projectId: string) => apiRequest<BusinessProfitability>(`${BASE}/projects/${id(projectId)}/profitability`, { method: 'GET' });
 
-// accounts (pickers)
-export const listAccounts = (q: { q?: string; limit: number; offset: number }) => apiRequest<BusinessPage<BusinessAccountRow>>(`${BASE}/accounts${query(q)}`, { method: 'GET' });
+// accounts and their contacts (the Accounts tab and the pickers; docs/business.md#accounts-and-contacts)
+export const listAccounts = (q: { q?: string; sort?: string; desc?: boolean; limit: number; offset: number }) =>
+  apiRequest<BusinessPage<BusinessAccountRow>>(`${BASE}/accounts${query({ ...q, desc: q.desc ? 'true' : undefined })}`, { method: 'GET' });
 export const getAccount = (accountId: string) => apiRequest<BusinessAccountDetail>(`${BASE}/accounts/${id(accountId)}`, { method: 'GET' });
+export const createAccount = (body: Record<string, unknown>) => apiRequest<BusinessAccountDetail>(`${BASE}/accounts`, json('POST', body));
+export const updateAccount = (accountId: string, body: Record<string, unknown>) => apiRequest<BusinessAccountDetail>(`${BASE}/accounts/${id(accountId)}`, json('PATCH', body));
+export const deleteAccount = (accountId: string) => apiRequestVoid(`${BASE}/accounts/${id(accountId)}`, { method: 'DELETE' });
+export const accountDoNotContact = (accountId: string, on: boolean, reason: string) => apiRequest<BusinessAccountDetail>(`${BASE}/accounts/${id(accountId)}/do-not-contact`, json('POST', { on, reason }));
+export const deleteContact = (contactId: string) => apiRequestVoid(`${BASE}/contacts/${id(contactId)}`, { method: 'DELETE' });
+
+/** Downloads the account list (the same search and order) as a CSV made by the server and returns the file name. */
+export async function exportAccounts(q: { q?: string; sort?: string; desc?: boolean }): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}${BASE}/accounts/export${query({ ...q, desc: q.desc ? 'true' : undefined })}`, { headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return saveBlob(await response.blob(), fileNameFromDisposition(response.headers.get('content-disposition'), 'anum-accounts.csv'));
+}
 
 // support tickets (/api/v1/business/support, docs/business.md#support-tickets)
 const SUPPORT = `${BASE}/support`;
