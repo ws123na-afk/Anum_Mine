@@ -111,6 +111,7 @@ PUBLIC_ROUTES: dict[str, str] = {
     "GET /api/v1/portal/tickets": "Customer portal link token.",
     "GET /api/v1/portal/tickets/{ticket_id}": "Customer portal link token.",
     "POST /api/v1/portal/tickets": "Customer portal link token.",
+    "POST /api/v1/portal/tickets/{ticket_id}/messages": "Customer portal link token (one client account; 20 messages a day per link).",
 }
 
 # Authenticated routes with no workspace permission check. Each acts only on the caller's
