@@ -63,9 +63,12 @@ All tokens live in the first two blocks of `apps/web/src/styles.css` (dark in `:
 | Tabs | The segmented style: a well with the current tab raised. Pills stay for filters. |
 | Dialogs and drawers | Raised surface, `--d-elev-2`, 200 ms enter with ease-out; Cancel first focus for destructive confirmations. |
 | Toasts | Raised surface, enter 200 ms, readable for the time set in code, a live region. |
-| States | `LoadingSkeleton` (fades in after 100 ms), `PaneEmpty` (icon tile, title, sentence, action), `PaneProblem` (what failed, Try again), `PaneDenied` (who can do it). |
+| States | `LoadingSkeleton` (fades in after 100 ms), `Empty` (the `paneEmpty` look: icon tile, title, sentence, next action), `PaneProblem` (what failed, Try again), `PaneDenied` (who can do it), `Notice` (a one-line status read out politely, or an error with role alert). |
+| Paging | `Pager` (`PageParts.tsx`): "21 to 40 of 54" (or "21 to 40" for cursor lists) with Previous and Next, labelled for screen readers per list, hidden when the list fits one page. |
 | Badges | Pill, 12 % tint of the status colour, the status in words, 12 px, 600. |
 | Avatars | Jade disc with initials in 600 weight; no white ring. |
+
+<a id="shared-list-parts"></a>The shared list parts (`Notice`, `Empty`, `Pager` in `PageParts.tsx`) replace the local copies page by page: Favorites, the Notifications page, Calls & Meetings, the Document vault, the audit log, Skills and the customer portal block use them (November 2026); other pages move when they are next changed, so untouched pages are not churned.
 
 ## Pages
 

@@ -1,6 +1,6 @@
 // Favorites, knowledge base and reports API (docs/knowledge-base.md, docs/reports.md).
 import type {
-  Favorite, FavoritePage, FavoriteType, KnowledgeAnswer, KnowledgeCollection, KnowledgeItem, KnowledgeItemKind,
+  Favorite, FavoritePage, FavoriteSort, FavoriteType, KnowledgeAnswer, KnowledgeCollection, KnowledgeItem, KnowledgeItemKind,
   KnowledgeItemPage, KnowledgeReindexResult, KnowledgeSearchResult, Report, ReportCreatedByKind, ReportGenerator,
   ReportPage, ReportShareResult, SearchMode, Visibility,
 } from '@anum/contracts';
@@ -24,8 +24,13 @@ async function send(path: string, method: 'DELETE'): Promise<void> {
 }
 
 // ---- Favorites ----
-export const listFavorites = (type: FavoriteType | null, offset = 0, limit = 30) =>
-  apiRequest<FavoritePage>(`/api/v1/favorites${query({ item_type: type, offset, limit })}`, { method: 'GET' });
+export const listFavorites = (type: FavoriteType | null, offset = 0, limit = 30, options: { q?: string; sort?: FavoriteSort } = {}) =>
+  apiRequest<FavoritePage>(`/api/v1/favorites${query({ item_type: type, q: options.q?.trim(), sort: options.sort, offset, limit })}`, { method: 'GET' });
+/** Put one favorite just before or just after another in the caller's own order (sort=custom). */
+export const moveFavorite = (favoriteId: string, anchor: { before_id: string } | { after_id: string }) =>
+  apiRequest<Favorite>(`/api/v1/favorites/${enc(favoriteId)}/move`, { method: 'POST', body: JSON.stringify(anchor) });
+/** Unstar by the favorite's own id (the Favorites page; other views unstar by item). */
+export const removeFavoriteById = (favoriteId: string) => send(`/api/v1/favorites/${enc(favoriteId)}`, 'DELETE');
 export const addFavorite = (type: FavoriteType, id: string) =>
   apiRequest<Favorite>('/api/v1/favorites', { method: 'POST', body: JSON.stringify({ item_type: type, item_id: id }) });
 export const removeFavorite = (type: FavoriteType, id: string) => send(`/api/v1/favorites${query({ item_type: type, item_id: id })}`, 'DELETE');

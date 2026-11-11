@@ -165,3 +165,29 @@ button.secondary.dangerText { color: var(--d-stop); }
 .kbKpis { margin-bottom: var(--d-s3); }
 .kbBanners { display: grid; gap: var(--d-s2); margin-bottom: var(--d-s3); }
 @media (min-width: 1024px) { .kbBanners { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); } }
+
+/* Favorites page (Favorites.tsx): search and sort beside the type chips, rows you can drag. */
+.favToolbar { align-items: end; display: flex; flex: 1 1 420px; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: flex-end; min-width: 0; }
+.favToolbar .field { margin: 0; min-width: 0; }
+.favSearch { flex: 1 1 220px; max-width: 360px; }
+.favSort { flex: 0 1 180px; }
+.favToolbar .field > span:first-child { font-size: var(--text-sm); }
+.favSearchBox { align-items: center; display: flex; position: relative; }
+.favSearchBox svg { color: var(--d-faint); height: 16px; inset-inline-start: var(--d-s3); pointer-events: none; position: absolute; width: 16px; }
+.favSearchBox input { padding-inline-start: calc(var(--d-s3) + 22px); width: 100%; }
+.favoritesPane .paneHead > .libraryChips { flex-basis: 100%; margin-bottom: 0; }
+.favHint { font-size: var(--text-sm); padding-bottom: 0; }
+.favList { padding: 0 var(--d-s4); }
+.favRow { gap: var(--d-s2); }
+.favRow .libraryMain { flex: 1 1 auto; }
+.favRow .cellActions { flex: none; }
+.favGrip { color: var(--d-faint); cursor: grab; display: inline-flex; flex: none; }
+.favGrip svg { height: 18px; width: 18px; }
+.favRow.dragging { opacity: .55; }
+.favRow.dropTarget { box-shadow: inset 0 2px 0 var(--d-accent); }
+.favUndo { margin-inline-start: var(--d-s2); }
+@media (max-width: 767px) {
+  .favList { padding: 0 var(--d-s3); }
+  .favRow .cellActions .iconButton { height: 44px; width: 44px; }
+  .favGrip { display: none; }
+}

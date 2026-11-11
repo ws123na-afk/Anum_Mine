@@ -19,9 +19,17 @@ Favorites lists everything you starred. Your favorites are private to you: nobod
 ## Find and open a favorite
 
 1. Open **Favorites** in the sidebar, under **More**.
-2. Click **All**, or a type such as **Conversation**, **Task**, **Report**, **Collection**, **File**, **Memory**, **Automation** or **Agent**, to filter the list.
-3. Click an item's name to open it. Reports and collections open at that item; other types open their page.
-4. The list shows 30 items at a time. Click **Show more** to load the next ones.
+2. Type in **Search** to find a starred item by name.
+3. Click **All**, or a type such as **Conversation**, **Task**, **Report**, **Collection**, **File**, **Memory**, **Automation** or **Agent**, to filter the list.
+4. Choose a **Sort**: **My order**, **Newest first**, **Oldest first** or **Name, A to Z**.
+5. Click an item's name to open it. Reports and collections open at that item; other types open their page.
+6. The list shows 30 items at a time. Use **Next** and **Previous** at the bottom to page.
+
+## Put favorites in your own order
+
+1. Choose the sort **My order**.
+2. Drag a row by its handle to where you want it, or use the **Move up** and **Move down** buttons on the row (they also work with the keyboard).
+3. The order is saved at once and is the same on every device. A new star goes to the top.
 
 Your first starred items also appear under **Favorites** on the empty AI Chat home, with **See all** to come back here.
 
@@ -29,7 +37,7 @@ Your first starred items also appear under **Favorites** on the empty AI Chat ho
 
 1. Open **Favorites** in the sidebar.
 2. Click the remove button (the crossed star, **Remove**) on the item's row.
-3. A notice confirms it was removed from favorites. The item itself is not deleted.
+3. A notice confirms it was removed from favorites, with **Undo** to star it again. The item itself is not deleted.
 
 ## Who can do this
 

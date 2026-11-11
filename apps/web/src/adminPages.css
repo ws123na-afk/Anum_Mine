@@ -34,11 +34,9 @@
   .skillRow .featureSkillActions { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
 }
 
-/* Favorites (Favorites.tsx): a table of starred items with type chips in the pane head. */
+/* Favorites (Favorites.tsx): the list of starred items with search, sort and type chips in the pane head (library.css). */
 .favoritesPane .paneHead { align-items: flex-start; }
 .favoritesPane .libraryChips { margin: 0; }
-.favoritesTable .cellButton strong { align-items: center; display: inline-flex; gap: var(--d-s1); }
-.favoritesTable .cellButton svg { height: 14px; width: 14px; }
 
 /* Autonomy (AutonomyViews.tsx): the short panels stack beside the long one so the columns end
    together; the organisation guardrails take the full width with their fields in rows. */

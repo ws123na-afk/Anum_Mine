@@ -120,17 +120,28 @@ A favorite stars a `conversation`, `task`, `agent` (installed skill), `file`, `r
   At most 500 per user.
 - Deleting a report or collection removes the deleting user's star of it; stars other users
   kept read as "gone" when opened.
+- **The person's own order.** `position` (migration `0171_favorites_position`, nullable,
+  expand only) is where the person put the item. `sort=custom` orders by it, rows without a
+  place last and newest first among themselves (so before anyone arranges anything it equals
+  newest first). A move renumbers all of the caller's rows 0, 1, 2... in one transaction, so
+  every device shows the same order and two moves never leave a tie; a new star goes first
+  in an arranged list (one below the lowest place).
 
 | Route | |
 | --- | --- |
-| `GET /api/v1/favorites?item_type=&limit=&offset=` | newest first, with `total` |
+| `GET /api/v1/favorites?item_type=&q=&sort=&limit=&offset=` | newest first unless `sort` is `oldest`, `name` or `custom`; `q` matches the label (LIKE characters match as typed); with `total` |
 | `POST /api/v1/favorites {"item_type","item_id"}` | star (201, or 200 if already starred) |
+| `POST /api/v1/favorites/{id}/move {"before_id"} or {"after_id"}` | put it just before or after another of the caller's favorites; exactly one anchor (422 otherwise), 404 when either is not the caller's |
 | `DELETE /api/v1/favorites?item_type=&item_id=` | unstar by item (204) |
-| `DELETE /api/v1/favorites/{id}` | unstar by favorite id |
+| `DELETE /api/v1/favorites/{id}` | unstar by favorite id (the Favorites page uses it) |
 
 ### Where favorites appear
 
-- **Web**: the Favorites page (type filters, paging, open, remove), a star on reports,
+- **Web**: the Favorites page: search (waits for a pause in typing), sort (**My order**,
+  newest, oldest, name), type filters, paging with the shared Pager, open, remove with
+  **Undo**, and with **My order** a drag handle and **Move up** / **Move down** on each row
+  (keyboard reachable; moving past the page edge reads the neighbour from the API). Other
+  sorts turn arranging off and say how to turn it back on. Also a star on reports,
   collections and the open conversation, and the first starred items on the empty
   Assistant home. Opening a report or collection deep-links it (`#reports/<id>`,
   `#knowledge/<id>`); other types open their view.
@@ -158,7 +169,8 @@ The Knowledge Base follows the shared [page layout](design/anum360.md#page-layou
 
 Loading; empty with the next action (create a collection, add a note, star something);
 errors that name what failed with Try again; permission denied that says who can do it;
-long lists paged ("Show more") and filtered (title, tag, kind; type for favorites).
+long lists paged ("Show more", or Previous and Next for favorites) and filtered (title, tag,
+kind; type, name search and sort for favorites).
 English and Arabic, right to left. Covered by `services/api/tests/test_library.py`,
 `test_postgres_library.py`, `apps/web/test/library.test.ts`, `apps/web/e2e/library.spec.ts`
 (and the axe gate in `ui-gate.spec.ts`) and `apps/mobile/test/library_test.dart`.
