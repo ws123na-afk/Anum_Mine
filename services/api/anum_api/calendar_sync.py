@@ -59,7 +59,7 @@ from .calendar_providers import (
     PushRefused,
     RemoteEvent,
 )
-from .calendar_recurrence import all_day_bounds, all_day_days
+from .calendar_recurrence import all_day_bounds, all_day_days, occurrences, series_end
 from .email_providers import InvalidReferenceError, MailProviderError, OAuthClient
 from .schemas import RiskLevel, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
@@ -70,6 +70,12 @@ SEND_INVITATIONS_TOOL = "calendar.send_invitations"
 SYNC_LEASE = timedelta(minutes=3)
 MAX_PUSH_PER_PASS = 100
 MAX_EVENT_DURATION = timedelta(days=14)
+# Series whose occurrences removed in ANUM are looked up at the provider in one send: the skipped
+# starts are read in groups (a gap longer than this starts a new group), nearest to now first.
+SKIPPED_GROUP_GAP = timedelta(days=31)
+MAX_SKIPPED_READS = 20
+# Series re-read in one pass because the provider reported removed occurrences it could not name.
+MAX_SERIES_REREAD = 500
 # Events organised by someone else carry this source reference: they follow the provider.
 GUEST_REF = "attendee"
 
@@ -581,14 +587,74 @@ def _rebuilt(event: CalendarEvent) -> CalendarEvent | None:
         return None
 
 
-def _prune_flattened(store: Any, connection: CalendarConnection, master_id: str, keep: set[str], summary: SyncSummary) -> None:
+def _prune_flattened(
+    store: Any, connection: CalendarConnection, master_id: str, keep: set[str], summary: SyncSummary, instance_ids: list[str] | None = None
+) -> None:
     """Remove the single events an earlier sync stored for the instances of ``master_id`` (Google
-    instance ids are ``<master>_<original start>``), except ``keep`` and unsent local edits."""
-    for local in store.by_external_prefix(connection.id, f"{master_id}_"):
+    instance ids are ``<master>_<original start>``; Graph's are named by ``instance_ids``, read
+    with the master), except ``keep`` and unsent local edits."""
+    candidates = {e.id: e for e in store.by_external_prefix(connection.id, f"{master_id}_")}
+    for external_id in instance_ids or []:
+        found = store.by_external(connection.id, external_id)
+        if found is not None:
+            candidates[found.id] = found
+    for local in candidates.values():
         if local.external_id in keep or local.sync_state == "pending_push" or local.recurrence is not None or local.series_id is not None:
             continue
         store.delete(local.id)
         summary.deleted += 1
+
+
+def _same_run(local: CalendarEvent, remote: RemoteEvent) -> bool:
+    """Whether the provider's series makes the same occurrences as ANUM's: the same start, length
+    and end, and the same starts over the sync window (a weekly rule without weekdays and the same
+    rule naming the start's weekday are the same series)."""
+    if local.recurrence is None or remote.recurrence is None:
+        return local.recurrence == remote.recurrence
+    if (local.starts_at, local.ends_at, local.all_day) != (remote.starts_at, remote.ends_at, remote.all_day):
+        return False
+    if local.recurrence == remote.recurrence and (local.timezone or "UTC") == (remote.timezone or "UTC"):
+        return True
+    duration = local.ends_at - local.starts_at
+    since, until = _window()
+    mine = occurrences(local.recurrence, local.starts_at, local.timezone, since, until, duration=duration, limit=2000)
+    theirs = occurrences(remote.recurrence, remote.starts_at, remote.timezone, since, until, duration=duration, limit=2000)
+    return mine == theirs and series_end(local.recurrence, local.starts_at, local.timezone, duration) == series_end(
+        remote.recurrence, remote.starts_at, remote.timezone, duration
+    )
+
+
+def _same_series(local: CalendarEvent, remote: RemoteEvent) -> bool:
+    """Whether the provider's master says what ANUM's series says (only its occurrences changed):
+    the same run, title and place, a description that is ANUM's or the start of it (Graph gives a
+    preview), and the same people when the provider lists any."""
+    if not _same_run(local, remote) or remote.title != local.title or (remote.location or None) != (local.location or None):
+        return False
+    preview = " ".join((remote.description or "").split())
+    if preview and not " ".join((local.description or "").split()).startswith(preview):
+        return False
+    if remote.conference_url and remote.conference_url != local.conference_url:
+        return False
+    if remote.attendees:
+        theirs = {(a.email, a.response) for a in remote.attendees}
+        return theirs == {(a.email, a.response.value) for a in local.attendees if a.email}
+    return True
+
+
+def _merge_removed(store: Any, series: CalendarEvent, removed: list[datetime], now: datetime, summary: SyncSummary) -> bool:
+    """Add the occurrences removed at the provider to the series' skipped list (a changed
+    occurrence there is removed too, unless it has unsent edits). True when anything changed."""
+    new = [start for start in removed if start not in series.skipped]
+    if not new:
+        return False
+    for child in store.overrides(series.id):
+        if child.recurrence_start in new and child.sync_state != "pending_push":
+            store.delete(child.id)
+    series.skipped = sorted({*series.skipped, *new})
+    series.updated_at = now
+    series.updated_by = "sync"
+    summary.deleted += len(new)
+    return True
 
 
 def apply_master(store: Any, connection: CalendarConnection, remote: RemoteEvent, summary: SyncSummary, now: datetime) -> None:
@@ -603,7 +669,7 @@ def apply_master(store: Any, connection: CalendarConnection, remote: RemoteEvent
         store.delete(local.id)
         local = None
     if local is None:
-        _prune_flattened(store, connection, remote.external_id, set(), summary)
+        _prune_flattened(store, connection, remote.external_id, set(), summary, remote.instance_ids)
         if not _remote_times_ok(remote):
             summary.skipped += 1
             return
@@ -633,7 +699,15 @@ def apply_master(store: Any, connection: CalendarConnection, remote: RemoteEvent
         store.add(built)
         summary.created += 1
         return
-    if not _remote_changed(local, remote):
+    _prune_flattened(store, connection, remote.external_id, set(), summary, remote.instance_ids)
+    if not _remote_changed(local, remote) or (local.sync_state != "pending_push" and _same_series(local, remote)):
+        # The series itself is unchanged; Graph may still report occurrences removed in Outlook
+        # (a master's change key also moves when one of its occurrences is deleted).
+        changed = _merge_removed(store, local, remote.exdates, now, summary) if _same_run(local, remote) else False
+        if remote.etag and remote.etag != local.external_etag:
+            local.external_etag, local.synced_at, changed = remote.etag, now, True
+        if changed:
+            store.save(local)
         return
     if local.sync_state == "pending_push":
         if remote.updated_at < local.updated_at:
@@ -645,7 +719,7 @@ def apply_master(store: Any, connection: CalendarConnection, remote: RemoteEvent
     if not _remote_times_ok(remote):
         summary.skipped += 1
         return
-    reshaped = remote.starts_at != local.starts_at or remote.recurrence != local.recurrence
+    reshaped = not _same_run(local, remote)
     updated = _copy_remote(local, remote, now)
     updated.recurrence = remote.recurrence
     if reshaped:
@@ -660,7 +734,6 @@ def apply_master(store: Any, connection: CalendarConnection, remote: RemoteEvent
         summary.skipped += 1
         return
     store.save(built)
-    _prune_flattened(store, connection, remote.external_id, set(), summary)
     summary.updated += 1
 
 
@@ -730,6 +803,13 @@ def apply_flattened_master(store: Any, connection: CalendarConnection, remote: R
     in the same delta); a series ANUM held for it before is removed, and stored instances that
     are no longer read are removed too."""
     local = store.by_external(connection.id, remote.external_id)
+    if local is not None and local.recurrence is not None and (
+        (remote.etag and remote.etag == local.external_etag) or (remote.series_master and local.source != connection.provider.value)
+    ):
+        # ANUM's own series, or one unchanged since ANUM last read it: never replaced by single
+        # occurrences (Graph's occurrences of it are skipped; its exceptions still apply).
+        summary.skipped += 1
+        return
     if local is not None:
         store.delete(local.id)
         summary.deleted += 1
@@ -817,21 +897,41 @@ def _matches(instance: Any, original: datetime, series: CalendarEvent) -> bool:
     return instance.original_start is not None and instance.original_start == original
 
 
+def _skipped_groups(skipped: list[datetime], now: datetime) -> list[list[datetime]]:
+    """The skipped starts in groups to read at once (a gap over ``SKIPPED_GROUP_GAP`` starts a new
+    one), the ``MAX_SKIPPED_READS`` groups nearest to ``now`` first."""
+    groups: list[list[datetime]] = []
+    for start in sorted(set(skipped)):
+        if groups and start - groups[-1][-1] <= SKIPPED_GROUP_GAP:
+            groups[-1].append(start)
+        else:
+            groups.append([start])
+
+    def distance(group: list[datetime]) -> timedelta:
+        if group[0] <= now <= group[-1]:
+            return timedelta(0)
+        return min(abs(group[0] - now), abs(group[-1] - now))
+
+    return sorted(groups, key=distance)[:MAX_SKIPPED_READS]
+
+
 async def _remove_skipped(client: CalendarProviderClient, token: str, series: CalendarEvent) -> None:
-    """Remove at the provider the occurrences removed in ANUM (the series' skipped list) that fall
-    inside the sync window: one instances read for the series, then a delete per match. An
-    occurrence already removed there is not listed, so this is safe to repeat."""
-    since, until = _window()
-    wanted = [s for s in series.skipped if since <= s <= until]
-    if not wanted or not series.external_id:
+    """Remove at the provider the occurrences removed in ANUM (the series' skipped list), inside
+    the sync window or not: the instances around each group of skipped starts are read, then
+    each match is deleted. An occurrence already removed there is not listed, so this is safe to
+    repeat."""
+    if not series.skipped or not series.external_id:
         return
-    found = await client.instances(token, series.external_id, since=min(wanted) - timedelta(minutes=1), until=max(wanted) + series.duration + timedelta(minutes=1))
     notify = _approved(series)
-    for instance in found:
-        if instance.cancelled:
-            continue
-        if any(_matches(instance, original, series) for original in wanted):
-            await client.delete(token, instance.external_id, notify=notify)
+    for group in _skipped_groups(series.skipped, utc_now()):
+        found = await client.instances(
+            token, series.external_id, since=group[0] - timedelta(minutes=1), until=group[-1] + series.duration + timedelta(minutes=1)
+        )
+        for instance in found:
+            if instance.cancelled:
+                continue
+            if any(_matches(instance, original, series) for original in group):
+                await client.delete(token, instance.external_id, notify=notify)
 
 
 async def push_occurrence(client: CalendarProviderClient, token: str, child: CalendarEvent, series: CalendarEvent | None) -> CalendarEvent:
@@ -926,6 +1026,11 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
         until = now + timedelta(days=calendar_settings.days_ahead)
         for _ in range(4):
             delta = await client.changes(token, cursor, since=since, until=until)
+            # Graph names a removed occurrence only by its own id: when one matches nothing ANUM
+            # holds, the series ANUM holds for this connection are read again to find it.
+            reread = await asyncio.to_thread(_series_to_reread, context, connection.id, delta)
+            if reread:
+                await client.read_series(token, delta, reread, since=since, until=until)
             summary.full = summary.full or delta.full
             await asyncio.to_thread(_apply_delta, context, connection, delta, summary)
             cursor = delta.cursor or cursor
@@ -1046,6 +1151,18 @@ def _apply_delta(context: TenantContext, connection: CalendarConnection, delta: 
             if local is not None and local.sync_state != "pending_push":
                 events.delete(local.id)
                 summary.deleted += 1
+
+
+def _series_to_reread(context: TenantContext, connection_id: str, delta: Any) -> list[str]:
+    """The provider ids of the series held for this connection, when the delta removed something
+    ANUM cannot name (an occurrence of a series); empty otherwise."""
+    if not delta.removed:
+        return []
+    with open_calendar_store(context) as events:
+        if all(events.by_external(connection_id, external_id) is not None for external_id in delta.removed):
+            return []
+        read = {e.external_id for e in delta.events if e.is_master}
+        return [e.external_id for e in events.linked_series(connection_id, MAX_SERIES_REREAD) if e.external_id and e.external_id not in read]
 
 
 def _pending_push(context: TenantContext, connection_id: str) -> list[CalendarEvent]:

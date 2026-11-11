@@ -178,6 +178,14 @@ class SqlAlchemyCalendarStore:
         )
         return [_event(r) for r in self.session.scalars(statement.order_by(e.starts_at, e.id).limit(limit)).all()]
 
+    def linked_series(self, connection_id: str, limit: int) -> list[CalendarEvent]:
+        e = CalendarEventRecord
+        statement = select(e).where(
+            *self._scope(), e.connection_id == connection_id, e.external_id.is_not(None), e.recurrence.is_not(None), e.series_id.is_(None),
+        )
+        found = [_event(r) for r in self.session.scalars(statement.order_by(e.starts_at, e.id).limit(limit)).all()]
+        return [event for event in found if event.recurrence is not None]
+
     def count_linked(self, connection_id: str) -> int:
         e = CalendarEventRecord
         return int(

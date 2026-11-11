@@ -86,6 +86,28 @@ def test_a_google_series_replaces_the_instances_an_older_sync_flattened(client: 
     assert _scalar(database_engine, "select count(*) from calendar_events where external_id = 'plain_1'") == 1
 
 
+def test_an_outlook_deleted_occurrence_of_an_anum_series_is_skipped_in_postgres(client: TestClient, database_engine: Engine, fake: FakeCalendars) -> None:  # noqa: F811
+    from test_calendar_sync_series import graph_master, graph_occurrence
+
+    fake.graph_items = []
+    connection = _connect(client, "microsoft")
+    created = client.post("/api/v1/calendar/events", headers=A, json=_series(attendees=[]))
+    assert created.status_code == 201, created.text
+    series = created.json()
+    assert series["external_id"] == "m_new"
+    start = (utc_now() + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
+    starts = [start + timedelta(weeks=n) for n in range(4)]
+    fake.graph_masters["m_new"] = graph_master("m_new", start, fake.graph_writes[-1]["recurrence"], title="Weekly depot review",
+                                               changeKey="ck_deleted", end={"dateTime": (start + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.0000000"), "timeZone": "UTC"})
+    fake.graph_instances["m_new"] = [graph_occurrence(f"m_new_{n}", "m_new", s, "Weekly depot review") for n, s in enumerate(starts) if n != 2]
+    fake.graph_changes = [{"id": "m_new_2", "@removed": {"reason": "deleted"}}]
+    assert client.post(f"/api/v1/calendar/sync/connections/{connection['id']}/sync", headers=A).status_code == 200
+    skipped = _scalar(database_engine, "select skipped from calendar_events where id = :id", {"id": series["id"]})
+    assert skipped == [starts[2].isoformat()]
+    # Another tenant's sync never reads this workspace's series.
+    assert _scalar(database_engine, "select count(*) from calendar_events where external_id = 'm_new'", tenant=TENANT_B, workspace=WORKSPACE_B) == 0
+
+
 def test_occurrence_replies_and_email_reminders_persist_once(client: TestClient, database_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
     now = utc_now().replace(microsecond=0)
     start = now + timedelta(minutes=40)

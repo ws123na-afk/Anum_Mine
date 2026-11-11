@@ -14,8 +14,13 @@ Repeating events (docs/calendar.md#how-events-sync): Google lists a series as it
 RRULE in ``recurrence``) plus the instances changed or cancelled on their own; ANUM keeps the
 master as one series with its exceptions when the rule is inside ANUM's subset, and otherwise
 falls back to the series' single instances (``events/{id}/instances``). Graph's
-``calendarView/delta`` reports occurrences only, so Microsoft series stay flattened: each
-occurrence is one ANUM event. ANUM writes its own series with each provider's own fields (an
+``calendarView/delta`` reports occurrences only (each with its ``seriesMasterId``), so the
+Microsoft client reads the master of every series the delta names (``events/{id}``, its
+``recurrence``) and the series' instances in the window (``events/{id}/instances``): the
+pattern becomes one ANUM series when it is inside ANUM's subset, the instances changed on their
+own become exceptions, and an occurrence the rule makes that is missing from the instances was
+removed in Outlook. A pattern outside the subset keeps the series' occurrences as single
+events. ANUM writes its own series with each provider's own fields (an
 RRULE for Google, a ``recurrence`` pattern and range for Graph), all-day events as dates, and an
 occurrence's change or removal on the matching instance. Rules every client keeps (as the inbox clients do): only the
 fixed provider hosts are contacted, redirects are not followed, every call has a timeout,
@@ -35,7 +40,7 @@ from urllib.parse import quote, unquote, urlencode, urlsplit
 
 import httpx
 
-from .calendar_recurrence import Frequency, Recurrence, all_day_bounds, all_day_days, valid_zone, zone_of
+from .calendar_recurrence import Frequency, Recurrence, all_day_bounds, all_day_days, occurrences, valid_zone, zone_of
 from .email_providers import (
     MailProviderError,
     OAuthClient,
@@ -57,6 +62,15 @@ _EMAIL = re.compile(r"^[^@\s<>\"']{1,64}@[^@\s<>\"']{1,253}\.[A-Za-z]{2,}$")
 MAX_PAGES = 25
 # Google series whose rule ANUM cannot hold are read as their instances; at most this many a pass.
 MAX_FLATTENED_SERIES = 50
+# Microsoft series whose master and instances are read in one pass; the rest wait in the cursor
+# (at most ``MAX_GRAPH_SERIES_WAITING``) for the next passes.
+MAX_GRAPH_SERIES = 50
+MAX_GRAPH_SERIES_WAITING = 500
+# A Graph cursor written before series were read has no version: it starts one full sync.
+GRAPH_CURSOR_VERSION = 2
+# An occurrence missing from Graph's instances is only taken as removed this far inside the
+# window's edges: an occurrence moved on its own out of the window would otherwise look removed.
+REMOVAL_MARGIN = timedelta(days=14)
 _DATE = re.compile(r"^\d{8}$")
 _STAMP = re.compile(r"^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$")
 
@@ -121,10 +135,14 @@ class RemoteEvent:
     original_date: date | None = None
     # Graph's ``type``: ``occurrence`` (made by the rule), ``exception`` (changed on its own), ...
     instance_kind: str | None = None
+    # A Graph series master (read with ``events/{id}``) and the ids of its instances in the window,
+    # so the single events an older sync stored for them can be removed.
+    series_master: bool = False
+    instance_ids: list[str] = field(default_factory=list)
 
     @property
     def is_master(self) -> bool:
-        return bool(self.recurrence_lines)
+        return bool(self.recurrence_lines) or self.series_master
 
 
 @dataclass(frozen=True)
@@ -295,6 +313,11 @@ class CalendarProviderClient:
     async def instances(self, token: str, master_id: str, *, since: datetime, until: datetime) -> list[RemoteInstance]:
         """The occurrences of one series inside the window, with the start each originally had."""
         raise NotImplementedError
+
+    async def read_series(self, token: str, delta: CalendarDelta, master_ids: list[str], *, since: datetime, until: datetime) -> None:
+        """Add the series ``master_ids`` (their masters and instances) to ``delta``. Google's delta
+        already carries its masters, so only the Microsoft client reads them."""
+        return None
 
     async def _token(self, url: str, form: dict[str, str], previous_refresh: str | None = None) -> TokenGrant:
         _, body = await self.http.request("POST", url, form=form)
@@ -811,6 +834,148 @@ def graph_recurrence(rule: Recurrence, starts_at: datetime, zone_name: str | Non
     return {"pattern": pattern, "range": span}
 
 
+# Windows time zone names Graph may give (``recurrenceTimeZone``, ``originalStartTimeZone``) and
+# the IANA zone of each (CLDR windowsZones, territory 001). A name that is neither here nor an IANA
+# name leaves the series' occurrences as single events: ANUM never guesses a zone.
+WINDOWS_ZONES = {
+    "Dateline Standard Time": "Etc/GMT+12", "UTC-11": "Etc/GMT+11", "Hawaiian Standard Time": "Pacific/Honolulu",
+    "Alaskan Standard Time": "America/Anchorage", "Pacific Standard Time": "America/Los_Angeles",
+    "US Mountain Standard Time": "America/Phoenix", "Mountain Standard Time": "America/Denver",
+    "Central Standard Time": "America/Chicago", "Central America Standard Time": "America/Guatemala",
+    "Canada Central Standard Time": "America/Regina", "Mexico Standard Time": "America/Mexico_City",
+    "Central Standard Time (Mexico)": "America/Mexico_City", "Eastern Standard Time": "America/New_York",
+    "SA Pacific Standard Time": "America/Bogota", "Atlantic Standard Time": "America/Halifax",
+    "Venezuela Standard Time": "America/Caracas", "SA Western Standard Time": "America/La_Paz",
+    "Pacific SA Standard Time": "America/Santiago", "Newfoundland Standard Time": "America/St_Johns",
+    "E. South America Standard Time": "America/Sao_Paulo", "Argentina Standard Time": "America/Buenos_Aires",
+    "SA Eastern Standard Time": "America/Cayenne", "Greenland Standard Time": "America/Godthab",
+    "UTC-02": "Etc/GMT+2", "Azores Standard Time": "Atlantic/Azores", "Cape Verde Standard Time": "Atlantic/Cape_Verde",
+    "UTC": "UTC", "GMT Standard Time": "Europe/London", "Greenwich Standard Time": "Atlantic/Reykjavik",
+    "Morocco Standard Time": "Africa/Casablanca", "W. Europe Standard Time": "Europe/Berlin",
+    "Central Europe Standard Time": "Europe/Budapest", "Romance Standard Time": "Europe/Paris",
+    "Central European Standard Time": "Europe/Warsaw", "W. Central Africa Standard Time": "Africa/Lagos",
+    "GTB Standard Time": "Europe/Bucharest", "Middle East Standard Time": "Asia/Beirut", "Egypt Standard Time": "Africa/Cairo",
+    "South Africa Standard Time": "Africa/Johannesburg", "FLE Standard Time": "Europe/Kiev", "Israel Standard Time": "Asia/Jerusalem",
+    "Jordan Standard Time": "Asia/Amman", "Syria Standard Time": "Asia/Damascus", "Turkey Standard Time": "Europe/Istanbul",
+    "Arabic Standard Time": "Asia/Baghdad", "Arab Standard Time": "Asia/Riyadh", "Russian Standard Time": "Europe/Moscow",
+    "E. Africa Standard Time": "Africa/Nairobi", "Iran Standard Time": "Asia/Tehran", "Arabian Standard Time": "Asia/Dubai",
+    "Azerbaijan Standard Time": "Asia/Baku", "Caucasus Standard Time": "Asia/Yerevan", "Georgian Standard Time": "Asia/Tbilisi",
+    "Mauritius Standard Time": "Indian/Mauritius", "Afghanistan Standard Time": "Asia/Kabul",
+    "West Asia Standard Time": "Asia/Tashkent", "Pakistan Standard Time": "Asia/Karachi", "India Standard Time": "Asia/Calcutta",
+    "Sri Lanka Standard Time": "Asia/Colombo", "Nepal Standard Time": "Asia/Katmandu", "Central Asia Standard Time": "Asia/Almaty",
+    "Bangladesh Standard Time": "Asia/Dhaka", "Myanmar Standard Time": "Asia/Rangoon", "SE Asia Standard Time": "Asia/Bangkok",
+    "China Standard Time": "Asia/Shanghai", "Singapore Standard Time": "Asia/Singapore", "Taipei Standard Time": "Asia/Taipei",
+    "W. Australia Standard Time": "Australia/Perth", "Tokyo Standard Time": "Asia/Tokyo", "Korea Standard Time": "Asia/Seoul",
+    "Cen. Australia Standard Time": "Australia/Adelaide", "AUS Central Standard Time": "Australia/Darwin",
+    "E. Australia Standard Time": "Australia/Brisbane", "AUS Eastern Standard Time": "Australia/Sydney",
+    "West Pacific Standard Time": "Pacific/Port_Moresby", "Tasmania Standard Time": "Australia/Hobart",
+    "New Zealand Standard Time": "Pacific/Auckland", "Fiji Standard Time": "Pacific/Fiji", "Tonga Standard Time": "Pacific/Tongatapu",
+}
+_GRAPH_DAY_CODES = {name: code for code, name in _GRAPH_DAYS.items()}
+_GRAPH_POSITION = {name: index for index, name in _GRAPH_INDEX.items()}
+
+
+def graph_zone(name: Any) -> str | None:
+    """The IANA zone for a zone name Graph gives (an IANA name or a Windows name), or None."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    name = name.strip()
+    if name in WINDOWS_ZONES:
+        return WINDOWS_ZONES[name]
+    if name.upper() in {"UTC", "ETC/UTC", "COORDINATED UNIVERSAL TIME"}:
+        return "UTC"
+    return name if "/" in name and valid_zone(name) else None
+
+
+def parse_graph_recurrence(value: Any, starts_at: datetime, zone_name: str) -> Recurrence | None:
+    """Graph's ``patternedRecurrence`` as ANUM's rule, or None when it is outside ANUM's subset
+    (``relativeYearly``, a yearly date other than the series' first day, a relative month on more
+    than one weekday, a week that does not start on Monday for a weekly rule with an interval and
+    several days, a count or interval past ANUM's limits)."""
+    if not isinstance(value, dict) or not isinstance(value.get("pattern"), dict) or not isinstance(value.get("range"), dict):
+        return None
+    pattern, span = value["pattern"], value["range"]
+    interval = pattern.get("interval", 1)
+    if isinstance(interval, bool) or not isinstance(interval, int):
+        return None
+    days = [_GRAPH_DAY_CODES.get(str(day).lower()) for day in pattern.get("daysOfWeek") or []]
+    if None in days:
+        return None
+    first = starts_at.astimezone(zone_of(zone_name)).date()
+    values: dict[str, Any] = {"interval": interval}
+    kind = pattern.get("type")
+    if kind == "daily":
+        values["freq"] = "daily"
+    elif kind == "weekly":
+        week_start = str(pattern.get("firstDayOfWeek") or "sunday").lower()
+        if interval > 1 and len(days) > 1 and week_start != "monday":
+            return None
+        values.update(freq="weekly", by_weekday=days)
+    elif kind == "absoluteMonthly":
+        values.update(freq="monthly", by_monthday=pattern.get("dayOfMonth"))
+    elif kind == "relativeMonthly":
+        position = _GRAPH_POSITION.get(str(pattern.get("index") or "first").lower())
+        if len(days) != 1 or position is None:
+            return None
+        values.update(freq="monthly", by_weekday=days, by_setpos=position)
+    elif kind == "absoluteYearly":
+        if pattern.get("month") != first.month or pattern.get("dayOfMonth") != first.day:
+            return None
+        values["freq"] = "yearly"
+    else:
+        return None
+    kind = span.get("type")
+    try:
+        if kind == "endDate":
+            values["until"] = date.fromisoformat(str(span.get("endDate")))
+        elif kind == "numbered":
+            values["count"] = span.get("numberOfOccurrences")
+        elif kind != "noEnd":
+            return None
+        return Recurrence.model_validate(values)
+    except ValueError:
+        return None
+
+
+def _all_day_key(moment: datetime) -> datetime:
+    """An all-day occurrence compared by its day: the nearest UTC midnight (Graph may give the
+    original start as the local midnight of the event's zone, converted to UTC)."""
+    nearest = (moment + timedelta(hours=12)).astimezone(timezone.utc)
+    return datetime.combine(nearest.date(), time(0), timezone.utc)
+
+
+def graph_removed_occurrences(
+    rule: Recurrence, master: RemoteEvent, zone_name: str, instances: list[RemoteEvent], *, since: datetime, until: datetime
+) -> list[datetime] | None:
+    """The original starts of the occurrences the rule makes that Graph no longer lists (removed in
+    Outlook), or None when ANUM's reading of the rule does not match Graph's instances (an
+    instance whose original start the rule does not make): the series then stays flattened.
+
+    Only occurrences at least ``REMOVAL_MARGIN`` inside the window count, nothing is taken as
+    removed when no instance matches the rule at all, and a cancelled instance is still there
+    (it is applied as a cancelled occurrence)."""
+    duration = master.ends_at - master.starts_at
+    key = _all_day_key if master.all_day else (lambda moment: moment)
+    expected = {
+        key(start): start
+        for start in occurrences(rule, master.starts_at, zone_name, since - timedelta(days=1), until + timedelta(days=1), duration=duration, limit=2000)
+    }
+    present: set[datetime] = set()
+    for instance in instances:
+        if instance.original_start is None:
+            continue
+        original = key(instance.original_start)
+        if original not in expected:
+            if since <= instance.original_start < until:
+                return None
+            continue
+        present.add(original)
+    if not present:
+        return []
+    low, high = since + REMOVAL_MARGIN, until - REMOVAL_MARGIN
+    return sorted(start for found, start in expected.items() if found not in present and low <= start < high)
+
+
 def _graph_delta_query(link: str) -> str | None:
     """The paging query of a Graph calendarView delta link, or None when it is anything else."""
     parts = urlsplit(link)
@@ -896,10 +1061,16 @@ class MicrosoftCalendarClient(CalendarProviderClient):
                 state = json.loads(cursor)
             except ValueError:
                 state = {}
-        window_end = _parse_iso(state.get("until")) if isinstance(state, dict) else None
-        resumed = _graph_delta_query(str(state.get("link") or "")) if isinstance(state, dict) else None
+        if not isinstance(state, dict):
+            state = {}
+        window_end = _parse_iso(state.get("until"))
+        resumed = _graph_delta_query(str(state.get("link") or ""))
+        # Series still to read from an earlier pass; a cursor from before series were read starts
+        # one full sync, so the occurrences an older sync stored one by one become series.
+        current = state.get("v") == GRAPH_CURSOR_VERSION
+        waiting = [m for m in state.get("waiting") or [] if valid_event_id(m)][:MAX_GRAPH_SERIES_WAITING] if current else []
         # The delta window is fixed when it starts; start a new window before it runs out.
-        if resumed is not None and not window_stale(window_end, until):
+        if resumed is not None and current and not window_stale(window_end, until):
             url: str | None = f"{delta_url}?{resumed}"
             params: dict[str, str] | None = None
             result = CalendarDelta(full=False)
@@ -929,7 +1100,8 @@ class MicrosoftCalendarClient(CalendarProviderClient):
             if delta_link:
                 if _graph_delta_query(str(delta_link)) is None:
                     raise MailProviderError(502, "Microsoft Graph returned a delta link to another host.")
-                result.cursor = json.dumps({"link": str(delta_link), "until": _iso(window_end)}, separators=(",", ":"))
+                result.cursor = self._cursor(str(delta_link), window_end, waiting)
+                await self._read_named_series(token, result, waiting, since=since, until=until)
                 return result
             next_link = body.get("@odata.nextLink")
             if not next_link:
@@ -941,8 +1113,110 @@ class MicrosoftCalendarClient(CalendarProviderClient):
             url = f"{delta_url}?{paging}"
         if url is not None:
             result.more = True
-            result.cursor = json.dumps({"link": f"{delta_url}?{url.split('?', 1)[1]}", "until": _iso(window_end)}, separators=(",", ":"))
+            result.cursor = self._cursor(f"{delta_url}?{url.split('?', 1)[1]}", window_end, waiting)
+        await self._read_named_series(token, result, waiting, since=since, until=until)
         return result
+
+    @staticmethod
+    def _cursor(link: str, window_end: datetime | None, waiting: list[str]) -> str:
+        state: dict[str, Any] = {"v": GRAPH_CURSOR_VERSION, "link": link, "until": _iso(window_end or datetime.now(timezone.utc))}
+        if waiting:
+            state["waiting"] = waiting[:MAX_GRAPH_SERIES_WAITING]
+        return json.dumps(state, separators=(",", ":"))
+
+    async def _read_named_series(self, token: str, delta: CalendarDelta, waiting: list[str], *, since: datetime, until: datetime) -> None:
+        """Read the series the delta's occurrences name, and those waiting from an earlier pass."""
+        named = [e.recurring_event_id for e in delta.events if e.recurring_event_id and not e.series_master]
+        await self.read_series(token, delta, [*waiting, *(m for m in named if m is not None)], since=since, until=until)
+
+    async def read_series(self, token: str, delta: CalendarDelta, master_ids: list[str], *, since: datetime, until: datetime) -> None:
+        """Add each series' master and its instances in the window to ``delta`` (at most
+        ``MAX_GRAPH_SERIES`` a pass; the rest wait in the cursor for the next passes)."""
+        done = {e.external_id for e in delta.events if e.series_master}
+        queue = [m for m in dict.fromkeys(master_ids) if m not in done and valid_event_id(m)]
+        # A series whose occurrences the delta still lists is not deleted when its master cannot be read.
+        listed = {e.recurring_event_id for e in delta.events if e.recurring_event_id and not e.cancelled}
+        for master_id in queue[:MAX_GRAPH_SERIES]:
+            master, instances = await self.series(token, master_id, since=since, until=until, missing_is_deleted=master_id not in listed)
+            if master is None:
+                continue
+            known = {e.external_id for e in delta.events}
+            delta.events.append(master)
+            delta.events.extend(i for i in instances if i.external_id not in known)
+        rest = queue[MAX_GRAPH_SERIES:]
+        if delta.cursor:
+            try:
+                state = json.loads(delta.cursor)
+            except ValueError:
+                state = None
+            if isinstance(state, dict):
+                if rest:
+                    state["waiting"] = rest[:MAX_GRAPH_SERIES_WAITING]
+                else:
+                    state.pop("waiting", None)
+                delta.cursor = json.dumps(state, separators=(",", ":"))
+
+    async def instance_events(self, token: str, master_id: str, *, since: datetime, until: datetime) -> tuple[list[RemoteEvent], bool]:
+        """The instances of one series inside the window, as events, and whether every page was read."""
+        path = f"{self.API}/events/{_path_id(master_id)}/instances"
+        params: dict[str, str] | None = {"startDateTime": _iso(since), "endDateTime": _iso(until)}
+        url = path
+        out: list[RemoteEvent] = []
+        for _ in range(MAX_PAGES * 4):
+            _, body = await self.http.request("GET", url, token=token, params=params, headers=self.HEADERS)
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("value") or []:
+                found = graph_event(item) if isinstance(item, dict) else None
+                if found is not None:
+                    found.recurring_event_id = found.recurring_event_id or master_id
+                    out.append(found)
+            next_link = body.get("@odata.nextLink")
+            if not next_link:
+                return out, True
+            parts = urlsplit(str(next_link))
+            if parts.scheme != "https" or parts.netloc != "graph.microsoft.com" or unquote(parts.path) != unquote(urlsplit(path).path):
+                raise MailProviderError(502, "Microsoft Graph returned a paging link to another place.")
+            url, params = f"{path}?{parts.query}", None
+        return out, False
+
+    async def series(
+        self, token: str, master_id: str, *, since: datetime, until: datetime, missing_is_deleted: bool = True
+    ) -> tuple[RemoteEvent | None, list[RemoteEvent]]:
+        """One series: its master (``events/{id}``) with the rule as ANUM's and the occurrences
+        removed in Outlook, and its instances in the window. A master that is gone (404) comes
+        back as a cancelled master when ``missing_is_deleted``; anything that is not a series
+        master is None."""
+        status, body = await self.http.request(
+            "GET", f"{self.API}/events/{_path_id(master_id)}", token=token, headers=self.HEADERS, allow=frozenset({404, 410})
+        )
+        if status in (404, 410):
+            if not missing_is_deleted:
+                return None, []
+            now = datetime.now(timezone.utc)
+            return RemoteEvent(external_id=master_id, title="(no title)", starts_at=now, ends_at=now, updated_at=now, cancelled=True, series_master=True), []
+        body = body if isinstance(body, dict) else {}
+        master = graph_event(body) if body.get("type") == "seriesMaster" else None
+        if master is None:
+            return None, []
+        instances, complete = await self.instance_events(token, master_id, since=since, until=until)
+        recurrence = body.get("recurrence") if isinstance(body.get("recurrence"), dict) else {}
+        span = recurrence.get("range") if isinstance(recurrence.get("range"), dict) else {}
+        zone = "UTC" if master.all_day else (graph_zone(span.get("recurrenceTimeZone")) or graph_zone(body.get("originalStartTimeZone")))
+        rule = parse_graph_recurrence(recurrence, master.starts_at, zone) if zone else None
+        removed: list[datetime] | None = []
+        if rule is not None and complete:
+            removed = graph_removed_occurrences(rule, master, zone or "UTC", instances, since=since, until=until)
+            if removed is None:
+                rule = None  # ANUM's reading of the rule does not match Graph's occurrences
+        master.series_master = True
+        master.recurrence = rule
+        master.timezone = zone or "UTC"
+        master.exdates = removed or []
+        master.instance_ids = [i.external_id for i in instances]
+        master.recurring_event_id = None
+        if rule is None:
+            master.flattened_instances = list(master.instance_ids)
+        return master, instances
 
     @staticmethod
     def _body(event: OutgoingEvent, *, update: bool = False) -> dict[str, Any]:
