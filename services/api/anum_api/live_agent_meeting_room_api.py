@@ -263,9 +263,12 @@ async def draft_summary(meeting_id: MeetingId, context: TenantContext = Depends(
     _write(context)
     require_transcript_reader(context, meeting_id, "summary")
     from .live_agent_meeting_summary import generate_meeting_summary
+    from .meeting_execution import meeting_gateway
     from .model_gateway import build_default_model_gateway
     try:
-        return await generate_meeting_summary(context, meeting_id, build_default_model_gateway())
+        # Through the workspace's budgeted gateway, like a turn (counted once there and once in the meeting ledger).
+        gateway = await asyncio.to_thread(meeting_gateway, context, build_default_model_gateway())
+        return await generate_meeting_summary(context, meeting_id, gateway)
     except LiveMeetingStoreError as exc:
         raise _error(exc) from exc
 

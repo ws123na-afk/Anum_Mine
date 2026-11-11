@@ -13,7 +13,8 @@ import signal
 from datetime import datetime, timezone
 
 from .live_agent_meeting_store import SqlLiveMeetingStore, LiveMeetingStoreError
-from .meeting_execution import execute_meeting_turn
+from .meeting_execution import execute_meeting_turn, meeting_gateway
+from .model_budget import ModelBudgetExceededError
 from .model_gateway import build_default_model_gateway
 from .scoped_store import open_scoped_store
 from .schemas import TenantContext
@@ -54,7 +55,8 @@ async def run_unattended(
     if settings.repository_backend!="postgresql":
         raise RuntimeError("Unattended meetings require PostgreSQL")
     stop=stop or asyncio.Event()
-    gateway=build_default_model_gateway()
+    # The workspace's budgeted gateway: unattended turns count against the model budget too.
+    gateway=await asyncio.to_thread(meeting_gateway,context,build_default_model_gateway())
     while not stop.is_set():
         with open_scoped_store(context,None,SqlLiveMeetingStore,user_scoped=True) as store:
             meeting=store.get(context,meeting_id)
@@ -89,6 +91,12 @@ async def run_unattended(
                 # A concurrent worker, pause, cancellation or expired lease
                 # can create a conflict. Re-read persisted state before retry.
                 log.warning("Meeting turn deferred: %s",exc.code)
+            except ModelBudgetExceededError:
+                # The workspace's model budget (or the agent's cap, or the emergency stop) refused
+                # the turn before any provider call: stop without failing the meeting; an owner
+                # raises the budget or waits for the month, then resumes.
+                log.warning("Meeting turn refused by the workspace model budget; worker stopped")
+                return "model_budget"
             except Exception:
                 # Fail closed: mark the session terminal to prevent the supervisor
                 # from relaunching another paid provider request on every poll.

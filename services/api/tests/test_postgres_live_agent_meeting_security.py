@@ -416,3 +416,49 @@ def test_execute_turn_over_http_stops_at_the_cap_with_402(factory, monkeypatch):
     assert response.status_code == 402 and response.json()["error"]["code"] == "agent_meeting_budget_exceeded"
     assert read(factory, c, lambda s: s.get(c, mid)["status"]) == "paused"
     assert turns(factory, c, mid) == []
+
+
+# ----------------------------------------------------------------------------- the workspace model budget
+
+
+def _model_usage(context):
+    from anum_api.model_budget import BudgetScope, open_model_budget_store, month_start, utc_now
+
+    with open_model_budget_store(context) as store:
+        return store.usage(context, BudgetScope.WORKSPACE, month_start(utc_now()))
+
+
+def _set_model_budget(context, cost):
+    from anum_api.model_budget import BudgetScope, ModelBudgetLimits, open_model_budget_store, utc_now
+
+    with open_model_budget_store(context) as store:
+        store.set_budget(context, BudgetScope.WORKSPACE, ModelBudgetLimits(monthly_cost_limit_usd=cost), utc_now())
+
+
+def test_a_turn_counts_once_in_the_workspace_model_budget_and_once_in_the_meeting_ledger(factory):
+    c = ctx()
+    mid = make_meeting(factory)
+    gateway = Gateway(cost=0.25)
+    run_turn(c, mid, "model-budget-01", gateway)
+    usage = _model_usage(c)
+    assert usage.calls == 1 and usage.input_tokens == 10 and usage.output_tokens == 20 and usage.estimated_cost_usd == pytest.approx(0.25)
+    assert state_of(factory, c).used_usd == Decimal("0.25")
+    # A replayed request key makes no model call and is counted in neither ledger again.
+    run_turn(c, mid, "model-budget-01", gateway)
+    assert gateway.calls == 1 and _model_usage(c).calls == 1 and state_of(factory, c).used_usd == Decimal("0.25")
+
+
+def test_a_workspace_at_its_model_budget_gets_402_and_no_turn_is_started(factory, monkeypatch):
+    c = ctx()
+    _set_model_budget(c, 0)
+    mid = make_meeting(factory)
+    gateway = Gateway()
+    monkeypatch.setattr(meeting_api, "build_default_model_gateway", lambda: gateway)
+    http = TestClient(app)
+    response = http.post(f"/api/v1/agent-meetings/{mid}/execute-turn", headers=headers(c, "owner"), json={"request_key": "model-cap-0001"})
+    assert response.status_code == 402 and response.json()["error"]["code"] == "model_budget_exceeded"
+    assert gateway.calls == 0 and turns(factory, c, mid) == []
+    assert "turn_started" not in [e["kind"] for e in event_kinds(factory, c, mid)]
+    blocked = [r for r in audit_rows(factory, c, "agent_meeting.turn") if r["outcome"] == "blocked"]
+    assert len(blocked) == 1 and blocked[0]["metadata"]["reason"] == "model_budget" and blocked[0]["metadata"]["code"] == "model_budget_exceeded"
+    assert state_of(factory, c).used_usd == 0 and _model_usage(c).calls == 0

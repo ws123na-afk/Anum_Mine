@@ -38,6 +38,17 @@ modules, migration `0107_agent_meeting_budget` (renumbered at merge if branches 
   meeting too and adds a `budget_reached` event (limits and amounts only). The unattended worker stops with `budget`.
   The room shows the reason and disables Start, Resume and Run next turn.
 
+## The workspace model budget counts them too
+
+A meeting turn and the owner's meeting summary are model calls like any other workspace call, so they go through the workspace's budgeted model gateway (`meeting_execution.meeting_gateway`: `onboarding.budgeted_model_gateway` with the feature `meetings`). That means:
+
+* The model the workspace saved in Settings answers (the server default when it saved none), as for task runs and voice.
+* Before anything is claimed, `execute_meeting_turn` checks the workspace's and the organization's monthly model budgets ([Model budgets](model-gateway.md)) and the emergency stop. A workspace at its model budget gets `402` with code `model_budget_exceeded` (the model budget's own message, not the meeting cap's), no turn is claimed, no `turn_started` event is written, no model is called, and the refusal is audited as `agent_meeting.turn` with outcome `blocked`, reason `model_budget` and the error code. A bounded run (`POST /run`) that already committed turns returns them with `stopped_reason`; the unattended worker stops with `model_budget` and leaves the meeting as it is (an owner raises the budget, or the month resets, then resumes).
+* The turn's call is rebound to the speaking agent (`for_agent`), so the agent's own monthly cap ([Agent controls](agent-controls.md)) applies and the spend breakdown shows it under that agent and the feature `meetings`.
+* **Counted once in each ledger, never twice.** The budgeted gateway adds the call's usage to the workspace's model usage (`model_usage_monthly` and `model_usage_daily`) when the provider answers; the turn's commit adds the same cost to the meeting's own ledger (`agent_meeting_usage_monthly`) as before. The two are separate budgets with separate tables: neither writes to the other. A gateway that is already budgeted is only rebound to the agent, never wrapped again (`meeting_execution._budgeted_for`), and a plain gateway passed in by an older caller is wrapped there, so no turn reaches a provider unmetered. A replayed request key makes no call and adds nothing to either. A dropped turn (above) was billed, so it is in both, once.
+
+Tests: `services/api/tests/test_meeting_model_budget.py` (the wrapping, one call recorded once under `meetings` and the agent, a refusal before the provider) and `tests/test_postgres_live_agent_meeting_security.py` (a turn counted once in each ledger, a replay counted in neither, `402` at the model budget with nothing claimed).
+
 ## Transcripts are for workspace owners only (S-03)
 
 "Owner" is the workspace owner role (`workspace:manage`), not only the person who created the meeting. Members and viewers
@@ -79,4 +90,4 @@ The owner-triggered meeting summary is a model call and is metered like a turn: 
 * The cap counts the gateway's cost estimate, not an invoice. A model without a price estimate reports no cost and the meeting
   refuses the turn already ("Model must report a cost estimate"), so no unpriced spend enters.
 * The rate of turns per minute (S-05) is not part of this change; see [turn rate](ANUM_MINE_AUTONOMOUS_MEETINGS.md#turn-rate-s-05).
-* An organisation-wide cap across workspaces is not built; the cap is per workspace as decided.
+* An organisation-wide meeting cap across workspaces is not built; the meeting cap is per workspace as decided. The organization's model budget (above) does apply to meeting turns.
