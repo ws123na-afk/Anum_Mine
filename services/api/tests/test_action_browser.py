@@ -682,3 +682,44 @@ def test_credentials_edit_keeps_secrets_and_delete(api: Any) -> None:
         assert client.get("/api/v1/action-browser/credentials", headers=OWNER).json() == []
         actions = [r.action for r in store.audit_records if r.action.startswith("action_browser.credential")]
         assert actions == ["action_browser.credential_created", "action_browser.credential_updated", "action_browser.credential_deleted"]
+
+
+def test_the_runs_list_pages_newest_first_and_hides_private_tasks(api: Any) -> None:
+    """``GET /runs``: the phone's runs list (docs/action-browser.md#api)."""
+    from datetime import UTC, datetime, timedelta
+
+    from anum_api.action_browser.store import SessionRecord
+    from anum_api.schemas import TaskStatus
+
+    with TestClient(main.app) as client:
+        made = [client.post("/api/v1/tasks", headers=OWNER, json={"title": f"Browser task {n}", "prompt": f"Check https://shop.example/{n}"}).json()
+                for n in range(4)]
+        store.tasks[made[3]["id"]].private_to = "owner_a"  # the owner's private task: a member never sees its run
+        store.tasks[made[0]["id"]].status = TaskStatus.COMPLETED
+        start = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
+        for n, task in enumerate(made):
+            memory_action_store.create_session(CONTEXT, SessionRecord(
+                id=f"abs_{n}", task_id=task["id"], run_id=f"run_{n}", created_by="owner_a", goal=f"Check order {n}",
+                start_url=f"https://shop.example/{n}", sites=["shop.example"], created_at=start + timedelta(minutes=n),
+                updated_at=start + timedelta(minutes=n)))
+        other = TenantContext(tenant_id=TENANT, workspace_id="workspace_other", user_id="owner_a", roles=["owner"])
+        memory_action_store.create_session(other, SessionRecord(id="abs_other", task_id="task_other", run_id="run_x", created_by="owner_a",
+                                                                goal="Elsewhere", start_url="https://x.example", created_at=start, updated_at=start))
+
+        first = client.get("/api/v1/action-browser/runs?limit=2", headers=OWNER)
+        assert first.status_code == 200
+        body = first.json()
+        assert [r["id"] for r in body["items"]] == ["abs_3", "abs_2"] and body["next_offset"] == 2
+        assert body["items"][0]["steps"] == [] and body["items"][0]["can_stop"] is True and body["items"][0]["can_watch"] is True
+        last = client.get("/api/v1/action-browser/runs?limit=2&offset=2", headers=OWNER).json()
+        assert [r["id"] for r in last["items"]] == ["abs_1", "abs_0"] and last["next_offset"] is None
+        # A session whose task already ended is settled when listed, as the per-task read does.
+        assert last["items"][1]["status"] == "failed" and last["items"][1]["outcome"] == "task_ended"
+
+        member = client.get("/api/v1/action-browser/runs?limit=2", headers=MEMBER).json()
+        assert [r["id"] for r in member["items"]] == ["abs_2"] and member["next_offset"] == 2  # the private run is left out
+        assert member["items"][0]["can_watch"] is False and member["items"][0]["can_stop"] is False
+        assert "abs_other" not in json.dumps(member) + json.dumps(body) + json.dumps(last)
+        assert client.get("/api/v1/action-browser/runs?limit=51", headers=OWNER).status_code == 422
+        empty = client.get("/api/v1/action-browser/runs?offset=40", headers=OWNER).json()
+        assert empty == {"items": [], "limit": 20, "offset": 40, "next_offset": None}

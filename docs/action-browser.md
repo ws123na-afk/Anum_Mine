@@ -192,6 +192,7 @@ All under `/api/v1/action-browser`, workspace scoped:
 | `GET /credentials` | Owners (`organization:manage`); others 403 with "Only a workspace owner manages saved logins and cards." |
 | `POST /credentials`, `PUT /credentials/{id}`, `DELETE /credentials/{id}` | Owners; a `cvc` field is refused (422) |
 | `GET /sessions?task_id=` | Anyone who can read the task (`task:read`) |
+| `GET /runs?limit=&offset=` | `task:read`: the workspace's runs, newest first, without step logs (the phone's runs list). A run whose task the caller cannot read (a teammate's private task, or a deleted task) is left out of the page, so a page may be shorter than `limit`; `next_offset` is where the next page starts, `null` at the end. A run whose task already ended is settled when listed, as the per-task read does. |
 | `GET /sessions/{id}` (with its steps) | `task:read` |
 | `GET /sessions/{id}/frame` | Owners |
 | `POST /sessions/{id}/input` | Owners, only while it needs a person |
