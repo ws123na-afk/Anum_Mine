@@ -721,15 +721,25 @@ def install_skill(payload: SkillInstallCreate, context: TenantContext = Depends(
 
 
 @router.get("/skills/installations", response_model=list[SkillInstallation])
-def list_installations(context: TenantContext = Depends(tenant_context)) -> list[SkillInstallation]:
+def list_installations(
+    q: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=500, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    context: TenantContext = Depends(tenant_context),
+) -> list[SkillInstallation]:
+    """This workspace's installations in the store's order; ``q`` matches the skill id. Pages of at
+    most 500, like ``/skills/versions``: a client reads on while a page comes back full."""
     require_permission(context, Permission.POLICY_READ)
     with open_skill_store(context) as store:
         installations = store.list_installations(context)
         keys = trusted_keys(store, context)
         versions = {(v.skill_id, v.version): v for v in store.list_versions(context)}
+    needle = (q or "").strip().casefold()
+    if needle:
+        installations = [i for i in installations if needle in i.skill_id.casefold()]
     return [
         _installation_view(i, {i.version: versions[(i.skill_id, i.version)]} if (i.skill_id, i.version) in versions else {}, keys)
-        for i in installations
+        for i in installations[offset:offset + limit]
     ]
 
 

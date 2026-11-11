@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExtern
 import {
   Activity, Bell, BellOff, BookOpen, GraduationCap, Phone, ShoppingCart, Wallet, Bot, Building2, ChevronDown, CircleAlert, FileLock2, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
-  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark, Compass, Clock3, CarFront, PackageOpen, BookUser, Menu, X } from 'lucide-react';
+  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark, Compass, Clock3, CarFront, PackageOpen, BookUser, Menu, Receipt, Video, X } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -24,7 +24,7 @@ import type { EmailMessage } from './lib/email';
 import { searchEmails, searchFiles, searchTasks } from './lib/commandApi';
 import { searchPeople } from './lib/contactsApi';
 import type { PersonView } from './lib/contacts';
-import { NAV, badgeText, initials, isPaletteShortcut, matchViews, moveActive, notificationCount, viewLabel, type NavGroup, type PaletteItem, type View } from './lib/shell';
+import { NAV, PALETTE_RECORD_KINDS, PALETTE_RECORD_MIN_CHARS, badgeText, initials, isPaletteShortcut, matchViews, moveActive, notificationCount, viewLabel, type NavGroup, type PaletteItem, type PaletteRecordKind, type View } from './lib/shell';
 import { Modal, useModal } from './Dialog';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { getPeople } from './lib/teamApi';
@@ -36,7 +36,7 @@ const ICONS: Record<View, ReactNode> = {
   integrations: <Plug />, files: <FileText />, vault: <FileLock2 />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, email: <AtSign />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />, setup: <ClipboardList />, suppressions: <BellOff />,
   enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, agentControls: <ShieldAlert />, approvalSettings: <Scale />, developer: <Hammer />,
-  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, office: <Building2 />, executive: <Compass />, attendance: <Clock3 />, vehicles: <CarFront />, purchases: <PackageOpen />, contacts: <BookUser />,
+  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, office: <Building2 />, executive: <Compass />, attendance: <Clock3 />, vehicles: <CarFront />, purchases: <PackageOpen />, contacts: <BookUser />, notificationCenter: <Bell />,
 };
 export const viewIcon = (view: View) => ICONS[view];
 
@@ -366,6 +366,7 @@ export function UserMenu({ name, userId, role, signOut, onGo }: {
 // ---------------------------------------------------------------- command palette
 
 type Section<T> = { state: 'idle' | 'loading' | 'ready' | 'error'; items: T[] };
+const RECORD_ICONS: Record<PaletteRecordKind, ReactNode> = { customer: <Building2 />, invoice: <Receipt />, document: <FileLock2 />, vehicle: <CarFront />, meeting: <Video /> };
 const idle = <T,>(): Section<T> => ({ state: 'idle', items: [] });
 
 export function CommandPalette({ views, recentTasks, onClose, onPick }: {
@@ -376,17 +377,32 @@ export function CommandPalette({ views, recentTasks, onClose, onPick }: {
   const [files, setFiles] = useState<Section<api.FileRecord>>(idle());
   const [emails, setEmails] = useState<Section<EmailMessage>>(idle());
   const [people, setPeople] = useState<Section<PersonView>>(idle());
+  const [records, setRecords] = useState<Partial<Record<PaletteRecordKind, Section<PaletteItem> | 'hidden'>>>({});
   const [active, setActive] = useState(0);
   const listId = useId();
   const q = query.trim();
   useEffect(() => {
-    if (!q) { setTasks(idle()); setFiles(idle()); setEmails(idle()); setPeople(idle()); return; }
+    if (!q) { setTasks(idle()); setFiles(idle()); setEmails(idle()); setPeople(idle()); setRecords({}); return; }
     let live = true;
     const run = <T,>(set: (s: Section<T>) => void, load: () => Promise<T[]>) => {
       set({ state: 'loading', items: [] });
       load().then((items) => { if (live) set({ state: 'ready', items }); }).catch(() => { if (live) set({ state: 'error', items: [] }); });
     };
-    const timer = window.setTimeout(() => { run(setTasks, () => searchTasks(q)); run(setFiles, () => searchFiles(q)); run(setEmails, () => searchEmails(q)); run(setPeople, () => searchPeople(q)); }, 250);
+    // Customers, invoices, documents, vehicles and meetings: their own module's search, five each,
+    // from two characters; a kind the person cannot open (403) is left out (lib/paletteSearch.ts).
+    const runRecords = () => {
+      if (q.length < PALETTE_RECORD_MIN_CHARS) { setRecords({}); return; }
+      setRecords(Object.fromEntries(PALETTE_RECORD_KINDS.map((kind) => [kind, { state: 'loading', items: [] }])));
+      void import('./lib/paletteSearch').then(({ RECORD_SEARCHES, KindUnavailable }) => {
+        for (const kind of PALETTE_RECORD_KINDS) {
+          RECORD_SEARCHES[kind](q).then(
+            (items) => { if (live) setRecords((old) => ({ ...old, [kind]: { state: 'ready', items } })); },
+            (error: unknown) => { if (live) setRecords((old) => ({ ...old, [kind]: error instanceof KindUnavailable ? 'hidden' : { state: 'error', items: [] } })); },
+          );
+        }
+      }, () => { if (live) setRecords(Object.fromEntries(PALETTE_RECORD_KINDS.map((kind) => [kind, { state: 'error', items: [] }]))); });
+    };
+    const timer = window.setTimeout(() => { run(setTasks, () => searchTasks(q)); run(setFiles, () => searchFiles(q)); run(setEmails, () => searchEmails(q)); run(setPeople, () => searchPeople(q)); runRecords(); }, 250);
     return () => { live = false; window.clearTimeout(timer); };
   }, [q]);
   useEffect(() => setActive(0), [q]);
@@ -401,8 +417,12 @@ export function CommandPalette({ views, recentTasks, onClose, onPick }: {
       { key: 'views', title: t('search.views'), items: viewItems, state: 'ready' as const },
       { key: 'tasks', title: q ? t('search.tasks') : t('search.recentTasks'), items: taskItems, state: q ? tasks.state : 'ready' as const },
       ...(q ? [{ key: 'files', title: t('search.files'), items: fileItems, state: files.state }, { key: 'emails', title: t('search.emails'), items: emailItems, state: emails.state }, { key: 'contacts', title: t('search.contacts'), items: peopleItems, state: people.state }] : []),
+      ...PALETTE_RECORD_KINDS.flatMap((kind) => {
+        const section = records[kind];
+        return section && section !== 'hidden' ? [{ key: kind, title: t(`search.${kind}` as MessageKey), items: section.items, state: section.state }] : [];
+      }),
     ];
-  }, [q, views, recentTasks, tasks, files, emails, people]);
+  }, [q, views, recentTasks, tasks, files, emails, people, records]);
   const flat = sections.flatMap((section) => section.items);
   const optionId = (index: number) => `${listId}-opt-${index}`;
   const onKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -429,7 +449,7 @@ export function CommandPalette({ views, recentTasks, onClose, onPick }: {
           index += 1;
           const mine = index;
           return <div key={`${item.kind}:${item.id}`} id={optionId(mine)} role="option" aria-selected={mine === active} className={`paletteOption ${mine === active ? 'active' : ''}`} onMouseEnter={() => setActive(mine)} onMouseDown={(event) => event.preventDefault()} onClick={() => onPick(item)}>
-            <span className="paletteIcon" aria-hidden="true">{item.kind === 'view' ? ICONS[item.id as View] : item.kind === 'task' ? <ListTodo /> : item.kind === 'file' ? <FileText /> : item.kind === 'contact' ? <BookUser /> : <Mail />}</span>
+            <span className="paletteIcon" aria-hidden="true">{item.kind === 'view' ? ICONS[item.id as View] : item.kind === 'task' ? <ListTodo /> : item.kind === 'file' ? <FileText /> : item.kind === 'contact' ? <BookUser /> : item.kind === 'email' ? <Mail /> : RECORD_ICONS[item.kind]}</span>
             <span className="paletteText"><strong dir="auto">{item.label}</strong>{item.detail && <small dir="auto">{item.detail}</small>}</span>
           </div>;
         })}

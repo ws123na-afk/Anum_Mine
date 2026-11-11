@@ -208,6 +208,9 @@ export interface UserNotification {
 
 export interface NotificationPage { items: UserNotification[]; unread: number; next_cursor: string | null }
 
+/** `GET /notifications/kinds`: the caller's notifications counted by kind (the Notifications page's filters). */
+export interface NotificationKindCount { kind: string; total: number; unread: number }
+
 // --------------------------------------------------------------------------- assistants
 
 export type AutoRouteChannel = 'email' | 'whatsapp';

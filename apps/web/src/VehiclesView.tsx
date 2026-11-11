@@ -7,7 +7,7 @@ import { CalendarClock, CarFront, ChevronLeft, ChevronRight, Download, FileUp, F
 import type { Vehicle, VehicleFuelEntry, VehicleOverview, VehiclePage, VehiclePreferences, VehicleRecordKind, VehicleReport, VehicleServiceRecord, VehicleTrip } from '@anum/contracts';
 import * as api from './lib/vehiclesApi';
 import {
-  PAGE_SIZE, VEHICLE_TABS, dueLabel, dueText, hashForTab, km, litres, moneyList, paymentText, purposeLabel, serviceLabel, tabFromHash, typeLabel, vehicleName, type VehicleTab,
+  PAGE_SIZE, VEHICLE_TABS, dueLabel, vehicleFromHash, dueText, hashForTab, km, litres, moneyList, paymentText, purposeLabel, serviceLabel, tabFromHash, typeLabel, vehicleName, type VehicleTab,
 } from './lib/vehicles';
 import { amountIn, previousMonthName, kmIn, kmPerLitre, mainCurrency, newestFirst, nextDue, papers, usageRows, vehicleStatus, type RecentRecord } from './lib/ops';
 import { formatAmount, monthLabel } from './lib/finance';
@@ -44,7 +44,15 @@ export function VehiclesDenied() {
 
 export function VehiclesView() {
   const [tab, pick] = useVehicleTab();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(() => (typeof location === 'undefined' ? null : vehicleFromHash(location.hash)));
+  // A vehicle opened by link (#vehicles?vehicle=<id>, the search palette) opens its page.
+  useEffect(() => {
+    const sync = () => { const id = vehicleFromHash(location.hash); if (id) setOpenId(id); };
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
+  // Leaving a linked vehicle drops the link from the address, so Back and a reload land on the list.
+  useEffect(() => { if (!openId && vehicleFromHash(location.hash)) history.replaceState(null, '', '#vehicles'); }, [openId]);
   const [adding, setAdding] = useState(false);
   const [tick, setTick] = useState(0);
   const [denied, setDenied] = useState(false);

@@ -13,9 +13,9 @@ import * as calendarApi from './lib/calendarApi';
 import * as meetingsApi from './lib/meetingsApi';
 import {
   ATTENDEE_RESPONSES, CALENDAR_MODES, conflictIds, dayKey, durationMinutes, emptyForm, EVENT_KINDS, eventBody, eventTiming, findConflicts, formFromEvent, formProblem, groupByDay,
-  CALENDAR_CONNECT_KEY, eventSyncKind, hourWindow, inRange, wallHour, invitees, layoutDay, matchesEvent, monthDays, nextEvent, rangeStats, replyCounts, shiftAnchor, startOfDay, syncTarget, visibleRange,
-  allDayLength, allDayOn, keyOf, MAX_REMINDERS, recurrenceFrom, recurrenceSummary, reminderLabel, REMINDER_PRESETS, WEEKDAYS, zoneChoices,
-  type AttendeeResponse, type CalendarEventView, type CalendarMode, type EditScope, type EventForm, type EventKind, type EventPage, type NextStep, type RepeatChoice, type SyncConnection, type SyncSetup, type Weekday,
+  CALENDAR_CONNECT_KEY, eventFromHash, eventSyncKind, hourWindow, inRange, wallHour, invitees, layoutDay, matchesEvent, monthDays, nextEvent, rangeStats, replyCounts, shiftAnchor, startOfDay, syncTarget, visibleRange,
+  allDayLength, allDayOn, keyOf, MAX_REMINDERS, moveEmailReminder, recurrenceFrom, recurrenceSummary, reminderLabel, REMINDER_PRESETS, WEEKDAYS, zoneChoices,
+  type AttendeeResponse, type CalendarEventView, type CalendarMode, type EditScope, type EventForm, type EventKind, type EventPage, type NextStep, type RepeatChoice, type ReplyScope, type SyncConnection, type SyncSetup, type Weekday,
 } from './lib/calendar';
 import { describeError } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
@@ -106,6 +106,21 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
   }, []);
   useEffect(loadEvents, [loadEvents]);
   useEffect(loadSteps, [loadSteps]);
+  // An event opened by link (#calendar?event=<id>: Meetings' Schedule meeting, a shared address):
+  // read it, move the calendar to its day and open its detail. A missing or hidden one says so.
+  useEffect(() => {
+    const openLinked = () => {
+      const id = eventFromHash(location.hash);
+      if (!id) return;
+      calendarApi.getEvent(id).then(
+        (event) => { setTab('calendar'); setAnchor(startOfDay(new Date(event.starts_at))); setSelected(keyOf(event)); },
+        (e: unknown) => setNote(t('calendar.link.failed', { message: describeError(e) })),
+      );
+    };
+    openLinked();
+    window.addEventListener('hashchange', openLinked);
+    return () => window.removeEventListener('hashchange', openLinked);
+  }, []);
   useEffect(loadSync, [loadSync]);
   // The provider sent the browser back (main.tsx kept the connection id): finish it as this person.
   useEffect(() => {
@@ -541,6 +556,21 @@ function EventDetail({ event, now, connections, conflicted, onOpenApprovals, onB
   const people = invitees(event);
   const timing = eventTiming(event, now);
   const reminders = event.reminders ?? [];
+  const emailed = event.email_reminders ?? [];
+  const syncKind = eventSyncKind(event);
+  // On an occurrence of a series a reply is for that occurrence unless the organiser picks the whole series.
+  const occurrence = recurring && event.occurrence_start ? event.occurrence_start : null;
+  const [replyScope, setReplyScope] = useState<ReplyScope>('this');
+  const replyTarget = occurrence ? replyScope : 'all';
+
+  async function retrySend() {
+    setBusy('retry'); setProblem(null);
+    try {
+      const sent = await calendarApi.retrySync(event.overridden && event.override_id ? event.override_id : event.id);
+      const provider = linked?.provider_name ?? '';
+      onChanged(sent.sync_state === 'synced' ? t('calendar.sync.retried', { title: event.title, provider }) : t('calendar.sync.retryWaiting', { reason: sent.sync_error ?? '' }));
+    } catch (e) { setProblem(describeError(e)); } finally { setBusy(null); }
+  }
 
   async function askInvitations() {
     setBusy('invite'); setProblem(null);
@@ -589,7 +619,7 @@ function EventDetail({ event, now, connections, conflicted, onOpenApprovals, onB
       {event.all_day && <StatusChip tone="muted">{t('calendar.allDay')}</StatusChip>}
       {recurring && <StatusChip tone="muted"><Repeat aria-hidden="true" />{event.overridden ? t('calendar.changedOccurrence') : repeatText(event)}</StatusChip>}
       {conflicted && !cancelled && <StatusChip tone="bad"><AlertTriangle aria-hidden="true" />{t('calendar.conflict')}</StatusChip>}
-      {connections.length > 0 && !recurring && !event.all_day && <StatusChip tone="muted">{t(`calendar.sync.state.${eventSyncKind(event)}` as MessageKey, { provider: linked?.provider_name ?? '' })}</StatusChip>}
+      {(connections.length > 0 || event.connection_id) && <StatusChip tone={syncKind === 'failed' ? 'bad' : syncKind === 'waiting' && event.sync_error ? 'warn' : 'muted'}>{t(`calendar.sync.state.${syncKind}` as MessageKey, { provider: linked?.provider_name ?? '' })}</StatusChip>}
     </div>
     <dl className="calFacts">
       <div><dt><Clock aria-hidden="true" /><span className="visuallyHidden">{t('calendar.when')}</span></dt>
@@ -599,7 +629,10 @@ function EventDetail({ event, now, connections, conflicted, onOpenApprovals, onB
       {recurring && event.overridden && <div><dt><Repeat aria-hidden="true" /><span className="visuallyHidden">{t('calendar.repeats')}</span></dt><dd>{t('calendar.partOfSeries')}: {repeatText(event)}</dd></div>}
       {event.location && <div><dt><MapPin aria-hidden="true" /><span className="visuallyHidden">{t('calendar.location')}</span></dt><dd dir="auto">{event.location}</dd></div>}
       <div><dt><BellRing aria-hidden="true" /><span className="visuallyHidden">{t('calendar.reminders')}</span></dt>
-        <dd>{reminders.length ? listJoin(reminders.map((minutes) => reminderLabel(minutes, (key, vars) => t(key as MessageKey, vars)))) : t('calendar.noReminders')}</dd></div>
+        <dd>{reminders.length ? listJoin(reminders.map((minutes) => {
+          const label = reminderLabel(minutes, (key, vars) => t(key as MessageKey, vars));
+          return emailed.includes(minutes) ? t('calendar.reminder.withEmail', { label }) : label;
+        })) : t('calendar.noReminders')}</dd></div>
       <div><dt><Globe2 aria-hidden="true" /><span className="visuallyHidden">{t('calendar.zone')}</span></dt><dd>{event.timezone && event.timezone !== timeZone ? `${event.timezone} (${timeZone})` : timeZone}</dd></div>
       <div><dt><UserRound aria-hidden="true" /><span className="visuallyHidden">{t('calendar.createdBy')}</span></dt><dd>{t('calendar.addedBy', { who: event.created_by })}</dd></div>
     </dl>
@@ -607,17 +640,31 @@ function EventDetail({ event, now, connections, conflicted, onOpenApprovals, onB
       {event.conference_url && <a className="calendarLink primary" href={event.conference_url} target="_blank" rel="noopener noreferrer"><Video aria-hidden="true" />{t('calendar.join')}<ExternalLink aria-hidden="true" /></a>}
       {event.phone && <a className="calendarLink" href={`tel:${event.phone.replace(/[^+\d]/g, '')}`}><Phone aria-hidden="true" /><span dir="ltr">{event.phone}</span></a>}
     </div>}
+    {(syncKind === 'failed' || (syncKind === 'waiting' && event.sync_error)) && <div className={`calSyncProblem ${syncKind === 'failed' ? 'failed' : ''}`} role="status">
+      <AlertTriangle aria-hidden="true" />
+      <div>
+        <p>{t(syncKind === 'failed' ? 'calendar.sync.failedText' : 'calendar.sync.waitingText', { provider: linked?.provider_name ?? '', reason: event.sync_error ?? '' })}</p>
+        {syncKind === 'failed' && <p className="muted">{manage ? t('calendar.sync.failedFix') : t('calendar.sync.failedReadOnly')}</p>}
+        {manage && <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void retrySend()}><RefreshCw aria-hidden="true" className={busy === 'retry' ? 'spin' : undefined} />{busy === 'retry' ? t('calendar.working') : t('calendar.sync.retry')}</button>}
+      </div>
+    </div>}
     {problem && <PaneProblem text={t('calendar.actionFailed', { reason: problem })} />}
     <section aria-labelledby="calendar-attendees" className="calSection">
       <div className="calSectionHead"><h3 id="calendar-attendees"><Users aria-hidden="true" />{t('calendar.attendees', { count: event.attendees.length })}</h3>
         {event.attendees.length > 0 && <small className="muted">{ATTENDEE_RESPONSES.filter((r) => replies[r]).map((r) => t(`calendar.replies.${r}` as MessageKey, { count: replies[r] })).join(' · ')}</small>}</div>
+      {manage && occurrence && event.attendees.length > 0 && <label className="field calReplyScope"><span>{t('calendar.reply.scope')}</span>
+        <select value={replyScope} onChange={(e) => setReplyScope(e.target.value as ReplyScope)}>
+          <option value="this">{t('calendar.reply.scope.this')}</option>
+          <option value="all">{t('calendar.reply.scope.all')}</option>
+        </select></label>}
       {event.attendees.length ? <ul className="calendarAttendees">
         {event.attendees.map((attendee) => <li key={attendee.id}>
           <span className="calAvatar" aria-hidden="true">{initials(attendee.name)}</span>
-          <span><strong dir="auto">{attendee.name}</strong>{attendee.email && <small dir="ltr">{attendee.email}</small>}</span>
+          <span><strong dir="auto">{attendee.name}</strong>{attendee.email && <small dir="ltr">{attendee.email}</small>}
+            {event.occurrence_replies?.includes(attendee.id) && <small className="calReplyOwn">{t('calendar.reply.thisOnly')}</small>}</span>
           {manage
             ? <label className="calendarReply"><span className="visuallyHidden">{t('calendar.replyFor', { name: attendee.name })}</span>
-              <select value={attendee.response} disabled={Boolean(busy)} onChange={(e) => void act(`reply-${attendee.id}`, async () => { await calendarApi.setResponse(event.override_id ?? event.id, attendee.id, e.target.value as AttendeeResponse); return t('calendar.replySaved', { name: attendee.name }); })}>
+              <select value={attendee.response} disabled={Boolean(busy)} onChange={(e) => void act(`reply-${attendee.id}`, async () => { await calendarApi.setResponse(event.id, attendee.id, e.target.value as AttendeeResponse, replyTarget, occurrence); return t('calendar.replySaved', { name: attendee.name }); })}>
                 {ATTENDEE_RESPONSES.map((r) => <option key={r} value={r}>{t(`calendar.reply.${r}` as MessageKey)}</option>)}
               </select></label>
             : <StatusChip tone={REPLY_TONE[attendee.response]}>{t(`calendar.reply.${attendee.response}` as MessageKey)}</StatusChip>}
@@ -647,7 +694,7 @@ function EventDetail({ event, now, connections, conflicted, onOpenApprovals, onB
 
 const REPEAT_CHOICES: readonly RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
-function EventFormDialog({ event, day, scope, target, onClose, onSaved }: { event: CalendarEventView | null; day: Date; scope?: EditScope; target: SyncConnection | null; onClose: () => void; onSaved: (event: CalendarEventView, created: boolean) => void }) {
+export function EventFormDialog({ event, day, scope, target, onClose, onSaved }: { event: CalendarEventView | null; day: Date; scope?: EditScope; target: SyncConnection | null; onClose: () => void; onSaved: (event: CalendarEventView, created: boolean) => void }) {
   const [form, setForm] = useState<EventForm>(() => (event ? formFromEvent(event) : emptyForm(day, new Date())));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -725,14 +772,17 @@ function EventFormDialog({ event, day, scope, target, onClose, onSaved }: { even
         <ul className="calReminderList">
           {form.reminders.map((minutes, index) => <li key={index}>
             <label><span className="visuallyHidden">{t('calendar.form.reminderChoice', { index: index + 1 })}</span>
-              <select value={minutes} onChange={(e) => set('reminders', form.reminders.map((m, i) => (i === index ? Number(e.target.value) : m)))}>
+              <select value={minutes} onChange={(e) => { const next = Number(e.target.value); setForm((old) => ({ ...old, reminders: old.reminders.map((m, i) => (i === index ? next : m)), emailReminders: moveEmailReminder(old.emailReminders, minutes, next) })); }}>
                 {[...new Set([...REMINDER_PRESETS, minutes])].sort((a, b) => a - b).map((preset) => <option key={preset} value={preset}>{reminderLabel(preset, translate)}</option>)}
               </select></label>
-            <button type="button" className="secondary iconOnly" aria-label={t('calendar.form.removeReminder', { label: reminderLabel(minutes, translate) })} onClick={() => set('reminders', form.reminders.filter((_, i) => i !== index))}><X aria-hidden="true" /></button>
+            <label className="calendarToggle calReminderEmail"><input type="checkbox" checked={form.emailReminders.includes(minutes)} onChange={(e) => set('emailReminders', e.target.checked ? [...form.emailReminders, minutes] : form.emailReminders.filter((m) => m !== minutes))} />
+              <Mail aria-hidden="true" />{t('calendar.form.emailReminder')}<span className="visuallyHidden"> {reminderLabel(minutes, translate)}</span></label>
+            <button type="button" className="secondary iconOnly" aria-label={t('calendar.form.removeReminder', { label: reminderLabel(minutes, translate) })} onClick={() => setForm((old) => { const rest = old.reminders.filter((_, i) => i !== index); return { ...old, reminders: rest, emailReminders: old.emailReminders.filter((m) => rest.includes(m)) }; })}><X aria-hidden="true" /></button>
           </li>)}
         </ul>
         {form.reminders.length < MAX_REMINDERS && <button type="button" className="secondary" onClick={() => set('reminders', [...form.reminders, form.reminders.length ? 1440 : 10])}><BellRing aria-hidden="true" />{t('calendar.form.addReminder')}</button>}
         <p className="muted">{t('calendar.form.remindersHint')}</p>
+        {form.emailReminders.length > 0 && <p className="muted">{t('calendar.form.emailRemindersHint')}</p>}
       </fieldset>
       <label className="field"><span>{t('calendar.location')}</span><input dir="auto" value={form.location} maxLength={200} onChange={(e) => set('location', e.target.value)} /></label>
       <div className="calendarFormRow">
@@ -741,9 +791,8 @@ function EventFormDialog({ event, day, scope, target, onClose, onSaved }: { even
       </div>
       <label className="field"><span>{t('calendar.form.attendees')}</span><textarea dir="auto" value={form.attendees} rows={3} aria-describedby={`${id}-people`} onChange={(e) => set('attendees', e.target.value)} /></label>
       <p className="muted" id={`${id}-people`}>{t('calendar.form.attendeesHint')}</p>
-      {!event && target && !(form.allDay || series) && <label className="calendarToggle calendarFormSync"><input type="checkbox" checked={toCalendar} onChange={(e) => setToCalendar(e.target.checked)} />{t('calendar.form.sync', { provider: target.provider_name, email: target.email })}</label>}
-      {!event && target && (form.allDay || series) && <p className="muted">{t('calendar.form.syncSeries')}</p>}
-      {!event && target && toCalendar && !(form.allDay || series) && form.attendees.trim() && <p className="muted">{t('calendar.form.syncHint')}</p>}
+      {!event && target && <label className="calendarToggle calendarFormSync"><input type="checkbox" checked={toCalendar} onChange={(e) => setToCalendar(e.target.checked)} />{t('calendar.form.sync', { provider: target.provider_name, email: target.email })}</label>}
+      {!event && target && toCalendar && form.attendees.trim() && <p className="muted">{t('calendar.form.syncHint')}</p>}
       <label className="field"><span>{t('calendar.notes')}</span><textarea dir="auto" value={form.description} maxLength={2000} rows={3} onChange={(e) => set('description', e.target.value)} /></label>
       {touched && problem && <p className="notice errorNotice" role="alert">{t(`calendar.form.problem.${problem}` as MessageKey)}</p>}
       {error && <p className="notice errorNotice" role="alert">{t('calendar.form.failed', { reason: error })}</p>}

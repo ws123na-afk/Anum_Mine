@@ -142,6 +142,7 @@ class _EventFormState extends State<EventForm> {
   late String? _timezone = widget.draft.timezone;
   late Recurrence? _rule = widget.draft.recurrence;
   late List<int> _reminders = [...widget.draft.reminders];
+  late List<int> _emailReminders = [...widget.draft.emailReminders];
   late final _count =
       TextEditingController(text: '${widget.draft.recurrence?.count ?? 10}');
   late final _interval =
@@ -325,6 +326,10 @@ class _EventFormState extends State<EventForm> {
       timezone: _timezone ?? _localZone(),
       recurrence: _editingOne ? widget.draft.recurrence : rule,
       reminders: _reminders,
+      emailReminders: [
+        for (final m in _emailReminders)
+          if (_reminders.contains(m)) m
+      ],
     ));
   }
 
@@ -616,10 +621,16 @@ class _EventFormState extends State<EventForm> {
                                 deleteButtonTooltipMessage: l.f(
                                     'calendarRemoveReminder',
                                     {'label': reminderLabel(l, minutes)}),
-                                onDeleted: () => setState(() => _reminders = [
-                                      for (final m in _reminders)
-                                        if (m != minutes) m
-                                    ]),
+                                onDeleted: () => setState(() {
+                                  _reminders = [
+                                    for (final m in _reminders)
+                                      if (m != minutes) m
+                                  ];
+                                  _emailReminders = [
+                                    for (final m in _emailReminders)
+                                      if (m != minutes) m
+                                  ];
+                                }),
                               ),
                             if (_reminders.length < maxReminders)
                               ActionChip(
@@ -629,9 +640,28 @@ class _EventFormState extends State<EventForm> {
                                 onPressed: _addReminder,
                               ),
                           ]),
+                      // Each reminder can also go by email (docs/calendar.md#reminders).
+                      for (final minutes in _reminders)
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          value: _emailReminders.contains(minutes),
+                          title: Text(l.f('calendarEmailReminder',
+                              {'label': reminderLabel(l, minutes)})),
+                          onChanged: (on) => setState(() => _emailReminders = [
+                                for (final m in _emailReminders)
+                                  if (m != minutes) m,
+                                if (on ?? false) minutes,
+                              ]),
+                        ),
                       Text(l.t('calendarRemindersHelp'),
                           style:
                               TextStyle(color: p.faint, fontSize: AnumType.xs)),
+                      if (_emailReminders.any(_reminders.contains))
+                        Text(l.t('calendarEmailRemindersHelp'),
+                            style: TextStyle(
+                                color: p.faint, fontSize: AnumType.xs)),
                       const SizedBox(height: AnumSpacing.sm),
                       TextFormField(
                         controller: _location,

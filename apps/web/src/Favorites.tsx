@@ -1,14 +1,15 @@
-// Favorites (docs/knowledge-base.md#favorites): the caller's starred items with type filters and
-// paging, the star toggle other views use, and the quick-access strip on the Assistant home.
-import { useCallback, useEffect, useState } from 'react';
-import { CircleDot, ExternalLink, Star, StarOff } from 'lucide-react';
+// Favorites (docs/knowledge-base.md#favorites): the caller's starred items with search, sort, type
+// filters and paging, their own order (drag, or Move up and Move down, saved on the server), remove
+// with undo, the star toggle other views use, and the quick-access strip on the Assistant home.
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, ExternalLink, GripVertical, Search, Star, StarOff } from 'lucide-react';
 import type { Favorite, FavoriteType } from '@anum/contracts';
 import { describeError } from './lib/errors';
-import { formatDateTime, t } from './lib/i18n';
-import { FAVORITES_PAGE, FAVORITE_TYPES, favoriteTypeLabel } from './lib/library';
+import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { FAVORITES_PAGE, FAVORITE_SORTS, FAVORITE_TYPES, favoriteTypeLabel, moveAnchor, moveItem, type FavoriteSortChoice } from './lib/library';
 import * as lib from './lib/libraryApi';
 import { viewLabel } from './lib/shell';
-import { PageHeader, PaneProblem } from './PageParts';
+import { Empty, LoadingSkeleton, Notice, PageHeader, Pager, PaneProblem } from './PageParts';
 import './library.css';
 import './adminPages.css';
 
@@ -45,69 +46,132 @@ export function StarButton({ starred, label, onToggle }: { starred: boolean; lab
 
 export function FavoritesView({ onOpen }: { onOpen: (favorite: Favorite) => void }) {
   const [type, setType] = useState<FavoriteType | null>(null);
+  const [draft, setDraft] = useState('');
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState<FavoriteSortChoice>('custom');
+  const [offset, setOffset] = useState(0);
   const [items, setItems] = useState<Favorite[]>([]);
   const [total, setTotal] = useState(0);
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
-  const [more, setMore] = useState(false);
-  const [flash, setFlash] = useState<{ text: string; error?: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<{ text: string; error?: boolean; undo?: Favorite } | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+  // The row being dragged, read by dragover before React has rendered the drag state.
+  const dragFrom = useRef<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const [moved, setMoved] = useState('');
 
-  const fetchFirst = useCallback(async (next: FavoriteType | null) => {
-    setLoad({ kind: 'loading' });
+  // The search box waits for a pause in typing before it asks the API.
+  useEffect(() => { const timer = window.setTimeout(() => setQ(draft.trim()), 250); return () => window.clearTimeout(timer); }, [draft]);
+  useEffect(() => setOffset(0), [q]);
+  const fetchPage = useCallback(async (quiet = false) => {
+    if (!quiet) setLoad({ kind: 'loading' });
     try {
-      const page = await lib.listFavorites(next, 0, FAVORITES_PAGE);
+      const page = await lib.listFavorites(type, offset, FAVORITES_PAGE, { q, sort });
       setItems(page.items); setTotal(page.total); setLoad({ kind: 'ready' });
+      // A removal that emptied a later page steps back one page.
+      if (page.items.length === 0 && offset > 0) setOffset(Math.max(0, offset - FAVORITES_PAGE));
     } catch (e) { setLoad({ kind: 'error', detail: describeError(e) }); }
-  }, []);
-  useEffect(() => { void fetchFirst(type); }, [fetchFirst, type]);
+  }, [type, offset, q, sort]);
+  useEffect(() => { void fetchPage(); }, [fetchPage]);
 
-  async function loadMore() {
-    setMore(true);
-    try {
-      const page = await lib.listFavorites(type, items.length, FAVORITES_PAGE);
-      setItems((current) => [...current, ...page.items]); setTotal(page.total);
-    } catch (e) { setFlash({ text: describeError(e), error: true }); }
-    finally { setMore(false); }
-  }
+  const canArrange = sort === 'custom';
+  const filtered = type !== null || q !== '';
 
   async function unstar(favorite: Favorite) {
+    setBusy(true);
     try {
-      await lib.removeFavorite(favorite.item_type, favorite.item_id);
-      setItems((current) => current.filter((f) => f.id !== favorite.id));
-      setTotal((n) => Math.max(0, n - 1));
-      setFlash({ text: t('favorites.removed', { name: favorite.label }) });
-    } catch (e) { setFlash({ text: describeError(e), error: true }); }
+      await lib.removeFavoriteById(favorite.id);
+      setFlash({ text: t('favorites.removed', { name: favorite.label }), undo: favorite });
+      await fetchPage(true);
+    } catch (e) { setFlash({ text: t('fav.failed', { message: describeError(e) }), error: true }); }
+    finally { setBusy(false); }
+  }
+  async function undo(favorite: Favorite) {
+    setBusy(true);
+    try { await lib.addFavorite(favorite.item_type, favorite.item_id); setFlash({ text: t('fav.restored', { name: favorite.label }) }); await fetchPage(true); }
+    catch (e) { setFlash({ text: t('fav.failed', { message: describeError(e) }), error: true }); }
+    finally { setBusy(false); }
+  }
+  /** The favorite next to row `index` in direction `step`, read from the API when it is on another page. */
+  async function neighbour(index: number, step: -1 | 1): Promise<Favorite | null> {
+    const inPage = items[index + step];
+    if (inPage) return inPage;
+    const at = offset + index + step;
+    if (at < 0 || at >= total) return null;
+    return (await lib.listFavorites(type, at, 1, { q, sort })).items[0] ?? null;
+  }
+  async function move(index: number, target: number | null, step: -1 | 1) {
+    const favorite = items[index];
+    if (!favorite || !canArrange) return;
+    setBusy(true); setFlash(null);
+    const before = items;
+    try {
+      const anchor = target !== null ? items[target] : await neighbour(index, step);
+      if (!anchor) return;
+      if (target !== null) setItems(moveItem(items, index, target));
+      await lib.moveFavorite(favorite.id, moveAnchor(step > 0, anchor.id));
+      setMoved(t('fav.movedTo', { name: favorite.label, other: anchor.label, where: step > 0 ? t('fav.after') : t('fav.before') }));
+      await fetchPage(true);
+    } catch (e) { setItems(before); setFlash({ text: t('fav.moveFailed', { message: describeError(e) }), error: true }); }
+    finally { setBusy(false); setDragging(null); setOver(null); }
   }
 
+  const sortLabel = (value: FavoriteSortChoice) => t(`fav.sort.${value}` as MessageKey);
   return <>
     <PageHeader title={viewLabel('favorites')} subtitle={t('favorites.intro')} />
-    {flash && <p className={`notice ${flash.error ? 'errorNotice' : ''}`} role={flash.error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{flash.text}</p>}
+    <div aria-live="polite">{flash && !flash.error && <Notice>{flash.text}{flash.undo && <button type="button" className="linkButton favUndo" disabled={busy} onClick={() => { const item = flash.undo; if (item) void undo(item); }}>{t('fav.undo')}</button>}</Notice>}</div>
+    {flash?.error && <Notice error>{flash.text}</Notice>}
+    <p className="visuallyHidden" aria-live="polite">{moved}</p>
     <section className="pane favoritesPane" aria-busy={load.kind === 'loading'} aria-labelledby="favorites-list">
       <div className="paneHead">
         <h2 id="favorites-list">{load.kind === 'ready' ? t('pages2.favorites.count', { count: total }) : t('favorites.title')}</h2>
+        <div className="favToolbar" role="search" aria-label={t('fav.searchLabel')}>
+          <label className="field favSearch"><span>{t('fav.search')}</span>
+            <span className="favSearchBox"><Search aria-hidden="true" /><input type="search" value={draft} placeholder={t('fav.searchPlaceholder')} onChange={(e) => setDraft(e.target.value)} /></span></label>
+          <label className="field favSort"><span>{t('fav.sort')}</span>
+            <select value={sort} onChange={(e) => { setSort(e.target.value as FavoriteSortChoice); setOffset(0); }}>{FAVORITE_SORTS.map((value) => <option key={value} value={value}>{sortLabel(value)}</option>)}</select></label>
+        </div>
         <div className="libraryChips" role="group" aria-label={t('favorites.filter')}>
-          <button type="button" className={`libChip ${type === null ? 'active' : ''}`} aria-pressed={type === null} onClick={() => setType(null)}>{t('favorites.all')}</button>
-          {FAVORITE_TYPES.map((value) => <button type="button" key={value} className={`libChip ${type === value ? 'active' : ''}`} aria-pressed={type === value} onClick={() => setType(value)}>{favoriteTypeLabel(value)}</button>)}
+          <button type="button" className={`libChip ${type === null ? 'active' : ''}`} aria-pressed={type === null} onClick={() => { setType(null); setOffset(0); }}>{t('favorites.all')}</button>
+          {FAVORITE_TYPES.map((value) => <button type="button" key={value} className={`libChip ${type === value ? 'active' : ''}`} aria-pressed={type === value} onClick={() => { setType(value); setOffset(0); }}>{favoriteTypeLabel(value)}</button>)}
         </div>
       </div>
-      {load.kind === 'loading' && <div className="paneBody"><p className="muted" role="status">{t('favorites.loading')}</p></div>}
-      {load.kind === 'error' && <div className="paneBody"><PaneProblem text={t('favorites.loadFailed', { message: load.detail })} onRetry={() => void fetchFirst(type)} /></div>}
-      {load.kind === 'ready' && items.length === 0 && <div className="paneEmpty">
-        <Star aria-hidden="true" /><h3>{type ? t('favorites.emptyType', { type: favoriteTypeLabel(type) }) : t('favorites.empty')}</h3>
-        <p>{t('favorites.emptyText')}</p>
-        {type && <div className="actions"><button type="button" className="secondary" onClick={() => setType(null)}>{t('pages2.favorites.showAll')}</button></div>}
-      </div>}
-      {load.kind === 'ready' && items.length > 0 && <div className="dataTableWrap"><table className="dataTable favoritesTable">
-        <thead><tr><th scope="col">{t('pages2.favorites.col.name')}</th><th scope="col">{t('pages2.favorites.col.type')}</th><th scope="col" className="optional">{t('pages2.favorites.col.starred')}</th><th scope="col"><span className="visuallyHidden">{t('pages2.assistants.col.actions')}</span></th></tr></thead>
-        <tbody>{items.map((favorite) => <tr key={favorite.id}>
-          <th scope="row"><button type="button" className="cellButton" dir="auto" onClick={() => onOpen(favorite)}><strong>{favorite.label}<ExternalLink aria-hidden="true" className="inlineIcon" /></strong></button></th>
-          <td><span className="statusBadge neutral">{favoriteTypeLabel(favorite.item_type)}</span></td>
-          <td className="optional nowrap">{formatDateTime(favorite.created_at, { dateStyle: 'medium' })}</td>
-          <td><div className="cellActions"><button type="button" className="iconButton" onClick={() => void unstar(favorite)} aria-label={t('favorites.unstar', { name: favorite.label })} title={t('favorites.remove')}><StarOff aria-hidden="true" /></button></div></td>
-        </tr>)}</tbody>
-      </table></div>}
-      {load.kind === 'ready' && items.length < total && <div className="actions libraryMore paneBody">
-        <button type="button" className="secondary" disabled={more} onClick={() => void loadMore()}>{more ? t('common.loading') : t('favorites.more', { shown: items.length, total })}</button>
-      </div>}
+      {canArrange && load.kind === 'ready' && items.length > 1 && <p className="muted favHint paneBody" id="fav-arrange-hint">{t('fav.arrangeHint')}</p>}
+      {!canArrange && load.kind === 'ready' && items.length > 1 && <p className="muted favHint paneBody">{t('fav.arrangeOff', { sort: sortLabel('custom') })}</p>}
+      {load.kind === 'loading' && <div className="paneBody"><LoadingSkeleton label={t('favorites.loading')} rows={4} /></div>}
+      {load.kind === 'error' && <div className="paneBody"><PaneProblem text={t('favorites.loadFailed', { message: load.detail })} onRetry={() => void fetchPage()} /></div>}
+      {load.kind === 'ready' && items.length === 0 && (q
+        ? <Empty icon={<Search aria-hidden="true" />} title={t('fav.noMatch', { query: q })} text={t('fav.noMatchText')}
+          action={<button type="button" className="secondary" onClick={() => { setDraft(''); setQ(''); }}>{t('fav.clearSearch')}</button>} />
+        : <Empty icon={<Star aria-hidden="true" />} title={type ? t('favorites.emptyType', { type: favoriteTypeLabel(type) }) : t('favorites.empty')} text={t('favorites.emptyText')}
+          action={type ? <button type="button" className="secondary" onClick={() => setType(null)}>{t('pages2.favorites.showAll')}</button>
+            : <button type="button" className="secondary" onClick={() => { location.hash = '#reports'; }}>{t('fav.openReports')}</button>} />)}
+      {load.kind === 'ready' && items.length > 0 && <ol className="libraryList favList" aria-label={t('fav.listLabel')} aria-describedby={canArrange ? 'fav-arrange-hint' : undefined}>
+        {items.map((favorite, index) => {
+          const first = offset + index === 0, last = offset + index === total - 1;
+          return <li key={favorite.id} className={`libraryRow favRow ${dragging === index ? 'dragging' : ''} ${over === index && dragging !== index ? 'dropTarget' : ''}`}
+            draggable={canArrange && !busy} onDragStart={(e) => { dragFrom.current = index; setDragging(index); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', favorite.id); }}
+            onDragOver={(e) => { if (dragFrom.current !== null) { e.preventDefault(); setOver(index); } }} onDragLeave={() => setOver((current) => (current === index ? null : current))}
+            onDrop={(e) => { e.preventDefault(); const from = dragFrom.current; dragFrom.current = null; if (from !== null && from !== index) void move(from, index, index > from ? 1 : -1); else { setDragging(null); setOver(null); } }}
+            onDragEnd={() => { dragFrom.current = null; setDragging(null); setOver(null); }}>
+            {canArrange && <span className="favGrip" aria-hidden="true" title={t('fav.drag')}><GripVertical /></span>}
+            <div className="libraryMain">
+              <button type="button" className="libraryTitle cellButton" dir="auto" onClick={() => onOpen(favorite)}>{favorite.label}<ExternalLink aria-hidden="true" /></button>
+              <small><span className="statusBadge neutral">{favoriteTypeLabel(favorite.item_type)}</span><span>{t('favorites.starredOn', { date: formatDateTime(favorite.created_at, { dateStyle: 'medium' }) })}</span></small>
+            </div>
+            <div className="cellActions">
+              {canArrange && <>
+                <button type="button" className="iconButton" disabled={busy || first} aria-label={t('fav.moveUp', { name: favorite.label })} title={t('fav.moveUpShort')} onClick={() => void move(index, index > 0 ? index - 1 : null, -1)}><ArrowUp aria-hidden="true" /></button>
+                <button type="button" className="iconButton" disabled={busy || last} aria-label={t('fav.moveDown', { name: favorite.label })} title={t('fav.moveDownShort')} onClick={() => void move(index, index < items.length - 1 ? index + 1 : null, 1)}><ArrowDown aria-hidden="true" /></button>
+              </>}
+              <button type="button" className="iconButton" disabled={busy} onClick={() => void unstar(favorite)} aria-label={t('favorites.unstar', { name: favorite.label })} title={t('favorites.remove')}><StarOff aria-hidden="true" /></button>
+            </div>
+          </li>;
+        })}
+      </ol>}
+      {load.kind === 'ready' && <Pager label={t('fav.pages')} from={offset + 1} to={offset + items.length} total={total} hasPrev={offset > 0} hasNext={offset + items.length < total} busy={busy}
+        onPrev={() => setOffset(Math.max(0, offset - FAVORITES_PAGE))} onNext={() => setOffset(offset + FAVORITES_PAGE)} />}
     </section>
   </>;
 }

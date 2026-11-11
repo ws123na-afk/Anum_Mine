@@ -40,6 +40,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from .calendar_api import (
     MAX_ATTENDEES,
+    MAX_PUSH_ATTEMPTS,
     Attendee,
     AttendeeResponse,
     CalendarEvent,
@@ -55,8 +56,10 @@ from .calendar_providers import (
     GoogleCalendarClient,
     MicrosoftCalendarClient,
     OutgoingEvent,
+    PushRefused,
     RemoteEvent,
 )
+from .calendar_recurrence import all_day_bounds, all_day_days
 from .email_providers import InvalidReferenceError, MailProviderError, OAuthClient
 from .schemas import RiskLevel, TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
@@ -462,6 +465,12 @@ def _copy_remote(event: CalendarEvent, remote: RemoteEvent, now: datetime) -> Ca
     event.description = remote.description
     event.location = remote.location
     event.starts_at, event.ends_at = remote.starts_at, remote.ends_at
+    if event.series_id is None:
+        # A changed occurrence keeps its series' shape; anything else takes the provider's.
+        event.all_day = remote.all_day
+        if remote.all_day or remote.recurrence is not None:
+            event.timezone = remote.timezone or "UTC"
+    event.sync_error, event.sync_attempts = None, 0
     if remote.conference_url:
         event.conference_url = remote.conference_url
     event.attendees = _attendees_from(remote, event.attendees)
@@ -563,6 +572,170 @@ def apply_remote(store: Any, connection: CalendarConnection, remote: RemoteEvent
     summary.updated += 1
 
 
+def _rebuilt(event: CalendarEvent) -> CalendarEvent | None:
+    """``event`` validated again (the series run and the all-day bounds are derived), or None
+    when the provider's values do not make a valid ANUM event."""
+    try:
+        return CalendarEvent.model_validate(event.model_dump())
+    except ValueError:
+        return None
+
+
+def _prune_flattened(store: Any, connection: CalendarConnection, master_id: str, keep: set[str], summary: SyncSummary) -> None:
+    """Remove the single events an earlier sync stored for the instances of ``master_id`` (Google
+    instance ids are ``<master>_<original start>``), except ``keep`` and unsent local edits."""
+    for local in store.by_external_prefix(connection.id, f"{master_id}_"):
+        if local.external_id in keep or local.sync_state == "pending_push" or local.recurrence is not None or local.series_id is not None:
+            continue
+        store.delete(local.id)
+        summary.deleted += 1
+
+
+def apply_master(store: Any, connection: CalendarConnection, remote: RemoteEvent, summary: SyncSummary, now: datetime) -> None:
+    """A Google series master whose rule ANUM holds: one ANUM series (docs/calendar.md#how-events-sync).
+
+    The conflict rule is ``apply_remote``'s. The series keeps the occurrences removed in ANUM or
+    in earlier syncs while its start and rule stay the same, plus the provider's EXDATEs; when
+    the start or rule changed, the old exceptions no longer line up and are dropped."""
+    local = store.by_external(connection.id, remote.external_id)
+    if local is not None and local.recurrence is None:
+        # A single event before (a Google event that became a series): replaced by the series.
+        store.delete(local.id)
+        local = None
+    if local is None:
+        _prune_flattened(store, connection, remote.external_id, set(), summary)
+        if not _remote_times_ok(remote):
+            summary.skipped += 1
+            return
+        event = CalendarEvent(
+            id=new_id("event"),
+            tenant_id=connection.tenant_id,
+            workspace_id=connection.workspace_id,
+            title=remote.title,
+            kind=EventKind.MEETING,
+            starts_at=remote.starts_at,
+            ends_at=remote.ends_at,
+            attendees=[],
+            source=connection.provider.value,
+            created_by=connection.connected_by,
+            created_at=now,
+            updated_at=now,
+            connection_id=connection.id,
+            external_id=remote.external_id,
+        )
+        event = _copy_remote(event, remote, now)
+        event.recurrence = remote.recurrence
+        event.skipped = list(remote.exdates)
+        built = _rebuilt(event)
+        if built is None:
+            summary.skipped += 1
+            return
+        store.add(built)
+        summary.created += 1
+        return
+    if not _remote_changed(local, remote):
+        return
+    if local.sync_state == "pending_push":
+        if remote.updated_at < local.updated_at:
+            summary.conflicts_local_won += 1
+            local.external_etag = remote.etag
+            store.save(local)
+            return
+        summary.conflicts_remote_won += 1
+    if not _remote_times_ok(remote):
+        summary.skipped += 1
+        return
+    reshaped = remote.starts_at != local.starts_at or remote.recurrence != local.recurrence
+    updated = _copy_remote(local, remote, now)
+    updated.recurrence = remote.recurrence
+    if reshaped:
+        updated.skipped = list(remote.exdates)
+        updated.occurrence_responses = []
+        for child in store.overrides(local.id):
+            store.delete(child.id)
+    else:
+        updated.skipped = sorted(set(local.skipped) | set(remote.exdates))
+    built = _rebuilt(updated)
+    if built is None:
+        summary.skipped += 1
+        return
+    store.save(built)
+    _prune_flattened(store, connection, remote.external_id, set(), summary)
+    summary.updated += 1
+
+
+def _original_start(remote: RemoteEvent, series: CalendarEvent) -> datetime | None:
+    if remote.original_date is not None:
+        return all_day_bounds(remote.original_date, remote.original_date, series.timezone)[0]
+    return remote.original_start
+
+
+def apply_instance(store: Any, connection: CalendarConnection, series: CalendarEvent, remote: RemoteEvent, summary: SyncSummary, now: datetime) -> None:
+    """One instance of a series ANUM holds, changed or cancelled on its own at the provider:
+    a cancelled one goes into the series' skipped list; a changed one becomes (or updates) the
+    occurrence's own row."""
+    original = _original_start(remote, series)
+    if original is None:
+        summary.skipped += 1
+        return
+    child = store.by_external(connection.id, remote.external_id) or next(
+        (o for o in store.overrides(series.id) if o.recurrence_start == original), None
+    )
+    if child is not None and child.sync_state == "pending_push" and _remote_changed(child, remote):
+        if remote.updated_at < child.updated_at:
+            summary.conflicts_local_won += 1
+            child.external_id, child.external_etag = remote.external_id, remote.etag
+            store.save(child)
+            return
+        summary.conflicts_remote_won += 1
+    elif child is not None and not _remote_changed(child, remote):
+        return
+    if remote.cancelled and not _is_cancelled_not_deleted(remote):
+        if child is not None:
+            store.delete(child.id)
+        if original not in series.skipped:
+            series.skipped = [*series.skipped, original]
+            series.updated_at = now
+            series.updated_by = "sync"
+            store.save(series)
+        summary.deleted += 1
+        return
+    if not _remote_times_ok(remote):
+        summary.skipped += 1
+        return
+    if child is None:
+        child = series.model_copy(update={
+            "id": new_id("event"), "series_id": series.id, "recurrence_start": original, "recurrence": None, "recurrence_until": None,
+            "skipped": [], "occurrence_responses": [], "created_at": now, "external_id": remote.external_id, "connection_id": connection.id,
+        })
+        child = _copy_remote(child, remote, now)
+        built = _rebuilt(child)
+        if built is None:
+            summary.skipped += 1
+            return
+        store.add(built)
+        summary.created += 1
+        return
+    child.external_id = remote.external_id
+    built = _rebuilt(_copy_remote(child, remote, now))
+    if built is None:
+        summary.skipped += 1
+        return
+    store.save(built)
+    summary.updated += 1
+
+
+def apply_flattened_master(store: Any, connection: CalendarConnection, remote: RemoteEvent, summary: SyncSummary) -> None:
+    """A Google series whose rule ANUM cannot hold: its instances come as single events (they are
+    in the same delta); a series ANUM held for it before is removed, and stored instances that
+    are no longer read are removed too."""
+    local = store.by_external(connection.id, remote.external_id)
+    if local is not None:
+        store.delete(local.id)
+        summary.deleted += 1
+    _prune_flattened(store, connection, remote.external_id, set(remote.flattened_instances or []), summary)
+
+
 def _is_cancelled_not_deleted(remote: RemoteEvent) -> bool:
     """Graph reports a cancelled meeting as an event with ``isCancelled``; Google reports a
     deleted or cancelled event with status ``cancelled`` and usually no details. A cancelled
@@ -570,10 +743,18 @@ def _is_cancelled_not_deleted(remote: RemoteEvent) -> bool:
     return remote.title != "(no title)" and remote.ends_at > remote.starts_at
 
 
-def outgoing_for(event: CalendarEvent) -> tuple[OutgoingEvent, bool]:
-    """The event as ANUM writes it, and whether invitations go with it (only the approved ones)."""
-    approved = event.invites_hash is not None and event.invites_hash == invitation_hash(event)
+def _approved(event: CalendarEvent) -> bool:
+    return event.invites_hash is not None and event.invites_hash == invitation_hash(event)
+
+
+def outgoing_for(event: CalendarEvent, *, series: CalendarEvent | None = None) -> tuple[OutgoingEvent, bool]:
+    """The event as ANUM writes it, and whether invitations go with it (only the approved ones).
+    ``series``: the event is one occurrence of it, written on the provider's instance."""
+    approved = _approved(series if series is not None else event)
     attendees = tuple((a.email, a.name) for a in event.attendees if a.email) if approved else None
+    all_day = series.all_day if series is not None else event.all_day
+    zone = (series.timezone if series is not None else event.timezone) or "UTC"
+    first, last = all_day_days(event.starts_at, event.ends_at, zone) if all_day else (None, None)
     return (
         OutgoingEvent(
             title=event.title,
@@ -583,13 +764,24 @@ def outgoing_for(event: CalendarEvent) -> tuple[OutgoingEvent, bool]:
             location=event.location,
             attendees=attendees,
             online_meeting=bool(event.conference_url),
+            all_day=all_day,
+            start_date=first,
+            end_date=last,
+            timezone=zone if (all_day or event.recurrence is not None or series is not None) else None,
+            recurrence=event.recurrence if series is None else None,
+            instance=series is not None,
         ),
         approved,
     )
 
 
+class NotYetPushable(Exception):
+    """A changed occurrence whose series is not at the provider yet: it waits for the series."""
+
+
 async def push_event(client: CalendarProviderClient, token: str, event: CalendarEvent) -> CalendarEvent:
-    """Send one ANUM event to the provider and return it with its link fields updated (not saved)."""
+    """Send one ANUM event (a single event or a series' master) to the provider and return it with
+    its link fields updated (not saved)."""
     outgoing, notify = outgoing_for(event)
     if client.notifies_on_update and event.external_id and event.status != EventStatus.CANCELLED and not notify and any(a.email for a in event.attendees):
         # The provider would tell the attendees about this change on its own: hold it until an owner
@@ -600,6 +792,7 @@ async def push_event(client: CalendarProviderClient, token: str, event: Calendar
             await client.delete(token, event.external_id, notify=notify)
         event.connection_id = event.external_id = event.external_etag = event.synced_at = None
         event.sync_state = "local"
+        event.sync_error, event.sync_attempts = None, 0
         return event
     if event.external_id:
         result = await client.update(token, event.external_id, outgoing, notify=notify)
@@ -609,7 +802,95 @@ async def push_event(client: CalendarProviderClient, token: str, event: Calendar
     event.external_etag = result.etag
     event.synced_at = utc_now()
     event.sync_state = "synced"
+    event.sync_error, event.sync_attempts = None, 0
     return event
+
+
+def _window() -> tuple[datetime, datetime]:
+    now = utc_now()
+    return now - timedelta(days=calendar_settings.days_back), now + timedelta(days=calendar_settings.days_ahead)
+
+
+def _matches(instance: Any, original: datetime, series: CalendarEvent) -> bool:
+    if instance.original_date is not None:
+        return all_day_bounds(instance.original_date, instance.original_date, series.timezone)[0] == original
+    return instance.original_start is not None and instance.original_start == original
+
+
+async def _remove_skipped(client: CalendarProviderClient, token: str, series: CalendarEvent) -> None:
+    """Remove at the provider the occurrences removed in ANUM (the series' skipped list) that fall
+    inside the sync window: one instances read for the series, then a delete per match. An
+    occurrence already removed there is not listed, so this is safe to repeat."""
+    since, until = _window()
+    wanted = [s for s in series.skipped if since <= s <= until]
+    if not wanted or not series.external_id:
+        return
+    found = await client.instances(token, series.external_id, since=min(wanted) - timedelta(minutes=1), until=max(wanted) + series.duration + timedelta(minutes=1))
+    notify = _approved(series)
+    for instance in found:
+        if instance.cancelled:
+            continue
+        if any(_matches(instance, original, series) for original in wanted):
+            await client.delete(token, instance.external_id, notify=notify)
+
+
+async def push_occurrence(client: CalendarProviderClient, token: str, child: CalendarEvent, series: CalendarEvent | None) -> CalendarEvent:
+    """Send one occurrence changed on its own to the provider's instance of its series. A cancelled
+    occurrence removes that instance; the series' attendees decide notification (an occurrence has
+    no approval of its own)."""
+    if series is None or not series.external_id or series.sync_state == "local":
+        raise NotYetPushable
+    original = child.recurrence_start or child.starts_at
+    outgoing, notify = outgoing_for(child, series=series)
+    if client.notifies_on_update and child.status != EventStatus.CANCELLED and not notify and any(a.email for a in child.attendees):
+        return child  # held like a change to the series (docs/calendar.md#invitations)
+    instance_id = child.external_id
+    if not instance_id:
+        found = await client.instances(token, series.external_id, since=original - timedelta(minutes=1), until=original + series.duration + timedelta(minutes=1))
+        match = next((i for i in found if _matches(i, original, series)), None)
+        if match is None:
+            if child.status == EventStatus.CANCELLED:
+                child.sync_state, child.synced_at = "synced", utc_now()
+                child.sync_error, child.sync_attempts = None, 0
+                return child
+            raise PushRefused(
+                "The connected calendar has no occurrence at this time any more (it was removed or moved there). "
+                "Change the series, or add this one as a new event."
+            )
+        instance_id = match.external_id
+    if child.status == EventStatus.CANCELLED:
+        await client.delete(token, instance_id, notify=notify)
+        child.external_id = instance_id
+    else:
+        result = await client.update(token, instance_id, outgoing, notify=notify)
+        child.external_id, child.external_etag = result.external_id, result.etag
+    child.synced_at = utc_now()
+    child.sync_state = "synced"
+    child.sync_error, child.sync_attempts = None, 0
+    return child
+
+
+async def push_one(client: CalendarProviderClient, token: str, event: CalendarEvent, *, series: CalendarEvent | None = None) -> CalendarEvent:
+    """Send a single event, a series (with its removed occurrences) or one changed occurrence."""
+    if event.series_id is not None:
+        return await push_occurrence(client, token, event, series)
+    pushed = await push_event(client, token, event)
+    if pushed.recurrence is not None and pushed.sync_state == "synced" and pushed.skipped:
+        await _remove_skipped(client, token, pushed)
+    return pushed
+
+
+def _record_push_failure(context: TenantContext, event: CalendarEvent, message: str, *, permanent: bool) -> CalendarEvent | None:
+    """Keep why a send failed on the event. After ``MAX_PUSH_ATTEMPTS`` failures in a row (at once
+    when retrying cannot help) the event is no longer retried on its own; its detail offers Retry."""
+    with open_calendar_store(context) as events:
+        current = events.get(event.id)
+        if current is None:
+            return None
+        current.sync_error = message[:500]
+        current.sync_attempts = MAX_PUSH_ATTEMPTS if permanent else min(MAX_PUSH_ATTEMPTS, current.sync_attempts + 1)
+        events.save(current)
+        return current
 
 
 # -- sync -------------------------------------------------------------------------------------
@@ -652,14 +933,20 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
                 break
         failures: list[str] = []
         waiting = await asyncio.to_thread(_pending_push, context, connection.id)
+        # Series before their changed occurrences, which are written on the series' instances.
+        waiting.sort(key=lambda e: e.series_id is not None)
         for event in waiting:
+            series = await asyncio.to_thread(_event, context, event.series_id) if event.series_id else None
             try:
-                pushed = await push_event(client, token, event)
+                pushed = await push_one(client, token, event, series=series)
+            except NotYetPushable:
+                continue
             except MailProviderError as exc:
                 summary.push_failed += 1
                 failures.append(exc.message)
                 if exc.reauth:
                     raise
+                await asyncio.to_thread(_record_push_failure, context, event, exc.message, permanent=isinstance(exc, PushRefused))
                 continue
             if pushed.sync_state == "pending_push":
                 summary.held += 1  # waiting for the owner's approval of the changed event
@@ -728,8 +1015,32 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
 def _apply_delta(context: TenantContext, connection: CalendarConnection, delta: Any, summary: SyncSummary) -> None:
     with open_calendar_store(context) as events:
         stamp = utc_now()
+        # Masters first, so the instances in the same delta find their series.
+        masters = [r for r in delta.events if r.is_master]
+        for remote in masters:
+            if remote.cancelled:
+                local = events.by_external(connection.id, remote.external_id)
+                if local is not None and local.sync_state != "pending_push":
+                    events.delete(local.id)
+                    summary.deleted += 1
+                _prune_flattened(events, connection, remote.external_id, set(), summary)
+            elif remote.recurrence is not None:
+                apply_master(events, connection, remote, summary, stamp)
+            elif remote.flattened_instances is not None:
+                apply_flattened_master(events, connection, remote, summary)
+            else:
+                summary.skipped += 1  # more series than one pass reads; the next pass reads it
         for remote in delta.events:
-            apply_remote(events, connection, remote, summary, stamp)
+            if remote.is_master:
+                continue
+            series = events.by_external(connection.id, remote.recurring_event_id) if remote.recurring_event_id else None
+            if series is not None and series.recurrence is not None and series.series_id is None:
+                if remote.instance_kind == "occurrence":
+                    continue  # an occurrence the series' own rule makes (Graph lists them all)
+                apply_instance(events, connection, series, remote, summary, stamp)
+            else:
+                # A single event, or an instance of a series kept flattened (Microsoft, or a rule ANUM cannot hold).
+                apply_remote(events, connection, remote, summary, stamp)
         for external_id in delta.removed:
             local = events.by_external(connection.id, external_id)
             if local is not None and local.sync_state != "pending_push":
@@ -738,6 +1049,7 @@ def _apply_delta(context: TenantContext, connection: CalendarConnection, delta: 
 
 
 def _pending_push(context: TenantContext, connection_id: str) -> list[CalendarEvent]:
+    """Events waiting to be sent, without those that failed ``MAX_PUSH_ATTEMPTS`` times in a row."""
     with open_calendar_store(context) as events:
         return events.pending_push(connection_id, MAX_PUSH_PER_PASS)
 
@@ -761,43 +1073,85 @@ def _keep_pushed(context: TenantContext, event: CalendarEvent, pushed: CalendarE
 async def attach_and_push(context: TenantContext, event_id: str, *, create: bool) -> CalendarEvent | None:
     """After a local create or change: queue the event for the provider and try to send it now.
 
-    A failure leaves the event queued (``pending_push``) for the next sync pass; it never
-    fails the person's own save. Store steps run in worker threads (docs/realtime.md#event-loop)."""
+    Single events, series and all-day events go to the oldest working connection when created;
+    a changed occurrence follows its series' connection. A failure leaves the event queued
+    (``pending_push``) with the reason on it for the next sync pass; it never fails the person's
+    own save. Store steps run in worker threads (docs/realtime.md#event-loop)."""
 
-    def queue() -> tuple[CalendarEvent | None, CalendarConnection | None, bool]:
+    def queue() -> tuple[CalendarEvent | None, CalendarEvent | None, CalendarConnection | None, bool]:
         with open_sync_store(context) as store:
             connection = default_connection(store) if create else None
         with open_calendar_store(context) as events:
             event = events.get(event_id)
             if event is None:
-                return None, None, False
-            if event.recurrence is not None or event.all_day or event.series_id is not None:
-                # Series, their changed occurrences and all-day events stay in ANUM
-                # (docs/calendar.md#recurrence, "Synced calendars").
-                return event, None, False
-            if create:
+                return None, None, None, False
+            series = None
+            if event.series_id is not None:
+                series = events.get(event.series_id)
+                if series is None or not series.connection_id or series.source_ref == GUEST_REF:
+                    return event, None, None, False
+                event.connection_id = series.connection_id
+            elif create:
                 if connection is None:
-                    return event, None, False
+                    return event, None, None, False
                 event.connection_id = connection.id
             elif event.connection_id is None or event.source_ref == GUEST_REF:
-                return event, None, False
+                return event, None, None, False
+            # A new change is a fresh attempt: the failure count starts again.
             event.sync_state = "pending_push"
+            event.sync_error, event.sync_attempts = None, 0
             events.save(event)
         with open_sync_store(context) as store:
-            return event, store.get_connection(event.connection_id or ""), True
+            return event, series, store.get_connection(event.connection_id or ""), True
 
-    event, linked, queued = await asyncio.to_thread(queue)
+    event, series, linked, queued = await asyncio.to_thread(queue)
     if event is None or not queued:
         return event
     if linked is None or linked.status == ConnectionStatus.REAUTH_REQUIRED:
         return event
     try:
         token = await connection_token(linked, context)
-        pushed = await push_event(provider_client(linked.provider), token, event.model_copy(deep=True))
-    except (CalendarSyncError, MailProviderError) as exc:
+        client = provider_client(linked.provider)
+        pushed = await push_one(client, token, event.model_copy(deep=True), series=series)
+    except NotYetPushable:
+        return event
+    except MailProviderError as exc:
+        if exc.reauth:
+            return event
+        return await asyncio.to_thread(_record_push_failure, context, event, exc.message, permanent=isinstance(exc, PushRefused)) or event
+    except CalendarSyncError as exc:
         logger.info("calendar_push_deferred", extra={"anum_calendar": {"event": "push_deferred", "status": getattr(exc, "status", 0)}})
         return event
-    return await asyncio.to_thread(_keep_pushed, context, event, pushed)
+    kept = await asyncio.to_thread(_keep_pushed, context, event, pushed)
+    if kept is pushed and pushed.recurrence is not None and pushed.sync_state == "synced":
+        # Occurrences of this series that waited for it to reach the provider go now.
+        await _push_waiting_occurrences(context, client, token, pushed)
+    return kept
+
+
+async def _push_waiting_occurrences(context: TenantContext, client: CalendarProviderClient, token: str, series: CalendarEvent) -> None:
+    def waiting() -> list[CalendarEvent]:
+        with open_calendar_store(context) as events:
+            return [o for o in events.overrides(series.id) if o.sync_state == "pending_push" and o.sync_attempts < MAX_PUSH_ATTEMPTS][:50]
+
+    for child in await asyncio.to_thread(waiting):
+        try:
+            pushed = await push_occurrence(client, token, child.model_copy(deep=True), series)
+        except NotYetPushable:
+            return
+        except MailProviderError as exc:
+            if exc.reauth:
+                return
+            await asyncio.to_thread(_record_push_failure, context, child, exc.message, permanent=isinstance(exc, PushRefused))
+            continue
+        if pushed.sync_state == "synced":
+            await asyncio.to_thread(_keep_pushed, context, child, pushed)
+
+
+async def retry_push(context: TenantContext, event_id: str) -> CalendarEvent | None:
+    """A person asks to send an event that stopped being retried: the count starts again and it is
+    sent now (``attach_and_push``)."""
+    return await attach_and_push(context, event_id, create=False)
 
 
 async def remove_at_provider(context: TenantContext, event: CalendarEvent) -> None:
@@ -882,6 +1236,8 @@ async def send_invitations(call: ToolCall, context: TenantContext) -> ToolResult
         return _failed("The event or its attendees changed after it was sent for approval; no invitation was sent. Ask for approval again.")
     if event.status == EventStatus.CANCELLED:
         return _failed("The event is cancelled; no invitation was sent.")
+    if event.series_id is not None:
+        return _failed("Invitations go out for the whole series; ask for them on the series, not one occurrence.")
     connection = await asyncio.to_thread(_connection, context, str(args.get("connection_id", "")))
     if connection is None or connection.status == ConnectionStatus.REAUTH_REQUIRED:
         return _failed("The calendar is not connected any more; no invitation was sent. Connect it again and ask for approval again.")
@@ -893,7 +1249,7 @@ async def send_invitations(call: ToolCall, context: TenantContext) -> ToolResult
     await asyncio.to_thread(_save_event, context, event)
     try:
         token = await connection_token(connection, context)
-        pushed = await push_event(provider_client(connection.provider), token, event.model_copy(deep=True))
+        pushed = await push_one(provider_client(connection.provider), token, event.model_copy(deep=True))
     except (CalendarSyncError, MailProviderError) as exc:
         return ToolResult(
             status="failed",

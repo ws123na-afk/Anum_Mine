@@ -1,9 +1,17 @@
+import '../../data/api_models.dart';
 import 'governance_models.dart';
 
 abstract interface class GovernanceRepository {
   Future<GovernanceSnapshot> load();
   Future<PolicyPack> createBaselinePolicy(String name);
   Future<PolicyPack> setPolicyActive(String id, {required bool active});
+
+  /// Publishes a pack (a new name starts at v1; an existing name gets its
+  /// next version and the previous active one is archived).
+  Future<PolicyPack> publishPolicyPack(JsonMap body);
+
+  /// Deletes an archived version for good (409 while it is active).
+  Future<void> deletePolicyPack(String id);
   Future<void> createRoleTemplate(String name, List<String> permissions);
   Future<void> createApprovalRule(String name, String pattern,
       {int minimumApprovers = 1, List<String> requiredRoles = const ['owner']});

@@ -21,6 +21,7 @@ import json
 import re
 import time
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -66,11 +67,13 @@ from .models import (
     ConnectorHealth,
     CustomerView,
     Listing,
+    Money,
     Order,
     OrderStatus,
     OwnStoreMode,
     Product,
     ReturnRecord,
+    cents,
     marketplace_name,
 )
 from .store import MAX_PAGE, open_commerce_store
@@ -247,7 +250,7 @@ class ProductInput(BaseModel):
     title_ar: str | None = Field(default=None, max_length=500)
     brand: str | None = Field(default=None, max_length=120)
     tyre: TyreSpec | None = None
-    cost_price: float | None = Field(default=None, ge=0, le=1_000_000)
+    cost_price: Money | None = Field(default=None, ge=0, le=1_000_000)
     currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     low_stock_threshold: int | None = Field(default=None, ge=0, le=100000)
 
@@ -259,7 +262,7 @@ class ProductCreate(ProductInput):
 class PriceChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    price: float = Field(gt=0, le=1_000_000)
+    price: Money = Field(gt=0, le=1_000_000)
 
 
 class StockChange(BaseModel):
@@ -837,7 +840,7 @@ def propose(repository: AnumRepository, context: TenantContext, call: ToolCall, 
     return task, approval
 
 
-def _propose_listing_change(repository: AnumRepository, context: TenantContext, listing_id: str, kind: str, value: float | int) -> ChangeProposal:
+def _propose_listing_change(repository: AnumRepository, context: TenantContext, listing_id: str, kind: str, value: Decimal | int) -> ChangeProposal:
     _require(context, Permission.COMMERCE_OPERATE, OPERATE_DENIED)
     with open_commerce_store(context) as store:
         listing = store.get_listing(context, listing_id)
@@ -859,8 +862,11 @@ def _propose_listing_change(repository: AnumRepository, context: TenantContext, 
         "target_host": channel_target(connector),
     }
     if kind == "price":
-        arguments.update(price=round(float(value), 2), currency=listing.currency or "SAR", previous_price=listing.price)
-        shown = f"{float(value):.2f} {listing.currency or ''}".strip()
+        # Exact to the cent (half up); the tool arguments stay JSON numbers, as the approval shows and hashes them.
+        price = cents(Decimal(value))
+        previous = None if listing.price is None else float(listing.price)
+        arguments.update(price=float(price), currency=listing.currency or "SAR", previous_price=previous)
+        shown = f"{price:.2f} {listing.currency or ''}".strip()
     else:
         arguments.update(quantity=int(value), previous_quantity=listing.quantity)
         shown = str(int(value))

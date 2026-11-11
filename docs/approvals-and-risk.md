@@ -191,7 +191,7 @@ One web page, **Approvals settings** in the navigation under Admin (`#approvalSe
 | Routing | How a pausing action is routed, in the API's order (pause, matching rules and summed amounts, the first band that holds, the owner fallback, who may decide), then **Bands in force** built from the rules that are on, how many rules are off, and what the two policy switches do to it | Nothing to save: it is read from the rules and the policy |
 | Reminders | The [approval-ageing reminder](#approval-ageing-reminder) | Workspace owners |
 
-The Approvals page's "Open approval rules" link opens this page. Help: `docs/help/approval-settings.md`. Tests: `apps/web/test/approvalSettings.test.ts` (the routing summary, the hash alias, the navigation), `apps/web/e2e/policy.spec.ts` and `e2e/approval-settings.spec.ts`.
+The Approvals page's "Open approval rules" link opens this page. The Flutter **Approval policy** screen (Settings, Workspace administration) has the same four sections, each loading and failing on its own (`apps/mobile/lib/features/admin/approval_settings.dart`, `approval_settings_sections.dart`): the switches, the rules read only with **Edit rules on the web** (it opens `#governance` when the build knows `ANUM_WEB_APP_URL`, else it says where to go), the routing worked out from the rules and the drafted switches, and the reminder (owners pick 1 to 23 hours or off; members read it). Tests: `apps/mobile/test/admin/approval_settings_test.dart`. Help: `docs/help/approval-settings.md`. Tests: `apps/web/test/approvalSettings.test.ts` (the routing summary, the hash alias, the navigation), `apps/web/e2e/policy.spec.ts` and `e2e/approval-settings.spec.ts`.
 
 ## Approval-ageing reminder
 

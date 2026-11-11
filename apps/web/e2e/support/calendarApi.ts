@@ -7,6 +7,8 @@ export interface CalendarMockOptions {
   // Calendar sync (docs/calendar.md#sync): nothing connected, a working Google connection, one that needs
   // reconnecting, or a server without OAuth clients.
   sync?: 'none' | 'connected' | 'reauth' | 'unconfigured'; failSync?: boolean;
+  // With `sync: 'connected'`: the first event's sends to Google failed five times and ANUM stopped retrying.
+  failedPush?: boolean;
 }
 
 // The fixture's "today" is the run day, taken once at midday. A spec that shows the calendar pins the page's clock to the same
@@ -24,7 +26,8 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
   const owner = options.role !== 'viewer';
   const base = { tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', source: 'manual', source_ref: null, created_by: 'user_local', created_at: at(-3, 9), updated_by: null, updated_at: at(-3, 9) };
   const events: Record<string, unknown>[] = options.empty ? [] : [
-    { ...base, id: 'evt_1', title: 'Fleet review with the team', kind: 'meeting', status: 'scheduled', ...(options.sync === 'connected' ? { connection_id: 'cal_1', external_id: 'g1', sync_state: 'synced', synced_at: at(-1, 9), invitations_pending: true } : {}), starts_at: at(0, 23, 0), ends_at: at(0, 23, 30), location: 'Room 2', conference_url: 'https://meet.example.com/fleet', phone: null, description: 'Tyre spend and the winter plan.',
+    { ...base, id: 'evt_1', title: 'Fleet review with the team', kind: 'meeting', status: 'scheduled', ...(options.sync === 'connected' ? { connection_id: 'cal_1', external_id: 'g1', sync_state: 'synced', synced_at: at(-1, 9), invitations_pending: true } : {}),
+      ...(options.sync === 'connected' && options.failedPush ? { sync_state: 'pending_push', sync_failed: true, sync_error: 'Google Calendar answered 400: Invalid recurrence rule.' } : {}), starts_at: at(0, 23, 0), ends_at: at(0, 23, 30), location: 'Room 2', conference_url: 'https://meet.example.com/fleet', phone: null, description: 'Tyre spend and the winter plan.',
       attendees: [{ id: 'att_1', name: 'Sara Ali', email: 'sara@example.com', role: 'Fleet manager', response: 'accepted' }, { id: 'att_2', name: 'Omar Haddad', email: 'omar@example.com', role: null, response: 'invited' }] },
     { ...base, id: 'evt_2', title: 'Supplier call: Michelin order', kind: 'call', status: 'scheduled', starts_at: at(0, 1, 0), ends_at: at(0, 1, 45), location: null, conference_url: null, phone: '+971 50 123 4567', description: null, attendees: [] },
     { ...base, id: 'evt_3', title: 'Quarterly budget review', kind: 'review', status: 'cancelled', starts_at: at(0, 2, 0), ends_at: at(0, 3, 0), location: 'Board room', conference_url: null, phone: null, description: null, attendees: [], created_by: 'user_owner' },
@@ -39,6 +42,7 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
   const state = {
     events, created: [] as unknown[], updates: [] as unknown[], deleted: [] as string[], responses: [] as unknown[],
     connections: initial as Record<string, unknown>[], syncs: [] as string[], disconnected: [] as string[], invitations: [] as string[], connectStarts: [] as string[],
+    retries: [] as string[],
   };
   const providers = () => [
     { provider: 'google', name: 'Google Calendar', configured: options.sync !== 'unconfigured', missing: options.sync === 'unconfigured' ? ['ANUM_CALENDAR_GOOGLE_CLIENT_ID', 'ANUM_CALENDAR_GOOGLE_CLIENT_SECRET'] : [], scopes: ['openid', 'email'] },
@@ -60,7 +64,10 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
       if (rule.until && at > Date.parse(`${rule.until}T23:59:59`)) break;
       const iso = new Date(at).toISOString();
       if (at + length <= start || skipped.has(iso) || overrides.has(iso)) continue;
-      out.push({ ...event, starts_at: iso, ends_at: new Date(at + length).toISOString(), occurrence_start: iso, occurrence_key: `${event.id}@${iso}`, is_recurring: true, rrule: `FREQ=${rule.freq.toUpperCase()}` });
+      // Replies to this occurrence alone replace the attendee's series reply (docs/calendar.md#replies).
+      const own = ((event.occurrence_responses as { attendee_id: string; occurrence_start: string; response: string }[] | undefined) ?? []).filter((r) => r.occurrence_start === iso);
+      const attendees = (event.attendees as Record<string, unknown>[] | undefined ?? []).map((a) => { const mine = own.find((r) => r.attendee_id === a.id); return mine ? { ...a, response: mine.response } : a; });
+      out.push({ ...event, attendees, occurrence_replies: own.map((r) => r.attendee_id), starts_at: iso, ends_at: new Date(at + length).toISOString(), occurrence_start: iso, occurrence_key: `${event.id}@${iso}`, is_recurring: true, rrule: `FREQ=${rule.freq.toUpperCase()}` });
     }
     return out;
   }
@@ -105,6 +112,15 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
       }
       return json({ detail: 'Not found' }, 404);
     }
+    const retry = /^\/api\/v1\/calendar\/events\/([^/]+)\/sync\/retry$/.exec(path);
+    if (retry && method === 'POST') {
+      const target = state.events.find((e) => e.id === retry[1]);
+      if (!target) return json({ detail: 'Event not found' }, 404);
+      if (!owner) return json({ detail: 'Only the person who created this event or a workspace owner can change or delete it.' }, 403);
+      state.retries.push(retry[1]);
+      Object.assign(target, { sync_state: 'synced', sync_failed: false, sync_error: null, synced_at: RUN_MIDDAY.toISOString() });
+      return json(view(target));
+    }
     const invite = /^\/api\/v1\/calendar\/events\/([^/]+)\/invitations$/.exec(path);
     if (invite && method === 'POST') {
       state.invitations.push(invite[1]);
@@ -143,9 +159,16 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
     if (!match || !event) return json({ detail: 'Event not found' }, 404);
     const scoped = url.searchParams.get('scope') ?? undefined;
     if (match[2] && method === 'PUT') {
-      const body = request.postDataJSON() as { response: string };
+      const body = request.postDataJSON() as { response: string; scope?: string; occurrence_start?: string };
       state.responses.push({ event: event.id, attendee: match[3], ...body });
+      if (body.scope === 'this' && body.occurrence_start) {
+        const replies = ((event.occurrence_responses as Record<string, unknown>[] | undefined) ?? []).filter((r) => !(r.attendee_id === match[3] && r.occurrence_start === body.occurrence_start));
+        event.occurrence_responses = [...replies, { attendee_id: match[3], occurrence_start: body.occurrence_start, response: body.response }];
+        const shown = occurrencesOf(event, Date.parse(body.occurrence_start), Date.parse(body.occurrence_start) + 1).find((o) => o.occurrence_start === body.occurrence_start) ?? event;
+        return json(view(shown));
+      }
       event.attendees = (event.attendees as Record<string, unknown>[]).map((a) => (a.id === match[3] ? { ...a, response: body.response } : a));
+      event.occurrence_responses = ((event.occurrence_responses as Record<string, unknown>[] | undefined) ?? []).filter((r) => r.attendee_id !== match[3]);
       return json(view(event));
     }
     if (method === 'GET') return json(view(event));

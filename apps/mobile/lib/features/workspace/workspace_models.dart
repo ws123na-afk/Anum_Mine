@@ -32,8 +32,17 @@ class WorkspaceTask {
       this.createdBy,
       this.archivedAt,
       this.priority = TaskPriority.medium,
-      this.dueAt});
+      this.dueAt,
+      this.privateTo,
+      this.privateKind});
   final String id, title, prompt;
+
+  /// The one person who can see this task, and why (`data`: it read their
+  /// own data; `chat`: it came from their private chat). Null for an
+  /// ordinary workspace task (docs/tasks.md#private-tasks). The API returns a
+  /// private task only to that person, so the phone shows "Private to you".
+  final String? privateTo, privateKind;
+  bool get isPrivate => privateTo != null && privateTo!.isNotEmpty;
 
   /// Planning fields (docs/tasks.md): shown on the lists, never change what
   /// the agent may do. [dueAt] is local time; null for no due date.
@@ -452,10 +461,65 @@ class WorkspaceMemory {
       required this.taskId,
       required this.content,
       required this.sourceType,
-      required this.createdAt});
-  final String id, taskId, content, sourceType;
+      required this.createdAt,
+      this.createdBy,
+      this.ownerUserId,
+      this.updatedAt,
+      this.editedBy,
+      this.expiresAt});
+  final String id, content, sourceType;
+
+  /// The task it belongs to; null for a workspace memory shared with the
+  /// whole workspace, or a private memory from the person's own chats
+  /// (docs/memory.md#workspace-memories).
+  final String? taskId;
   final DateTime createdAt;
+
+  /// Who added it (`provenance.created_by_user_id`).
+  final String? createdBy;
+
+  /// Set only on a private memory its owner sees (facts from their chats).
+  final String? ownerUserId;
+
+  /// The last edit, when there was one, and who made it.
+  final DateTime? updatedAt;
+  final String? editedBy;
+
+  /// When it is deleted on its own (`retention.expires_at`), if ever.
+  final DateTime? expiresAt;
+
+  bool get isWorkspaceNote => taskId == null && ownerUserId == null;
+  bool get isPrivate => ownerUserId != null;
+
+  WorkspaceMemory edited(String text, {String? by, DateTime? at}) =>
+      WorkspaceMemory(
+          id: id,
+          taskId: taskId,
+          content: text,
+          sourceType: sourceType,
+          createdAt: createdAt,
+          createdBy: createdBy,
+          ownerUserId: ownerUserId,
+          updatedAt: at ?? updatedAt,
+          editedBy: by ?? editedBy,
+          expiresAt: expiresAt);
 }
+
+/// The newest memories the workspace loads (the API's default page), and
+/// how many older ones each "Load older memories" adds.
+const memoryFirstPage = 200;
+const memoryOlderPage = 50;
+
+/// How long a new workspace memory is kept: until someone deletes it, or
+/// a number of days (docs/memory.md#workspace-memories).
+const memoryKeepDays = <int?>[null, 7, 30, 90, 365];
+
+/// Whether [userId] may change [memory]: its author, or a workspace owner
+/// for a shared note (the API answers 403 to anyone else).
+bool canEditMemory(WorkspaceMemory memory,
+        {required String? userId, required bool owner}) =>
+    (userId != null && memory.createdBy == userId) ||
+    (owner && memory.ownerUserId == null);
 
 class WorkspaceSnapshot {
   const WorkspaceSnapshot(

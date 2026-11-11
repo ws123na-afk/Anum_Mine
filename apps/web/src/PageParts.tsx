@@ -2,7 +2,7 @@
 // band, a split view whose panes fill the window on desktop and stack on phones, and the "New..."
 // dialog that keeps create forms out of the way of the records.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { CircleAlert, Lock, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CircleAlert, CircleDot, Inbox, Lock, RefreshCw } from 'lucide-react';
 import { Modal } from './Dialog';
 import { fillHeight, type Figure, type Load } from './lib/pageSummary';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -170,4 +170,44 @@ export function AccessNotice({ notice, howTo }: { notice: string | null; howTo: 
 /** A pane or page that the person's role cannot open: what it is and who can. */
 export function PaneDenied({ title, text }: { title: string; text: string }) {
   return <div className="paneEmpty paneDenied" role="note"><Lock aria-hidden="true" /><h3>{title}</h3><p>{text}</p></div>;
+}
+
+/**
+ * A one-line message under a page or pane head: a quiet status ("Saved.") read out politely, or an
+ * error (role alert) that says what failed and how to fix it. The shared form of the many local
+ * `Notice` copies (docs/web-design-system.md#shared-list-parts).
+ */
+export function Notice({ children, error, className = '' }: { children: ReactNode; error?: boolean; className?: string }) {
+  return <p className={`notice ${error ? 'errorNotice' : ''} ${className}`.trim()} role={error ? 'alert' : 'status'} aria-live={error ? undefined : 'polite'}>
+    <CircleDot aria-hidden="true" />{children}
+  </p>;
+}
+
+/** An empty list or pane: what is missing, why, and the next action (a button or link) when there is one. */
+export function Empty({ title, text, icon, action, className = '' }: { title: string; text?: string; icon?: ReactNode; action?: ReactNode; className?: string }) {
+  return <div className={`paneEmpty ${className}`.trim()}>
+    {icon ?? <Inbox aria-hidden="true" />}
+    <h3>{title}</h3>
+    {text && <p>{text}</p>}
+    {action && <div className="actions">{action}</div>}
+  </div>;
+}
+
+/**
+ * Previous and Next over a paged list, with "21 to 40 of 54" (or "21 to 40" when the total is not
+ * known, as with cursor paging). Renders nothing for a list that fits on one page. `label` names the
+ * list for screen readers ("Notifications pages").
+ */
+export function Pager({ from, to, total, hasPrev, hasNext, busy, onPrev, onNext, label }: {
+  from: number; to: number; total?: number | null; hasPrev: boolean; hasNext: boolean; busy?: boolean; onPrev: () => void; onNext: () => void; label: string;
+}) {
+  if (!hasPrev && !hasNext) return null;
+  const range = to < from ? t('page.pager.none') : typeof total === 'number' ? t('page.pager.rangeOf', { from, to, total }) : t('page.pager.range', { from, to });
+  return <nav className="pagePager" aria-label={label} aria-busy={busy || undefined}>
+    <span className="muted" role="status">{range}</span>
+    <div className="pagePagerButtons">
+      <button type="button" className="secondary" disabled={!hasPrev || busy} onClick={onPrev}><ChevronLeft aria-hidden="true" className="flipRtl" />{t('page.pager.prev')}</button>
+      <button type="button" className="secondary" disabled={!hasNext || busy} onClick={onNext}>{t('page.pager.next')}<ChevronRight aria-hidden="true" className="flipRtl" /></button>
+    </div>
+  </nav>;
 }

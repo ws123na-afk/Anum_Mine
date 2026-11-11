@@ -128,6 +128,7 @@ import { paBriefingEn } from './paBriefing.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
+import { webLeadsEn } from './webLeads.en.ts';
 import { calendarEn } from './calendar.en.ts';
 import { teamPageEn } from './teamPage.en.ts';
 import { tasksPageEn } from './tasksPage.en.ts';
@@ -227,6 +228,7 @@ export const en = {
   ...chatEn,
   ...setupEn,
   ...pagesEn,
+  ...webLeadsEn,
   ...calendarEn,
   ...teamPageEn,
   ...tasksPageEn,

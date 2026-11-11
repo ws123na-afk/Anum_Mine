@@ -8,9 +8,10 @@ written even if a policy were missing. Connector credentials stay ciphertext her
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Double, Integer, String, Text, delete, func, or_, select, update
+from sqlalchemy import Boolean, DateTime, Double, Integer, Numeric, String, Text, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -35,6 +36,8 @@ from .models import Base
 from .scope import require_workspace
 
 TS = DateTime(timezone=True)
+# Exact amounts (0172_commerce_money_numeric): read back as Decimal, never float.
+MONEY = Numeric(18, 4, asdecimal=True)
 
 
 class _Scoped:
@@ -75,7 +78,7 @@ class CommerceProductRecord(Base, _Scoped):
     brand: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tyre: Mapped[dict[str, Any]] = mapped_column(JSONB)
     tyre_size: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    cost_price: Mapped[float | None] = mapped_column(Double, nullable=True)
+    cost_price: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     low_stock_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
@@ -93,14 +96,14 @@ class CommerceListingRecord(Base, _Scoped):
     external_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     title: Mapped[str] = mapped_column(String(500))
     product_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    price: Mapped[float | None] = mapped_column(Double, nullable=True)
+    price: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20))
     fulfillment: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    buy_box_price: Mapped[float | None] = mapped_column(Double, nullable=True)
+    buy_box_price: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     buy_box_winner: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    lowest_competitor_price: Mapped[float | None] = mapped_column(Double, nullable=True)
+    lowest_competitor_price: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     competition_checked_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(TS)
 
@@ -116,7 +119,7 @@ class CommerceOrderRecord(Base, _Scoped):
     status: Mapped[str] = mapped_column(String(30))
     purchased_at: Mapped[datetime] = mapped_column(TS)
     ship_by: Mapped[datetime | None] = mapped_column(TS, nullable=True)
-    total_amount: Mapped[float] = mapped_column(Double)
+    total_amount: Mapped[Decimal] = mapped_column(MONEY)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     item_count: Mapped[int] = mapped_column(Integer)
     fulfillment: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -137,8 +140,8 @@ class CommerceOrderLineRecord(Base, _Scoped):
     external_line_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     title: Mapped[str] = mapped_column(String(500))
     quantity: Mapped[int] = mapped_column(Integer)
-    unit_price: Mapped[float | None] = mapped_column(Double, nullable=True)
-    total: Mapped[float | None] = mapped_column(Double, nullable=True)
+    unit_price: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    total: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
 
 
 class CommerceCustomerRecord(Base, _Scoped):
@@ -171,7 +174,7 @@ class CommerceReturnRecord(Base, _Scoped):
     quantity: Mapped[int] = mapped_column(Integer)
     reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str] = mapped_column(String(40))
-    amount: Mapped[float | None] = mapped_column(Double, nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     returned_at: Mapped[datetime] = mapped_column(TS)
 
@@ -186,7 +189,7 @@ class CommerceFeeRecord(Base, _Scoped):
     order_external_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     kind: Mapped[str] = mapped_column(String(20))
     description: Mapped[str] = mapped_column(String(200))
-    amount: Mapped[float] = mapped_column(Double)
+    amount: Mapped[Decimal] = mapped_column(MONEY)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     posted_at: Mapped[datetime] = mapped_column(TS)
 

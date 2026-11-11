@@ -19,12 +19,12 @@ function report(id: string, overrides: Json = {}): Json {
   };
 }
 
-interface Options { reportsForbidden?: boolean; reportsFailOnce?: boolean; generateForbidden?: boolean; viewer?: boolean }
+interface Options { reportsForbidden?: boolean; reportsFailOnce?: boolean; generateForbidden?: boolean; viewer?: boolean; favorites?: Json[] }
 
 async function mockLibrary(page: Page, options: Options = {}) {
   const calls: { method: string; path: string; body: unknown }[] = [];
   let reports = Array.from({ length: 25 }, (_, i) => report(`report_${String(i).padStart(2, '0')}`));
-  let favorites: Json[] = [{ id: 'fav_1', item_type: 'report', item_id: 'report_00', label: 'Tyre cost report_00', created_at: now }];
+  let favorites: Json[] = options.favorites ?? [{ id: 'fav_1', item_type: 'report', item_id: 'report_00', label: 'Tyre cost report_00', created_at: now }];
   let collections: Json[] = [];
   const items: Record<string, Json[]> = {};
   let failures = options.reportsFailOnce ? 1 : 0;
@@ -53,9 +53,12 @@ async function mockLibrary(page: Page, options: Options = {}) {
 
     if (path === '/api/v1/favorites') {
       if (method === 'GET') {
-        const type = q.get('item_type');
-        const rows = favorites.filter((f) => !type || f.item_type === type);
-        return json({ items: rows, total: rows.length, limit: 30, offset: 0 });
+        const type = q.get('item_type'), needle = (q.get('q') ?? '').toLowerCase(), sort = q.get('sort') ?? 'newest';
+        let rows = favorites.filter((f) => (!type || f.item_type === type) && String(f.label).toLowerCase().includes(needle));
+        if (sort === 'name') rows = [...rows].sort((a, b) => String(a.label).localeCompare(String(b.label)));
+        if (sort === 'oldest') rows = [...rows].reverse();
+        const offset = Number(q.get('offset') ?? 0), limit = Number(q.get('limit') ?? 30);
+        return json({ items: rows.slice(offset, offset + limit), total: rows.length, limit, offset });
       }
       if (method === 'POST') {
         const fav = { id: `fav_${favorites.length + 2}`, item_type: (body as Json).item_type, item_id: (body as Json).item_id, label: 'Starred', created_at: now };
@@ -64,6 +67,18 @@ async function mockLibrary(page: Page, options: Options = {}) {
       }
       if (method === 'DELETE') { favorites = favorites.filter((f) => !(f.item_type === q.get('item_type') && f.item_id === q.get('item_id'))); return route.fulfill({ status: 204 }); }
     }
+    const favMove = path.match(/^\/api\/v1\/favorites\/([^/]+)\/move$/);
+    if (favMove && method === 'POST') {
+      const moving = favorites.find((f) => f.id === favMove[1]);
+      const anchor = (body as Json).before_id ?? (body as Json).after_id;
+      if (!moving || !favorites.some((f) => f.id === anchor)) return json(envelope('not_found', 'Favorite not found'), 404);
+      const rest = favorites.filter((f) => f.id !== moving.id);
+      const at = rest.findIndex((f) => f.id === anchor) + ((body as Json).after_id ? 1 : 0);
+      favorites = [...rest.slice(0, at), moving, ...rest.slice(at)];
+      return json({ ...moving, position: at });
+    }
+    const favOne = path.match(/^\/api\/v1\/favorites\/([^/]+)$/);
+    if (favOne && method === 'DELETE') { favorites = favorites.filter((f) => f.id !== favOne[1]); return route.fulfill({ status: 204 }); }
 
     if (path === '/api/v1/reports' && method === 'GET') {
       if (options.reportsForbidden) return json(envelope('forbidden', 'Workspace permission denied'), 403);
@@ -132,7 +147,7 @@ test('favorites: filter by type, open a starred report, remove it, then the empt
   await page.goto('/#favorites');
   await expect(page.getByRole('heading', { name: 'Favorites', level: 1 })).toBeVisible();
   await page.getByRole('group', { name: 'Filter favorites by type' }).getByRole('button', { name: 'Report' }).click();
-  await expect(page.locator('.favoritesTable tbody tr')).toHaveCount(1);
+  await expect(page.locator('.favList li')).toHaveCount(1);
   await page.getByRole('button', { name: 'Tyre cost report_00', exact: true }).click();
   await expect(page).toHaveURL(/#reports\/report_00$/);
   await expect(page.getByRole('dialog', { name: 'Tyre cost report_00' })).toBeVisible();
@@ -141,6 +156,57 @@ test('favorites: filter by type, open a starred report, remove it, then the empt
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Favorites' }).click();
   await page.getByRole('button', { name: 'Remove Tyre cost report_00 from favorites' }).click();
   await expect(page.getByText('Nothing starred yet')).toBeVisible();
+  await noHorizontalOverflow(page);
+});
+
+test('favorites: search, sort, arrange with the keyboard and by drag, page, remove and undo', async ({ page }) => {
+  const many = Array.from({ length: 32 }, (_, i) => ({ id: `fav_${i}`, item_type: 'report', item_id: `report_${i}`, label: `Report ${String(i).padStart(2, '0')}`, created_at: now }));
+  const calls = await mockLibrary(page, { favorites: many });
+  await page.goto('/#favorites');
+  const list = page.getByRole('list', { name: 'Favorites' });
+  await expect(list.getByRole('listitem')).toHaveCount(30);
+  // Paged with the shared Pager.
+  const pager = page.getByRole('navigation', { name: 'Favorites pages' });
+  await expect(pager).toContainText('1 to 30 of 32');
+  await pager.getByRole('button', { name: 'Next' }).click();
+  await expect(list.getByRole('listitem')).toHaveCount(2);
+  await pager.getByRole('button', { name: 'Previous' }).click();
+  // Keyboard reorder: Move down saves the new place on the server and says so.
+  await page.getByRole('button', { name: 'Move Report 00 down' }).click();
+  await expect(list.getByRole('listitem').nth(1)).toContainText('Report 00');
+  await expect.poll(() => calls.some((c) => c.path === '/api/v1/favorites/fav_0/move' && (c.body as Json).after_id === 'fav_1')).toBe(true);
+  // Moving the last row of a page down reads its neighbour from the next page.
+  await page.getByRole('button', { name: 'Move Report 29 down' }).click();
+  await expect.poll(() => calls.some((c) => c.path === '/api/v1/favorites/fav_29/move' && (c.body as Json).after_id === 'fav_30')).toBe(true);
+  // Drag and drop (a pointer, so the desktop project; phones hide the grip and use the buttons above)
+  // puts a row before the one it is dropped on.
+  if (test.info().project.name === 'desktop') {
+    await list.getByRole('listitem').first().scrollIntoViewIfNeeded();
+    const from = await list.getByRole('listitem').nth(3).locator('.favGrip').boundingBox();
+    const to = await list.getByRole('listitem').first().boundingBox();
+    if (!from || !to) throw new Error('rows not laid out');
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + 40, to.y + to.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(() => calls.some((c) => c.path === '/api/v1/favorites/fav_3/move' && (c.body as Json).before_id === 'fav_1')).toBe(true);
+  }
+  // Sorting by name turns arranging off and says how to turn it back on.
+  await page.getByRole('combobox', { name: /^Sort/ }).selectOption('name');
+  await expect(page.getByText('To arrange favorites by hand, sort by My order.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Move .* down$/ })).toHaveCount(0);
+  // Search waits for typing to pause, then asks the API.
+  await page.getByRole('searchbox', { name: 'Search' }).fill('Report 1');
+  await expect(list.getByRole('listitem')).toHaveCount(10);
+  await page.getByRole('searchbox', { name: 'Search' }).fill('nothing like it');
+  await expect(page.getByText('Nothing starred matches "nothing like it"')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search' }).click();
+  // Remove by the favorite's own id, then undo.
+  await page.getByRole('button', { name: 'Remove Report 00 from favorites' }).click();
+  expect(calls.some((c) => c.method === 'DELETE' && c.path === '/api/v1/favorites/fav_0')).toBe(true);
+  await expect(page.getByRole('status').filter({ hasText: 'Removed Report 00 from favorites.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect.poll(() => calls.some((c) => c.method === 'POST' && c.path === '/api/v1/favorites' && (c.body as Json).item_id === 'report_0')).toBe(true);
   await noHorizontalOverflow(page);
 });
 

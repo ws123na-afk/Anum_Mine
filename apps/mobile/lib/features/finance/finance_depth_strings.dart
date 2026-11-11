@@ -30,8 +30,8 @@ class FinanceDepthStrings extends ModuleStrings {
     'set.timezone': 'Finance time zone',
     'set.zoneHelp':
         'Months and days follow this time zone, so an evening on the last day of a month still counts in that month.',
-    'set.rulesKept':
-        'Your {n} statement keyword rules stay as they are. Edit them on the web, Finance settings.',
+    'set.rulesKept': 'Statement keyword rules: {n}.',
+    'set.rulesEdit': 'Edit keyword rules',
     'set.currencyError': 'Enter a 3 letter currency such as AED.',
     'set.safe.title': 'Safe to spend buffer',
     'set.safe.subtitle': 'Money you always keep back, per currency',
@@ -60,6 +60,7 @@ class FinanceDepthStrings extends ModuleStrings {
     'set.salary.next': 'Next pay day: {date}',
     'set.salary.failed': 'The salary could not be loaded: {message}',
     'set.salary.web': 'Open the salary profile on the web',
+    'set.salary.edit': 'Edit the salary profile',
     'set.links.title': 'Rules and automation',
     'set.links.subtitle': 'How rows are filed',
     'set.links.rules': 'Your rules',
@@ -214,8 +215,8 @@ class FinanceDepthStrings extends ModuleStrings {
     'set.timezone': 'المنطقة الزمنية للمالية',
     'set.zoneHelp':
         'الأشهر والأيام تتبع هذه المنطقة الزمنية، فمساء آخر يوم في الشهر يبقى ضمن ذلك الشهر.',
-    'set.rulesKept':
-        'تبقى قواعد الكلمات في الكشوف ({n}) كما هي. عدّلها على الويب في إعدادات المالية.',
+    'set.rulesKept': 'قواعد الكلمات في الكشوف: {n}.',
+    'set.rulesEdit': 'تعديل قواعد الكلمات',
     'set.currencyError': 'أدخل عملة من 3 أحرف مثل AED.',
     'set.safe.title': 'هامش المتاح للصرف',
     'set.safe.subtitle': 'المال الذي تحتفظ به دائمًا، لكل عملة',
@@ -244,6 +245,7 @@ class FinanceDepthStrings extends ModuleStrings {
     'set.salary.next': 'يوم الراتب القادم: {date}',
     'set.salary.failed': 'تعذر تحميل الراتب: {message}',
     'set.salary.web': 'افتح ملف الراتب على الويب',
+    'set.salary.edit': 'تعديل ملف الراتب',
     'set.links.title': 'القواعد والأتمتة',
     'set.links.subtitle': 'كيف تُصنَّف الصفوف',
     'set.links.rules': 'قواعدك',

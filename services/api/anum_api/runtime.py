@@ -665,6 +665,17 @@ class AgentRuntime:
         call, is never repeated automatically; the run fails so a person can check
         the outcome and decide.
         """
+        call = self.prepare_recovery(task, run, context)
+        if call is None:
+            return run
+        result = await self._execute_tool(call, task, run, context)
+        return await asyncio.to_thread(self._settle, task, run, context, result)
+
+    def prepare_recovery(self, task: Task, run: AgentRun, context: TenantContext) -> ToolCall | None:
+        """The decision half of :meth:`recover_interrupted_execution`, with no tool call: fail
+        the run (returns None) or record the resume, move the ``executing`` checkpoint to a new
+        version and return the call to repeat. The durable worker commits this before the tool
+        runs, so no transaction or row lock is open while it works."""
         if run.checkpoint.phase != RunPhase.EXECUTING or not run.checkpoint.tool_call:
             raise ValueError("Run is not interrupted mid-execution")
         call = ToolCall.model_validate(run.checkpoint.tool_call)
@@ -680,14 +691,13 @@ class AgentRuntime:
                 "task again if needed.",
                 run.checkpoint.approval_id,
             )
-            return run
+            return None
         self._record_event(
             "agent_run.resumed", context, run.id,
             {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task,
         )
         run.checkpoint.version += 1
-        result = await self._execute_tool(call, task, run, context)
-        return await asyncio.to_thread(self._settle, task, run, context, result)
+        return call
 
     async def resume_after_approval(
         self,

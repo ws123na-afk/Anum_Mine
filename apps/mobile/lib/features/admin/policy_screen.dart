@@ -5,15 +5,25 @@ import '../../src/widgets/depth.dart';
 import 'admin_controller.dart';
 import 'admin_models.dart';
 import 'approval_policy.dart';
+import 'approval_settings.dart';
+import 'approval_settings_sections.dart';
 
 /// Owner screen: the workspace approval policy (docs/approvals-and-risk.md,
 /// Workspace Approval Policy). Members see it read-only; a 403 on saving shows
 /// the API's answer like the other owner screens.
 class ApprovalPolicyScreen extends StatefulWidget {
-  const ApprovalPolicyScreen(
-      {required this.controller, required this.workspaceId, super.key});
+  ApprovalPolicyScreen(
+      {required this.controller,
+      required this.workspaceId,
+      Uri? governanceLink,
+      super.key})
+      : governanceLink = governanceLink ?? governanceWebLink();
   final ApprovalPolicyController controller;
   final String workspaceId;
+
+  /// "Edit rules on the web": the web Governance page, null when the build
+  /// has no web app address (the section then says where to go).
+  final Uri? governanceLink;
   @override
   State<ApprovalPolicyScreen> createState() => _ApprovalPolicyScreenState();
 }
@@ -22,7 +32,8 @@ class _ApprovalPolicyScreenState extends State<ApprovalPolicyScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.controller.phase == AdminPhase.initial) widget.controller.load();
+    final c = widget.controller;
+    if (c.phase == AdminPhase.initial) c.loadAll();
   }
 
   @override
@@ -35,10 +46,10 @@ class _ApprovalPolicyScreenState extends State<ApprovalPolicyScreen> {
             appBar: AppBar(title: const Text('Approval policy'), actions: [
               IconButton(
                   tooltip: 'Refresh',
-                  onPressed: c.saving ? null : c.load,
+                  onPressed: c.saving ? null : c.loadAll,
                   icon: const Icon(Icons.refresh)),
             ]),
-            body: AnumPage(onRefresh: c.load, children: [
+            body: AnumPage(onRefresh: c.loadAll, children: [
               AnumHeader(
                 eyebrow: 'Workspace safety',
                 title: 'Who must approve risky actions',
@@ -78,6 +89,16 @@ class _ApprovalPolicyScreenState extends State<ApprovalPolicyScreen> {
                   ],
                 AdminPhase.ready => _ready(context, c),
               },
+              // Each section loads on its own: a policy that cannot be read
+              // hides only the policy and the routing worked out from it.
+              ApprovalRulesSection(
+                  controller: c.rules, webLink: widget.governanceLink),
+              if (c.phase == AdminPhase.ready)
+                ApprovalRoutingSection(
+                    rules: c.rules, policy: c.draft, drafted: c.changed),
+              ApprovalReminderSection(
+                  controller: c.reminders,
+                  readOnly: c.role != null && c.role != 'owner'),
             ]),
           );
         },

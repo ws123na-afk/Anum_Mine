@@ -18,6 +18,7 @@ model G5) into one of these calls: "how were Amazon sales today?",
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -37,13 +38,15 @@ from .models import (
     Channel,
     Listing,
     OrderStatus,
+    cents,
     marketplace_name,
+    to_money,
 )
 from .store import open_commerce_store
 from .sync import workspace_settings
 
 READ_TOOLS = ("commerce.sales_summary", "commerce.list_orders", "commerce.get_order", "commerce.low_stock")
-MAX_PRICE = 1_000_000.0
+MAX_PRICE = Decimal(1_000_000)
 MAX_QUANTITY = 1_000_000
 
 
@@ -179,13 +182,22 @@ def _resolve_listing(store: Any, context: TenantContext, channel: Channel, args:
     return found[0]
 
 
+def _approved_price(raw: Any) -> Decimal:
+    """An exact price to the cent (half up) from a tool argument or the user's words; ValueError when not a number."""
+    amount = to_money(raw)
+    if amount is None:
+        raise ValueError("not a number")
+    return cents(amount)
+
+
 def _change_handler(channel: Channel, kind: str):  # type: ignore[no-untyped-def]
     async def handler(call: ToolCall, context: TenantContext) -> ToolResult:
         if not _has(context, Permission.COMMERCE_OPERATE):
             return _denied("change prices or stock", "owners and members can, after approval")
         args = call.arguments
         try:
-            value = float(args["price"]) if kind == "price" else int(args["quantity"])
+            # A price is exact (Decimal, to the cent): the approved JSON number 19.99 is 19.99, never 19.989999...
+            value: Decimal | int = _approved_price(args["price"]) if kind == "price" else int(args["quantity"])
         except (KeyError, TypeError, ValueError):
             return ToolResult(status="failed", summary=f"The {'price' if kind == 'price' else 'quantity'} is missing or not a number; nothing was changed.")
         if kind == "price" and not (0 < value <= MAX_PRICE):
@@ -207,7 +219,7 @@ def _change_handler(channel: Channel, kind: str):  # type: ignore[no-untyped-def
         try:
             client = build_client(connector, decrypt_credentials(ciphertext))
             if kind == "price":
-                message = await client.update_price(listing.marketplace_id, listing.sku, listing.external_id, listing.product_type, float(value), currency)
+                message = await client.update_price(listing.marketplace_id, listing.sku, listing.external_id, listing.product_type, Decimal(value), currency)
             else:
                 message = await client.update_stock(listing.marketplace_id, listing.sku, listing.external_id, listing.product_type, int(value))
         except (ChannelError, UnsupportedOperation) as exc:
@@ -217,22 +229,23 @@ def _change_handler(channel: Channel, kind: str):  # type: ignore[no-untyped-def
                 summary=f"Not changed: {reason}",
                 audit_metadata={"channel": channel.value, "change": kind, "outcome": "refused"},
             )
-        previous = listing.price if kind == "price" else listing.quantity
+        previous = (None if listing.price is None else float(listing.price)) if kind == "price" else listing.quantity
         with open_commerce_store(context) as store:
             fresh = store.get_listing(context, listing.id)
             if fresh is not None:
                 if kind == "price":
-                    fresh.price = float(value)
+                    fresh.price = Decimal(value)
                 else:
                     fresh.quantity = int(value)
                 fresh.updated_at = utc_now()
                 store.upsert_listing(fresh)
         where = marketplace_name(listing.channel, listing.marketplace_id)
-        shown = f"{float(value):.2f} {currency}" if kind == "price" else str(int(value))
+        shown = f"{value:.2f} {currency}" if kind == "price" else str(int(value))
         return ToolResult(
             status="succeeded",
             summary=f"{'Price' if kind == 'price' else 'Stock'} of {listing.sku} on {where} set to {shown}. {message}",
-            output={"listing_id": listing.id, "sku": listing.sku, "marketplace": where, kind: value, "previous": previous},
+            output={"listing_id": listing.id, "sku": listing.sku, "marketplace": where,
+                    kind: float(value) if kind == "price" else value, "previous": previous},
             audit_metadata={"channel": channel.value, "change": kind, "outcome": "applied"},
         )
 
@@ -389,7 +402,7 @@ def plan_call(prompt: str, language: str | None = None) -> ToolCall | None:
         arguments: dict[str, Any] = {"sku": sku}
         if marketplace:
             arguments["marketplace_id"] = marketplace
-        arguments["price" if price else "quantity"] = round(float(raw), 2) if price else int(float(raw))
+        arguments["price" if price else "quantity"] = float(_approved_price(raw)) if price else int(float(raw))
         return ToolCall(name=change_tool(channel, "price" if price else "stock"), arguments=arguments)
     order = _ORDER_ID.search(text)
     if order and _ORDER_WORD.search(text):

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { CopyAction } from './MessageActions';
-import { AlertTriangle, CheckCircle2, CircleDot, Copy, Layers, Link2, ListChecks, Lock, Mail, Pencil, PhoneCall, Plug, RefreshCw, Search, Send, ShieldCheck, Sparkles, Trash2, Unlink, Upload, Video, X } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, CheckCircle2, CircleDot, Copy, Layers, Link2, ListChecks, Lock, Mail, Pencil, PhoneCall, Plug, RefreshCw, Search, Send, ShieldCheck, Sparkles, Trash2, Unlink, Upload, Video, X } from 'lucide-react';
 import * as api from './lib/api';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
@@ -13,10 +13,13 @@ import * as meetingsApi from './lib/meetingsApi';
 import { actionItemCounts, localDay, type ActionCounts } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
-import { SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { Notice, PaneProblem, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
 import './admin.css';
 import { MeetingRoomLauncher } from './MeetingRoomLauncher';
+import type { CalendarEventView } from './lib/calendar';
+
+const ScheduleMeetingDialog = lazy(() => import('./MeetingSchedule').then((m) => ({ default: m.ScheduleMeetingDialog })));
 import './meetings.css';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' } | { state: 'error'; message: string };
@@ -62,6 +65,8 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
   const [picked, setPicked] = useState(() => (selected ? 1 : 0));
   const [listTab, setListTab] = useState<MeetingsTab>('records');
   const [importing, setImporting] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduled, setScheduled] = useState<CalendarEventView | null>(null);
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [agents, setAgents] = useState<string[]>([]);
   const autoPicked = useRef(false);
@@ -79,6 +84,16 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void refreshStats(); }, [refreshStats]);
   useEffect(() => { meetingsApi.listAgents().then(setAgents, () => setAgents([])); }, []);
+  // A meeting opened by link while this page is open (the search palette, #meetings?meeting=<id>).
+  useEffect(() => {
+    const sync = () => {
+      if (!location.hash.startsWith('#meetings?')) return;
+      const id = new URLSearchParams(location.hash.split('?')[1] ?? '').get('meeting');
+      if (id) { setListTab('records'); setSelected(id); setPicked((n) => n + 1); }
+    };
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
 
   // Keep the list fresh while anything on it is still being processed.
   const working = page.state === 'ready' && page.value.items.some((item) => isWorking(item.status));
@@ -136,12 +151,16 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
   return <div className="finPage meetingsPage">
     <FinancePageHead icon={<Video />} title={viewLabel('meetings')} subtitle={t('pages.meetings.subtitle')} actions={<>
       {info && <button type="button" className={`chipButton ${connectedCount ? 'success' : 'neutral'}`} onClick={() => setListTab('connectors')} aria-label={t('pages.meetings.connectorsChipLabel', { count: connectedCount })}><span className="chipDot" aria-hidden="true" /><span>{t('pages.meetings.connectorsChip', { count: connectedCount })}</span></button>}
+      {canCreate && <button type="button" className="secondary" onClick={() => { setScheduled(null); setScheduling(true); }}><CalendarPlus aria-hidden="true" />{t('meetings.schedule.button')}</button>}
       {canCreate && <button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importButton')}</button>}
     </>} tabs={<FinanceTabs label={t('pages.meetings.listTabs')} items={tabItems} value={listTab} idPrefix="meetings" onChange={setListTab} />} />
     {info && !info.can_create && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.viewerNote')}</p>}
     {info && !info.model_ready && <div className="notice" role="status"><Sparkles aria-hidden="true" /><span>{t('meetings.noModel')}</span>{onOpenSettings && <button type="button" className="secondary" onClick={onOpenSettings}>{t('meetings.openModelSettings')}</button>}</div>}
     {setup.state === 'error' && <ErrorNotice message={t('meetings.setupFailed', { message: setup.message })} onRetry={() => void loadSetup()} />}
     {note && <Notice>{note}</Notice>}
+    {scheduled && <Notice className="meetingsScheduled">{t('meetings.schedule.done', { title: scheduled.title, when: formatDateTime(scheduled.starts_at, { dateStyle: 'medium', timeStyle: scheduled.all_day ? undefined : 'short' }) })}{' '}
+      <a href={`#calendar?event=${encodeURIComponent(scheduled.id)}`}>{t('meetings.schedule.open')}</a></Notice>}
+    {scheduling && <Suspense fallback={null}><ScheduleMeetingDialog onClose={() => setScheduling(false)} onScheduled={(event) => { setScheduling(false); setScheduled(event); }} /></Suspense>}
     {problem && <Notice error>{problem}</Notice>}
     {page.state !== 'denied' && <KpiRow label={t('pages.meetings.summary')}>
       <KpiCard icon={<Video />} label={t('meetings.kpi.records')} value={statsValue ? formatNumber(statsValue.total) : waiting}
@@ -618,7 +637,5 @@ function highlight(text: string, query: string): ReactNode {
   return parts;
 }
 
-function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>; }
-function ErrorNotice({ message, onRetry }: { message: string; onRetry(): void }) {
-  return <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{message}</span><button type="button" className="secondary" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div>;
-}
+/** A failed load with its retry: the shared pane problem (PageParts.tsx). */
+function ErrorNotice({ message, onRetry }: { message: string; onRetry(): void }) { return <PaneProblem text={message} onRetry={onRetry} />; }

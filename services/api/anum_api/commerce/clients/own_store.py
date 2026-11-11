@@ -30,11 +30,12 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
 
 from ..http import ChannelAuthError, ChannelError, check_owner_url, request_json
-from ..models import OWN_STORE_MARKETPLACE, OrderStatus, OwnStoreMode
+from ..models import OWN_STORE_MARKETPLACE, OrderStatus, OwnStoreMode, cents
 from .base import (
     PageResult,
     RemoteCompetition,
@@ -48,6 +49,7 @@ from .base import (
     number,
     parse_time,
     text,
+    wire_amount,
 )
 
 RATE = (5.0, 10)
@@ -154,7 +156,7 @@ def contract_order(row: dict[str, Any], default_currency: str | None, fallback_t
                 title=text(item.get("title") or item.get("name")),
                 quantity=quantity,
                 unit_price=unit,
-                total=total if total is not None else (round(unit * quantity, 2) if unit is not None else None),
+                total=total if total is not None else (cents(unit * quantity) if unit is not None else None),
             )
         )
     return RemoteOrder(
@@ -164,7 +166,7 @@ def contract_order(row: dict[str, Any], default_currency: str | None, fallback_t
         purchased_at=parse_time(row.get("created_at")) or fallback_time,
         updated_at=parse_time(row.get("updated_at")),
         ship_by=parse_time(row.get("ship_by")),
-        total_amount=number(row.get("total")) or round(sum(line.total or 0 for line in lines), 2),
+        total_amount=number(row.get("total")) or sum((line.total or Decimal(0) for line in lines), Decimal(0)),
         currency=row.get("currency") or default_currency,
         item_count=sum(line.quantity for line in lines),
         fulfillment="merchant",
@@ -397,7 +399,7 @@ class OwnStoreClient:
                     status=ANUM360_STATUS.get(str(row.get("order_status") or "pending"), OrderStatus.PENDING),
                     purchased_at=created,
                     updated_at=parse_time(row.get("updated_at")),
-                    total_amount=number(row.get("total")) or 0.0,
+                    total_amount=number(row.get("total")) or Decimal(0),
                     currency=self.currency,
                     item_count=sum(line.quantity for line in lines),
                     fulfillment="merchant",
@@ -507,7 +509,7 @@ class OwnStoreClient:
         if self.mode == OwnStoreMode.WEBHOOK:
             raise UnsupportedOperation("This own-store connection only receives events. Change it in your store, or connect the store's API.")
 
-    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: float, currency: str) -> str:
+    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: Decimal, currency: str) -> str:
         self._refuse_read_only()
         if self.mode == OwnStoreMode.ANUM360:
             if not external_id:
@@ -517,7 +519,7 @@ class OwnStoreClient:
             if product is None:
                 raise ChannelError("The product is no longer in the store.", code="unknown_product")
             pricing = dict(product.get("pricing") or {})
-            pricing["retail"] = price
+            pricing["retail"] = wire_amount(price)
             pricing.pop("sale", None)
             try:
                 await self._call("PUT", self.paths["product"].replace("{id}", quote(external_id, safe="")), "set price", json_body={"pricing": pricing})
@@ -529,7 +531,7 @@ class OwnStoreClient:
                     code="price_owner_only",
                 ) from None
             return "Your store saved the new price."
-        await self._call("PUT", f"/products/{quote(sku, safe='')}/price", "set price", json_body={"price": price, "currency": currency})
+        await self._call("PUT", f"/products/{quote(sku, safe='')}/price", "set price", json_body={"price": wire_amount(price), "currency": currency})
         return "Your store saved the new price."
 
     async def update_stock(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, quantity: int) -> str:

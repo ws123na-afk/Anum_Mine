@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'admin_controller.dart';
+import '../../src/localization/anum_localizations.dart';
+import '../governance/governance_models.dart' show RoleTemplate;
 import 'admin_models.dart';
 import 'admin_repository.dart';
 import 'owned_controller.dart';
@@ -71,9 +73,97 @@ class _MembersScreenState extends State<MembersScreen> {
     return answer ?? false;
   }
 
+  /// Picks a role template for [member] (or none), then confirms what it does.
+  Future<void> _chooseTemplate(WorkspaceMember member) async {
+    final c = widget.controller;
+    final l = AnumLocalizations.maybeOf(context);
+    final templates = c.templates ?? const <RoleTemplate>[];
+    final picked = await showModalBottomSheet<(RoleTemplate?,)>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.85),
+                child: ListView(shrinkWrap: true, children: [
+                  ListTile(
+                      title: Text(l.f('ad.tpl.for', {'user': member.userId}),
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text(l.t('ad.tpl.howUsed'))),
+                  ListTile(
+                      key: const Key('template-none'),
+                      leading: Icon(member.roleTemplateId == null
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked),
+                      title: Text(l.t('ad.tpl.none')),
+                      onTap: () => Navigator.pop(context, (null,))),
+                  for (final t in templates)
+                    ListTile(
+                        key: Key('template-${t.id}'),
+                        leading: Icon(member.roleTemplateId == t.id
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked),
+                        title: Text(t.name),
+                        subtitle: Text(t.permissions.join(', ')),
+                        onTap: () => Navigator.pop(context, (t,))),
+                  if (templates.isEmpty)
+                    ListTile(title: Text(l.t('ad.tpl.noneYet'))),
+                ]),
+              ),
+            ));
+    if (picked == null || !mounted) return;
+    final template = picked.$1;
+    if (template?.id == member.roleTemplateId) return;
+    final values = {
+      'user': member.userId,
+      'template': template?.name ?? '',
+      'role': roleLabel(member.role).toLowerCase(),
+    };
+    if (await _confirm(
+        l.f(
+            template == null
+                ? 'ad.tpl.confirmRemoveTitle'
+                : 'ad.tpl.confirmTitle',
+            values),
+        l.f(
+            template == null
+                ? 'ad.tpl.confirmRemoveText'
+                : 'ad.tpl.confirmText',
+            values),
+        l.t('ad.tpl.confirm'))) {
+      await c.setTemplate(member, template, l);
+    }
+  }
+
+  /// What a member's template does, in words: its name and the permissions
+  /// that apply, or null without a template.
+  String? _templateLine(WorkspaceMember member, AnumLocalizations l) {
+    if (member.roleTemplateId == null) return null;
+    final name = member.roleTemplateName ?? member.roleTemplateId!;
+    final template = widget.controller.templates
+        ?.where((t) => t.id == member.roleTemplateId)
+        .firstOrNull;
+    final applies = member.effectivePermissions ?? const <String>[];
+    final outside = template == null
+        ? const <String>[]
+        : template.permissions.where((p) => !applies.contains(p)).toList();
+    return [
+      l.f('ad.tpl.badge', {'template': name}),
+      l.f('ad.tpl.effect', {'count': applies.length}),
+      if (outside.isNotEmpty)
+        l.f('ad.tpl.outside', {
+          'role': roleLabel(member.role).toLowerCase(),
+          'list': outside.join(', ')
+        }),
+    ].join(' · ');
+  }
+
   Future<void> _memberAction(WorkspaceMember member, String value) async {
     final c = widget.controller;
-    if (value == 'reactivate') {
+    if (value == 'template') {
+      await _chooseTemplate(member);
+    } else if (value == 'reactivate') {
       await c.setActive(member, active: true);
     } else if (value == 'deactivate') {
       if (await _confirm(
@@ -262,9 +352,14 @@ class _MembersScreenState extends State<MembersScreen> {
               title: member.userId,
               subtitle:
                   '${roleLabel(member.role)} · ${member.active ? 'active' : 'deactivated'}${member.email == null ? '' : ' · ${member.email}'}',
-              detail: isLastActiveOwner(c.members, member)
-                  ? 'Last active owner: the API refuses to demote or deactivate them.'
-                  : 'Joined ${relativeTime(member.createdAt)}',
+              detail: [
+                isLastActiveOwner(c.members, member)
+                    ? 'Last active owner: the API refuses to demote or deactivate them.'
+                    : 'Joined ${relativeTime(member.createdAt)}',
+                if (_templateLine(member, AnumLocalizations.maybeOf(context))
+                    case final line?)
+                  line,
+              ].join('\n'),
               trailing: PopupMenuButton<String>(
                 tooltip: 'Actions for ${member.userId}',
                 enabled: !c.busy,
@@ -278,6 +373,12 @@ class _MembersScreenState extends State<MembersScreen> {
                           // refuses it too, 409).
                           enabled: !isLastActiveOwner(c.members, member),
                           child: Text('Make ${roleLabel(role)}')),
+                  if (member.role != 'owner' && c.templates != null)
+                    PopupMenuItem(
+                        key: Key('member-template-${member.userId}'),
+                        value: 'template',
+                        child: Text(AnumLocalizations.maybeOf(context)
+                            .t('ad.tpl.change'))),
                   const PopupMenuDivider(),
                   PopupMenuItem(
                     value: member.active ? 'deactivate' : 'reactivate',

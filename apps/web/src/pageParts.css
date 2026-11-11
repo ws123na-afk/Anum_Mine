@@ -209,3 +209,10 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 }
 /* A pane placed directly in a page's grid never widens the page: wide tables scroll inside it. */
 .pane { min-width: 0; }
+
+/* ---------- Shared list parts: Pager (PageParts.tsx Pager), the empty pane, notices ---------- */
+.pagePager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; padding: var(--d-s3) var(--d-s4); }
+.pagePagerButtons { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.pagePagerButtons button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: var(--d-control-h-sm); }
+.pagePagerButtons svg { height: 16px; width: 16px; }
+.pagePager .flipRtl:dir(rtl) { transform: scaleX(-1); }

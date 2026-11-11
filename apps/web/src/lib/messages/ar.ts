@@ -129,6 +129,7 @@ import { paBriefingAr } from './paBriefing.ar.ts';
 import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
+import { webLeadsAr } from './webLeads.ar.ts';
 import { calendarAr } from './calendar.ar.ts';
 import { teamPageAr } from './teamPage.ar.ts';
 import { tasksPageAr } from './tasksPage.ar.ts';
@@ -228,6 +229,7 @@ export const ar: Record<MessageKey, Message> = {
   ...chatAr,
   ...setupAr,
   ...pagesAr,
+  ...webLeadsAr,
   ...calendarAr,
   ...teamPageAr,
   ...tasksPageAr,

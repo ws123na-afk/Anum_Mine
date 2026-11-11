@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -26,8 +27,10 @@ from .models import (
     Channel,
     CommerceSettings,
     Listing,
+    Money,
     Order,
     OrderStatus,
+    cents,
     marketplace_name,
 )
 from .store import CommerceStore
@@ -69,7 +72,7 @@ def _bounds(first: date, last: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
 
 class MoneyTotal(BaseModel):
     currency: str
-    revenue: float = 0.0
+    revenue: Money = Decimal(0)
     orders: int = 0
     units: int = 0
 
@@ -80,7 +83,7 @@ class ChannelRow(BaseModel):
     marketplace_id: str
     marketplace: str
     currency: str
-    revenue: float = 0.0
+    revenue: Money = Decimal(0)
     orders: int = 0
     units: int = 0
 
@@ -88,7 +91,7 @@ class ChannelRow(BaseModel):
 class DayRow(BaseModel):
     date: str
     channel: Channel
-    revenue: float = 0.0
+    revenue: Money = Decimal(0)
     orders: int = 0
     units: int = 0
 
@@ -99,7 +102,7 @@ class TopProduct(BaseModel):
     title_ar: str | None = None
     tyre_size: str | None = None
     units: int = 0
-    revenue: float = 0.0
+    revenue: Money = Decimal(0)
     currency: str
 
 
@@ -122,7 +125,7 @@ class PendingOrderRow(BaseModel):
     purchased_at: datetime
     ship_by: datetime | None = None
     late: bool = False
-    total_amount: float
+    total_amount: Money
     currency: str | None = None
     item_count: int
 
@@ -130,7 +133,7 @@ class PendingOrderRow(BaseModel):
 class ReturnsSummary(BaseModel):
     count: int = 0
     units: int = 0
-    amount: dict[str, float] = Field(default_factory=dict)
+    amount: dict[str, Money] = Field(default_factory=dict)
     rate: float = 0.0  # returned units / sold units over the range
 
 
@@ -138,10 +141,10 @@ class PriceAlertRow(BaseModel):
     listing_id: str
     sku: str
     marketplace: str
-    price: float | None = None
-    buy_box_price: float | None = None
+    price: Money | None = None
+    buy_box_price: Money | None = None
     buy_box_winner: bool | None = None
-    lowest_competitor_price: float | None = None
+    lowest_competitor_price: Money | None = None
     currency: str | None = None
 
 
@@ -161,7 +164,7 @@ class Dashboard(BaseModel):
     returns: ReturnsSummary
     price_alerts: list[PriceAlertRow]
     open_alerts: int
-    fees: dict[str, float]
+    fees: dict[str, Money]
     truncated: bool = False
     connectors: int = 0
 
@@ -235,7 +238,7 @@ def price_alerts(listings: list[Listing], settings: CommerceSettings) -> list[Pr
         undercut = (
             listing.lowest_competitor_price is not None
             and listing.price
-            and listing.lowest_competitor_price < listing.price * (1 - settings.price_alert_percent / 100)
+            and listing.lowest_competitor_price < listing.price * (1 - Decimal(str(settings.price_alert_percent)) / 100)
         )
         if lost or undercut:
             rows.append(
@@ -279,12 +282,12 @@ def dashboard(
     for order in orders:
         key = order.currency or "-"
         total = totals.setdefault(key, MoneyTotal(currency=key))
-        total.revenue += order.total_amount
+        total.revenue += order.total_amount  # exact: Decimal, rounded once below
         total.orders += 1
         total.units += _units(order)
     currencies = sorted(totals.values(), key=lambda t: t.revenue, reverse=True)
     for total in currencies:
-        total.revenue = round(total.revenue, 2)
+        total.revenue = cents(total.revenue)
     chosen = currency if currency in totals else (currencies[0].currency if currencies else None)
 
     by_channel: dict[tuple[str, str, str], ChannelRow] = {}
@@ -302,20 +305,22 @@ def dashboard(
                 currency=order.currency or "-",
             ),
         )
-        row.revenue = round(row.revenue + order.total_amount, 2)
+        row.revenue += order.total_amount
         row.orders += 1
         row.units += _units(order)
         if (order.currency or "-") != chosen:
             continue
         day = order.purchased_at.astimezone(tz).date().isoformat()
         day_row = days.setdefault((day, order.channel.value), DayRow(date=day, channel=order.channel))
-        day_row.revenue = round(day_row.revenue + order.total_amount, 2)
+        day_row.revenue += order.total_amount
         day_row.orders += 1
         day_row.units += _units(order)
         for line in order.lines:
             item = top.setdefault(line.sku, TopProduct(sku=line.sku, title=line.title, currency=chosen or "-"))
             item.units += line.quantity
-            item.revenue = round(item.revenue + (line.total if line.total is not None else (line.unit_price or 0) * line.quantity), 2)
+            item.revenue += line.total if line.total is not None else (line.unit_price or Decimal(0)) * line.quantity
+    for money_row in (*by_channel.values(), *days.values(), *top.values()):
+        money_row.revenue = cents(money_row.revenue)
     top_rows = sorted(top.values(), key=lambda p: (p.units, p.revenue), reverse=True)[:10]
     for row in top_rows:
         product = store.get_product_by_sku(context, row.sku)
@@ -327,14 +332,14 @@ def dashboard(
     returns, returns_total = store.list_returns(context, since=start, limit=RETURNS_CAP, offset=0)
     truncated = truncated or returns_total > len(returns)  # more returns since the start than were read
     returns = [r for r in returns if r.returned_at < end and (channel is None or r.channel == channel)]
-    amounts: dict[str, float] = defaultdict(float)
+    amounts: dict[str, Decimal] = defaultdict(Decimal)
     for record in returns:
         if record.amount is not None:
             amounts[record.currency or "-"] += record.amount
     sold_units = sum(_units(o) for o in orders)
     returned_units = sum(r.quantity for r in returns)
 
-    fees: dict[str, float] = defaultdict(float)
+    fees: dict[str, Decimal] = defaultdict(Decimal)
     for fee in store.list_fees(context, since=start, until=end):
         if channel is None or fee.channel == channel:
             if fee.kind.value == "fee":
@@ -361,12 +366,12 @@ def dashboard(
         returns=ReturnsSummary(
             count=len(returns),
             units=returned_units,
-            amount={k: round(v, 2) for k, v in amounts.items()},
+            amount={k: cents(v) for k, v in amounts.items()},
             rate=round(returned_units / sold_units, 4) if sold_units else 0.0,
         ),
         price_alerts=price_alerts([l for l in listings if channel is None or l.channel == channel], settings),
         open_alerts=open_alerts,
-        fees={k: round(v, 2) for k, v in fees.items()},
+        fees={k: cents(v) for k, v in fees.items()},
         truncated=truncated,
         connectors=len(store.list_connectors(context)),
     )
@@ -384,7 +389,7 @@ PERIOD_WORDS = {
 CHANNEL_WORDS_AR = {Channel.AMAZON: "أمازون", Channel.NOON: "نون", Channel.OWN_STORE: "متجرك"}
 
 
-def _money(amount: float, currency: str) -> str:
+def _money(amount: Decimal, currency: str) -> str:
     return f"{currency} {amount:,.2f}"
 
 
@@ -408,7 +413,7 @@ def sales_summary(
     orders = [o for o in read[:cap] if _counted(o)]
     if channel is not None:
         orders = [o for o in orders if o.channel == channel]
-    totals: dict[str, float] = defaultdict(float)
+    totals: dict[str, Decimal] = defaultdict(Decimal)
     units = 0
     skus: dict[str, int] = defaultdict(int)
     for order in orders:
@@ -423,7 +428,8 @@ def sales_summary(
         "end": last.isoformat(),
         "orders": len(orders),
         "units": units,
-        "revenue": {k: round(v, 2) for k, v in totals.items()},
+        # Summed exactly, rounded once (half up); a JSON number in the tool result as before.
+        "revenue": {k: float(cents(v)) for k, v in totals.items()},
         "top_skus": sorted(skus.items(), key=lambda kv: kv[1], reverse=True)[:3],
         "truncated": truncated,
     }
@@ -434,7 +440,7 @@ def sales_summary(
         who = f"مبيعات {CHANNEL_WORDS_AR[channel]}" if channel else "مبيعاتك"
         if not orders:
             return f"{who} {when_ar}: لا توجد طلبات بعد.{partial_ar}", data
-        money = " و".join(_money(v, k) for k, v in sorted(totals.items(), key=lambda kv: -kv[1]))
+        money = " و".join(_money(cents(v), k) for k, v in sorted(totals.items(), key=lambda kv: -kv[1]))
         text = f"{who} {when_ar}: {len(orders)} طلب، {units} قطعة، بقيمة {money}."
         if data["top_skus"]:
             text += f" الأكثر مبيعًا: {data['top_skus'][0][0]} ({data['top_skus'][0][1]} قطعة)."
@@ -442,7 +448,7 @@ def sales_summary(
     who = f"{CHANNEL_LABELS[channel]} sales" if channel else "Sales across all channels"
     if not orders:
         return f"{who} {when_en}: no orders yet.{partial_en}", data
-    money = " and ".join(_money(v, k) for k, v in sorted(totals.items(), key=lambda kv: -kv[1]))
+    money = " and ".join(_money(cents(v), k) for k, v in sorted(totals.items(), key=lambda kv: -kv[1]))
     order_word = "order" if len(orders) == 1 else "orders"
     unit_word = "unit" if units == 1 else "units"
     text = f"{who} {when_en}: {len(orders)} {order_word}, {units} {unit_word}, {money}."

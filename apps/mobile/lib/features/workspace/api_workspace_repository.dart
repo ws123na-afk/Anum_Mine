@@ -65,7 +65,7 @@ class ApiWorkspaceRepository
         _list('/api/v1/approvals?status=pending&limit=200'),
         _list('/api/v1/automation/runs'),
         _list('/api/v1/files'),
-        _list('/api/v1/memories'),
+        _list('/api/v1/memories?limit=$memoryFirstPage'),
         _list('/api/v1/automation/workflows'),
         _list('/api/v1/automation/schedules'),
         _list('/api/v1/skills/versions'),
@@ -257,6 +257,37 @@ class ApiWorkspaceRepository
         'source_type': 'mobile',
       })));
 
+  /// The memories after the newest [offset], [limit] of them, oldest first
+  /// (the API's order within a page).
+  @override
+  Future<List<WorkspaceMemory>> memoryPage(
+          {required int offset, required int limit}) async =>
+      JsonReader(await api.request(
+              'GET', '/api/v1/memories?limit=$limit&offset=$offset'))
+          .optObjects('data', _memory);
+
+  @override
+  Future<WorkspaceMemory> createWorkspaceMemory(String content,
+      {int? keepDays, DateTime? now}) async {
+    final expires = keepDays == null
+        ? null
+        : (now ?? DateTime.now()).toUtc().add(Duration(days: keepDays));
+    return _memory(
+        JsonReader(await api.request('POST', '/api/v1/memories', body: {
+      'content': content,
+      'source_type': 'mobile',
+      'retention': expires == null
+          ? {'kind': 'indefinite'}
+          : {'kind': 'expires_at', 'expires_at': expires.toIso8601String()},
+    })));
+  }
+
+  @override
+  Future<WorkspaceMemory> updateMemory(String memoryId, String content) async =>
+      _memory(JsonReader(await api.request(
+          'PATCH', '/api/v1/memories/${Uri.encodeComponent(memoryId)}',
+          body: {'content': content})));
+
   @override
   Future<void> deleteMemory(String memoryId) async {
     await api.request('DELETE', '/api/v1/memories/$memoryId');
@@ -298,6 +329,8 @@ class ApiWorkspaceRepository
         archivedAt: j['archived_at'] == null ? null : _date(j, 'archived_at'),
         priority: taskPriorityFromWire(j.optString('priority')),
         dueAt: j.optDate('due_at')?.toLocal(),
+        privateTo: j.optString('private_to'),
+        privateKind: j.optString('private_kind'),
       );
   WorkspaceRun _run(JsonReader j) => WorkspaceRun(
         id: j.string('id'),
@@ -330,13 +363,24 @@ class ApiWorkspaceRepository
   }
 
   WorkspaceFile _file(JsonReader j) => parseWorkspaceFile(j);
-  WorkspaceMemory _memory(JsonReader j) => WorkspaceMemory(
-      id: j.string('id'),
-      taskId: j.string('task_id'),
-      content: j.string('content'),
-      sourceType:
-          j.optObject('provenance')?.optString('source_type') ?? 'unknown',
-      createdAt: _date(j, 'created_at'));
+  WorkspaceMemory _memory(JsonReader j) {
+    final provenance = j.optObject('provenance');
+    final metadata = provenance?.optObject('metadata');
+    return WorkspaceMemory(
+        id: j.string('id'),
+        taskId: j.optString('task_id'),
+        content: j.string('content'),
+        sourceType: provenance?.optString('source_type') ?? 'unknown',
+        createdAt: _date(j, 'created_at'),
+        createdBy: provenance?.optString('created_by_user_id'),
+        ownerUserId: j.optString('owner_user_id'),
+        updatedAt: j.optDate('updated_at'),
+        editedBy: metadata?.json['last_edited_by'] is String
+            ? metadata!.json['last_edited_by']! as String
+            : null,
+        expiresAt: j.optObject('retention')?.optDate('expires_at'));
+  }
+
   AutomationDefinition _workflow(JsonReader j) => AutomationDefinition(
       id: j.string('id'),
       name: j.string('name'),

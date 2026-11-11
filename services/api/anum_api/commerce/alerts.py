@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from ..schemas import TenantContext, new_id, utc_now
 from .models import (
@@ -134,7 +135,7 @@ def evaluate(context: TenantContext, store: CommerceStore, settings: CommerceSet
         if (
             listing.lowest_competitor_price is not None
             and listing.price
-            and listing.lowest_competitor_price < listing.price * (1 - settings.price_alert_percent / 100)
+            and listing.lowest_competitor_price < listing.price * (1 - Decimal(str(settings.price_alert_percent)) / 100)
         ):
             competitor.append(
                 _alert(

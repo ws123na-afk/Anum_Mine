@@ -195,7 +195,14 @@ class _MemoryTab extends StatefulWidget {
 class _MemoryTabState extends State<_MemoryTab> {
   final _content = TextEditingController();
   final _focused = GlobalKey();
+
+  /// The task the new memory belongs to; null is the whole workspace.
   String? _taskId;
+
+  /// How long a workspace memory is kept: null until someone deletes it.
+  int? _keepDays;
+  bool _saving = false;
+  String? _addError;
 
   @override
   void initState() {
@@ -218,76 +225,128 @@ class _MemoryTabState extends State<_MemoryTab> {
   }
 
   Future<void> _add() async {
+    final l = AnumLocalizations.maybeOf(context);
     final taskId = _taskId;
     final text = _content.text.trim();
-    if (taskId == null || text.isEmpty) return;
-    await widget.controller.addMemory(taskId, text);
-    _content.clear();
-    if (mounted) setState(() {});
+    if (text.isEmpty) return;
+    setState(() {
+      _saving = true;
+      _addError = null;
+    });
+    String? error;
+    if (taskId == null) {
+      error =
+          await widget.controller.addWorkspaceMemory(text, keepDays: _keepDays);
+    } else {
+      await widget.controller.addMemory(taskId, text);
+    }
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _addError = error;
+      if (error == null) _content.clear();
+    });
+    if (error == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l.t('ad.mem.saved'))));
+    }
   }
+
+  String _date(BuildContext context, DateTime value) =>
+      MaterialLocalizations.of(context).formatMediumDate(value.toLocal());
 
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
     final p = context.palette;
+    final l = AnumLocalizations.maybeOf(context);
     final memories = [...c.memories]
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     String taskTitle(String id) =>
         c.tasks.where((t) => t.id == id).firstOrNull?.title ?? id;
+    final busy = c.mutating || _saving;
     return _tabList(context, c.load, [
       AnumSurface(
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const AnumHeader(
-            title: 'Teach your agents',
-            subtitle:
-                'Memories are linked to a task so you can see where each fact came from.',
+          AnumHeader(
+            title: l.t('ad.mem.title'),
+            subtitle: l.t('ad.mem.subtitle'),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
+          DropdownButtonFormField<String?>(
+            key: const Key('memory-target'),
             initialValue: _taskId,
             isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Related task'),
+            decoration: InputDecoration(labelText: l.t('ad.mem.related')),
             items: [
+              DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text(l.t('ad.mem.wholeWorkspace'),
+                      overflow: TextOverflow.ellipsis)),
               for (final t in c.tasks)
-                DropdownMenuItem(
+                DropdownMenuItem<String?>(
                     value: t.id,
                     child: Text(t.title, overflow: TextOverflow.ellipsis)),
             ],
-            onChanged: (v) => setState(() => _taskId = v),
+            onChanged: busy ? null : (v) => setState(() => _taskId = v),
           ),
+          if (_taskId == null) ...[
+            const SizedBox(height: 10),
+            DropdownButtonFormField<int?>(
+              key: const Key('memory-keep'),
+              initialValue: _keepDays,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: l.t('ad.mem.keep')),
+              items: [
+                for (final days in memoryKeepDays)
+                  DropdownMenuItem<int?>(
+                      value: days,
+                      child: Text(
+                          days == null
+                              ? l.t('ad.mem.keep.indefinite')
+                              : l.f('ad.mem.keep.days', {'count': days}),
+                          overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: busy ? null : (v) => setState(() => _keepDays = v),
+            ),
+            const SizedBox(height: 6),
+            Text(l.t('ad.mem.workspaceHint'),
+                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
+          ],
           const SizedBox(height: 10),
           TextField(
+            key: const Key('memory-content'),
             controller: _content,
             minLines: 2,
             maxLines: 5,
+            maxLength: 16000,
             onChanged: (_) => setState(() {}),
-            decoration:
-                const InputDecoration(labelText: 'What should they remember?'),
+            decoration: InputDecoration(labelText: l.t('ad.mem.content')),
           ),
-          const SizedBox(height: 10),
+          if (_addError != null) ...[
+            Text(_addError!,
+                key: const Key('memory-add-error'),
+                style: TextStyle(color: p.stop, fontSize: AnumType.sm)),
+            const SizedBox(height: 8),
+          ],
           Align(
             alignment: AlignmentDirectional.centerEnd,
             child: FilledButton.icon(
-              onPressed:
-                  c.mutating || _taskId == null || _content.text.trim().isEmpty
-                      ? null
-                      : _add,
+              key: const Key('memory-save'),
+              onPressed: busy || _content.text.trim().isEmpty ? null : _add,
               icon: const Icon(Icons.add),
-              label: const Text('Save memory'),
+              label: Text(l.t('ad.mem.save')),
             ),
           ),
-          if (c.tasks.isEmpty)
-            Text('Create a task first; memories are always tied to one.',
-                style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
         ]),
       ),
       if (memories.isEmpty)
-        const AnumSurface(
+        AnumSurface(
           child: AnumEmpty(
             icon: Icons.psychology_outlined,
-            title: 'No memories yet',
-            message: 'Saved context shows here with its source and task.',
+            title: l.t('ad.mem.empty'),
+            message: l.t('ad.mem.emptyText'),
           ),
         )
       else
@@ -295,26 +354,86 @@ class _MemoryTabState extends State<_MemoryTab> {
           child: Column(children: [
             for (final m in memories)
               AnumRow(
-                key: m.id == widget.focusMemoryId ? _focused : null,
-                icon: Icons.psychology_outlined,
+                key: m.id == widget.focusMemoryId
+                    ? _focused
+                    : Key('memory-row-${m.id}'),
+                icon: m.isWorkspaceNote
+                    ? Icons.groups_outlined
+                    : m.isPrivate
+                        ? Icons.lock_outline
+                        : Icons.psychology_outlined,
                 tone: m.id == widget.focusMemoryId ? AnumTone.accent : null,
                 title: m.content,
-                subtitle: 'From: ${taskTitle(m.taskId)}',
+                subtitle: m.isWorkspaceNote
+                    ? l.t('ad.mem.workspaceNote')
+                    : m.isPrivate
+                        ? l.t('ad.mem.privateNote')
+                        : l.f(
+                            'ad.mem.fromTask', {'task': taskTitle(m.taskId!)}),
                 detail: [
                   '${humanSource(m.sourceType)} · ${exactTime(m.createdAt)}',
-                  if (m.id == widget.focusMemoryId)
-                    AnumLocalizations.maybeOf(context).t('memoryUsedByRun'),
+                  if (m.expiresAt != null)
+                    l.f('ad.mem.expires',
+                        {'date': _date(context, m.expiresAt!)}),
+                  if (m.updatedAt != null && m.editedBy != null)
+                    l.f('ad.mem.editedBy', {
+                      'when': exactTime(m.updatedAt!),
+                      'user': m.editedBy!,
+                    }),
+                  if (m.id == widget.focusMemoryId) l.t('memoryUsedByRun'),
                 ].join('\n'),
-                trailing: IconButton(
-                  tooltip: 'Delete memory',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed:
-                      c.mutating ? null : () => _confirmDelete(context, m),
-                ),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (canEditMemory(m,
+                      userId: c.currentUserId, owner: c.isOwner))
+                    IconButton(
+                      key: Key('memory-edit-${m.id}'),
+                      tooltip: l.t('ad.mem.edit'),
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: busy ? null : () => _edit(context, m),
+                    ),
+                  IconButton(
+                    tooltip: l.t('ad.mem.delete'),
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: busy ? null : () => _confirmDelete(context, m),
+                  ),
+                ]),
               ),
           ]),
         ),
+      if (memories.isNotEmpty)
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(l.f('ad.mem.showing', {'count': memories.length}),
+              key: const Key('memory-count'),
+              style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
+          if (c.olderMemoriesError != null) ...[
+            const SizedBox(height: 6),
+            Text(l.f('ad.mem.moreFailed', {'message': c.olderMemoriesError!}),
+                style: TextStyle(color: p.stop, fontSize: AnumType.sm)),
+          ],
+          if (c.hasOlderMemories) ...[
+            const SizedBox(height: 6),
+            OutlinedButton(
+              key: const Key('memory-older'),
+              onPressed: c.loadingOlderMemories ? null : c.loadOlderMemories,
+              child: Text(l.t(c.loadingOlderMemories
+                  ? 'ad.mem.loadingMore'
+                  : 'ad.mem.loadMore')),
+            ),
+          ],
+        ]),
     ]);
+  }
+
+  Future<void> _edit(BuildContext context, WorkspaceMemory memory) async {
+    final l = AnumLocalizations.maybeOf(context);
+    final saved = await showDialog<bool>(
+        context: context,
+        builder: (_) =>
+            _EditMemoryDialog(controller: widget.controller, memory: memory));
+    if (saved == true && context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l.t('ad.mem.edited'))));
+    }
   }
 
   Future<void> _confirmDelete(
@@ -335,6 +454,87 @@ class _MemoryTabState extends State<_MemoryTab> {
       ),
     );
     if (ok == true) await widget.controller.deleteMemory(memory.id);
+  }
+}
+
+/// Changes a memory's text; Cancel (or the back gesture) leaves it as it was.
+class _EditMemoryDialog extends StatefulWidget {
+  const _EditMemoryDialog({required this.controller, required this.memory});
+  final WorkspaceController controller;
+  final WorkspaceMemory memory;
+  @override
+  State<_EditMemoryDialog> createState() => _EditMemoryDialogState();
+}
+
+class _EditMemoryDialogState extends State<_EditMemoryDialog> {
+  late final _text = TextEditingController(text: widget.memory.content);
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final l = AnumLocalizations.maybeOf(context);
+    final text = _text.text.trim();
+    if (text.isEmpty) {
+      setState(() => _error = l.t('ad.mem.editEmpty'));
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final error = await widget.controller.editMemory(widget.memory, text);
+    if (!mounted) return;
+    if (error == null) {
+      Navigator.pop(context, true);
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _error = error == 'denied'
+          ? l.t('ad.mem.editDenied')
+          : l.f('ad.mem.editFailed', {'message': error});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    final p = context.palette;
+    return AlertDialog(
+      title: Text(l.t('ad.mem.edit')),
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(
+            key: const Key('memory-edit-text'),
+            controller: _text,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 8,
+            maxLength: 16000,
+            decoration: InputDecoration(labelText: l.t('ad.mem.editLabel')),
+          ),
+          if (_error != null)
+            Text(_error!,
+                key: const Key('memory-edit-error'),
+                style: TextStyle(color: p.stop, fontSize: AnumType.sm)),
+        ]),
+      ),
+      actions: [
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context, false),
+            child: Text(l.t('ad.mem.cancel'))),
+        FilledButton(
+            key: const Key('memory-edit-save'),
+            onPressed: _saving ? null : _save,
+            child: Text(l.t('ad.mem.saveEdit'))),
+      ],
+    );
   }
 }
 

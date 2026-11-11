@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import 'finance_depth_controller.dart';
 import 'finance_depth_models.dart';
+import 'finance_more_data.dart';
 import 'finance_intel_controller.dart';
 import 'finance_intel_models.dart';
 import 'finance_models.dart';
@@ -45,6 +46,7 @@ class FinanceController extends ChangeNotifier {
       {FinanceIntelRepository? intelRepository,
       FinancePersonalRepository? personalRepository,
       FinanceDepthRepository? depthRepository,
+      this.more,
       MoneyPlanner? planner})
       : depth = depthRepository == null
             ? null
@@ -54,7 +56,16 @@ class FinanceController extends ChangeNotifier {
             : FinanceIntelController(intelRepository),
         personal = personalRepository == null
             ? null
-            : FinancePersonalController(personalRepository, planner: planner);
+            : FinancePersonalController(personalRepository, planner: planner) {
+    personal?.more = more;
+  }
+
+  /// The parity pages' routes (docs/finance.md: reconciliation, bank loans,
+  /// one payment split across loans, foreign balances, trips and projects,
+  /// the Money advisor, the Plan, payslips, send home and the keyword
+  /// rules); null when no source was given, and then the More menu is not
+  /// offered. Each page holds its own state, so nothing here is per user.
+  final FinanceMoreRepository? more;
 
   final FinanceRepository repository;
 

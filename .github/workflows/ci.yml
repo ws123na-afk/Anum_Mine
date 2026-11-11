@@ -316,7 +316,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        # The Oracle VM's image (infra/oracle/compose.yaml): CI runs the same PostgreSQL major.
+        image: pgvector/pgvector:0.8.7-pg17-trixie
         env:
           POSTGRES_USER: anum
           POSTGRES_PASSWORD: anum
@@ -340,6 +341,14 @@ jobs:
           cache-dependency-path: services/api/pyproject.toml
       - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - name: PostgreSQL 17 client tools (the restore drill's pg_dump may not be older than the server)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+          echo "ANUM_PG_BIN=/usr/lib/postgresql/17/bin" >> "$GITHUB_ENV"
       - name: Apply database migrations
         working-directory: services/api
         run: python -m alembic upgrade head

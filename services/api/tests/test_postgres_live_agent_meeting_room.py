@@ -497,3 +497,56 @@ def test_worker_settles_with_a_reason_that_reaches_the_event_log(factory):
     assert settle_meeting(c, mid, "finished", "limit_reached") is False  # already ended: no second event
     last = events(factory, c, mid)[-1]
     assert last["kind"] == "state" and last["payload"]["reason"] == "limit_reached" and last["payload"]["status"] == "finished"
+
+
+# ----------------------------------------------------------------------------- dropped turns are metered as billed
+
+def _spend(factory, context, meeting_id):
+    """(meeting total cost, meeting tokens, month ledger cost, ledger turns, stored agent turns)."""
+    with scoped(factory, context) as session:
+        meeting = session.execute(text("""select total_cost_usd, total_input_tokens+total_output_tokens as tokens
+            from agent_meeting_sessions where id=:s"""), {"s": meeting_id}).mappings().one()
+        ledger = session.execute(text("""select coalesce(sum(cost_usd),0) as cost, coalesce(sum(turns),0) as turns
+            from agent_meeting_usage_monthly where tenant_id=:t and workspace_id=:w"""),
+            {"t": context.tenant_id, "w": context.workspace_id}).mappings().one()
+        stored = session.execute(text("select count(*) from agent_meeting_turns where session_id=:s"), {"s": meeting_id}).scalar_one()
+    return float(meeting["total_cost_usd"]), int(meeting["tokens"]), float(ledger["cost"]), int(ledger["turns"]), int(stored)
+
+
+def test_a_dropped_turn_costs_what_the_provider_billed_and_no_more(factory):
+    """A turn whose answer arrived but was dropped (paused meeting, cost cap) was paid for: its billed
+    cost and tokens count once, against the meeting and the month, with no stored message and no turn."""
+    c = ctx(tenant=TENANT_B, workspace=WORKSPACE_B, user="drop_owner")
+    mid = make_meeting(factory, c)
+    _, _, ledger_before, turns_before, _ = _spend(factory, c, mid)
+
+    def pause():
+        with scoped(factory, c) as session:
+            store = SqlLiveMeetingStore(session)
+            store.get(c, mid, lock=True)
+            store.transition(c, mid, store.get(c, mid)["revision"], "paused")
+            session.commit()
+    with pytest.raises(LiveMeetingStoreError, match="active"):
+        run_turn(c, mid, "drop-key-one", FakeGateway(cost=0.25, tokens=(40, 60), during=pause))
+    total, tokens, ledger, ledger_turns, stored = _spend(factory, c, mid)
+    assert (total, tokens, stored) == (0.25, 100, 0)
+    assert round(ledger - ledger_before, 6) == 0.25 and ledger_turns == turns_before
+    failed = [e for e in events(factory, c, mid) if e["kind"] == "turn_failed"][-1]
+    assert failed["payload"]["cost_usd"] == 0.25
+
+    # Over the meeting's own cap: refused at commit, still billed once.
+    capped = make_meeting(factory, c, max_cost_usd=0.01)
+    with pytest.raises(LiveMeetingStoreError, match="cost cap"):
+        run_turn(c, capped, "drop-key-two", FakeGateway(cost=0.5))
+    assert _spend(factory, c, capped)[0] == 0.5 and _spend(factory, c, capped)[4] == 0
+    assert round(_spend(factory, c, capped)[2] - ledger_before, 6) == 0.75
+
+    # A provider failure reports no usage: nothing is charged.
+    class Failing(FakeGateway):
+        async def generate_text(self, prompt):
+            raise RuntimeError("provider down")
+    plain = make_meeting(factory, c)
+    with pytest.raises(RuntimeError):
+        run_turn(c, plain, "drop-key-three", Failing())
+    assert _spend(factory, c, plain)[:2] == (0.0, 0)
+    assert round(_spend(factory, c, plain)[2] - ledger_before, 6) == 0.75

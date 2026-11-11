@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Select, delete, func, or_, select
+from sqlalchemy import Select, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
-from anum_api.favorites import Favorite, FavoriteType
+from anum_api.favorites import Favorite, FavoriteSort, FavoriteType, sort_favorites
 from anum_api.knowledge_base import Collection, Item, ItemKind
 from anum_api.reports import (
     CreatedByKind,
@@ -46,6 +46,7 @@ def _favorite(record: FavoriteRecord) -> Favorite:
         item_id=record.item_id,
         label=record.label,
         created_at=record.created_at,
+        position=record.position,
     )
 
 
@@ -62,17 +63,52 @@ class SqlAlchemyFavoriteStore:
         )
 
     def list(
-        self, context: TenantContext, item_type: FavoriteType | None, limit: int, offset: int
+        self,
+        context: TenantContext,
+        item_type: FavoriteType | None,
+        limit: int,
+        offset: int,
+        q: str = "",
+        sort: FavoriteSort = FavoriteSort.NEWEST,
     ) -> tuple[list[Favorite], int]:
         statement = self._mine(select(FavoriteRecord), context)
         counted = self._mine(select(func.count()).select_from(FavoriteRecord), context)
         if item_type is not None:
             statement = statement.where(FavoriteRecord.item_type == item_type.value)
             counted = counted.where(FavoriteRecord.item_type == item_type.value)
-        rows = self.session.scalars(
-            statement.order_by(FavoriteRecord.created_at.desc(), FavoriteRecord.id.desc()).limit(limit).offset(offset)
-        ).all()
+        if q:
+            # A bound parameter with LIKE's own characters escaped: the label is matched as typed.
+            pattern = f"%{_escape_like(q)}%"
+            statement = statement.where(FavoriteRecord.label.ilike(pattern, escape="\\"))
+            counted = counted.where(FavoriteRecord.label.ilike(pattern, escape="\\"))
+        newest = (FavoriteRecord.created_at.desc(), FavoriteRecord.id.desc())
+        if sort == FavoriteSort.OLDEST:
+            order: tuple[Any, ...] = (FavoriteRecord.created_at.asc(), FavoriteRecord.id.asc())
+        elif sort == FavoriteSort.NAME:
+            order = (func.lower(FavoriteRecord.label).asc(), FavoriteRecord.id.asc())
+        elif sort == FavoriteSort.CUSTOM:
+            order = (FavoriteRecord.position.asc().nulls_last(), *newest)
+        else:
+            order = newest
+        rows = self.session.scalars(statement.order_by(*order).limit(limit).offset(offset)).all()
         return [_favorite(r) for r in rows], int(self.session.scalar(counted) or 0)
+
+    def ordered(self, context: TenantContext) -> list[Favorite]:
+        rows = self.session.scalars(self._mine(select(FavoriteRecord), context)).all()
+        return sort_favorites([_favorite(r) for r in rows], FavoriteSort.CUSTOM)
+
+    def set_positions(self, context: TenantContext, positions: dict[str, int]) -> None:
+        for favorite_id, position in positions.items():
+            self.session.execute(
+                update(FavoriteRecord)
+                .where(
+                    FavoriteRecord.tenant_id == context.tenant_id,
+                    FavoriteRecord.workspace_id == context.workspace_id,
+                    FavoriteRecord.user_id == context.user_id,
+                    FavoriteRecord.id == favorite_id,
+                )
+                .values(position=position)
+            )
 
     def find(self, context: TenantContext, item_type: FavoriteType, item_id: str) -> Favorite | None:
         record = self.session.scalar(
@@ -97,6 +133,7 @@ class SqlAlchemyFavoriteStore:
                 item_id=favorite.item_id,
                 label=favorite.label,
                 created_at=favorite.created_at,
+                position=favorite.position,
             )
         )
         self.session.flush()

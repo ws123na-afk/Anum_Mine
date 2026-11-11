@@ -18,6 +18,13 @@ modules, migration `0107_agent_meeting_budget` (renumbered at merge if branches 
   added to `agent_meeting_usage_monthly` in the same transaction as the turn. Usage is the larger of that ledger and
   the sum of stored turns this month, so turns from before the ledger count and deleting a transcript does not hand the
   budget back.
+* Dropped turns cost what the provider billed, and no more. A turn whose model answer arrived but was then dropped (the
+  meeting was paused or cancelled, a hand was raised, the meeting's own cost or token cap would be passed, the lease
+  expired, the text was unusable, or another run already committed the same request key) stores no message and counts no
+  turn, but its reported tokens and cost are added once to the meeting's totals and to the month's ledger, in the same
+  transaction that frees its lease. The `turn_failed` event carries `cost_usd` and the `agent_meeting.turn` failure audit
+  carries the counts and cost. A call that never answered (provider error, the 75 second timeout) reports no usage and
+  nothing is metered. No reserve or estimate is ever charged.
 * Enforcement is on the server, before the model is called: `execute_meeting_turn` calls `gate` in the transaction that
   claims the turn. The browser only mirrors it (buttons disabled, notice shown). Starting or resuming a meeting
   (`POST /state` to `active`) is refused the same way.

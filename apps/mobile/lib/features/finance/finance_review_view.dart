@@ -7,6 +7,8 @@ import 'finance_controller.dart';
 import 'finance_models.dart';
 import 'finance_personal_view.dart' show MoneyLinkOpener, financeWebLink;
 import 'finance_review_models.dart';
+import 'finance_more_menu.dart';
+import 'finance_more_strings.dart';
 import 'finance_review_strings.dart';
 import 'finance_strings.dart';
 
@@ -271,11 +273,16 @@ class SuggestionsView extends StatelessWidget {
       required this.openLink,
       required this.onOpenTransactions,
       this.onReview,
+      this.onOpenVehicles,
       super.key});
   final FinanceController controller;
   final String appUrl;
   final MoneyLinkOpener openLink;
   final VoidCallback onOpenTransactions;
+
+  /// Opens Vehicles, where a cost with no record yet is recorded
+  /// (an attribution item with `record: none`); null hides the button.
+  final VoidCallback? onOpenVehicles;
 
   /// Opens a transaction with its FX section (an `fx_fee` item's Review);
   /// null when this phone has no such screen.
@@ -318,7 +325,8 @@ class SuggestionsView extends StatelessWidget {
               controller: c,
               appUrl: appUrl,
               openLink: openLink,
-              onReview: onReview),
+              onReview: onReview,
+              onOpenVehicles: onOpenVehicles),
       if (c.suggestionsError != null && c.suggestions.isNotEmpty)
         Text(s.t('sug.moreFailed', {'message': c.suggestionsError!}),
             style: TextStyle(color: context.palette.stop)),
@@ -359,12 +367,14 @@ class _SuggestionCard extends StatelessWidget {
       required this.controller,
       required this.appUrl,
       required this.openLink,
-      this.onReview});
+      this.onReview,
+      this.onOpenVehicles});
   final Suggestion item;
   final FinanceController controller;
   final String appUrl;
   final MoneyLinkOpener openLink;
   final void Function(String transactionId)? onReview;
+  final VoidCallback? onOpenVehicles;
 
   Map<String, Object> _vars(FinanceReviewStrings s, FinanceStrings f) {
     final p = item.params;
@@ -503,6 +513,13 @@ class _SuggestionCard extends StatelessWidget {
                 onPressed: () => onReview!(reviewId),
                 child: Text(s.t('sug.review')),
               ),
+            if (item.variant == 'vehicle_record' && onOpenVehicles != null)
+              FilledButton.icon(
+                key: Key('sug-vehicles-${item.key}'),
+                onPressed: onOpenVehicles,
+                icon: const Icon(Icons.directions_car_outlined),
+                label: Text(s.t('sug.openVehicles')),
+              ),
             OutlinedButton(
               key: Key('sug-dismiss-${item.key}'),
               onPressed: busy ? null : () => _decide(context, false),
@@ -510,7 +527,9 @@ class _SuggestionCard extends StatelessWidget {
             ),
           ],
         ),
-        if (mode == 'none' && reviewId == null)
+        if (mode == 'none' &&
+            reviewId == null &&
+            !(item.variant == 'vehicle_record' && onOpenVehicles != null))
           FinanceWebLink(
               appUrl: appUrl,
               openLink: openLink,
@@ -673,6 +692,17 @@ class ReconciliationCard extends StatelessWidget {
             _ReconAccount(h: h, open: c.recon!.openFor(h), next: _next(s, h)),
           ],
         const SizedBox(height: AnumSpacing.xs),
+        if (c.more != null)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilledButton.icon(
+              key: const Key('recon-open'),
+              onPressed: () =>
+                  openFinanceMore(context, c, FinanceMorePage.recon),
+              icon: const Icon(Icons.fact_check_outlined),
+              label: Text(FinanceMoreStrings.of(context).t('recon.open')),
+            ),
+          ),
         web,
       ]),
     );

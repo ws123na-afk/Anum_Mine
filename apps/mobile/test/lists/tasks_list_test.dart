@@ -21,7 +21,8 @@ WorkspaceTask _task(int n,
         {WorkStatus status = WorkStatus.created,
         TaskPriority priority = TaskPriority.medium,
         DateTime? due,
-        String createdBy = 'user_me'}) =>
+        String createdBy = 'user_me',
+        String? privateKind}) =>
     WorkspaceTask(
         id: 'task_$n',
         title: 'Task $n',
@@ -31,7 +32,9 @@ WorkspaceTask _task(int n,
         updatedAt: _now.subtract(Duration(minutes: n)),
         createdBy: createdBy,
         priority: priority,
-        dueAt: due);
+        dueAt: due,
+        privateTo: privateKind == null ? null : createdBy,
+        privateKind: privateKind);
 
 class _Fake implements WorkspaceRepository, TaskManagementRepository {
   _Fake(this.tasks);
@@ -266,6 +269,66 @@ void main() {
     expect(find.text('Task updated'), findsOneWidget);
   });
 
+  test('the API repository reads private_to and private_kind', () async {
+    final transport =
+        ScriptedTransport((r) => ApiResponse(statusCode: 200, body: {
+              'id': 'task_p',
+              'title': 'My card spending',
+              'prompt': 'Summarise my card spending',
+              'status': 'completed',
+              'private_to': 'user_me',
+              'private_kind': 'data',
+              'created_at': '2026-10-12T08:00:00Z',
+              'updated_at': '2026-10-12T08:00:00Z',
+            }));
+    final repo = ApiWorkspaceRepository(await scriptedClient(transport),
+        fileTransfer: _NoFiles());
+    final task = await repo.loadTask('task_p');
+    expect(task.isPrivate, isTrue);
+    expect(task.privateKind, 'data');
+    expect(_task(1).isPrivate, isFalse,
+        reason: 'an ordinary task has no marker');
+  });
+
+  testWidgets('a private task says "Private to you" on its row and detail',
+      (tester) async {
+    final fake = _Fake([
+      _task(1, privateKind: 'data'),
+      _task(2),
+    ]);
+    final c = await _controller(fake);
+    await pumpList(tester, TasksScreen(controller: c));
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('task-row-task_1')),
+            matching: find.text('Private to you')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('task-row-task_2')),
+            matching: find.text('Private to you')),
+        findsNothing);
+    // Screen readers hear it with the row.
+    expect(find.bySemanticsLabel(RegExp('^Task 1, Private to you')),
+        findsOneWidget);
+    await pumpList(
+        tester, TaskDetailScreen(controller: c, task: fake.tasks.first),
+        scaffold: false);
+    expect(find.text('Private to you'), findsOneWidget);
+    final note =
+        tester.widget<Text>(find.byKey(const Key('task-private-note')));
+    expect(note.data, contains('read your own data'));
+    for (final locale in ['en', 'ar']) {
+      for (final width in [320.0, 1024.0]) {
+        await pumpList(
+            tester, TaskDetailScreen(controller: c, task: fake.tasks.first),
+            scaffold: false, width: width, text: 2, locale: locale);
+        expect(tester.takeException(), isNull);
+      }
+    }
+    expect(find.text('خاصة بك'), findsOneWidget);
+  });
+
   for (final width in listWidths) {
     testWidgets('lays out at $width wide, 200% text, English and Arabic',
         (tester) async {
@@ -273,7 +336,7 @@ void main() {
         _task(1,
             priority: TaskPriority.high,
             due: _now.add(const Duration(days: 4))),
-        _task(2, status: WorkStatus.waitingApproval),
+        _task(2, status: WorkStatus.waitingApproval, privateKind: 'chat'),
       ]);
       for (final locale in ['en', 'ar']) {
         await pumpList(tester, TasksScreen(controller: await _controller(fake)),

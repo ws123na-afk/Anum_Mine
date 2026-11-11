@@ -1,7 +1,9 @@
 """The unified commerce model (docs/commerce.md#data-model).
 
-Every record belongs to one tenant and workspace. Amounts are decimals stored as
-``float`` with two decimals of meaning; currencies are ISO 4217 codes as the channel
+Every record belongs to one tenant and workspace. Amounts are exact decimals end to end
+(:data:`Money`: ``Decimal`` in Python, ``numeric(18,4)`` in PostgreSQL, migration
+``0172_commerce_money_numeric``), so sums and rounding never pick up binary float error;
+JSON still carries them as numbers, as before. Currencies are ISO 4217 codes as the channel
 reports them (SAR for Amazon.sa and noon Saudi, AED for Amazon.ae and noon UAE).
 
 Customers are minimized: an order keeps only the ship-to city and country. A customer
@@ -13,10 +15,51 @@ name, email, phone and address are encrypted at rest and returned only to caller
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field, PlainSerializer
+
+# Stored to four places (numeric(18,4)): three-decimal currencies (KWD, BHD, OMR) stay exact.
+MONEY_PLACES = Decimal("0.0001")
+_CENT = Decimal("0.01")
+
+
+def _wire(value: Decimal) -> float:
+    # JSON keeps the number clients always read; the shortest float of an exact decimal prints as that decimal.
+    return float(value)
+
+
+def _exact(value: Any) -> Any:
+    if value is None:
+        return None
+    amount = to_money(value)
+    if amount is None:
+        raise ValueError("Enter an amount as a number, for example 19.99.")
+    return amount
+
+
+Money = Annotated[Decimal, BeforeValidator(_exact), PlainSerializer(_wire, return_type=float, when_used="json")]
+
+
+def to_money(value: Any) -> Decimal | None:
+    """An exact amount from a channel or a person: ``"19.99"``, ``19.99`` or a Decimal; None when absent or not a finite number.
+    A float goes through its shortest text form, so ``19.99`` is ``Decimal("19.99")``, never ``19.989999...``."""
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        amount = value if isinstance(value, Decimal) else Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not amount.is_finite():
+        return None
+    return amount.quantize(MONEY_PLACES, rounding=ROUND_HALF_UP)
+
+
+def cents(value: Decimal) -> Decimal:
+    """Two places, half up (shown totals and unit prices)."""
+    return value.quantize(_CENT, rounding=ROUND_HALF_UP)
 
 from .tyre import TyreSpec
 
@@ -102,7 +145,7 @@ class Product(BaseModel):
     title_ar: str | None = Field(default=None, max_length=500)
     brand: str | None = Field(default=None, max_length=120)
     tyre: TyreSpec = Field(default_factory=TyreSpec)
-    cost_price: float | None = Field(default=None, ge=0)
+    cost_price: Money | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, max_length=3)
     low_stock_threshold: int | None = Field(default=None, ge=0, le=100000)
     created_at: datetime
@@ -122,14 +165,14 @@ class Listing(BaseModel):
     external_id: str | None = None  # ASIN, noon SKU (Z...), own-store id
     title: str = ""
     product_type: str | None = None  # Amazon product type, needed to patch the listing
-    price: float | None = None
+    price: Money | None = None
     currency: str | None = None
     quantity: int | None = None
     status: str = "active"  # active, inactive, out_of_stock
     fulfillment: str | None = None  # merchant, amazon (FBA), noon (FBN)
-    buy_box_price: float | None = None
+    buy_box_price: Money | None = None
     buy_box_winner: bool | None = None
-    lowest_competitor_price: float | None = None
+    lowest_competitor_price: Money | None = None
     competition_checked_at: datetime | None = None
     updated_at: datetime
 
@@ -153,8 +196,8 @@ class OrderLine(BaseModel):
     external_line_id: str | None = None
     title: str = ""
     quantity: int = Field(default=1, ge=0)
-    unit_price: float | None = None
-    total: float | None = None
+    unit_price: Money | None = None
+    total: Money | None = None
 
 
 class Order(BaseModel):
@@ -168,7 +211,7 @@ class Order(BaseModel):
     status: OrderStatus
     purchased_at: datetime
     ship_by: datetime | None = None
-    total_amount: float = 0.0
+    total_amount: Money = Decimal(0)
     currency: str | None = None
     item_count: int = 0
     fulfillment: str | None = None
@@ -227,7 +270,7 @@ class ReturnRecord(BaseModel):
     quantity: int = 1
     reason: str | None = None
     status: str = "refunded"
-    amount: float | None = None
+    amount: Money | None = None
     currency: str | None = None
     returned_at: datetime
 
@@ -249,7 +292,7 @@ class FeeRecord(BaseModel):
     order_external_id: str | None = None
     kind: FeeKind
     description: str = ""
-    amount: float
+    amount: Money
     currency: str | None = None
     posted_at: datetime
 

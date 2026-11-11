@@ -359,8 +359,19 @@ export async function downloadFile(id: string, name: string): Promise<void> {
   document.body.append(anchor); anchor.click(); anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export async function getSkillVersions(): Promise<SkillVersion[]> { return request('/api/v1/skills/versions', { method: 'GET' }); }
-export async function getSkillInstallations(): Promise<SkillInstallation[]> { return request('/api/v1/skills/installations', { method: 'GET' }); }
+/** One page of published skill versions (oldest first); `q` matches the skill id, name or description. */
+export async function getSkillVersions(page: { q?: string; limit?: number; offset?: number } = {}): Promise<SkillVersion[]> { return request(`/api/v1/skills/versions${skillQuery(page)}`, { method: 'GET' }); }
+/** One page of this workspace's installations; `q` matches the skill id. */
+export async function getSkillInstallations(page: { q?: string; limit?: number; offset?: number } = {}): Promise<SkillInstallation[]> { return request(`/api/v1/skills/installations${skillQuery(page)}`, { method: 'GET' }); }
+function skillQuery(page: { q?: string; limit?: number; offset?: number }): string {
+  const params = new URLSearchParams();
+  if (page.q?.trim()) params.set('q', page.q.trim());
+  if (page.limit !== undefined) params.set('limit', String(page.limit));
+  if (page.offset) params.set('offset', String(page.offset));
+  const text = params.toString();
+  return text ? `?${text}` : '';
+}
+
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
 export async function setSkillEnabled(skillId: string, enabled: boolean, acknowledgeFlagged = false): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify(acknowledgeFlagged ? { enabled, acknowledge_flagged: true } : { enabled }) }); }
 export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }

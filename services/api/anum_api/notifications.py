@@ -29,7 +29,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from email.message import EmailMessage
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -442,18 +442,34 @@ async def send_test_email(
     return await asyncio.to_thread(_send_test_email, units, context)
 
 
+class NotificationKindCount(BaseModel):
+    kind: str
+    total: int
+    unread: int
+
+
+class NotificationKinds(BaseModel):
+    items: list[NotificationKindCount]
+
+
 @router.get("/notifications", response_model=NotificationPage)
 async def list_my_notifications(
     unread_only: bool = False,
+    state: Literal["unread", "read"] | None = Query(default=None, description="Only unread, or only read, notifications"),
+    kind: str | None = Query(default=None, min_length=1, max_length=60, pattern=r"^[a-z0-9_.]+$"),
     limit: int = Query(default=30, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=80),
     context: TenantContext = Depends(tenant_context),
 ) -> NotificationPage:
-    """The caller's own notifications in this workspace, newest first. Every member may read theirs."""
+    """The caller's own notifications in this workspace, newest first. Every member may read theirs.
+    ``kind`` and ``state`` narrow the list (the Notifications page's filters); ``unread`` counts all."""
     with _store_for_caller(context) as unit:
         store = unit.store
         try:
-            items = store.list_notifications(context, limit=limit + 1, before=cursor, unread_only=unread_only)
+            items = store.list_notifications(
+                context, limit=limit + 1, before=cursor, unread_only=unread_only or state == "unread",
+                read_only=state == "read", kind=kind,
+            )
         except UnknownCursorError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown cursor; reload the list") from exc
         unread = store.count_unread(context)
@@ -473,6 +489,38 @@ async def mark_notification_read(notification_id: str, context: TenantContext = 
             notification.read_at = utc_now()
             store.save_notification(context, notification)
         return notification
+
+
+@router.get("/notifications/kinds", response_model=NotificationKinds)
+def list_my_notification_kinds(context: TenantContext = Depends(tenant_context)) -> NotificationKinds:
+    """Which kinds of notification the caller has, with how many and how many are unread: the
+    Notifications page's filter chips. Only the caller's own rows are counted (RLS on user)."""
+    with _store_for_caller(context) as unit:
+        rows = unit.store.notification_kinds(context)
+    return NotificationKinds(items=[NotificationKindCount(kind=k, total=total, unread=unread) for k, total, unread in rows])
+
+
+@router.post("/notifications/{notification_id}/unread", response_model=UserNotification)
+def mark_notification_unread(notification_id: str, context: TenantContext = Depends(tenant_context)) -> UserNotification:
+    """Keep a notification for later: it counts as unread again. Only its recipient can."""
+    with _store_for_caller(context) as unit:
+        store = unit.store
+        notification = store.get_notification(context, notification_id)
+        if notification is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+        if notification.read_at is not None:
+            notification.read_at = None
+            store.save_notification(context, notification)
+        return notification
+
+
+@router.delete("/notifications/{notification_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def delete_my_notification(notification_id: str, context: TenantContext = Depends(tenant_context)) -> None:
+    """Remove one of the caller's notifications for good. Only its recipient can (RLS on user);
+    anyone else's id answers 404, the same as one that does not exist."""
+    with _store_for_caller(context) as unit:
+        if not unit.store.delete_notification(context, notification_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
 
 
 @router.post("/notifications/read-all")

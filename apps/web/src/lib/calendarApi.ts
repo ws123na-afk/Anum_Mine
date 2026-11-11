@@ -2,7 +2,7 @@
 // own permission check: `calendar:read` lists, `calendar:write` adds, the creator or an owner changes.
 import { apiRequest, apiRequestVoid } from './api';
 import {
-  eventsQuery, type AttendeeResponse, type CalendarEventView, type EditScope, type EventPage, type InvitationRequest, type NextStep, type SyncConnection, type SyncProvider, type SyncSetup, type SyncSummary,
+  eventsQuery, type AttendeeResponse, type CalendarEventView, type EditScope, type ReplyScope, type EventPage, type InvitationRequest, type NextStep, type SyncConnection, type SyncProvider, type SyncSetup, type SyncSummary,
 } from './calendar';
 
 const base = '/api/v1/calendar';
@@ -18,8 +18,14 @@ export const deleteEvent = (id: string, scope: EditScope = 'all', occurrenceStar
   const query = scope === 'all' ? '' : `?${new URLSearchParams({ scope, occurrence_start: occurrenceStart ?? '' }).toString()}`;
   return apiRequestVoid(`${base}/events/${encodeURIComponent(id)}${query}`, { method: 'DELETE' });
 };
-export const setResponse = (id: string, attendeeId: string, response: AttendeeResponse) =>
-  apiRequest<CalendarEventView>(`${base}/events/${encodeURIComponent(id)}/attendees/${encodeURIComponent(attendeeId)}/response`, json('PUT', { response }));
+/** Records an attendee's reply; on a series `scope: 'this'` with the occurrence's original start records it for that occurrence only. */
+export const setResponse = (id: string, attendeeId: string, response: AttendeeResponse, scope: ReplyScope = 'all', occurrenceStart?: string | null) =>
+  apiRequest<CalendarEventView>(
+    `${base}/events/${encodeURIComponent(id)}/attendees/${encodeURIComponent(attendeeId)}/response`,
+    json('PUT', scope === 'this' && occurrenceStart ? { response, scope, occurrence_start: occurrenceStart } : { response }),
+  );
+/** Sends an event to its connected calendar again after sends failed (the creator or an owner). */
+export const retrySync = (id: string) => apiRequest<CalendarEventView>(`${base}/events/${encodeURIComponent(id)}/sync/retry`, { method: 'POST' });
 export const getNextSteps = () => apiRequest<{ items: NextStep[] }>(`${base}/next-steps`, { method: 'GET' });
 
 // Calendar sync with Google and Microsoft (docs/calendar.md#sync). Connecting, syncing and

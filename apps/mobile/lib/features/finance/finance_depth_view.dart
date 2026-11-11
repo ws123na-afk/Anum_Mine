@@ -10,6 +10,8 @@ import 'finance_controller.dart';
 import 'finance_depth_controller.dart';
 import 'finance_depth_models.dart';
 import 'finance_depth_strings.dart';
+import 'finance_keyword_rules.dart';
+import 'finance_more_menu.dart';
 import 'finance_models.dart';
 import 'finance_personal_controller.dart';
 import 'finance_personal_view.dart' show MoneyLinkOpener;
@@ -114,7 +116,13 @@ class FinanceSettingsSection extends StatelessWidget {
             const SizedBox(height: AnumSpacing.md),
             if (personal != null) ...[
               _SalaryCard(
-                  personal: personal, appUrl: appUrl, openLink: openLink),
+                  personal: personal,
+                  appUrl: appUrl,
+                  openLink: openLink,
+                  onEdit: finance.more == null
+                      ? null
+                      : () => openFinanceMore(
+                          context, finance, FinanceMorePage.salary)),
               const SizedBox(height: AnumSpacing.md),
             ],
             NoticesCard(controller: c),
@@ -219,17 +227,28 @@ class _GeneralCard extends StatelessWidget {
               RecordsField(d.t('set.timezone'), s.timezone),
               Text(d.t('set.zoneHelp'),
                   style: TextStyle(color: context.palette.muted)),
-              if (s.rules.isNotEmpty)
-                Text(d.t('set.rulesKept', {'n': s.rules.length}),
-                    style: TextStyle(color: context.palette.muted)),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: OutlinedButton.icon(
-                  key: const Key('set-general-edit'),
-                  onPressed: () => _edit(context, s),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(d.t('set.edit')),
-                ),
+              Text(d.t('set.rulesKept', {'n': s.rules.length}),
+                  style: TextStyle(color: context.palette.muted)),
+              Wrap(
+                spacing: AnumSpacing.sm,
+                runSpacing: AnumSpacing.sm,
+                children: [
+                  OutlinedButton.icon(
+                    key: const Key('set-general-edit'),
+                    onPressed: () => _edit(context, s),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: Text(d.t('set.edit')),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('set-rules-edit'),
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) =>
+                                KeywordRulesScreen(controller: controller))),
+                    icon: const Icon(Icons.rule_folder_outlined),
+                    label: Text(d.t('set.rulesEdit')),
+                  ),
+                ],
               ),
             ],
     );
@@ -594,10 +613,16 @@ class _ReserveCard extends StatelessWidget {
 
 class _SalaryCard extends StatelessWidget {
   const _SalaryCard(
-      {required this.personal, required this.appUrl, required this.openLink});
+      {required this.personal,
+      required this.appUrl,
+      required this.openLink,
+      this.onEdit});
   final FinancePersonalController personal;
   final String appUrl;
   final MoneyLinkOpener openLink;
+
+  /// Opens the salary profile on the phone; null shows the web link.
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -635,11 +660,22 @@ class _SalaryCard extends StatelessWidget {
       icon: Icons.event_available_outlined,
       children: [
         ...body,
-        FinanceWebLink(
-            appUrl: appUrl,
-            openLink: openLink,
-            fragment: 'finance-advisor-salary',
-            label: d.t('set.salary.web')),
+        if (onEdit != null)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton.icon(
+              key: const Key('set-salary-edit'),
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              label: Text(d.t('set.salary.edit')),
+            ),
+          )
+        else
+          FinanceWebLink(
+              appUrl: appUrl,
+              openLink: openLink,
+              fragment: 'finance-advisor-salary',
+              label: d.t('set.salary.web')),
       ],
     );
   }

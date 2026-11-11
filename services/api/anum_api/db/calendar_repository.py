@@ -13,11 +13,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, delete, func, or_, select, update
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.calendar_api import CalendarEvent, EventStatus
+from anum_api.calendar_api import MAX_PUSH_ATTEMPTS, CalendarEvent, EventStatus
 from anum_api.schemas import TenantContext
 
 from . import calendar_sync_repository as _sync_tables  # noqa: F401 - registers calendar_connections (foreign key)
@@ -60,6 +60,11 @@ class CalendarEventRecord(Base, WorkspaceScopedMixin):
     reminders: Mapped[list[int]] = mapped_column(JSONB, nullable=False, default=list)
     series_id: Mapped[str | None] = mapped_column(String(80), ForeignKey("calendar_events.id", ondelete="CASCADE"))
     recurrence_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Migration 0171_calendar_sync_depth: push failures, email reminders, replies per occurrence.
+    sync_error: Mapped[str | None] = mapped_column(String(500))
+    sync_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    email_reminders: Mapped[list[int]] = mapped_column(JSONB, nullable=False, default=list)
+    occurrence_responses: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
 
     __table_args__ = (_workspace_fk("calendar_events"),)
 
@@ -69,6 +74,7 @@ _FIELDS = (
     "source", "source_ref", "created_by", "updated_by", "created_at", "updated_at",
     "connection_id", "external_id", "external_etag", "synced_at", "sync_state", "invites_hash",
     "all_day", "timezone", "recurrence_until", "reminders", "series_id", "recurrence_start",
+    "sync_error", "sync_attempts",
 )
 
 
@@ -81,6 +87,8 @@ def _event(record: CalendarEventRecord) -> CalendarEvent:
             "attendees": list(record.attendees or []),
             "recurrence": record.recurrence,
             "skipped": list(record.skipped or []),
+            "email_reminders": list(record.email_reminders or []),
+            "occurrence_responses": list(record.occurrence_responses or []),
             **{name: getattr(record, name) for name in _FIELDS},
         }
     )
@@ -94,6 +102,8 @@ def _apply(event: CalendarEvent, record: CalendarEventRecord) -> None:
     record.recurrence = event.recurrence.model_dump(mode="json") if event.recurrence else None
     record.skipped = [s.isoformat() for s in event.skipped]
     record.reminders = list(event.reminders)
+    record.email_reminders = list(event.email_reminders)
+    record.occurrence_responses = [r.model_dump(mode="json") for r in event.occurrence_responses]
 
 
 class SqlAlchemyCalendarStore:
@@ -156,9 +166,16 @@ class SqlAlchemyCalendarStore:
         record = self.session.scalar(select(e).where(*self._scope(), e.connection_id == connection_id, e.external_id == external_id))
         return _event(record) if record is not None else None
 
+    def by_external_prefix(self, connection_id: str, prefix: str) -> list[CalendarEvent]:
+        e = CalendarEventRecord
+        statement = select(e).where(*self._scope(), e.connection_id == connection_id, e.external_id.startswith(prefix, autoescape=True))
+        return [_event(r) for r in self.session.scalars(statement.order_by(e.starts_at, e.id).limit(2000)).all()]
+
     def pending_push(self, connection_id: str, limit: int) -> list[CalendarEvent]:
         e = CalendarEventRecord
-        statement = select(e).where(*self._scope(), e.connection_id == connection_id, e.sync_state == "pending_push")
+        statement = select(e).where(
+            *self._scope(), e.connection_id == connection_id, e.sync_state == "pending_push", e.sync_attempts < MAX_PUSH_ATTEMPTS,
+        )
         return [_event(r) for r in self.session.scalars(statement.order_by(e.starts_at, e.id).limit(limit)).all()]
 
     def count_linked(self, connection_id: str) -> int:
@@ -175,6 +192,6 @@ class SqlAlchemyCalendarStore:
         result = self.session.execute(
             update(e)
             .where(*self._scope(), e.connection_id == connection_id)
-            .values(connection_id=None, external_id=None, external_etag=None, synced_at=None, sync_state=None, invites_hash=None)
+            .values(connection_id=None, external_id=None, external_etag=None, synced_at=None, sync_state=None, invites_hash=None, sync_error=None, sync_attempts=0)
         )
         return int(getattr(result, "rowcount", 0) or 0)

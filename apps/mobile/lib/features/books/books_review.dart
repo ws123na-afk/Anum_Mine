@@ -10,6 +10,7 @@ import '../records_kit/records_widgets.dart';
 import 'books_controller.dart';
 import 'books_data.dart';
 import 'books_screen.dart' show openBill;
+import 'books_extra_strings.dart';
 import 'books_strings.dart';
 
 /// The Accountant review and supporting documents of the business books on
@@ -271,6 +272,8 @@ class _ReviewCard extends StatelessWidget {
                   ),
                 ]),
         ],
+        if (item.kind == 'receipt_match')
+          _ReceiptActions(item: item, controller: controller),
         if (item.kind == 'draft_bill') ...[
           const SizedBox(height: AnumSpacing.xs),
           if (!item.canAct)
@@ -624,5 +627,84 @@ Future<void> openAdjustmentForm(
   if (done && context.mounted) {
     recordsToast(
         context, b.t((saved?.pending ?? false) ? 'adj.pending' : 'adj.posted'));
+  }
+}
+
+/// Attach or Dismiss on a receipt proposed for a bill
+/// (docs/business-books.md#receipts-to-bills): Attach for whoever may add
+/// supporting documents, Dismiss for owners and accountants, each refusal
+/// in the API's words, and the review reloads after either.
+class _ReceiptActions extends StatefulWidget {
+  const _ReceiptActions({required this.item, required this.controller});
+  final ReviewItem item;
+  final BooksController controller;
+
+  @override
+  State<_ReceiptActions> createState() => _ReceiptActionsState();
+}
+
+class _ReceiptActionsState extends State<_ReceiptActions> {
+  bool _busy = false;
+
+  Future<void> _run(bool attach) async {
+    final x = BooksExtraStrings.of(context);
+    final more = widget.controller.more;
+    final bill = widget.item.params['bill_id'] ?? widget.item.refId;
+    final document = widget.item.params['document_id'];
+    if (more == null || bill == null || document == null) return;
+    if (!attach &&
+        !await confirmRecords(context,
+            title: x.t('rcpt.dismissTitle'),
+            message: x.t('rcpt.dismissText'),
+            action: x.t('rcpt.dismiss'))) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      if (attach) {
+        await more.acceptReceipt(bill, document);
+      } else {
+        await more.dismissReceipt(bill, document);
+      }
+      if (!mounted) return;
+      recordsToast(context, x.t(attach ? 'rcpt.attached' : 'rcpt.dismissed'));
+      await widget.controller.review.load();
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final x = BooksExtraStrings.of(context);
+    final b = BooksStrings.of(context);
+    final account = widget.controller.setup?.permissions.account ?? false;
+    final key = widget.item.key;
+    return Padding(
+      padding: const EdgeInsets.only(top: AnumSpacing.xs),
+      child:
+          Wrap(spacing: AnumSpacing.sm, runSpacing: AnumSpacing.xs, children: [
+        FilledButton(
+          key: Key('review-attach-$key'),
+          onPressed: _busy ? null : () => _run(true),
+          child: Text(x.t('rcpt.attach')),
+        ),
+        if (account)
+          OutlinedButton(
+            key: Key('review-dismiss-$key'),
+            onPressed: _busy ? null : () => _run(false),
+            child: Text(x.t('rcpt.dismiss')),
+          ),
+        if (widget.item.refId != null)
+          TextButton(
+            key: Key('review-open-$key'),
+            onPressed: () =>
+                openBill(context, widget.controller, widget.item.refId!),
+            child: Text(b.t('review.openBill')),
+          ),
+      ]),
+    );
   }
 }

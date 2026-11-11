@@ -367,6 +367,7 @@ _ORDER = (
     "meeting_transcript_segments",
     "meetings",
     "meeting_connector_accounts",
+    "calendar_reminder_email_sends",
     "calendar_reminder_sends",
     "calendar_events",
     "calendar_connections",

@@ -214,3 +214,11 @@ export function workspaceIdInput(raw: string): DraftResult<string | null> {
 export function archiveConfirmed(typed: string, name: string): boolean {
   return typed.trim() === name;
 }
+
+/** The record a link opens (`#audit?record=<id>`, docs/governance-and-scale.md#audit-log); null otherwise. */
+export function recordFromHash(hash: string): string | null {
+  const [path, search] = hash.replace(/^#/, '').split('?');
+  if (path !== 'audit' || !search) return null;
+  const value = new URLSearchParams(search).get('record');
+  return value && /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : null;
+}

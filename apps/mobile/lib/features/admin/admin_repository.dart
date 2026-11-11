@@ -1,7 +1,10 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
+import '../governance/governance_models.dart' show RoleTemplate;
 import 'admin_models.dart';
 import 'approval_policy.dart';
+import 'approval_settings.dart';
+import 'budget_usage.dart';
 
 /// Owner screens' data: memberships, invitations, model budgets and the
 /// workspace approval policy.
@@ -9,6 +12,12 @@ abstract interface class AdminRepository {
   Future<List<WorkspaceMember>> members();
   Future<WorkspaceMember> changeRole(String userId, String role);
   Future<WorkspaceMember> setActive(String userId, {required bool active});
+
+  /// The organization's role templates (any member reads them).
+  Future<List<RoleTemplate>> roleTemplates();
+
+  /// Gives a member or viewer [templateId], or none (null). Owners only.
+  Future<WorkspaceMember> setRoleTemplate(String userId, String? templateId);
   Future<List<WorkspaceInvitation>> invitations();
   Future<CreatedInvitation> createInvitation(InvitationDraft draft);
 
@@ -27,6 +36,22 @@ abstract interface class AdminRepository {
       {String? workspaceId});
   Future<BudgetOverview> budgets();
   Future<BudgetOverview> setBudget(String scope, ModelBudgetLimits limits);
+
+  /// One page of the spend breakdown (docs/model-gateway.md#spend-breakdown).
+  Future<UsageBreakdown> budgetUsage(UsageQuery query, {int offset = 0});
+
+  /// The whole range as CSV through the system save dialog; false when the
+  /// person closed the dialog.
+  Future<bool> exportBudgetUsage(UsageQuery query, String dialogTitle);
+
+  /// The organization's approval rules (any member reads them).
+  Future<List<ApprovalRuleView>> approvalRules();
+
+  /// The approval-ageing reminder; [setApprovalReminders] is owners only and
+  /// null turns it off.
+  Future<ReminderSetting> approvalReminders();
+  Future<ReminderSetting> setApprovalReminders(int? hours);
+
   Future<ApprovalPolicy> approvalPolicy();
   Future<ApprovalPolicy> setApprovalPolicy(ApprovalPolicy policy);
 
@@ -61,6 +86,22 @@ class ApiAdminRepository implements AdminRepository {
           {required bool active}) async =>
       WorkspaceMember.fromJson(await api.request('POST',
           '/api/v1/workspace-members/${_id(userId)}/${active ? 'reactivate' : 'deactivate'}'));
+
+  @override
+  Future<List<RoleTemplate>> roleTemplates() async =>
+      JsonReader(await api.request('GET', '/api/v1/role-templates')).optObjects(
+          'data',
+          (j) => RoleTemplate(
+              id: j.string('id'),
+              name: j.string('name'),
+              permissions: j.optStrings('permissions') ?? const []));
+
+  @override
+  Future<WorkspaceMember> setRoleTemplate(
+          String userId, String? templateId) async =>
+      WorkspaceMember.fromJson(await api.request(
+          'PUT', '/api/v1/workspace-members/${_id(userId)}/role-template',
+          body: {'role_template_id': templateId}));
 
   @override
   Future<List<WorkspaceInvitation>> invitations() =>
@@ -154,6 +195,33 @@ class ApiAdminRepository implements AdminRepository {
       BudgetOverview.fromJson(await api.request(
           'PUT', '/api/v1/model-budgets/$scope',
           body: limits.toJson()));
+
+  @override
+  Future<UsageBreakdown> budgetUsage(UsageQuery query,
+          {int offset = 0}) async =>
+      UsageBreakdown.fromJson(
+          JsonReader(await api.request('GET', query.path(offset: offset))));
+
+  @override
+  Future<bool> exportBudgetUsage(UsageQuery query, String dialogTitle) =>
+      api.download('GET', query.path(csv: true),
+          fileName: query.csvFileName, dialogTitle: dialogTitle);
+
+  @override
+  Future<List<ApprovalRuleView>> approvalRules() async => JsonReader(
+          await api.request('GET', '/api/v1/organization/approval-rules'))
+      .optObjects('data', ApprovalRuleView.fromJson);
+
+  @override
+  Future<ReminderSetting> approvalReminders() async =>
+      ReminderSetting.fromJson(JsonReader(
+          await api.request('GET', '/api/v1/approval-reminders/settings')));
+
+  @override
+  Future<ReminderSetting> setApprovalReminders(int? hours) async =>
+      ReminderSetting.fromJson(JsonReader(await api.request(
+          'PUT', '/api/v1/approval-reminders/settings',
+          body: {'reminder_hours': hours})));
 
   @override
   Future<ApprovalPolicy> approvalPolicy() async => ApprovalPolicy.fromJson(

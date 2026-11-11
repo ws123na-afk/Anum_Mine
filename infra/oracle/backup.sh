@@ -11,6 +11,8 @@
 #                                    owner last copied it (it is in no backup)
 #   backup.sh list                   what is in the off-site bucket
 #   backup.sh fetch <name prefix>    download matching off-site files into <backup dir>/fetched
+#   backup.sh reconcile [--delete]   list off-site objects no backup manifest references (dry run);
+#                                    --delete removes those older than 35 days (backup_reconcile.py)
 #   backup.sh drill                  restore drill: backup -> restore into a scratch
 #                                    database -> verify (rows per tenant, RLS) -> drop
 #   backup.sh restore <dump>         restore an ANUM dump (path under the backup dir) into a
@@ -144,6 +146,12 @@ case "${1:-}" in
     dc run --rm backup-upload copy sealed: /backups/fetched --include "/anum/$prefix*" --include "/keycloak/$prefix*"
     echo "Downloaded into $BACKUP_DIR/fetched"
     ;;
+  reconcile)
+    # One-off: off-site objects no manifest references. Dry run unless --delete; never touches
+    # anything younger than the retention window (docs/deploy-oracle.md#reconciling-the-off-site-bucket).
+    command -v python3 >/dev/null || die "python3 is needed for the reconcile"
+    python3 "$ORACLE_DIR/backup_reconcile.py" --compose-dir "$ORACLE_DIR" "${@:2}"
+    ;;
   drill)
     dc run --rm restore-tools drill --work-dir /backups/drill
     ;;
@@ -199,7 +207,7 @@ case "${1:-}" in
     echo "Done. The previous Keycloak database is kept as $previous (backup.sh drop-database $previous)."
     ;;
   *)
-    sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

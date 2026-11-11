@@ -42,6 +42,7 @@ flutter test integration_test -d flutter-tester
 | Assistant chat: ask, streamed answer | `journeys/chat.dart` |
 | Email: list, open, AI draft, ask approval to send; drafting that itself waits for approval | `journeys/email.dart` |
 | Business: lead list, lead detail, approve the drafted proposal in Approvals | `journeys/business.dart` |
+| Business: the account list sorted by Last updated, descending, on the server, and the next page in that order | `journeys/business.dart` |
 | Phone calls: history, call detail | `journeys/calls.dart` |
 | Settings: Arabic turns the app right to left, stays after a restart, reachable when the profile cannot load | `journeys/settings_language.dart` |
 | Files: upload, then the file is in the list | `journeys/files.dart` |

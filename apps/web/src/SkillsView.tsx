@@ -3,7 +3,7 @@ import { Bot, CircleDot, Copy, History, Info, KeyRound, PackageCheck, PauseCircl
 import * as api from './lib/api';
 import { agentsApi, usageById, type AgentCatalogSkill, type SkillUsage, type SkillUsagePage } from './lib/agents';
 import { describeError, isPermissionDenied } from './lib/errors';
-import { approvalTone, emptyPublishDraft, filterBuiltins, filterSkills, groupSkills, historyLabel, pageOf, usageNames, publishBody, rollbackTargets, type PublishDraft, type SkillDetail, type SkillFilter, type SkillGroup, type SkillVersionLike } from './lib/catalog';
+import { SKILL_MAX_PAGES, SKILL_PAGE, readAllSkillPages, approvalTone, emptyPublishDraft, filterBuiltins, filterSkills, groupSkills, historyLabel, pageOf, usageNames, publishBody, rollbackTargets, type PublishDraft, type SkillDetail, type SkillFilter, type SkillGroup, type SkillVersionLike } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
 import { getGovernanceSummary } from './lib/governanceApi';
 import { formatDateTime, t } from './lib/i18n';
@@ -12,7 +12,7 @@ import { useIsOwner } from './useIsOwner';
 import { figure } from './lib/pageSummary';
 import { skillCounts } from './lib/catalog';
 import { viewLabel } from './lib/shell';
-import { PageHeader, PageSummary } from './PageParts';
+import { Notice, PageHeader, PageSummary } from './PageParts';
 import { PublisherKeysPanel } from './PublisherKeysPanel';
 import { copyText } from './lib/clipboard';
 import { flagged, installable, signatureBody, verificationLabel, verificationTone, type SkillVerification } from './lib/skillSigning';
@@ -104,9 +104,14 @@ export function useSkills() {
   const [installs, setInstalls] = useState<api.SkillInstallation[]>([]);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null), [note, setNote] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
-    try { const [v, i] = await Promise.all([api.getSkillVersions(), api.getSkillInstallations()]); setVersions(v); setInstalls(i); setError(null); }
+    try {
+      // Every page of both lists (500 a request), so search and paging below cover the whole catalogue.
+      const [v, i] = await Promise.all([readAllSkillPages((page) => api.getSkillVersions(page)), readAllSkillPages((page) => api.getSkillInstallations(page))]);
+      setVersions(v.items); setInstalls(i.items); setTruncated(v.truncated || i.truncated); setError(null);
+    }
     catch (e) { setError(t('skills.loadFailed', { error: describeError(e) })); } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -115,7 +120,7 @@ export function useSkills() {
     try { setNote(await fn()); await load(); return true; } catch (e) { setError(failure(e, who())); return false; } finally { setBusy(false); }
   }, [load]);
   const toggle = (skillId: string, enabled: boolean, acknowledgeFlagged = false) => act(async () => { await api.setSkillEnabled(skillId, enabled, acknowledgeFlagged); return enabled ? t('skills.enabled') : t('skills.disabled'); });
-  return { versions, installs, loading, busy, error, note, load, act, toggle };
+  return { versions, installs, truncated, loading, busy, error, note, load, act, toggle };
 }
 
 export function Feedback({ error, note, loading, label }: { error: string | null; note: string | null; loading: boolean; label: string }) {
@@ -309,6 +314,7 @@ export function SkillsView({ onOpenAgents }: { onOpenAgents?: () => void } = {})
     {tab === 'skills' && <div role="tabpanel" id="skills-panel-skills" aria-labelledby="skills-tab-skills" className="skillPanel">
     <PageSummary label={t('pages2.skills.summary')} figures={figures} onRetry={() => { void s.load(); void agentsOf.load(); }} />
     <Feedback error={s.error} note={s.note} loading={s.loading && !groups.length} label={t('skills.loadingLabel')} />
+    {s.truncated && <Notice>{t('skills.truncated', { count: SKILL_PAGE * SKILL_MAX_PAGES })}</Notice>}
     {agentsOf.error && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{agentsOf.error}</p>}
     {owner === false && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('skills.ownersOnlyAsk')}</p>}
     {(groups.length > 0 || agentsOf.builtins.length > 0) && <div className="surface catalogToolbar" role="search">

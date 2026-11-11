@@ -14,6 +14,10 @@ import 'finance_intel_view.dart';
 import 'finance_lending_view.dart';
 import '../admin/admin_models.dart' show configuredWebAppUrl;
 import 'finance_models.dart';
+import 'finance_more_menu.dart';
+import 'finance_more_strings.dart';
+import '../records_kit/records_export.dart';
+import '../records_kit/record_module_routes.dart';
 import 'finance_personal_strings.dart';
 import 'finance_personal_view.dart';
 import 'finance_plan_models.dart';
@@ -30,8 +34,17 @@ class FinanceScreen extends StatefulWidget {
       {required this.controller,
       this.webAppUrl = configuredWebAppUrl,
       this.openLink = openMoneyLink,
+      this.saver = const SystemExportSaver(),
+      this.openVehicles = openVehiclesRoute,
       super.key});
+
+  /// Opens the Vehicles module (`/vehicles`), where a vehicle cost with no
+  /// record yet is recorded; null hides the button. Replaced in tests.
+  final void Function(BuildContext context)? openVehicles;
   final FinanceController controller;
+
+  /// Where an exported CSV goes (the system save dialog); replaced in tests.
+  final ExportSaver saver;
 
   /// The web app's address (`ANUM_WEB_APP_URL`), for the pages that stay on
   /// the web (Payslips, Send home); empty when the build does not know it.
@@ -81,7 +94,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
         final c = widget.controller;
         return Scaffold(
           // The AppBar's back button returns to where Finance was opened from.
-          appBar: AppBar(title: Text(s.t('title'))),
+          appBar: AppBar(title: Text(s.t('title')), actions: [
+            if (c.more != null)
+              FinanceMoreMenu(controller: c, saver: widget.saver),
+          ]),
           body: AnumPage(
             onRefresh: c.load,
             children: [
@@ -92,7 +108,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   style: TextStyle(color: context.palette.muted)),
               Text(s.t('importOnWeb'),
                   style: TextStyle(color: context.palette.muted)),
-              if (c.personal != null)
+              if (c.personal != null && c.more == null)
                 FinanceWebOnlyLine(
                     appUrl: widget.webAppUrl, openLink: widget.openLink),
             ],
@@ -116,6 +132,17 @@ class _FinanceScreenState extends State<FinanceScreen> {
             MoneyPlannerView(controller: c.personal!, openLink: widget.openLink)
         ],
       FinanceSection.debts => [
+          if (c.more != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: OutlinedButton.icon(
+                key: const Key('finance-open-loans'),
+                onPressed: () =>
+                    openFinanceMore(context, c, FinanceMorePage.loans),
+                icon: const Icon(Icons.account_balance_outlined),
+                label: Text(FinanceMoreStrings.of(context).t('menu.loans')),
+              ),
+            ),
           if (c.personal != null) DebtPayoffCard(controller: c.personal!),
           ..._items(context, c, s, 'debts'),
           if (c.personal != null) ...[
@@ -135,6 +162,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
               appUrl: widget.webAppUrl,
               openLink: widget.openLink,
               onOpenTransactions: () => c.select(FinanceSection.transactions),
+              onOpenVehicles: widget.openVehicles == null
+                  ? null
+                  : () => widget.openVehicles!(context),
               onReview: c.depth == null
                   ? null
                   : (id) => _openTransaction(context, c, id))
@@ -1441,3 +1471,7 @@ String _amountError(FinanceStrings s, String text, {required bool signed}) =>
     amountHint(AnumLocalizations(Locale(s.arabic ? 'ar' : 'en')),
         readAmount(text, signed: signed)) ??
     s.t('badAmount');
+
+/// Opens the Vehicles module by its named route (docs/vehicles.md#mobile).
+void openVehiclesRoute(BuildContext context) =>
+    Navigator.of(context).pushNamed(RecordModuleRoutes.vehicles);

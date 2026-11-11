@@ -1,6 +1,73 @@
 /// Contacts directory strings (docs/contacts.md#mobile), English and Arabic.
 /// Looked up by `AnumLocalizations.t` after the main catalogs.
 const contactsEn = <String, String>{
+  'contacts.add': 'Add person',
+  'contacts.duplicates': 'Possible duplicates ({count})',
+  'contacts.export': 'Export CSV',
+  'contacts.exporting': 'Exporting...',
+  'contacts.exported': 'The CSV was saved.',
+  'contacts.exportCancelled': 'The CSV was not saved.',
+  'contacts.exportFailed': 'The CSV could not be exported: {message}',
+  'contacts.exportOwners': 'Only workspace owners export the directory.',
+  'contacts.person.edit': 'Edit',
+  'contacts.person.merge': 'Merge with...',
+  'contacts.person.delete': 'Delete person',
+  'contacts.person.deleteTitle': 'Delete {name}?',
+  'contacts.person.deleteBody':
+      'Their numbers, addresses, links and do-not-contact marks are removed from the directory. The records in Phone calls, Business and WhatsApp stay and come back at the next rebuild.',
+  'contacts.person.deleted': '{name} was deleted.',
+  'contacts.person.deleteFailed': '{name} was not deleted: {message}',
+  'contacts.person.proposals': 'Possible duplicates of this person: {count}',
+  'contacts.form.addTitle': 'Add a person',
+  'contacts.form.editTitle': 'Edit {name}',
+  'contacts.form.name': 'Name',
+  'contacts.form.organisation': 'Organisation (optional)',
+  'contacts.form.notes': 'Notes (optional)',
+  'contacts.form.phones': 'Phone numbers',
+  'contacts.form.phonesHint':
+      'One per line, with the country code (+971...). UAE 05x numbers are read as +971.',
+  'contacts.form.emails': 'E-mail addresses',
+  'contacts.form.emailsHint': 'One per line. Addresses are kept in lower case.',
+  'contacts.form.save': 'Save',
+  'contacts.form.saving': 'Saving...',
+  'contacts.form.saved': 'Saved.',
+  'contacts.form.failed': 'Not saved: {message}',
+  'contacts.form.proposalNote':
+      'Someone else already has one of these numbers or addresses: a possible duplicate was opened for you to decide.',
+  'contacts.err.name': 'Give the person a name (up to 200 characters).',
+  'contacts.err.tooMany': 'At most 10 phone numbers and 10 e-mail addresses.',
+  'contacts.err.phone':
+      '"{value}" is not a phone number. Use the country code, for example +971501234567.',
+  'contacts.err.email': '"{value}" is not an e-mail address.',
+  'contacts.merge.title': 'Merge {name} with another person',
+  'contacts.merge.body':
+      'Pick who to merge in. Their numbers, addresses, linked records and do-not-contact marks move to {name}; the other record is deleted and the merge is written to the audit log.',
+  'contacts.merge.search': 'Find a person',
+  'contacts.merge.pick': 'Merge {other} into {name}',
+  'contacts.merge.none': 'Nobody matches.',
+  'contacts.merge.confirmTitle': 'Merge {other} into {name}?',
+  'contacts.merge.confirm': 'Merge',
+  'contacts.merge.done': 'Merged {other} into {name}.',
+  'contacts.merge.failed': 'Not merged: {message}',
+  'contacts.dup.title': 'Possible duplicates',
+  'contacts.dup.intro':
+      'Two people share a number or an address under different names. Decide each one: merge them into one record, or say they are different people. Nothing merges on its own.',
+  'contacts.dup.loading': 'Reading possible duplicates...',
+  'contacts.dup.emptyTitle': 'No possible duplicates',
+  'contacts.dup.emptyText':
+      'When a rebuild or a new person shares a number or an address with someone of another name, it shows here.',
+  'contacts.dup.count': 'Possible duplicates: {count}',
+  'contacts.dup.same_phone': 'Same phone number',
+  'contacts.dup.same_email': 'Same e-mail address',
+  'contacts.dup.shared': '{reason}: {value}',
+  'contacts.dup.keep': 'Keep {name}',
+  'contacts.dup.keepHint': 'The other person is merged into this one.',
+  'contacts.dup.dismiss': 'Different people',
+  'contacts.dup.dismissed': 'Kept as different people.',
+  'contacts.dup.gone': 'One of them was deleted meanwhile.',
+  'contacts.dup.failed': 'Not decided: {message}',
+  'contacts.dup.readOnly':
+      'Members and owners decide possible duplicates; you can read them.',
   'contacts.menu': 'Contacts',
   'contacts.title': 'Contacts',
   'contacts.intro':
@@ -48,8 +115,6 @@ const contactsEn = <String, String>{
   'contacts.person.ownersOnly': 'Only workspace owners clear a mark.',
   'contacts.person.dncLine':
       'Do not contact ({channel}): {reason}. Set by {who}.',
-  'contacts.person.webOnly':
-      'Possible duplicates, merging, editing and the CSV export are on the web.',
   'contacts.person.notes': 'Notes',
   'contacts.dnc.title': 'Mark do not contact',
   'contacts.dnc.body':
@@ -84,6 +149,73 @@ const contactsEn = <String, String>{
 };
 
 const contactsAr = <String, String>{
+  'contacts.add': 'إضافة شخص',
+  'contacts.duplicates': 'التكرارات المحتملة ({count})',
+  'contacts.export': 'تصدير CSV',
+  'contacts.exporting': 'جارٍ التصدير...',
+  'contacts.exported': 'حُفظ ملف CSV.',
+  'contacts.exportCancelled': 'لم يُحفظ ملف CSV.',
+  'contacts.exportFailed': 'تعذر تصدير ملف CSV: {message}',
+  'contacts.exportOwners': 'لا يصدّر الدليل إلا مالكو مساحة العمل.',
+  'contacts.person.edit': 'تعديل',
+  'contacts.person.merge': 'دمج مع...',
+  'contacts.person.delete': 'حذف الشخص',
+  'contacts.person.deleteTitle': 'حذف {name}؟',
+  'contacts.person.deleteBody':
+      'تُزال أرقامه وعناوينه وروابطه ووسوم عدم التواصل من الدليل. تبقى السجلات في المكالمات الهاتفية والأعمال وواتساب وتعود عند إعادة البناء التالية.',
+  'contacts.person.deleted': 'حُذف {name}.',
+  'contacts.person.deleteFailed': 'لم يُحذف {name}: {message}',
+  'contacts.person.proposals': 'تكرارات محتملة لهذا الشخص: {count}',
+  'contacts.form.addTitle': 'إضافة شخص',
+  'contacts.form.editTitle': 'تعديل {name}',
+  'contacts.form.name': 'الاسم',
+  'contacts.form.organisation': 'المنظمة (اختياري)',
+  'contacts.form.notes': 'ملاحظات (اختياري)',
+  'contacts.form.phones': 'أرقام الهاتف',
+  'contacts.form.phonesHint':
+      'رقم في كل سطر مع رمز الدولة (+971...). تُقرأ أرقام الإمارات 05x على أنها +971.',
+  'contacts.form.emails': 'عناوين البريد الإلكتروني',
+  'contacts.form.emailsHint': 'عنوان في كل سطر. تُحفظ العناوين بأحرف صغيرة.',
+  'contacts.form.save': 'حفظ',
+  'contacts.form.saving': 'جارٍ الحفظ...',
+  'contacts.form.saved': 'تم الحفظ.',
+  'contacts.form.failed': 'لم يُحفظ: {message}',
+  'contacts.form.proposalNote':
+      'لشخص آخر أحد هذه الأرقام أو العناوين بالفعل: فُتح تكرار محتمل لتقرر فيه.',
+  'contacts.err.name': 'أعطِ الشخص اسمًا (حتى 200 حرف).',
+  'contacts.err.tooMany': 'بحد أقصى 10 أرقام هاتف و10 عناوين بريد.',
+  'contacts.err.phone':
+      '"{value}" ليس رقم هاتف. استخدم رمز الدولة، مثل +971501234567.',
+  'contacts.err.email': '"{value}" ليس عنوان بريد إلكتروني.',
+  'contacts.merge.title': 'دمج {name} مع شخص آخر',
+  'contacts.merge.body':
+      'اختر من تدمجه. تنتقل أرقامه وعناوينه وسجلاته المرتبطة ووسوم عدم التواصل إلى {name}؛ ويُحذف السجل الآخر ويُكتب الدمج في سجل التدقيق.',
+  'contacts.merge.search': 'ابحث عن شخص',
+  'contacts.merge.pick': 'دمج {other} في {name}',
+  'contacts.merge.none': 'لا أحد يطابق.',
+  'contacts.merge.confirmTitle': 'دمج {other} في {name}؟',
+  'contacts.merge.confirm': 'دمج',
+  'contacts.merge.done': 'تم دمج {other} في {name}.',
+  'contacts.merge.failed': 'لم يتم الدمج: {message}',
+  'contacts.dup.title': 'التكرارات المحتملة',
+  'contacts.dup.intro':
+      'شخصان يتشاركان رقمًا أو عنوانًا باسمين مختلفين. قرّر في كل حالة: ادمجهما في سجل واحد، أو قل إنهما شخصان مختلفان. لا يُدمج شيء من تلقاء نفسه.',
+  'contacts.dup.loading': 'جارٍ قراءة التكرارات المحتملة...',
+  'contacts.dup.emptyTitle': 'لا تكرارات محتملة',
+  'contacts.dup.emptyText':
+      'حين تتشارك إعادة بناء أو شخص جديد رقمًا أو عنوانًا مع شخص باسم آخر، يظهر هنا.',
+  'contacts.dup.count': 'التكرارات المحتملة: {count}',
+  'contacts.dup.same_phone': 'رقم الهاتف نفسه',
+  'contacts.dup.same_email': 'عنوان البريد نفسه',
+  'contacts.dup.shared': '{reason}: {value}',
+  'contacts.dup.keep': 'إبقاء {name}',
+  'contacts.dup.keepHint': 'يُدمج الشخص الآخر في هذا.',
+  'contacts.dup.dismiss': 'شخصان مختلفان',
+  'contacts.dup.dismissed': 'أُبقيا شخصين مختلفين.',
+  'contacts.dup.gone': 'حُذف أحدهما في الأثناء.',
+  'contacts.dup.failed': 'لم يُحسم: {message}',
+  'contacts.dup.readOnly':
+      'يقرر الأعضاء والمالكون في التكرارات المحتملة؛ ويمكنك قراءتها.',
   'contacts.menu': 'جهات الاتصال',
   'contacts.title': 'جهات الاتصال',
   'contacts.intro':
@@ -130,8 +262,6 @@ const contactsAr = <String, String>{
   'contacts.person.clear': 'إزالة الوسم',
   'contacts.person.ownersOnly': 'مالكو مساحة العمل وحدهم يزيلون الوسم.',
   'contacts.person.dncLine': 'عدم التواصل ({channel}): {reason}. وسمه {who}.',
-  'contacts.person.webOnly':
-      'التكرارات المحتملة والدمج والتعديل وتصدير CSV على الويب.',
   'contacts.person.notes': 'ملاحظات',
   'contacts.dnc.title': 'وسم بعدم التواصل',
   'contacts.dnc.body':

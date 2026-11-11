@@ -1,7 +1,9 @@
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
 import '../records_kit/records_kit.dart';
+import '../records_kit/records_export.dart';
 import 'books_data.dart';
+import 'books_extra_data.dart';
 
 /// The rest of the business books on the phone, over the same API as the
 /// web (docs/business-books.md, docs/business-tax.md): every journal
@@ -279,6 +281,38 @@ abstract interface class BooksMoreRepository {
   Future<void> saveTax(Map<String, Object?> body);
   Future<RecordsChunk<ReceiptDismissal>> dismissedReceipts({String? token});
   Future<void> restoreReceipt(String dismissalId);
+
+  /// Attaches or dismisses a receipt proposed for a bill
+  /// (docs/business-books.md#receipts-to-bills).
+  Future<void> acceptReceipt(String billId, String documentId);
+  Future<void> dismissReceipt(String billId, String documentId);
+
+  /// The fixed asset register for the books' current period, one page.
+  Future<AssetRegister> assets(
+      {String status = 'all', String query = '', int offset = 0});
+  Future<String> assetsCsv();
+  Future<BookAsset> asset(String id);
+  Future<void> updateAsset(String id, Map<String, Object?> body);
+  Future<void> disposeAsset(String id, Map<String, Object?> body);
+  Future<void> askImpairment(String assetId, Map<String, Object?> body);
+  Future<void> decideImpairment(
+      String assetId, String impairmentId, bool approve, int version);
+
+  /// The business's loans, one page; a loan with its schedule.
+  Future<RecordsChunk<BookLoan>> loans(
+      {String status = 'active', String? token});
+  Future<BookLoan> loan(String id);
+  Future<void> createLoan(Map<String, Object?> body,
+      {required String idempotencyKey});
+  Future<void> recordRepayment(String loanId, Map<String, Object?> body,
+      {required String idempotencyKey});
+  Future<void> voidRepayment(String loanId, String repaymentId, String reason);
+  Future<void> voidLoan(String loanId, String reason);
+
+  /// The chart a manual entry posts to, and the entry itself.
+  Future<List<LedgerAccount>> ledgerAccounts();
+  Future<void> createManualEntry(Map<String, Object?> body,
+      {required String idempotencyKey});
 }
 
 class ApiBooksMoreRepository implements BooksMoreRepository {
@@ -341,4 +375,106 @@ class ApiBooksMoreRepository implements BooksMoreRepository {
   @override
   Future<void> restoreReceipt(String dismissalId) => api.request('DELETE',
       '$_base/evidence/receipt-matches/dismissed/${_id(dismissalId)}');
+
+  @override
+  Future<void> acceptReceipt(String billId, String documentId) =>
+      api.request('POST', '$_base/evidence/receipt-matches/accept',
+          body: {'bill_id': billId, 'document_id': documentId});
+
+  @override
+  Future<void> dismissReceipt(String billId, String documentId) =>
+      api.request('POST', '$_base/evidence/receipt-matches/dismiss',
+          body: {'bill_id': billId, 'document_id': documentId});
+
+  @override
+  Future<AssetRegister> assets(
+          {String status = 'all', String query = '', int offset = 0}) async =>
+      AssetRegister.fromJson(JsonReader(await api.request(
+          'GET',
+          '$_base/assets${recordsQuery({
+                'status': status,
+                'q': query,
+                'offset': offset,
+                'limit': pageSize,
+              })}')));
+
+  @override
+  Future<String> assetsCsv() => fetchCsv(api, '$_base/assets.csv');
+
+  @override
+  Future<BookAsset> asset(String id) async => BookAsset.fromJson(
+      JsonReader(await api.request('GET', '$_base/assets/${_id(id)}')));
+
+  @override
+  Future<void> updateAsset(String id, Map<String, Object?> body) =>
+      api.request('PATCH', '$_base/assets/${_id(id)}', body: body);
+
+  @override
+  Future<void> disposeAsset(String id, Map<String, Object?> body) =>
+      api.request('POST', '$_base/assets/${_id(id)}/dispose', body: body);
+
+  @override
+  Future<void> askImpairment(String assetId, Map<String, Object?> body) => api
+      .request('POST', '$_base/assets/${_id(assetId)}/impairments', body: body);
+
+  @override
+  Future<void> decideImpairment(
+          String assetId, String impairmentId, bool approve, int version) =>
+      api.request(
+          'POST',
+          '$_base/assets/${_id(assetId)}/impairments/${_id(impairmentId)}/'
+              '${approve ? 'approve' : 'reject'}',
+          body: {'version': version});
+
+  @override
+  Future<RecordsChunk<BookLoan>> loans(
+      {String status = 'active', String? token}) async {
+    final body = JsonReader(await api.request(
+        'GET',
+        '$_base/loans${recordsQuery({
+              'status': status,
+              'offset': token ?? 0,
+              'limit': pageSize,
+            })}'));
+    return RecordsChunk.offsetPage(body, BookLoan.fromJson);
+  }
+
+  @override
+  Future<BookLoan> loan(String id) async => BookLoan.fromJson(
+      JsonReader(await api.request('GET', '$_base/loans/${_id(id)}')));
+
+  @override
+  Future<void> createLoan(Map<String, Object?> body,
+          {required String idempotencyKey}) =>
+      api.request('POST', '$_base/loans',
+          body: body, headers: {'Idempotency-Key': idempotencyKey});
+
+  @override
+  Future<void> recordRepayment(String loanId, Map<String, Object?> body,
+          {required String idempotencyKey}) =>
+      api.request('POST', '$_base/loans/${_id(loanId)}/repayments',
+          body: body, headers: {'Idempotency-Key': idempotencyKey});
+
+  @override
+  Future<void> voidRepayment(
+          String loanId, String repaymentId, String reason) =>
+      api.request('POST',
+          '$_base/loans/${_id(loanId)}/repayments/${_id(repaymentId)}/void',
+          body: {'reason': reason});
+
+  @override
+  Future<void> voidLoan(String loanId, String reason) =>
+      api.request('POST', '$_base/loans/${_id(loanId)}/void',
+          body: {'reason': reason});
+
+  @override
+  Future<List<LedgerAccount>> ledgerAccounts() async =>
+      JsonReader(await api.request('GET', '$_base/ledger/accounts'))
+          .optObjects('items', LedgerAccount.fromJson);
+
+  @override
+  Future<void> createManualEntry(Map<String, Object?> body,
+          {required String idempotencyKey}) =>
+      api.request('POST', '$_base/ledger/journal',
+          body: body, headers: {'Idempotency-Key': idempotencyKey});
 }

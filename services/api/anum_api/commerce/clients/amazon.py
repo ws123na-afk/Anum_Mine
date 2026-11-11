@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
 
 from ..config import commerce_config
 from ..http import ChannelAuthError, ChannelError, request_json
-from ..models import AMAZON_MARKETPLACES, OrderStatus
+from ..models import AMAZON_MARKETPLACES, OrderStatus, cents
 from .base import (
     PageResult,
     RemoteBuyer,
@@ -39,6 +40,7 @@ from .base import (
     number,
     parse_time,
     text,
+    wire_amount,
 )
 
 # operation -> (requests per second, burst)
@@ -278,7 +280,7 @@ class AmazonClient:
                     purchased_at=parse_time(row.get("PurchaseDate")) or since,
                     updated_at=parse_time(row.get("LastUpdateDate")),
                     ship_by=parse_time(row.get("LatestShipDate")),
-                    total_amount=number(total.get("Amount")) or 0.0,
+                    total_amount=number(total.get("Amount")) or Decimal(0),
                     currency=total.get("CurrencyCode") or AMAZON_MARKETPLACES.get(marketplace, {}).get("currency"),
                     item_count=(integer(row.get("NumberOfItemsShipped")) or 0) + (integer(row.get("NumberOfItemsUnshipped")) or 0),
                     fulfillment=fulfillment,
@@ -311,7 +313,7 @@ class AmazonClient:
                         title=text(item.get("Title")),
                         quantity=quantity,
                         total=total,
-                        unit_price=round(total / quantity, 2) if total is not None and quantity else None,
+                        unit_price=cents(total / quantity) if total is not None and quantity else None,
                     )
                 )
             token = payload.get("NextToken")
@@ -389,11 +391,11 @@ class AmazonClient:
             marketplace = next((m for m, info in AMAZON_MARKETPLACES.items() if info["name"] == refund.get("MarketplaceName")), None)
             for item in refund.get("ShipmentItemAdjustmentList") or []:
                 sku = str(item.get("SellerSKU") or "")
-                charges = [number(c.get("ChargeAmount")) or 0.0 for c in item.get("ItemChargeAdjustmentList") or []]
+                charges = [number(c.get("ChargeAmount")) or Decimal(0) for c in item.get("ItemChargeAdjustmentList") or []]
                 currency = next(
                     ((c.get("ChargeAmount") or {}).get("CurrencyCode") for c in item.get("ItemChargeAdjustmentList") or []), None
                 )
-                refunded = round(-sum(charges), 2)
+                refunded = -sum(charges, Decimal(0))
                 items.append(
                     RemoteReturn(
                         marketplace_id=marketplace,
@@ -413,7 +415,7 @@ class AmazonClient:
                         order_external_id=order_id or None,
                         kind="refund",
                         description="Refund",
-                        amount=round(sum(charges), 2),
+                        amount=sum(charges, Decimal(0)),
                         currency=currency,
                         posted_at=posted,
                     )
@@ -492,7 +494,7 @@ class AmazonClient:
             raise ChannelError(f"Amazon did not accept the change: {reason}", code="invalid")
         return str(body.get("submissionId") or "")
 
-    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: float, currency: str) -> str:
+    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: Decimal, currency: str) -> str:
         submission = await self._patch(
             marketplace_id,
             sku,
@@ -504,7 +506,7 @@ class AmazonClient:
                     {
                         "marketplace_id": marketplace_id,
                         "currency": currency,
-                        "our_price": [{"schedule": [{"value_with_tax": price}]}],
+                        "our_price": [{"schedule": [{"value_with_tax": wire_amount(price)}]}],
                     }
                 ],
             },

@@ -1,6 +1,9 @@
 import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../data/api_downloads.dart';
+import '../files/file_strings.dart';
+
 import '../../data/api_client.dart';
 import '../files/file_versions_repository.dart';
 import 'files_models.dart';
@@ -232,6 +235,188 @@ class FilesController extends ChangeNotifier {
       return null;
     } on ApiException catch (e) {
       return 'Nothing was deleted: ${e.message}';
+    }
+  }
+
+  /// The folders [folder] cannot move into: itself and everything below it.
+  Set<String> folderBranch(FileFolder folder) {
+    final branch = {folder.id};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final f in folders) {
+        if (f.parentId != null &&
+            branch.contains(f.parentId) &&
+            branch.add(f.id)) {
+          grew = true;
+        }
+      }
+    }
+    return branch;
+  }
+
+  /// Files directly in [folder] and below it, and its subfolders, counted
+  /// from the folder tree (what a delete would touch).
+  ({int files, int folders}) folderContents(FileFolder folder) {
+    final branch = folderBranch(folder);
+    var files = 0;
+    for (final f in folders) {
+      if (branch.contains(f.id)) files += f.fileCount;
+    }
+    return (files: files, folders: branch.length - 1);
+  }
+
+  String _refusal(ApiException e, FileStrings s, String key) =>
+      e.isPermissionDenied
+          ? s.t('org.folder.manageNote')
+          : s.t(key, {'message': e.readable});
+
+  /// Renames [folder]; null when done, else why not.
+  Future<String?> renameFolder(
+      FileFolder folder, String name, FileStrings s) async {
+    final siblings = folderChildren(folders, folder.parentId)
+        .where((f) => f.id != folder.id)
+        .toList();
+    final problem = folderNameProblem(name, siblings);
+    if (problem != null) return problem;
+    try {
+      await repository.renameFolder(folder.id, name.trim());
+      notice = s.t('org.folder.renamed', {'name': name.trim()});
+      await loadOrganize();
+      return null;
+    } on ApiException catch (e) {
+      return _refusal(e, s, 'org.folder.failed');
+    } on Object catch (e) {
+      return s.t('org.folder.failed', {'message': readableError(e)});
+    }
+  }
+
+  /// Moves [folder] under [target] (null: the root).
+  Future<String?> moveFolder(
+      FileFolder folder, String? target, FileStrings s) async {
+    if (target != null && folderBranch(folder).contains(target)) {
+      return s.t('org.folder.failed', {
+        'message': 'A folder cannot move into itself or one of its subfolders.'
+      });
+    }
+    try {
+      await repository.moveFolder(folder.id, target);
+      final name = target == null
+          ? s.t('org.root')
+          : folders.where((f) => f.id == target).firstOrNull?.name ??
+              s.t('org.root');
+      notice = s.t('org.folder.moved', {'name': folder.name, 'target': name});
+      await loadOrganize();
+      await load();
+      return null;
+    } on ApiException catch (e) {
+      return _refusal(e, s, 'org.folder.failed');
+    } on Object catch (e) {
+      return s.t('org.folder.failed', {'message': readableError(e)});
+    }
+  }
+
+  /// Deletes [folder]; [contents] says what happens to what is inside.
+  Future<String?> deleteFolder(
+      FileFolder folder, String contents, FileStrings s) async {
+    try {
+      await repository.deleteFolder(folder.id, contents);
+      notice = s.t('org.folder.deleted', {'name': folder.name});
+      final open = folder;
+      final wasOpen =
+          this.folder != null && folderBranch(open).contains(this.folder);
+      await loadOrganize();
+      if (wasOpen) {
+        await openFolder(open.parentId);
+      } else {
+        await load();
+      }
+      await onChanged?.call();
+      return null;
+    } on ApiException catch (e) {
+      return _refusal(e, s, 'org.folder.failed');
+    } on Object catch (e) {
+      return s.t('org.folder.failed', {'message': readableError(e)});
+    }
+  }
+
+  /// Why a tag name would be refused, or null.
+  String? tagNameProblem(String value, FileStrings s, {String? except}) {
+    final name = value.trim();
+    if (name.isEmpty) return s.t('org.tag.nameEmpty');
+    if (name.length > 64) return s.t('org.tag.nameLong');
+    if (tags.any(
+        (t) => t.id != except && t.name.toLowerCase() == name.toLowerCase())) {
+      return s.t('org.tag.nameTaken', {'name': name});
+    }
+    return null;
+  }
+
+  Future<String?> renameTag(FileTag tag, String name, FileStrings s) async {
+    final problem = tagNameProblem(name, s, except: tag.id);
+    if (problem != null) return problem;
+    try {
+      await repository.renameTag(tag.id, name.trim());
+      notice = s.t('org.tag.renamed', {'name': name.trim()});
+      await loadOrganize();
+      await load();
+      return null;
+    } on ApiException catch (e) {
+      return e.isPermissionDenied
+          ? s.t('org.tag.manageDenied')
+          : s.t('org.tag.failed', {'message': e.readable});
+    } on Object catch (e) {
+      return s.t('org.tag.failed', {'message': readableError(e)});
+    }
+  }
+
+  Future<String?> deleteTag(FileTag tag, FileStrings s) async {
+    try {
+      await repository.deleteTag(tag.id);
+      notice = s.t('org.tag.deleted', {'name': tag.name});
+      if (tagFilter == tag.id) tagFilter = null;
+      await loadOrganize();
+      await load();
+      return null;
+    } on ApiException catch (e) {
+      return e.isPermissionDenied
+          ? s.t('org.tag.manageDenied')
+          : s.t('org.tag.failed', {'message': e.readable});
+    } on Object catch (e) {
+      return s.t('org.tag.failed', {'message': readableError(e)});
+    }
+  }
+
+  /// The selected files' size in bytes (what the zip will about hold).
+  int get selectedBytes =>
+      selectedFiles.fold<int>(0, (sum, f) => sum + f.sizeBytes);
+
+  bool downloading = false;
+
+  /// Saves the selection as one zip through the system save dialog; null
+  /// when saved, else what happened. A selection larger than a phone can
+  /// hold is refused before anything is sent.
+  Future<String?> downloadSelected(FileStrings s) async {
+    if (downloading || selected.isEmpty) return null;
+    if (selectedBytes > maxPhoneDownloadBytes) {
+      return s.t('org.downloadTooLarge',
+          {'size': '${maxPhoneDownloadBytes ~/ (1024 * 1024)} MB'});
+    }
+    downloading = true;
+    notifyListeners();
+    try {
+      final count = selected.length;
+      final saved = await repository.downloadZip(
+          selected.toList(), s.t('org.downloadLabel'));
+      notice = saved
+          ? s.t('org.downloaded', {'count': s.count('org.filesIn', count)})
+          : s.t('org.downloadCancelled');
+      return null;
+    } on Object catch (e) {
+      return s.t('org.downloadFailed', {'message': readableError(e)});
+    } finally {
+      downloading = false;
+      notifyListeners();
     }
   }
 

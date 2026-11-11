@@ -4,12 +4,12 @@
 // person), Expiring, Trash and Settings (reminders, scanning switches, categories, iPhone Shortcut).
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  ArchiveRestore, CalendarClock, Check, ChevronLeft, ChevronRight, CircleAlert, CircleDot, Copy, Download, Eye, FileText, History, Layers, Link2, Lock, Pencil, Plus,
+  ArchiveRestore, CalendarClock, Check, ChevronLeft, ChevronRight, CircleAlert, Copy, Download, Eye, FileText, History, Layers, Link2, Lock, Pencil, Plus,
   RefreshCw, RotateCcw, ScanLine, ScanText, Search, Share2, ShieldCheck, Smartphone, Tags, Trash2, Upload, Users, X,
 } from 'lucide-react';
 import { ConfirmDialog, Modal } from './Dialog';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
-import { LoadingSkeleton, PaneProblem } from './PageParts';
+import { LoadingSkeleton, Notice, Pager, PaneProblem } from './PageParts';
 import { copyText } from './lib/clipboard';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatBytes } from './lib/files';
@@ -32,10 +32,6 @@ const PdfPreview = lazy(() => import('./PdfPreview'));
 type Flash = { text: string; error?: boolean } | null;
 const day = (value: string) => formatDateTime(`${value}T00:00:00Z`, { dateStyle: 'medium', timeZone: 'UTC' });
 const when = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
-
-function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
-  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
-}
 
 function Badge({ tone = '', children }: { tone?: string; children: ReactNode }) {
   return <span className={`vaultBadge ${tone}`}>{children}</span>;
@@ -552,25 +548,46 @@ function Extractions({ doc }: { doc: VaultDocumentDetail }) {
   </section>;
 }
 
+const VERSION_PAGE = 20;
+
 function Versions({ doc, onChanged }: { doc: VaultDocumentDetail; onChanged(): void }) {
   const [page, setPage] = useState<Load<VaultVersionPage>>({ state: 'loading' });
+  const [offset, setOffset] = useState(0);
   const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<VaultVersionPage['items'][number] | null>(null);
+  const [busy, setBusy] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
-  const load = useCallback(() => api.getVersions(doc.id).then((value) => setPage({ state: 'ready', value }), (e) => setPage({ state: 'error', message: describeError(e) })), [doc.id]);
+  const load = useCallback(() => api.getVersions(doc.id, offset, VERSION_PAGE).then((value) => {
+    setPage({ state: 'ready', value });
+    // Deleting the last older version of a later page steps back one page.
+    if (value.items.length === 0 && offset > 0) setOffset(Math.max(0, offset - VERSION_PAGE));
+  }, (e) => setPage({ state: 'error', message: describeError(e) })), [doc.id, offset]);
   useEffect(() => { void load(); }, [load, doc.row_version]);
-  const act = async (work: () => Promise<unknown>) => { setProblem(null); try { await work(); onChanged(); } catch (e) { setProblem(describeError(e)); } };
+  const act = async (work: () => Promise<unknown>, message?: string) => {
+    setProblem(null); setDone(null); setBusy(true);
+    try { await work(); if (message) setDone(message); onChanged(); void load(); } catch (e) { setProblem(describeError(e)); } finally { setBusy(false); }
+  };
   return <section className="vaultSub" aria-labelledby="vault-versions"><h3 id="vault-versions">{t('vault.version.title')}</h3>
     {doc.can_edit && <><button type="button" className="secondary" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('vault.version.add')}</button>
       <input ref={picker} type="file" hidden aria-label={t('vault.version.add')} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void act(() => api.uploadVersion(doc.id, file)); }} /></>}
     {problem && <Notice error>{problem}</Notice>}
+    <div aria-live="polite">{done && <Notice>{done}</Notice>}</div>
     {page.state === 'loading' && <LoadingSkeleton label={t('vault.loading')} rows={1} />}
     {page.state === 'error' && <PaneProblem text={page.message} onRetry={() => void load()} />}
     {page.state === 'ready' && (page.value.items.length ? <ul className="vaultVersions">{page.value.items.map((v) => <li key={v.id}>
       <span>{t('vault.version.number', { number: v.version })} · {formatBytes(v.size_bytes)} · {when(v.created_at)}</span>
       <span className="actions">
-        <button type="button" className="secondary" disabled={!v.downloadable} onClick={() => void act(() => api.download(doc.id, `${doc.title} v${v.version}`, v.id))}><Download aria-hidden="true" />{t('vault.detail.download')}</button>
-        {doc.can_edit && <button type="button" className="secondary" disabled={!v.downloadable} onClick={() => void act(() => api.restoreVersion(doc.id, v.id))}><RotateCcw aria-hidden="true" />{t('vault.version.restore')}</button>}
+        <button type="button" className="secondary" disabled={!v.downloadable || busy} onClick={() => void act(() => api.download(doc.id, `${doc.title} v${v.version}`, v.id))}><Download aria-hidden="true" />{t('vault.detail.download')}</button>
+        {doc.can_edit && <button type="button" className="secondary" disabled={!v.downloadable || busy} onClick={() => void act(() => api.restoreVersion(doc.id, v.id))}><RotateCcw aria-hidden="true" />{t('vault.version.restore')}</button>}
+        {doc.can_edit && <button type="button" className="secondary danger" disabled={busy} aria-label={t('vault.version.deleteOf', { number: v.version })} onClick={() => setRemoving(v)}><Trash2 aria-hidden="true" />{t('vault.version.delete')}</button>}
       </span></li>)}</ul> : <p className="muted">{t('vault.version.none')}</p>)}
+    {page.state === 'ready' && <Pager label={t('vault.version.pages')} from={offset + 1} to={offset + page.value.items.length} total={page.value.total}
+      hasPrev={offset > 0} hasNext={offset + page.value.items.length < page.value.total} busy={busy}
+      onPrev={() => setOffset(Math.max(0, offset - VERSION_PAGE))} onNext={() => setOffset(offset + VERSION_PAGE)} />}
+    {removing && <ConfirmDialog title={t('vault.version.deleteTitle', { number: removing.version })} confirmLabel={t('vault.version.delete')} danger busy={busy}
+      onCancel={() => setRemoving(null)} onConfirm={() => { const target = removing; setRemoving(null); void act(() => api.deleteVersion(doc.id, target.id), t('vault.version.deleted', { number: target.version })); }}>
+      <p>{t('vault.version.deleteText', { number: removing.version, current: page.state === 'ready' ? page.value.current_version : doc.file?.version ?? 1 })}</p></ConfirmDialog>}
   </section>;
 }
 

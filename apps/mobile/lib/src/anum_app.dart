@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../data/api_client.dart';
+import '../data/api_downloads.dart';
 import '../data/api_models.dart';
 import '../data/session_store.dart';
 import '../features/books/books_data.dart';
@@ -43,6 +44,8 @@ import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_ops_data.dart';
 import '../features/commerce/commerce_repository.dart';
+import '../features/finance/finance_advisor_screens.dart';
+import '../features/finance/finance_more_data.dart';
 import '../features/finance/finance_controller.dart';
 import '../features/finance/finance_depth_models.dart';
 import '../features/finance/finance_intel_models.dart';
@@ -312,7 +315,12 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
       baseUri: Uri.parse(configuredUrl),
       transport: HttpApiTransport(client: newClient?.call()),
       sessions: sessions,
-    );
+    )..downloads = HttpApiDownloads(
+        baseUri: Uri.parse(configuredUrl),
+        sessions: sessions,
+        saveBytes: saveWithSystemDialog,
+        client: newClient?.call(),
+      );
     // Phone push (docs/notifications.md): off unless this build carries the
     // owner's Firebase files and the server has ANUM_FCM_SERVICE_ACCOUNT_JSON.
     push = PushController(
@@ -436,6 +444,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         intelRepository: ApiFinanceIntelRepository(api),
         personalRepository: ApiFinancePersonalRepository(api),
         depthRepository: ApiFinanceDepthRepository(api),
+        more: FinanceMoreRepository(api),
         planner: ChatMoneyPlanner(ChatRepository(api, events)));
     // The post-close trading report notice opens Finance, Trading
     // intelligence, where the daily reports are listed.
@@ -478,14 +487,17 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
               builder: (_) => FinanceScreen(controller: finance)));
       await loading;
     };
-    // The weekly money note opens Finance (docs/finance.md#money-advisor).
+    // The weekly money note opens the Money advisor, behind the app lock
+    // like Finance (docs/finance.md#money-advisor).
     NotificationsScreen.openers['finance_weekly_advice'] = (context) async {
-      final loading = finance.select(FinanceSection.overview);
+      final more = finance.more;
+      if (more == null) return;
       await Navigator.push(
           context,
           MaterialPageRoute<void>(
-              builder: (_) => FinanceScreen(controller: finance)));
-      await loading;
+              builder: (_) => AppLockGate(
+                  area: AppLockArea.finance,
+                  child: AdvisorScreen(repository: more))));
     };
     tyre = TyreController(ApiTyreRepository(api),
         ops: TyreOps(ApiTyreOpsRepository(api)));
@@ -816,6 +828,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
     try {
       final session = await auth.repository.restoreSession();
       workspace.currentUserId = session?.context.userId;
+      workspace.currentRoles = session?.context.roles ?? const [];
       appCalls.selfUserId = session?.context.userId;
     } on Object {
       // Unknown user: the API still refuses a second approval (409).

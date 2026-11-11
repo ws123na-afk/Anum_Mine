@@ -106,3 +106,94 @@ def test_activity_cannot_reach_another_tenants_run(repository_factory, seed_scop
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(_activities(repository_factory, CountingGateway()).advance(other, request))
     assert raised.value.type == "RunNotFound"
+
+
+def test_no_row_lock_or_transaction_is_held_while_the_model_plans_or_the_tool_runs(
+    repository_factory, app_session, seed_scopes: None
+) -> None:
+    """CLAUDE.md: never keep a transaction or a FOR UPDATE lock open across a model or tool
+    call. While the model answers and while the tool works, another connection must be able
+    to lock the task row at once (NOWAIT) and see the committed checkpoint."""
+    from sqlalchemy import text
+
+    from anum_api.agent_tools import ToolRegistry, ToolResult, default_tool_registry
+
+    context, request = _queued(repository_factory, "Summarize the project notes")
+    seen: list[tuple[str, str]] = []
+
+    def probe(moment: str) -> None:
+        with app_session(context) as session:
+            session.execute(text("set local lock_timeout = '1ms'"))
+            locked = session.execute(
+                text("select id from tasks where id = :id for update nowait"), {"id": request.task_id}
+            ).scalar_one()
+            assert locked == request.task_id
+            phase = session.execute(
+                text("select checkpoint->>'phase' from agent_runs where id = :id"), {"id": request.run_id}
+            ).scalar_one()
+            seen.append((moment, phase))
+
+    class ProbingGateway(CountingGateway):
+        async def generate_text(self, prompt: str):  # type: ignore[override]
+            probe("model")
+            return await super().generate_text(prompt)
+
+    base = default_tool_registry()
+    tools = ToolRegistry()
+    for name in sorted(base.names):
+        definition = base.definition(name)
+        assert definition is not None
+
+        async def handler(call, ctx, _name: str = name) -> ToolResult:
+            probe("tool")
+            return ToolResult(status="succeeded", summary=f"{_name} done", output={})
+
+        tools.register(definition, handler)
+
+    activities = _activities(repository_factory, ProbingGateway(), tools)
+    assert asyncio.run(activities.advance(context, request)).phase == "tool_ready"
+    done = asyncio.run(activities.advance(context, request))
+    assert (done.phase, done.status) == ("completed", "completed")
+    # The model ran while the run was still at its committed planning checkpoint; the tool ran
+    # after `executing` was committed, with the task row free both times.
+    assert seen == [("model", "planning"), ("tool", "executing")]
+
+
+def test_a_cancel_while_the_tool_runs_is_not_overwritten(repository_factory, app_session, seed_scopes: None) -> None:
+    """The settle step re-checks the claim: a cancel committed while the tool ran wins, and the
+    tool's outcome does not complete the run over it."""
+    from sqlalchemy import text
+
+    from anum_api.agent_tools import ToolRegistry, ToolResult, default_tool_registry
+
+    context, request = _queued(repository_factory, "Summarize the project notes")
+
+    def cancel() -> None:
+        with repository_factory(context, commit=True) as repository:
+            # Fails at once (instead of waiting forever) if the worker still holds the row lock.
+            repository.session.execute(text("set local lock_timeout = '1s'"))
+            task = repository.get_task_for_update(request.task_id, context)
+            run = repository.get_run(request.run_id, context)
+            assert task is not None and run is not None
+            task.status = run.status = TaskStatus.CANCELLED
+            run.checkpoint.phase = RunPhase.CANCELLED
+            run.checkpoint.version += 1
+            repository.save_task(task)
+            repository.save_run(run)
+
+    base = default_tool_registry()
+    tools = ToolRegistry()
+    for name in sorted(base.names):
+        definition = base.definition(name)
+        assert definition is not None
+
+        async def handler(call, ctx, _name: str = name) -> ToolResult:
+            cancel()  # would block on the row lock if the worker still held it
+            return ToolResult(status="succeeded", summary=f"{_name} done", output={})
+
+        tools.register(definition, handler)
+
+    activities = _activities(repository_factory, CountingGateway(), tools)
+    assert asyncio.run(activities.advance(context, request)).phase == "tool_ready"
+    state = asyncio.run(activities.advance(context, request))
+    assert (state.phase, state.status) == ("cancelled", "cancelled")

@@ -112,7 +112,7 @@ All routes are under `/api/v1/contacts` and take the usual tenant context. Every
 
 ## Mobile
 
-The phone has a **Contacts** screen (Workspace menu, route `/contacts`): search over name, organisation, number and address, the list 25 at a time with Show more, the do-not-contact chips, and a person page with their numbers and addresses, sources, the per-channel facts and the do-not-contact controls (mark with a channel and reason; clear with a reason, owners). Possible duplicates, merge, edit and export stay on the web; the person page says so. English and Arabic (`contacts_strings.dart`). Tests: `apps/mobile/test/contacts/contacts_test.dart`.
+The phone has a **Contacts** screen (Workspace menu, route `/contacts`): search over name, organisation, number and address, the list 25 at a time with Show more, the do-not-contact chips, and a person page with their numbers and addresses, sources, the per-channel facts and the do-not-contact controls (mark with a channel and reason; clear with a reason, owners). **Add person** (members and owners) opens a form checked like the API (name, organisation, notes, numbers and addresses one per line); **Possible duplicates (N)** lists the open pairs 25 at a time with Keep one (merge) and Different people; the person page has **Edit**, **Merge with...** (a search picker, then a confirmation) and, for owners, **Delete person**; owners **Export CSV** through the system save dialog ([File downloads](mobile.md#file-downloads)). English and Arabic (`contacts_strings.dart`). Code: `contacts_manage.dart` with the screen and controllers. Tests: `apps/mobile/test/contacts/contacts_test.dart`.
 
 ## Privacy
 
@@ -126,4 +126,3 @@ The phone has a **Contacts** screen (Workspace menu, route `/contacts`): search 
 
 - The directory does not merge or delete people on its own when a source record is deleted; the link shows the record as gone until a person edits or merges.
 - No import from a file and no export of the consent facts (the CSV carries the directory's own columns).
-- Flutter: no possible duplicates, merge, edit or export (web only).

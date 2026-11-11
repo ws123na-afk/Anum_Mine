@@ -413,6 +413,39 @@ def test_e_invoicing_is_off_by_default_chains_hashes_and_never_submits() -> None
     assert credit["type_code"] == "381" and credit["counter"] == 3 and credit["previous_hash"] == two["invoice_hash"]
 
 
+def test_the_xml_date_and_time_are_the_sellers_local_day_not_utc() -> None:
+    """ZATCA reads IssueDate and IssueTime as the seller's own date and time (Asia/Riyadh by default, as business invoices
+    are dated, invoice_service.business_day). Sent at 22:30 UTC on 10 November is 01:30 on 11 November in Riyadh."""
+    from datetime import UTC, datetime
+
+    setup_books()
+    tax_settings(zatca_enabled=True)
+    late = datetime(2026, 11, 10, 22, 30, tzinfo=UTC)
+    invoice = coded_invoice([("100", "15", "standard")])
+    business_store.scoped(ctx()).save("invoices", invoice.model_copy(update={"sent_at": late}))
+    ns = {"cbc": Z.NS["cbc"], "cac": Z.NS["cac"]}
+    record, _ = Z.generate(ctx(), "invoice", invoice.id, actor="owner_books", now=late)
+    root = ET.fromstring(record.xml)
+    assert (root.find("cbc:IssueDate", ns).text, root.find("cbc:IssueTime", ns).text) == ("2026-11-11", "01:30:00")
+    assert record.issue_date == date(2026, 11, 11)
+    # One minute before the local midnight it is still the 10th.
+    early = coded_invoice([("100", "15", "standard")])
+    before = datetime(2026, 11, 10, 20, 59, tzinfo=UTC)
+    business_store.scoped(ctx()).save("invoices", early.model_copy(update={"sent_at": before}))
+    record, _ = Z.generate(ctx(), "invoice", early.id, actor="owner_books", now=before)
+    root = ET.fromstring(record.xml)
+    assert (root.find("cbc:IssueDate", ns).text, root.find("cbc:IssueTime", ns).text) == ("2026-11-10", "23:59:00")
+    # A credit note keeps its own (business) issue date with the local time of generation.
+    seed_credit(invoice, "10", "1.50")
+    note_id = next(iter(business_store._rows["credit_notes"]))
+    note = business_store.scoped(ctx()).get("credit_notes", note_id)
+    business_store.scoped(ctx()).save("credit_notes", note.model_copy(update={"issue_date": date(2026, 11, 11)}))
+    record, _ = Z.generate(ctx(), "credit_note", note_id, actor="owner_books", now=late)
+    root = ET.fromstring(record.xml)
+    assert (root.find("cbc:IssueDate", ns).text, root.find("cbc:IssueTime", ns).text) == ("2026-11-11", "01:30:00")
+    assert record.issue_date == date(2026, 11, 11)
+
+
 def test_the_counter_never_repeats_when_generations_race() -> None:
     setup_books()
     tax_settings(zatca_enabled=True)

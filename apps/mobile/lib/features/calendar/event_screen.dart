@@ -195,28 +195,78 @@ class _EventScreenState extends State<EventScreen> {
     final event = _event;
     if (event == null) return;
     final l = AnumLocalizations.maybeOf(context);
+    // On an occurrence of a series the reply is for this occurrence unless the
+    // organiser picks the whole series (docs/calendar.md#replies).
+    final occurrence = event.isRecurring && event.occurrenceStart != null;
+    var thisOne = occurrence;
     final response = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            title: Text(l.f('calendarRecordReply', {'name': attendee.name})),
+        child: StatefulBuilder(
+          builder: (context, setSheet) => SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(
+                title:
+                    Text(l.f('calendarRecordReply', {'name': attendee.name})),
+              ),
+              if (occurrence)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
+                  child: SegmentedButton<bool>(
+                    segments: [
+                      ButtonSegment(
+                          value: true,
+                          label: Text(l.t('calendarReplyScopeThis'))),
+                      ButtonSegment(
+                          value: false,
+                          label: Text(l.t('calendarReplyScopeAll'))),
+                    ],
+                    selected: {thisOne},
+                    onSelectionChanged: (value) =>
+                        setSheet(() => thisOne = value.first),
+                  ),
+                ),
+              for (final value in attendeeResponses)
+                ListTile(
+                  leading: Icon(value == attendee.response
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked),
+                  title: Text(l.t('calendarReply_$value')),
+                  onTap: () => Navigator.pop(context, value),
+                ),
+            ]),
           ),
-          for (final value in attendeeResponses)
-            ListTile(
-              leading: Icon(value == attendee.response
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked),
-              title: Text(l.t('calendarReply_$value')),
-              onTap: () => Navigator.pop(context, value),
-            ),
-        ]),
+        ),
       ),
     );
-    if (response == null || response == attendee.response) return;
-    final saved = await c.respond(event, attendee, response);
-    if (saved != null && mounted) setState(() => _event = saved);
+    if (response == null || (response == attendee.response && !occurrence)) {
+      return;
+    }
+    final saved =
+        await c.respond(event, attendee, response, thisOccurrence: thisOne);
+    if (saved == null || !mounted) return;
+    if (occurrence) {
+      await _load();
+    } else {
+      setState(() => _event = saved);
+    }
+  }
+
+  String? _retried;
+
+  Future<void> _retrySync(String provider) async {
+    final event = _event;
+    if (event == null) return;
+    final l = AnumLocalizations.maybeOf(context);
+    final saved = await c.retrySync(event);
+    if (saved == null || !mounted) return;
+    _retried = saved.syncState == 'synced'
+        ? l.f('calsync.retried', {'provider': provider})
+        : l.f('calsync.retryWaiting', {'reason': saved.syncError ?? ''});
+    await _load();
   }
 
   String? _requested;
@@ -265,6 +315,42 @@ class _EventScreenState extends State<EventScreen> {
                       {'provider': linked?.providerName ?? ''}),
                   style: TextStyle(color: p.text, fontSize: AnumType.smPlus))),
         ]),
+        if (event.syncKind == 'failed' ||
+            (event.syncKind == 'waiting' && event.syncError != null)) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          Text(
+              l.f(
+                  event.syncKind == 'failed'
+                      ? 'calsync.failedText'
+                      : 'calsync.waitingText',
+                  {
+                    'provider': linked?.providerName ?? '',
+                    'reason': event.syncError ?? ''
+                  }),
+              style: TextStyle(
+                  color: event.syncKind == 'failed' ? p.stop : p.muted,
+                  fontSize: AnumType.sm)),
+          if (event.canManage)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                onPressed: c.busy == null
+                    ? () => _retrySync(linked?.providerName ?? '')
+                    : null,
+                icon: const Icon(Icons.sync, size: 18),
+                label: Text(l.t('calsync.retry')),
+              ),
+            )
+          else if (event.syncKind == 'failed')
+            Text(l.t('calsync.failedReadOnly'),
+                style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
+        ],
+        if (_retried != null) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          Semantics(
+              liveRegion: true,
+              child: Text(_retried!, style: TextStyle(color: p.text))),
+        ],
         if (showInvites) ...[
           const SizedBox(height: AnumSpacing.xs),
           Text(
@@ -429,7 +515,10 @@ class _EventScreenState extends State<EventScreen> {
                   event.reminders.isEmpty
                       ? l.t('calendarNoReminders')
                       : event.reminders
-                          .map((m) => reminderLabel(l, m))
+                          .map((m) => event.emailReminders.contains(m)
+                              ? l.f('calendarReminderWithEmail',
+                                  {'label': reminderLabel(l, m)})
+                              : reminderLabel(l, m))
                           .join(' · '),
                   style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             ),
@@ -501,6 +590,7 @@ class _EventScreenState extends State<EventScreen> {
           for (final attendee in event.attendees)
             _AttendeeRow(
               attendee: attendee,
+              ownReply: event.occurrenceReplies.contains(attendee.id),
               onTap: event.canManage && !busy && attendee.id != null
                   ? () => _respond(attendee)
                   : null,
@@ -523,9 +613,13 @@ class _EventScreenState extends State<EventScreen> {
 }
 
 class _AttendeeRow extends StatelessWidget {
-  const _AttendeeRow({required this.attendee, this.onTap});
+  const _AttendeeRow(
+      {required this.attendee, this.onTap, this.ownReply = false});
   final Attendee attendee;
   final VoidCallback? onTap;
+
+  /// The reply shown is for this occurrence only (not the series default).
+  final bool ownReply;
 
   @override
   Widget build(BuildContext context) {
@@ -556,6 +650,12 @@ class _AttendeeRow extends StatelessWidget {
             if (attendee.role != null || attendee.email != null)
               Text(attendee.role ?? attendee.email!,
                   style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
+            if (ownReply)
+              Text(l.t('calendarReplyThisOnly'),
+                  style: TextStyle(
+                      color: p.sky,
+                      fontWeight: FontWeight.w600,
+                      fontSize: AnumType.xs)),
           ]),
         ),
         const SizedBox(width: AnumSpacing.xs),
@@ -570,6 +670,7 @@ class _AttendeeRow extends StatelessWidget {
         attendee.name,
         if (attendee.role != null) attendee.role!,
         reply,
+        if (ownReply) l.t('calendarReplyThisOnly'),
         if (onTap != null) l.t('calendarTapToRecord'),
       ].join(', '),
       excludeSemantics: true,

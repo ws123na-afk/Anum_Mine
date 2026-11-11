@@ -2,9 +2,13 @@ import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../../src/localization/anum_localizations.dart';
+import '../governance/governance_models.dart' show RoleTemplate;
 import 'admin_models.dart';
 import 'admin_repository.dart';
 import 'approval_policy.dart';
+import 'approval_settings.dart';
+import 'budget_usage.dart';
 
 /// `forbidden` comes from the API's 403: the client never guesses roles.
 enum AdminPhase { initial, loading, ready, forbidden, offline, error }
@@ -63,6 +67,14 @@ class MembersController extends ChangeNotifier {
       final values =
           await Future.wait([repository.members(), repository.invitations()]);
       members = sortMembers(values[0] as List<WorkspaceMember>);
+      // Role templates load on their own: a failure leaves the list usable.
+      try {
+        templates = await repository.roleTemplates();
+        templatesError = null;
+      } on Object catch (error) {
+        templates = null;
+        templatesError = describeAdminError(error);
+      }
       invitations = [
         ...(values[1] as List<WorkspaceInvitation>).where((x) => x.pending),
         ...(values[1] as List<WorkspaceInvitation>).where((x) => !x.pending),
@@ -78,6 +90,22 @@ class MembersController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  /// The organization's role templates; null until loaded or when they
+  /// could not be read ([templatesError] says why).
+  List<RoleTemplate>? templates;
+  String? templatesError;
+
+  /// Gives [member] [template], or takes it away (null).
+  Future<bool> setTemplate(WorkspaceMember member, RoleTemplate? template,
+          AnumLocalizations l) =>
+      _act(() async {
+        await repository.setRoleTemplate(member.userId, template?.id);
+        return template == null
+            ? l.f('ad.tpl.removed', {'user': member.userId})
+            : l.f('ad.tpl.changed',
+                {'user': member.userId, 'template': template.name});
+      });
 
   Future<bool> changeRole(WorkspaceMember member, String role) =>
       _act(() async {
@@ -186,8 +214,19 @@ class AcceptInvitationController extends ChangeNotifier {
 }
 
 class BudgetsController extends ChangeNotifier {
-  BudgetsController(this.repository);
+  BudgetsController(this.repository)
+      : usage = BudgetUsageController(repository);
   final AdminRepository repository;
+
+  /// "Where the spend goes" under the budgets.
+  final BudgetUsageController usage;
+
+  @override
+  void dispose() {
+    usage.dispose();
+    super.dispose();
+  }
+
   AdminPhase phase = AdminPhase.initial;
   BudgetOverview? overview;
   String? loadMessage;
@@ -215,8 +254,10 @@ class BudgetsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> save(String scope, String cost, String tokens) async {
-    final (limits, error) = parseLimits(cost, tokens);
+  Future<bool> save(String scope, String cost, String tokens,
+      {String alert = '',
+      AnumLocalizations l = AnumLocalizations.english}) async {
+    final (limits, error) = parseLimits(cost, tokens, alert: alert, l: l);
     notices.remove(scope);
     failedScopes.remove(scope);
     if (limits == null) {
@@ -247,8 +288,27 @@ class BudgetsController extends ChangeNotifier {
 /// The workspace approval policy. Any member loads it; the caller's role comes
 /// from their persisted membership, and a 403 on saving is the API's answer.
 class ApprovalPolicyController extends ChangeNotifier {
-  ApprovalPolicyController(this.repository);
+  ApprovalPolicyController(this.repository)
+      : rules = ApprovalRulesController(repository),
+        reminders = ApprovalReminderController(repository);
   final AdminRepository repository;
+
+  /// The organization's rules and the reminder: each loads on its own, so a
+  /// policy that cannot be read hides neither (docs/approvals-and-risk.md).
+  final ApprovalRulesController rules;
+  final ApprovalReminderController reminders;
+
+  /// The policy, the rules and the reminder, each on its own.
+  Future<void> loadAll() async {
+    await Future.wait([load(), rules.load(), reminders.load()]);
+  }
+
+  @override
+  void dispose() {
+    rules.dispose();
+    reminders.dispose();
+    super.dispose();
+  }
 
   AdminPhase phase = AdminPhase.initial;
   ApprovalPolicy? policy;

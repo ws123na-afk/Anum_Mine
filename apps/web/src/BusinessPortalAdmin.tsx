@@ -4,7 +4,7 @@
 // state until it is closed and is never written to storage or the address bar.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Copy, KeyRound } from 'lucide-react';
-import type { BusinessContact, BusinessSetup, PortalAccessCreated, PortalAccessItem, PortalDecisionSummary } from '@anum/contracts';
+import type { BusinessContact, BusinessSetup, PortalAccessCreated, PortalAccessItem, PortalDecisionRow, PortalDecisionSummary } from '@anum/contracts';
 import { t } from './lib/i18n';
 import { copyText } from './lib/clipboard';
 import { accessLabel, accessState, accessTone, buildPortalLink, decisionLine } from './lib/portal';
@@ -12,6 +12,7 @@ import * as b from './lib/businessApi';
 import * as inv from './lib/businessInvoicesApi';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Badge, Note, failure, when } from './BusinessParts';
+import { Pager } from './PageParts';
 
 export function PortalAccessBlock({ setup, accountId }: { setup: BusinessSetup; accountId: string }) {
   const [contacts, setContacts] = useState<BusinessContact[]>([]), [items, setItems] = useState<PortalAccessItem[]>([]);
@@ -55,11 +56,45 @@ export function PortalAccessBlock({ setup, accountId }: { setup: BusinessSetup; 
           {contacts.length === 0 && <span className="muted bzHint">{t('inv.portal.noContacts')}</span>}</div>
         : <p className="muted bzHint">{t('inv.portal.ownersOnly')}</p>}
     </>}
+    <PortalDecisions accountId={accountId} />
     {creating && <CreateLinkDialog accountId={accountId} contacts={contacts} onClose={() => setCreating(false)} onCreated={(link) => { setCreating(false); setCreated(link); void reload(); }} />}
     {created && <LinkShown link={created} onClose={() => setCreated(null)} />}
     {revoking && <ConfirmDialog title={t('inv.portal.revokeTitle', { name: revoking.contact_name })} confirmLabel={t('inv.portal.revoke')} danger onCancel={() => setRevoking(null)} onConfirm={() => void revoke(revoking)}>
       <p>{t('inv.portal.revokeText')}</p></ConfirmDialog>}
   </section>;
+}
+
+const DECISIONS_PAGE = 10;
+
+/**
+ * What this account's contacts decided in their portals (proposals and change orders), newest
+ * first: `GET /business/portal/decisions?account_id=` answers the newest 100, paged here ten at a time.
+ */
+function PortalDecisions({ accountId }: { accountId: string }) {
+  const [rows, setRows] = useState<PortalDecisionRow[] | null>(null), [problem, setProblem] = useState<string | null>(null), [offset, setOffset] = useState(0);
+  const heading = useId();
+  const load = useCallback(async () => {
+    setProblem(null); setRows(null);
+    try { setRows(await inv.listPortalDecisions({ account_id: accountId })); setOffset(0); }
+    catch (error) { setProblem(failure(error, t('inv.portal.decisions.title'))); }
+  }, [accountId]);
+  useEffect(() => { void load(); }, [load]);
+  const shown = rows?.slice(offset, offset + DECISIONS_PAGE) ?? [];
+  return <div className="invDecisions" role="group" aria-labelledby={heading}>
+    <h4 id={heading}>{t('inv.portal.decisions.title')}</h4>
+    {rows === null && !problem && <Note>{t('biz.loading')}</Note>}
+    {problem && <Note error>{problem} <button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button></Note>}
+    {rows && rows.length === 0 && <p className="muted">{t('inv.portal.decisions.none')}</p>}
+    {shown.length > 0 && <ul className="bzTrail">{shown.map((row) => <li key={row.id}>
+      <div className="bzInline"><Badge tone={row.decision === 'approved' ? 'success' : 'dangerTone'}>{t(row.decision === 'approved' ? 'inv.portal.decisions.approved' : 'inv.portal.decisions.declined')}</Badge>
+        <strong>{t(row.subject_kind === 'proposal' ? 'inv.portal.decisions.proposal' : 'inv.portal.decisions.changeOrder', { version: row.version ?? 1 })}</strong></div>
+      <small><bdi dir="auto">{row.signer_name}</bdi>{row.contact_name && row.contact_name !== row.signer_name ? <>{' / '}<bdi dir="auto">{row.contact_name}</bdi></> : null}{' / '}{when(row.decided_at)}</small>
+      {row.note && <p dir="auto" className="invAddress">{t('inv.portal.decisionNote', { note: row.note })}</p>}
+    </li>)}</ul>}
+    {rows && <Pager label={t('inv.portal.decisions.pages')} from={offset + 1} to={offset + shown.length} total={rows.length}
+      hasPrev={offset > 0} hasNext={offset + DECISIONS_PAGE < rows.length} onPrev={() => setOffset(Math.max(0, offset - DECISIONS_PAGE))} onNext={() => setOffset(offset + DECISIONS_PAGE)} />}
+    {rows && rows.length >= 100 && <p className="muted bzHint">{t('inv.portal.decisions.newest')}</p>}
+  </div>;
 }
 
 function CreateLinkDialog({ accountId, contacts, onClose, onCreated }: { accountId: string; contacts: BusinessContact[]; onClose: () => void; onCreated: (link: PortalAccessCreated) => void }) {

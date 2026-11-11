@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
@@ -51,6 +52,13 @@ class KitStrings {
     'pickDate': 'Pick a date',
     'conflict':
         'Someone changed this while you were editing. It was reloaded: check it and save again.',
+    'export.csv': 'Export CSV',
+    'export.working': 'Exporting…',
+    'export.saved': 'Saved {name}.',
+    'export.cancelled': 'Nothing was saved.',
+    'export.failed': 'The export failed: {message}',
+    'export.saveFailed':
+        'The file could not be saved on this phone. Pick another folder and try again.',
   };
 
   static const _ar = <String, String>{
@@ -83,6 +91,13 @@ class KitStrings {
     'pickDate': 'اختر تاريخًا',
     'conflict':
         'غيّر شخص آخر هذا السجل أثناء تعديلك. أعيد تحميله: راجعه ثم احفظ مرة أخرى.',
+    'export.csv': 'تصدير CSV',
+    'export.working': 'جارٍ التصدير…',
+    'export.saved': 'حُفظ الملف {name}.',
+    'export.cancelled': 'لم يُحفظ شيء.',
+    'export.failed': 'تعذر التصدير: {message}',
+    'export.saveFailed':
+        'تعذر حفظ الملف على هذا الهاتف. اختر مجلدًا آخر ثم أعد المحاولة.',
   };
 
   static bool get catalogsMatch =>
@@ -411,6 +426,20 @@ class RecordsDateField extends StatelessWidget {
   }
 }
 
+/// A date with its year (`Dec 1, 2028`) for a `YYYY-MM-DD` value in the
+/// app's language: for schedules that run over several years.
+String recordsYearDate(BuildContext context, String? value) {
+  if (value == null || value.isEmpty) return '-';
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return value;
+  final locale = Localizations.localeOf(context).toLanguageTag();
+  try {
+    return DateFormat.yMMMd(locale).format(parsed);
+  } on Object {
+    return DateFormat.yMMMd().format(parsed);
+  }
+}
+
 /// A short date for a `YYYY-MM-DD` or ISO value in the app's language.
 String recordsDate(BuildContext context, String? value) {
   if (value == null || value.isEmpty) return '-';
@@ -476,3 +505,87 @@ class ModuleStrings {
       en.keys.toSet().difference(ar.keys.toSet()).isEmpty &&
       ar.keys.toSet().difference(en.keys.toSet()).isEmpty;
 }
+
+/// Asks before a change that cannot be taken back (a delete, an undo);
+/// true when the person confirmed. The confirm button says what happens.
+Future<bool> confirmRecords(BuildContext context,
+    {required String title,
+    required String message,
+    required String action}) async {
+  final k = KitStrings.of(context);
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text(title),
+      content: SingleChildScrollView(child: Text(message)),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: Text(k.t('cancel'))),
+        FilledButton(
+            key: const Key('records-confirm'),
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(action)),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
+/// A paged list's body: its state (loading, denied with [deniedHint],
+/// failed with Retry), [empty] when there is nothing, else the rows on one
+/// surface and "Load more".
+List<Widget> recordsPagedBody<T>(
+  RecordsList<T> list, {
+  required String deniedHint,
+  required Widget empty,
+  required Widget Function(T item) row,
+}) {
+  if (list.phase != RecordsPhase.ready) {
+    return [
+      RecordsStateView(
+          phase: list.phase,
+          failure: list.failure,
+          deniedHint: deniedHint,
+          onRetry: list.load),
+    ];
+  }
+  if (list.items.isEmpty) return [empty];
+  return [
+    AnumSurface(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
+      child: Column(children: [for (final item in list.items) row(item)]),
+    ),
+    RecordsMore(list: list),
+  ];
+}
+
+/// A row with its action under it, aligned to the end: a text button
+/// beside a row's text would squeeze it on a narrow phone or at large
+/// text, so it goes below instead.
+class RecordsRowAction extends StatelessWidget {
+  const RecordsRowAction({required this.row, this.action, super.key});
+  final Widget row;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => action == null
+      ? row
+      : Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            row,
+            Align(alignment: AlignmentDirectional.centerEnd, child: action),
+          ],
+        );
+}
+
+/// [value] kept left to right inside right-to-left text: an ISO date or
+/// month (`2026-09-30`, `2026-09`), a rate or a code is wrapped in Unicode
+/// isolates in Arabic, so its digits and hyphens are not reordered. Left
+/// as it is in English.
+String ltrValue(BuildContext context, String value) =>
+    Directionality.maybeOf(context) == TextDirection.rtl && value.isNotEmpty
+        ? '\u2066$value\u2069'
+        : value;

@@ -6,7 +6,8 @@ would: pg_dump (custom format, one snapshot) -> restore into a fresh
 per table and per tenant, and RLS isolation as a non-superuser role -> drop.
 
 Needs the PostgreSQL client tools (pg_dump, pg_restore >= the server version) on
-PATH, in ANUM_PG_BIN or in /usr/lib/postgresql/16/bin.
+PATH, in ANUM_PG_BIN or in /usr/lib/postgresql/16/bin or 17/bin. CI's database job runs PostgreSQL 17 (the
+Oracle VM's version) and sets ANUM_PG_BIN to the 17 client tools.
 """
 
 from __future__ import annotations

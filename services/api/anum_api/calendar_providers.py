@@ -10,8 +10,14 @@ as the inbox, ``email_providers``):
   ``/me/calendarView/delta`` over a fixed window; the stored cursor is the
   ``@odata.deltaLink`` (only its token is kept; requests always go to the fixed Graph path).
 
-Recurring events arrive as their single occurrences (``singleEvents`` and ``calendarView``),
-each stored as one ANUM event. Rules every client keeps (as the inbox clients do): only the
+Repeating events (docs/calendar.md#how-events-sync): Google lists a series as its master (an
+RRULE in ``recurrence``) plus the instances changed or cancelled on their own; ANUM keeps the
+master as one series with its exceptions when the rule is inside ANUM's subset, and otherwise
+falls back to the series' single instances (``events/{id}/instances``). Graph's
+``calendarView/delta`` reports occurrences only, so Microsoft series stay flattened: each
+occurrence is one ANUM event. ANUM writes its own series with each provider's own fields (an
+RRULE for Google, a ``recurrence`` pattern and range for Graph), all-day events as dates, and an
+occurrence's change or removal on the matching instance. Rules every client keeps (as the inbox clients do): only the
 fixed provider hosts are contacted, redirects are not followed, every call has a timeout,
 tokens only go in the ``Authorization`` header, errors carry the status and the provider's
 short text, and everything a provider returns is untrusted data.
@@ -22,13 +28,14 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from enum import StrEnum
 from typing import Any
 from urllib.parse import quote, unquote, urlencode, urlsplit
 
 import httpx
 
+from .calendar_recurrence import Frequency, Recurrence, all_day_bounds, all_day_days, valid_zone, zone_of
 from .email_providers import (
     MailProviderError,
     OAuthClient,
@@ -48,6 +55,10 @@ _GRAPH_TOKEN = re.compile(r"[A-Za-z0-9._~=%-]{1,4096}")
 _GOOGLE_TOKEN = re.compile(r"[A-Za-z0-9._~=+/-]{1,4096}")
 _EMAIL = re.compile(r"^[^@\s<>\"']{1,64}@[^@\s<>\"']{1,253}\.[A-Za-z]{2,}$")
 MAX_PAGES = 25
+# Google series whose rule ANUM cannot hold are read as their instances; at most this many a pass.
+MAX_FLATTENED_SERIES = 50
+_DATE = re.compile(r"^\d{8}$")
+_STAMP = re.compile(r"^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$")
 
 
 class CalendarProvider(StrEnum):
@@ -95,6 +106,35 @@ class RemoteEvent:
     is_organizer: bool = True
     organizer_email: str | None = None
     attendees: list[RemoteAttendee] = field(default_factory=list)
+    # Whole days (the provider gave dates): the first and the last day, inclusive.
+    all_day: bool = False
+    timezone: str | None = None
+    # A Google series master: its rule (None when ANUM cannot hold it) and removed occurrences.
+    recurrence: Recurrence | None = None
+    exdates: list[datetime] = field(default_factory=list)
+    recurrence_lines: list[str] = field(default_factory=list)
+    # A master whose rule ANUM cannot hold: the ids of its instances read instead (flattened).
+    flattened_instances: list[str] | None = None
+    # One instance of a series: the master's id and the start the instance originally had.
+    recurring_event_id: str | None = None
+    original_start: datetime | None = None
+    original_date: date | None = None
+    # Graph's ``type``: ``occurrence`` (made by the rule), ``exception`` (changed on its own), ...
+    instance_kind: str | None = None
+
+    @property
+    def is_master(self) -> bool:
+        return bool(self.recurrence_lines)
+
+
+@dataclass(frozen=True)
+class RemoteInstance:
+    """One occurrence of a provider series: its id and the start it originally had."""
+
+    external_id: str
+    original_start: datetime | None
+    original_date: date | None = None
+    cancelled: bool = False
 
 
 @dataclass
@@ -121,6 +161,15 @@ class OutgoingEvent:
     # The event carries an online meeting (Teams): its join details live in the body, so an update
     # must not replace the body.
     online_meeting: bool = False
+    # Whole days in ``timezone`` (the first and last day, inclusive).
+    all_day: bool = False
+    start_date: date | None = None
+    end_date: date | None = None
+    # A series: its rule, written in the provider's own fields, expanded in ``timezone``.
+    timezone: str | None = None
+    recurrence: Recurrence | None = None
+    # One occurrence of a series (written on the provider's instance).
+    instance: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,6 +177,15 @@ class PushResult:
     external_id: str
     etag: str | None
     updated_at: datetime
+
+
+class PushRefused(MailProviderError):
+    """ANUM cannot write this change to the provider at all (the provider has no way to express it,
+    or the occurrence is gone there): retrying would fail the same way, so the event is marked
+    failed at once with this sentence."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(422, message)
 
 
 def valid_event_id(value: object) -> bool:
@@ -234,6 +292,10 @@ class CalendarProviderClient:
     async def delete(self, token: str, external_id: str, *, notify: bool) -> None:
         raise NotImplementedError
 
+    async def instances(self, token: str, master_id: str, *, since: datetime, until: datetime) -> list[RemoteInstance]:
+        """The occurrences of one series inside the window, with the start each originally had."""
+        raise NotImplementedError
+
     async def _token(self, url: str, form: dict[str, str], previous_refresh: str | None = None) -> TokenGrant:
         _, body = await self.http.request("POST", url, form=form)
         return _grant(body, previous_refresh, self.label)
@@ -245,22 +307,132 @@ class CalendarProviderClient:
 _GOOGLE_RESPONSES = {"needsAction": "invited", "accepted": "accepted", "tentative": "tentative", "declined": "declined"}
 
 
+def _google_moment(value: Any) -> tuple[datetime | None, date | None, str | None]:
+    """A Google start or end: (instant, date for an all-day value, the IANA zone named)."""
+    if not isinstance(value, dict):
+        return None, None, None
+    zone = value.get("timeZone") if isinstance(value.get("timeZone"), str) and valid_zone(value["timeZone"]) else None
+    if value.get("dateTime"):
+        return _parse_iso(value.get("dateTime")), None, zone
+    if isinstance(value.get("date"), str):
+        try:
+            day = date.fromisoformat(value["date"])
+        except ValueError:
+            return None, None, zone
+        return datetime.combine(day, time(0), timezone.utc), day, zone
+    return None, None, zone
+
+
+def _stamp(value: str, zone_name: str | None) -> tuple[datetime | None, date | None]:
+    """An RFC 5545 date or date-time (``20261110``, ``20261110T090000``, ``20261110T050000Z``):
+    the instant (local times in ``zone_name``) or, for a date, the day."""
+    value = value.strip()
+    if _DATE.match(value):
+        try:
+            return None, date(int(value[:4]), int(value[4:6]), int(value[6:8]))
+        except ValueError:
+            return None, None
+    match = _STAMP.match(value)
+    if not match:
+        return None, None
+    try:
+        local = datetime(*(int(match[i]) for i in range(1, 7)))
+    except ValueError:
+        return None, None
+    if match[7]:
+        return local.replace(tzinfo=timezone.utc), None
+    return local.replace(tzinfo=zone_of(zone_name)).astimezone(timezone.utc), None
+
+
+def parse_google_recurrence(
+    lines: list[str], starts_at: datetime, zone_name: str | None, all_day: bool
+) -> tuple[Recurrence | None, list[datetime]]:
+    """A Google master's ``recurrence`` lines as ANUM's rule and the original starts it excludes.
+
+    The rule is None when ANUM cannot hold it (RDATE or EXRULE, more than one RRULE, a part
+    outside ANUM's subset such as BYMONTH or BYHOUR, a week start other than Monday on a weekly
+    rule with an interval): the caller then reads the series' instances instead."""
+    rule: Recurrence | None = None
+    excluded: list[datetime] = []
+    zone = zone_of(zone_name)
+    for raw in lines:
+        if not isinstance(raw, str):
+            return None, []
+        head, _, body = raw.partition(":")
+        name, *params = head.split(";")
+        name = name.strip().upper()
+        if name == "RRULE":
+            if rule is not None:
+                return None, []
+            parts: list[str] = []
+            until_local: date | None = None
+            week_start = "MO"
+            for part in body.split(";"):
+                key, _, value = part.partition("=")
+                key = key.strip().upper()
+                if key == "WKST":
+                    week_start = value.strip().upper()
+                    continue
+                if key == "UNTIL":
+                    moment, day = _stamp(value, zone_name)
+                    if day is not None:
+                        until_local = day
+                    elif moment is not None:
+                        # The last day an occurrence may start on: the UNTIL instant's local day,
+                        # or the day before when the series' time of day is later than it.
+                        local = moment.astimezone(zone)
+                        wall = starts_at.astimezone(zone).time()
+                        until_local = local.date() if all_day or local.time() >= wall else local.date() - timedelta(days=1)
+                    else:
+                        return None, []
+                    continue
+                parts.append(part)
+            try:
+                rule = Recurrence.parse(";".join(parts))
+                if until_local is not None:
+                    rule = rule.model_copy(update={"until": until_local})
+                    rule = Recurrence.model_validate(rule.model_dump())
+            except ValueError:
+                return None, []
+            if week_start != "MO" and rule.freq == Frequency.WEEKLY and rule.interval > 1 and len(rule.by_weekday) > 1:
+                return None, []
+        elif name == "EXDATE":
+            zone_param = next((p.split("=", 1)[1] for p in params if p.upper().startswith("TZID=")), None)
+            for value in body.split(","):
+                moment, day = _stamp(value, zone_param or zone_name)
+                if day is not None:
+                    moment = all_day_bounds(day, day, zone_name)[0] if all_day else None
+                if moment is None:
+                    return None, []
+                excluded.append(moment)
+        else:
+            return None, []
+    return rule, excluded
+
+
 def google_event(item: dict[str, Any]) -> RemoteEvent | None:
     """One Google event, or None when it has no usable id or times."""
     external_id = item.get("id")
     if not valid_event_id(external_id):
         return None
     cancelled = item.get("status") == "cancelled"
-    start = item.get("start") or {}
-    end = item.get("end") or {}
-    starts_at = _parse_iso(start.get("dateTime")) or _parse_iso(f"{start.get('date')}T00:00:00Z" if start.get("date") else None)
-    ends_at = _parse_iso(end.get("dateTime")) or _parse_iso(f"{end.get('date')}T00:00:00Z" if end.get("date") else None)
+    starts_at, start_day, zone = _google_moment(item.get("start"))
+    ends_at, end_day, end_zone = _google_moment(item.get("end"))
+    zone = zone or end_zone
+    all_day = start_day is not None
     updated = _parse_iso(item.get("updated")) or datetime.now(timezone.utc)
+    original_start, original_day, _ = _google_moment(item.get("originalStartTime"))
+    recurring = item.get("recurringEventId")
     if starts_at is None or ends_at is None:
         if not cancelled:
             return None
         # A cancelled occurrence may come back as an id and status only.
         starts_at = ends_at = updated
+        all_day = False
+    if all_day and start_day is not None and end_day is not None:
+        # Google's end date is exclusive; the instants are that day's midnights in the event's zone
+        # (UTC when Google names none).
+        starts_at, ends_at = all_day_bounds(start_day, max(start_day, end_day - timedelta(days=1)), zone or "UTC")
     organizer = item.get("organizer") or {}
     attendees: list[RemoteAttendee] = []
     for person in item.get("attendees") or []:
@@ -283,6 +455,8 @@ def google_event(item: dict[str, Any]) -> RemoteEvent | None:
             if isinstance(point, dict) and point.get("entryPointType") == "video":
                 conference = _https(point.get("uri"))
                 break
+    lines = [line for line in item.get("recurrence") or [] if isinstance(line, str)][:20]
+    rule, excluded = parse_google_recurrence(lines, starts_at, zone or "UTC", all_day) if lines and not cancelled else (None, [])
     return RemoteEvent(
         external_id=str(external_id),
         title=_clean(item.get("summary"), 160) or "(no title)",
@@ -297,7 +471,32 @@ def google_event(item: dict[str, Any]) -> RemoteEvent | None:
         is_organizer=bool(organizer.get("self", True)),
         organizer_email=_email(organizer.get("email")),
         attendees=attendees,
+        all_day=all_day,
+        timezone=zone or ("UTC" if all_day or lines else None),
+        recurrence=rule,
+        exdates=excluded,
+        recurrence_lines=lines,
+        recurring_event_id=str(recurring) if valid_event_id(recurring) else None,
+        original_start=original_start if original_day is None else None,
+        original_date=original_day,
     )
+
+
+def _local_wall(moment: datetime, zone_name: str | None) -> str:
+    return moment.astimezone(zone_of(zone_name)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def google_rrule(rule: Recurrence, starts_at: datetime, zone_name: str | None, all_day: bool) -> str:
+    """ANUM's rule as Google's RRULE line. UNTIL is a date for an all-day series and the end of
+    that local day in UTC for a timed one (RFC 5545 wants UTC with a zoned start)."""
+    text = rule.model_copy(update={"until": None}).rrule() if rule.until else rule.rrule()
+    if rule.until is not None:
+        if all_day:
+            text += f";UNTIL={rule.until:%Y%m%d}"
+        else:
+            last = datetime.combine(rule.until, time(23, 59, 59), zone_of(zone_name)).astimezone(timezone.utc)
+            text += f";UNTIL={last:%Y%m%dT%H%M%SZ}"
+    return f"RRULE:{text}"
 
 
 class GoogleCalendarClient(CalendarProviderClient):
@@ -362,16 +561,20 @@ class GoogleCalendarClient(CalendarProviderClient):
         return CalendarAccount(email=address, display_name=_clean(body.get("name"), 200) or None)
 
     async def changes(self, token: str, cursor: str | None, *, since: datetime, until: datetime) -> CalendarDelta:
+        # Series come as their master and their changed instances (``singleEvents=false``). A cursor
+        # from before series were read (no ``|series`` mark) starts a full sync once.
         delta = CalendarDelta(full=True)
-        params: dict[str, str] = {"singleEvents": "true", "showDeleted": "true", "maxResults": "250"}
+        params: dict[str, str] = {"singleEvents": "false", "showDeleted": "true", "maxResults": "250"}
         kind, _, rest = (cursor or "").partition(":")
-        value, _, end_text = rest.partition("|")
+        value, _, tail = rest.partition("|")
+        end_text, _, mode = tail.partition("|")
         window_end = _parse_iso(end_text)
-        if kind == "sync" and _GOOGLE_TOKEN.fullmatch(value) and not window_stale(window_end, until):
+        current = mode == "series"
+        if kind == "sync" and current and _GOOGLE_TOKEN.fullmatch(value) and not window_stale(window_end, until):
             # The token reports changes inside the window it was started with (timeMax below).
             params["syncToken"] = value
             delta.full = False
-        elif kind == "page" and _GOOGLE_TOKEN.fullmatch(value) and window_end is not None:
+        elif kind == "page" and current and _GOOGLE_TOKEN.fullmatch(value) and window_end is not None:
             # A full sync that stopped at the page limit resumes where it stopped, in its own window.
             until = window_end
             params.update(timeMin=_iso(since), timeMax=_iso(until), pageToken=value)
@@ -397,11 +600,49 @@ class GoogleCalendarClient(CalendarProviderClient):
             sync = body.get("nextSyncToken")
             if isinstance(sync, str) and _GOOGLE_TOKEN.fullmatch(sync):
                 # Keep the window's end: a token from an older, shorter window is renewed in time.
-                delta.cursor = f"sync:{sync}|{window if delta.full else (end_text or window)}"
+                kept = window if delta.full or not end_text else end_text
+                delta.cursor = f"sync:{sync}|{kept}|series"
+            await self._flatten(token, delta, since=since, until=until)
             return delta
         delta.more = True
-        delta.cursor = f"page:{params['pageToken']}|{window}"
+        delta.cursor = f"page:{params['pageToken']}|{window}|series"
+        await self._flatten(token, delta, since=since, until=until)
         return delta
+
+    async def _flatten(self, token: str, delta: CalendarDelta, *, since: datetime, until: datetime) -> None:
+        """Masters whose rule ANUM cannot hold: read their instances as single events instead."""
+        done = 0
+        for master in [e for e in delta.events if e.is_master and e.recurrence is None and not e.cancelled]:
+            if done >= MAX_FLATTENED_SERIES:
+                break
+            done += 1
+            found = await self.instance_events(token, master.external_id, since=since, until=until)
+            master.flattened_instances = [e.external_id for e in found]
+            delta.events.extend(found)
+
+    async def instance_events(self, token: str, master_id: str, *, since: datetime, until: datetime) -> list[RemoteEvent]:
+        """The instances of one series inside the window (``events/{id}/instances``)."""
+        params: dict[str, str] = {"timeMin": _iso(since), "timeMax": _iso(until), "maxResults": "250", "showDeleted": "true"}
+        out: list[RemoteEvent] = []
+        for _ in range(MAX_PAGES):
+            _, body = await self.http.request("GET", f"{self.EVENTS}/{_path_id(master_id)}/instances", token=token, params=params)
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("items") or []:
+                if isinstance(item, dict):
+                    found = google_event(item)
+                    if found is not None:
+                        out.append(found)
+            page = body.get("nextPageToken")
+            if not (isinstance(page, str) and _GOOGLE_TOKEN.fullmatch(page)):
+                break
+            params["pageToken"] = page
+        return out
+
+    async def instances(self, token: str, master_id: str, *, since: datetime, until: datetime) -> list[RemoteInstance]:
+        return [
+            RemoteInstance(e.external_id, e.original_start, e.original_date, e.cancelled)
+            for e in await self.instance_events(token, master_id, since=since, until=until)
+        ]
 
     @staticmethod
     def _body(event: OutgoingEvent) -> dict[str, Any]:
@@ -412,6 +653,21 @@ class GoogleCalendarClient(CalendarProviderClient):
             "start": {"dateTime": _iso(event.starts_at), "timeZone": "UTC"},
             "end": {"dateTime": _iso(event.ends_at), "timeZone": "UTC"},
         }
+        if event.all_day and event.start_date is not None and event.end_date is not None:
+            # Dates; Google's end date is the day after the last one. The other key is cleared so an
+            # update can turn a timed event into an all-day one.
+            body["start"] = {"date": event.start_date.isoformat(), "dateTime": None, "timeZone": event.timezone or "UTC"}
+            body["end"] = {"date": (event.end_date + timedelta(days=1)).isoformat(), "dateTime": None, "timeZone": event.timezone or "UTC"}
+        elif event.recurrence is not None or event.instance:
+            # A series repeats at its wall-clock time in its own zone.
+            zone = event.timezone or "UTC"
+            body["start"] = {"dateTime": _local_wall(event.starts_at, zone), "timeZone": zone, "date": None}
+            body["end"] = {"dateTime": _local_wall(event.ends_at, zone), "timeZone": zone, "date": None}
+        if event.recurrence is not None:
+            body["recurrence"] = [google_rrule(event.recurrence, event.starts_at, event.timezone, event.all_day)]
+        if event.instance:
+            # Restores an occurrence that was cancelled on its own.
+            body["status"] = "confirmed"
         if event.attendees is not None:
             body["attendees"] = [{"email": email, "displayName": name} for email, name in event.attendees]
         return body
@@ -492,6 +748,12 @@ def graph_event(item: dict[str, Any]) -> RemoteEvent | None:
     body = item.get("body") or {}
     preview = item.get("bodyPreview")
     description = _text(preview, 2000) if body.get("contentType") != "text" else _text(body.get("content"), 2000)
+    all_day = bool(item.get("isAllDay"))
+    if all_day:
+        # Graph gives an all-day event as midnights in the asked zone (UTC): whole UTC days.
+        first, last = all_day_days(starts_at, ends_at, "UTC")
+        starts_at, ends_at = all_day_bounds(first, last, "UTC")
+    master = item.get("seriesMasterId")
     return RemoteEvent(
         external_id=str(external_id),
         title=_clean(item.get("subject"), 160) or "(no title)",
@@ -506,7 +768,47 @@ def graph_event(item: dict[str, Any]) -> RemoteEvent | None:
         is_organizer=bool(item.get("isOrganizer", True)),
         organizer_email=_email(organizer.get("address")),
         attendees=attendees,
+        all_day=all_day,
+        timezone="UTC" if all_day else None,
+        recurring_event_id=str(master) if valid_event_id(master) else None,
+        original_start=_parse_iso(item.get("originalStart")),
+        instance_kind=str(item.get("type")) if isinstance(item.get("type"), str) else None,
     )
+
+
+_GRAPH_DAYS = {"MO": "monday", "TU": "tuesday", "WE": "wednesday", "TH": "thursday", "FR": "friday", "SA": "saturday", "SU": "sunday"}
+_GRAPH_INDEX = {1: "first", 2: "second", 3: "third", 4: "fourth", -1: "last"}
+
+
+def graph_recurrence(rule: Recurrence, starts_at: datetime, zone_name: str | None) -> dict[str, Any]:
+    """ANUM's rule as Graph's ``patternedRecurrence`` (pattern and range), in the series' zone."""
+    zone = zone_name or "UTC"
+    first = starts_at.astimezone(zone_of(zone)).date()
+    weekday = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")[first.weekday()]
+    pattern: dict[str, Any] = {"interval": rule.interval, "firstDayOfWeek": "monday"}
+    if rule.freq == Frequency.DAILY:
+        pattern["type"] = "daily"
+    elif rule.freq == Frequency.WEEKLY:
+        pattern.update(type="weekly", daysOfWeek=[_GRAPH_DAYS[d] for d in (rule.by_weekday or [weekday])])
+    elif rule.freq == Frequency.MONTHLY and rule.by_setpos is not None:
+        pattern.update(type="relativeMonthly", daysOfWeek=[_GRAPH_DAYS[rule.by_weekday[0]]], index=_GRAPH_INDEX[rule.by_setpos])
+    elif rule.freq == Frequency.MONTHLY:
+        day = rule.by_monthday if rule.by_monthday is not None else first.day
+        if day < 1:
+            raise PushRefused(
+                "Microsoft calendars cannot repeat on the last day of the month. Choose a day of the month or the last weekday instead."
+            )
+        pattern.update(type="absoluteMonthly", dayOfMonth=day)
+    else:
+        pattern.update(type="absoluteYearly", dayOfMonth=first.day, month=first.month)
+    span: dict[str, Any] = {"startDate": first.isoformat(), "recurrenceTimeZone": zone}
+    if rule.until is not None:
+        span.update(type="endDate", endDate=rule.until.isoformat())
+    elif rule.count is not None:
+        span.update(type="numbered", numberOfOccurrences=rule.count)
+    else:
+        span["type"] = "noEnd"
+    return {"pattern": pattern, "range": span}
 
 
 def _graph_delta_query(link: str) -> str | None:
@@ -650,6 +952,18 @@ class MicrosoftCalendarClient(CalendarProviderClient):
             "start": {"dateTime": event.starts_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "UTC"},
             "end": {"dateTime": event.ends_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"), "timeZone": "UTC"},
         }
+        if event.all_day and event.start_date is not None and event.end_date is not None:
+            zone = event.timezone or "UTC"
+            body["isAllDay"] = True
+            body["start"] = {"dateTime": f"{event.start_date.isoformat()}T00:00:00", "timeZone": zone}
+            body["end"] = {"dateTime": f"{(event.end_date + timedelta(days=1)).isoformat()}T00:00:00", "timeZone": zone}
+        elif event.recurrence is not None or event.instance:
+            zone = event.timezone or "UTC"
+            body["isAllDay"] = False
+            body["start"] = {"dateTime": _local_wall(event.starts_at, zone), "timeZone": zone}
+            body["end"] = {"dateTime": _local_wall(event.ends_at, zone), "timeZone": zone}
+        if event.recurrence is not None:
+            body["recurrence"] = graph_recurrence(event.recurrence, event.starts_at, event.timezone)
         # Replacing the body of a Teams meeting would drop its join details: leave it alone then.
         if not (update and event.online_meeting):
             body["body"] = {"contentType": "text", "content": event.description or ""}
@@ -678,6 +992,26 @@ class MicrosoftCalendarClient(CalendarProviderClient):
         )
         return self._pushed(body)
 
+    async def instances(self, token: str, master_id: str, *, since: datetime, until: datetime) -> list[RemoteInstance]:
+        path = f"{self.API}/events/{_path_id(master_id)}/instances"
+        params: dict[str, str] | None = {"startDateTime": _iso(since), "endDateTime": _iso(until), "$select": "id,originalStart,isCancelled"}
+        url = path
+        out: list[RemoteInstance] = []
+        for _ in range(MAX_PAGES):
+            _, body = await self.http.request("GET", url, token=token, params=params, headers=self.HEADERS)
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("value") or []:
+                if isinstance(item, dict) and valid_event_id(item.get("id")):
+                    out.append(RemoteInstance(str(item["id"]), _parse_iso(item.get("originalStart")), None, bool(item.get("isCancelled"))))
+            next_link = body.get("@odata.nextLink")
+            if not next_link:
+                break
+            parts = urlsplit(str(next_link))
+            if parts.scheme != "https" or parts.netloc != "graph.microsoft.com" or unquote(parts.path) != unquote(urlsplit(path).path):
+                raise MailProviderError(502, "Microsoft Graph returned a paging link to another place.")
+            url, params = f"{path}?{parts.query}", None
+        return out
+
     async def delete(self, token: str, external_id: str, *, notify: bool) -> None:
         if notify:
             # Cancelling (rather than deleting) tells the attendees.
@@ -698,9 +1032,14 @@ __all__ = [
     "MicrosoftCalendarClient",
     "OutgoingEvent",
     "PROVIDER_NAMES",
+    "PushRefused",
     "PushResult",
+    "RemoteInstance",
     "RemoteAttendee",
     "RemoteEvent",
     "google_event",
+    "google_rrule",
     "graph_event",
+    "graph_recurrence",
+    "parse_google_recurrence",
 ]

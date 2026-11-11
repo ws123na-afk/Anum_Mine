@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../../data/sse.dart' show EventStreamTimeoutException;
 import 'finance_personal_models.dart';
+import 'finance_more_data.dart';
 import 'finance_personal_repository.dart';
 import 'finance_review_models.dart';
 
@@ -31,6 +32,10 @@ class FinancePersonalController extends ChangeNotifier {
 
   /// Null when this build has no Assistant to ask; the planner then says so.
   final MoneyPlanner? planner;
+
+  /// The routes of the parity pages (one payment split across loans); set
+  /// by `FinanceController`, null in builds without them.
+  FinanceMoreRepository? more;
   static const pageSize = 25;
 
   // -- lent and borrowed -----------------------------------------------------

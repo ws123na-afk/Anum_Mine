@@ -89,12 +89,15 @@ class FakeCalendars:
         self.google_writes: list[dict[str, Any]] = []
         self.google_query: list[dict[str, str]] = []
         self.google_expire_token = False
+        # Instances of a series by master id (events/{id}/instances).
+        self.google_instances: dict[str, list[dict[str, Any]]] = {}
         # Microsoft
         self.graph_items: list[dict[str, Any]] = [graph_item("m1", "Teams stand-up", 6)]
         self.graph_changes: list[dict[str, Any]] = []
         self.graph_writes: list[dict[str, Any]] = []
         self.graph_calls: list[str] = []
         self.graph_params: list[dict[str, str]] = []
+        self.graph_instances: dict[str, list[dict[str, Any]]] = {}
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         host, path = request.url.host, request.url.path
@@ -127,6 +130,9 @@ class FakeCalendars:
         assert request.headers["authorization"].startswith("Bearer google-access-")
         params = dict(request.url.params)
         path = request.url.path.removeprefix("/calendar/v3/calendars/primary/events")
+        if request.method == "GET" and path.endswith("/instances"):
+            self.google_query.append({**params, "instances": path})
+            return httpx.Response(200, json={"items": self.google_instances.get(path.split("/")[1], [])})
         if request.method == "GET" and path == "":
             self.google_query.append(params)
             if params.get("syncToken") == "S1" and self.google_expire_token:
@@ -143,7 +149,8 @@ class FakeCalendars:
         if request.method == "POST":
             body = json.loads(request.content)
             self.google_writes.append({"method": "POST", "params": params, **body})
-            return httpx.Response(200, json={**google_item("g_new", body["summary"], 40, etag='"n1"'), "summary": body["summary"], "attendees": []})
+            created = "g_new" if sum(w["method"] == "POST" for w in self.google_writes) == 1 else f"g_new{len(self.google_writes)}"
+            return httpx.Response(200, json={**google_item(created, body["summary"], 40, etag='"n1"'), "summary": body["summary"], "attendees": []})
         if request.method == "PATCH":
             body = json.loads(request.content)
             self.google_writes.append({"method": "PATCH", "id": path.removeprefix("/"), "params": params, **body})
@@ -160,6 +167,9 @@ class FakeCalendars:
         self.graph_calls.append(f"{request.method} {path}")
         if path == "":
             return httpx.Response(200, json={"mail": "owner@contoso.example", "displayName": "Owner Two"})
+        if request.method == "GET" and path.endswith("/instances"):
+            self.graph_params.append({**params, "instances": path})
+            return httpx.Response(200, json={"value": self.graph_instances.get(path.split("/")[2], [])})
         if path == "/calendarView/delta":
             self.graph_params.append(params)
             if "$deltatoken" in params:
@@ -322,7 +332,9 @@ def test_google_connect_imports_events_and_stores_tokens_encrypted(fake: FakeCal
     # The room resource is not an attendee; the address is lower-cased; the reply is mapped.
     assert [(a["email"], a["response"]) for a in review["attendees"]] == [("sajid@example.com", "accepted")]
     assert review["external_etag"] is None and review["invites_hash"] is None and review["invitations_pending"] is False  # the provider already holds these people
-    assert fake.google_query[0]["singleEvents"] == "true" and "timeMin" in fake.google_query[0] and "timeMax" in fake.google_query[0]
+    # Series come as their master and their changed instances (docs/calendar.md#how-events-sync).
+    assert fake.google_query[0]["singleEvents"] == "false" and "timeMin" in fake.google_query[0] and "timeMax" in fake.google_query[0]
+    assert row.sync_cursor.endswith("|series")
 
 
 def test_google_incremental_sync_uses_the_token_and_applies_changes(fake: FakeCalendars) -> None:

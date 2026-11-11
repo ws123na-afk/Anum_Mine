@@ -143,6 +143,24 @@ class FakeFiles implements FilesRepository {
   }
 
   @override
+  Future<FileFolder> renameFolder(String id, String name) =>
+      throw UnimplementedError();
+  @override
+  Future<FileFolder> moveFolder(String id, String? parentId) =>
+      throw UnimplementedError();
+  @override
+  Future<void> deleteFolder(String id, String contents) =>
+      throw UnimplementedError();
+  @override
+  Future<FileTag> renameTag(String id, String name) =>
+      throw UnimplementedError();
+  @override
+  Future<void> deleteTag(String id) => throw UnimplementedError();
+  @override
+  Future<bool> downloadZip(List<String> fileIds, String dialogTitle) =>
+      throw UnimplementedError();
+
+  @override
   Future<WorkspaceFile> upload(String path,
       {required String name,
       required void Function(int sent, int total) onProgress,

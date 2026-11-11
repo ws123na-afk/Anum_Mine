@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'admin_controller.dart';
 import 'admin_models.dart';
+import 'budget_usage_card.dart';
 
 /// Owner screen: the organization's and this workspace's monthly model
 /// budgets with this month's usage (docs/model-gateway.md, Monthly budgets).
 class BudgetsScreen extends StatefulWidget {
-  const BudgetsScreen({required this.controller, super.key});
+  const BudgetsScreen(
+      {required this.controller, this.currentUserId, super.key});
   final BudgetsController controller;
+
+  /// The signed-in person, shown as "(you)" in the breakdown by person.
+  final String? currentUserId;
   @override
   State<BudgetsScreen> createState() => _BudgetsScreenState();
 }
@@ -96,6 +102,9 @@ class _BudgetsScreenState extends State<BudgetsScreen> {
                         subtitle: 'Task planning and voice answers here',
                         view: o.workspace,
                         controller: c),
+                    BudgetUsageCard(
+                        controller: c.usage,
+                        currentUserId: widget.currentUserId),
                   ],
               },
             ]),
@@ -130,6 +139,8 @@ class _BudgetCardState extends State<_BudgetCard> {
       text: limitText(widget.view.budget?.limits.costUsd));
   late final tokens =
       TextEditingController(text: limitText(widget.view.budget?.limits.tokens));
+  late final alert = TextEditingController(
+      text: limitText(widget.view.budget?.limits.alertPercent));
 
   @override
   void didUpdateWidget(covariant _BudgetCard old) {
@@ -137,6 +148,7 @@ class _BudgetCardState extends State<_BudgetCard> {
     if (old.view.budget?.updatedAt != widget.view.budget?.updatedAt) {
       cost.text = limitText(widget.view.budget?.limits.costUsd);
       tokens.text = limitText(widget.view.budget?.limits.tokens);
+      alert.text = limitText(widget.view.budget?.limits.alertPercent);
     }
   }
 
@@ -144,6 +156,7 @@ class _BudgetCardState extends State<_BudgetCard> {
   void dispose() {
     cost.dispose();
     tokens.dispose();
+    alert.dispose();
     super.dispose();
   }
 
@@ -155,6 +168,8 @@ class _BudgetCardState extends State<_BudgetCard> {
     final saving = c.savingScope == widget.scope;
     final notice = c.notices[widget.scope];
     final failed = c.failedScopes.contains(widget.scope);
+    final l = AnumLocalizations.maybeOf(context);
+    final alertAt = v.budget?.limits.alertPercent;
     return AnumSurface(
       accent: v.exceeded ? p.stop : null,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -186,6 +201,12 @@ class _BudgetCardState extends State<_BudgetCard> {
         if (v.unpricedCalls > 0) ...[
           const SizedBox(height: 8),
           Text('Unpriced calls add tokens but no cost: set a token limit too.',
+              style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
+        ],
+        if (alertAt != null) ...[
+          const SizedBox(height: 8),
+          Text(l.f('ad.bud.alertAt', {'percent': alertAt}),
+              key: Key('${widget.scope}-alert-at'),
               style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
         ],
         if (v.budget != null) ...[
@@ -222,6 +243,15 @@ class _BudgetCardState extends State<_BudgetCard> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                   labelText: 'Monthly token limit', hintText: 'No limit')),
+          const SizedBox(height: AnumSpacing.sm),
+          TextField(
+              key: Key('${widget.scope}-alert'),
+              controller: alert,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                  labelText: l.t('ad.bud.alertPercent'),
+                  helperText: l.t('ad.bud.alertHint'),
+                  helperMaxLines: 4)),
           const SizedBox(height: 6),
           Text('Leave a field empty for no limit. 0 blocks every model call.',
               style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
@@ -236,14 +266,15 @@ class _BudgetCardState extends State<_BudgetCard> {
             FilledButton.icon(
                 onPressed: c.savingScope != null
                     ? null
-                    : () => c.save(widget.scope, cost.text, tokens.text),
+                    : () => c.save(widget.scope, cost.text, tokens.text,
+                        alert: alert.text, l: l),
                 icon: const Icon(Icons.save_outlined),
                 label: Text(saving ? 'Saving...' : 'Save limits')),
             if (v.budget != null)
               OutlinedButton(
                   onPressed: c.savingScope != null
                       ? null
-                      : () => c.save(widget.scope, '', ''),
+                      : () => c.save(widget.scope, '', '', l: l),
                   child: const Text('Remove limits')),
           ]),
         ],
@@ -272,21 +303,31 @@ class _Meter extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 14),
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Expanded(
-                child: Text(meter.label,
+          // Wraps the figures under the label on a narrow phone or at large
+          // text sizes instead of overflowing.
+          Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              spacing: AnumSpacing.sm,
+              children: [
+                Text(meter.label,
                     style: TextStyle(
                         color: p.muted,
                         fontSize: AnumType.xsPlus,
-                        fontWeight: FontWeight.w600))),
-            Text(meter.usedText,
-                style: TextStyle(
-                    color: p.text,
-                    fontSize: AnumType.lgPlus,
-                    fontWeight: FontWeight.w800)),
-            Text(' / ${meter.limitText}',
-                style: TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
-          ]),
+                        fontWeight: FontWeight.w600)),
+                Text.rich(TextSpan(children: [
+                  TextSpan(
+                      text: meter.usedText,
+                      style: TextStyle(
+                          color: p.text,
+                          fontSize: AnumType.lgPlus,
+                          fontWeight: FontWeight.w800)),
+                  TextSpan(
+                      text: ' / ${meter.limitText}',
+                      style:
+                          TextStyle(color: p.muted, fontSize: AnumType.xsPlus)),
+                ])),
+              ]),
           const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(99),

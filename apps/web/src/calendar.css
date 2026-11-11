@@ -327,3 +327,14 @@
 .calScopeChoices { display: grid; gap: var(--d-s2); margin: var(--d-s3) 0; }
 .calScopeChoices button { display: grid; justify-items: center; min-height: 44px; text-align: center; }
 .calScopeChoices button small { color: var(--d-muted); font-weight: 400; }
+/* Email reminders, a failed send to the connected calendar, replies per occurrence (docs/calendar.md). */
+.calendarForm .calReminderList li label.calReminderEmail { flex: none; min-height: 36px; white-space: nowrap; }
+.calReminderEmail svg { color: var(--d-muted); flex: none; height: 14px; width: 14px; }
+.calSyncProblem { align-items: flex-start; border: 1px solid color-mix(in srgb, var(--d-warn) 45%, var(--d-line)); border-radius: var(--d-r-md); display: flex; gap: var(--d-s2); padding: var(--d-s2) var(--d-s3); }
+.calSyncProblem.failed { border-color: color-mix(in srgb, var(--d-danger) 50%, var(--d-line)); }
+.calSyncProblem > svg { color: var(--d-warn); flex: none; height: 16px; margin-top: 2px; width: 16px; }
+.calSyncProblem.failed > svg { color: var(--d-danger); }
+.calSyncProblem > div { display: grid; gap: var(--d-s1); justify-items: start; min-width: 0; }
+.calSyncProblem p { font-size: var(--text-sm); margin: 0; overflow-wrap: anywhere; }
+.calReplyScope { margin: 0; max-width: 320px; }
+.calReplyOwn { display: block; color: var(--d-accent); font-size: var(--text-xs); font-weight: 600; }

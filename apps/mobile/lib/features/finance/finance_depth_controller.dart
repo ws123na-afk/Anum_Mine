@@ -78,6 +78,15 @@ class FinanceDepthController extends ChangeNotifier {
     await Future.wait([loadSettings(), loadReserves()]);
   }
 
+  /// Replaces the statement keyword rules (docs/finance.md#finance-settings)
+  /// and keeps the currency and time zone; reloads what was saved.
+  Future<void> saveRules(List<Map<String, Object?>> rules) async {
+    final current = settings.value ??
+        const FinanceSettingsData(baseCurrency: 'AED', timezone: 'Asia/Dubai');
+    await repository.saveSettings(current.body(rules: rules));
+    await loadSettings();
+  }
+
   /// [currency]'s buffer set to [amount], or taken out when null.
   Future<void> saveBuffer(String currency, String? amount) async {
     final current = plan.value ?? const FinancePlanData();

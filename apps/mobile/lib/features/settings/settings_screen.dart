@@ -227,7 +227,8 @@ class _Content extends StatelessWidget {
               _AdminCard(
                   repository: controller.admin!,
                   orgAdmin: controller.orgAdmin,
-                  workspaceId: session.context.workspaceId),
+                  workspaceId: session.context.workspaceId,
+                  userId: session.context.userId),
             ],
             if (controller.billing != null) ...[
               _Heading(AnumLocalizations.maybeOf(context).t('bl.title')),
@@ -934,10 +935,14 @@ class _AutonomyCard extends StatelessWidget {
 /// when it is popped ([OwnedController]).
 class _AdminCard extends StatelessWidget {
   const _AdminCard(
-      {required this.repository, required this.workspaceId, this.orgAdmin});
+      {required this.repository,
+      required this.workspaceId,
+      this.orgAdmin,
+      this.userId});
   final AdminRepository repository;
   final OrgAdminRepository? orgAdmin;
   final String workspaceId;
+  final String? userId;
 
   void _push<T extends ChangeNotifier>(BuildContext context,
           T Function() create, Widget Function(T controller) screen) =>
@@ -976,12 +981,12 @@ class _AdminCard extends StatelessWidget {
             subtitle: const Text('Monthly cost and token limits with usage.'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _push(context, () => BudgetsController(repository),
-                (c) => BudgetsScreen(controller: c))),
+                (c) => BudgetsScreen(controller: c, currentUserId: userId))),
         ListTile(
             leading: const Icon(Icons.policy_outlined),
             title: const Text('Approval policy'),
             subtitle: const Text(
-                'Two-person rule and approval for medium-risk actions.'),
+                'The two switches, organization rules, routing and reminders.'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _push(
                 context,

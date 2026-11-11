@@ -6,6 +6,8 @@
 import 'dart:typed_data';
 
 import 'package:anum_mobile/data/api_client.dart';
+import 'package:anum_mobile/data/api_downloads.dart';
+import 'package:anum_mobile/features/files/file_strings.dart';
 import 'package:anum_mobile/features/workspace/files_controller.dart';
 import 'package:anum_mobile/features/workspace/files_models.dart';
 import 'package:anum_mobile/features/workspace/files_repository.dart';
@@ -16,6 +18,8 @@ import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'lists/lists_harness.dart';
 
 final _time = DateTime.utc(2026, 11, 10, 9);
 const _usage = FileUsage(
@@ -164,6 +168,90 @@ class _Repo implements FilesRepository {
     return FileTag(id: 'tag_new', name: name, canManage: true);
   }
 
+  Object? manageError;
+  bool zipSaved = true;
+
+  @override
+  Future<FileFolder> renameFolder(String id, String name) async {
+    calls.add('renameFolder $id $name');
+    if (manageError != null) throw manageError!;
+    folderRows = [
+      for (final f in folderRows)
+        f.id == id
+            ? FileFolder(
+                id: f.id,
+                name: name,
+                path: name,
+                parentId: f.parentId,
+                depth: f.depth,
+                canManage: f.canManage)
+            : f
+    ];
+    return folderRows.firstWhere((f) => f.id == id);
+  }
+
+  @override
+  Future<FileFolder> moveFolder(String id, String? parentId) async {
+    calls.add('moveFolder $id to $parentId');
+    if (manageError != null) throw manageError!;
+    folderRows = [
+      for (final f in folderRows)
+        f.id == id
+            ? FileFolder(
+                id: f.id,
+                name: f.name,
+                path: f.name,
+                parentId: parentId,
+                canManage: f.canManage)
+            : f
+    ];
+    return folderRows.firstWhere((f) => f.id == id);
+  }
+
+  @override
+  Future<void> deleteFolder(String id, String contents) async {
+    calls.add('deleteFolder $id $contents');
+    if (manageError != null) throw manageError!;
+    folderRows =
+        folderRows.where((f) => f.id != id && f.parentId != id).toList();
+    if (contents == 'move_up') {
+      files = [
+        for (final f in files)
+          f.folderId == id ? _file(f.id, f.name, canManage: f.canManage) : f
+      ];
+    } else {
+      files = files.where((f) => f.folderId != id).toList();
+    }
+  }
+
+  @override
+  Future<FileTag> renameTag(String id, String name) async {
+    calls.add('renameTag $id $name');
+    if (manageError != null) throw manageError!;
+    tagRows = [
+      for (final t in tagRows)
+        t.id == id
+            ? FileTag(
+                id: id, name: name, fileCount: t.fileCount, canManage: true)
+            : t
+    ];
+    return tagRows.firstWhere((t) => t.id == id);
+  }
+
+  @override
+  Future<void> deleteTag(String id) async {
+    calls.add('deleteTag $id');
+    if (manageError != null) throw manageError!;
+    tagRows = tagRows.where((t) => t.id != id).toList();
+  }
+
+  @override
+  Future<bool> downloadZip(List<String> fileIds, String dialogTitle) async {
+    calls.add('downloadZip ${fileIds.join(',')}');
+    if (manageError != null) throw manageError!;
+    return zipSaved;
+  }
+
   @override
   Future<WorkspaceFile> upload(String path,
           {required String name,
@@ -218,11 +306,29 @@ Future<void> _pump(WidgetTester tester, Widget child,
 /// once, so the finder already matches; only the scroll offset is missing).
 Future<void> _show(WidgetTester tester, Finder finder,
     {double delta = 120}) async {
+  // Something scrolled out of the lazily built list: drag back to it.
+  bool missing;
+  try {
+    missing = finder.evaluate().isEmpty;
+  } on Error {
+    missing = true;
+  }
+  if (missing) {
+    await tester.dragUntilVisible(
+        finder, find.byType(ListView).first, Offset(0, delta.sign * -150));
+  }
   await tester.ensureVisible(finder.first);
   await tester.pumpAndSettle();
 }
 
 Future<void> _tapTile(WidgetTester tester, int index) async {
+  // At large text sizes the rows can start below the lazily built part.
+  for (var tries = 0;
+      tries < 20 && find.byType(CheckboxListTile).evaluate().length <= index;
+      tries++) {
+    await tester.drag(find.byType(ListView).first, const Offset(0, -150));
+    await tester.pumpAndSettle();
+  }
   final finder = find.byType(CheckboxListTile).at(index);
   await _show(tester, finder);
   await tester.tap(finder);
@@ -478,6 +584,7 @@ void main() {
         await _pump(tester, FilesTab(controller: c, currentUserId: 'user_me'),
             size: Size(width.toDouble(), 900), textScale: scale);
         await _tapText(tester, 'Select');
+
         await _tapTile(tester, 0);
         await _show(tester, find.text('1 selected'), delta: -120);
         expect(find.text('1 selected'), findsOneWidget);
@@ -501,7 +608,275 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('managing folders, tags and the zip', () {
+    const s = FileStrings.english;
+    const mine = FileFolder(
+        id: 'folder_contracts',
+        name: 'Contracts',
+        path: 'Contracts',
+        canManage: true);
+
+    _Repo managed() => _Repo()
+      ..folderRows = [
+        mine,
+        const FileFolder(
+            id: 'folder_2026',
+            name: '2026',
+            path: 'Contracts / 2026',
+            parentId: 'folder_contracts',
+            depth: 2,
+            canManage: true),
+        const FileFolder(id: 'folder_hr', name: 'HR', path: 'HR'),
+      ]
+      ..tagRows = [
+        const FileTag(
+            id: 'tag_urgent', name: 'Urgent', fileCount: 1, canManage: true),
+        const FileTag(id: 'tag_theirs', name: 'Legal', fileCount: 2),
+      ];
+
+    test('the API repository sends the folder, tag and zip requests', () async {
+      final transport = ScriptedTransport((r) {
+        if (r.uri.path.contains('/tags/')) {
+          return const ApiResponse(
+              statusCode: 200, body: {'id': 'tag_1', 'name': 'Today'});
+        }
+        return const ApiResponse(statusCode: 200, body: {
+          'id': 'folder_1',
+          'name': 'Agreements',
+          'path': 'Agreements',
+        });
+      });
+      final api = await scriptedClient(transport);
+      final downloads = _Zip();
+      api.downloads = downloads;
+      final repo = ApiFilesRepository(api, transfer: _NoTransfer());
+      await repo.renameFolder('folder_1', 'Agreements');
+      expect(transport.requests.last.method, 'PATCH');
+      expect(transport.requests.last.body, {'name': 'Agreements'});
+      await repo.moveFolder('folder_1', null);
+      expect(transport.requests.last.body, {'parent_id': null});
+      await repo.deleteFolder('folder_1', 'move_up');
+      expect(transport.requests.last.method, 'DELETE');
+      expect(transport.requests.last.uri.query, 'contents=move_up');
+      await repo.renameTag('tag_1', 'Today');
+      expect(transport.requests.last.uri.path, '/api/v1/files/tags/tag_1');
+      await repo.deleteTag('tag_1');
+      expect(transport.requests.last.method, 'DELETE');
+      expect(await repo.downloadZip(['f1', 'f2'], 'Save'), isTrue);
+      expect(downloads.calls.single,
+          'POST /api/v1/files/bulk/download {file_ids: [f1, f2]} files.zip');
+    });
+
+    test('the controller renames, moves and deletes folders and tags',
+        () async {
+      final repo = managed();
+      final c = FilesController(repo);
+      await c.load();
+      var contracts = c.folders.firstWhere((f) => f.id == 'folder_contracts');
+      expect(c.folderBranch(contracts), {'folder_contracts', 'folder_2026'});
+      expect(c.folderContents(contracts), (files: 1, folders: 1));
+      expect(await c.renameFolder(contracts, 'hr', s),
+          'A folder named hr already exists here.');
+      expect(await c.renameFolder(contracts, 'Agreements', s), isNull);
+      expect(repo.calls, contains('renameFolder folder_contracts Agreements'));
+      contracts = c.folders.firstWhere((f) => f.id == 'folder_contracts');
+      // A folder never moves into itself or below itself.
+      expect(await c.moveFolder(contracts, 'folder_2026', s),
+          contains('cannot move into itself'));
+      expect(await c.moveFolder(contracts, 'folder_hr', s), isNull);
+      expect(repo.calls.last, startsWith('list'));
+      expect(repo.calls, contains('moveFolder folder_contracts to folder_hr'));
+      // Deleting the open folder opens its parent.
+      await c.openFolder('folder_2026');
+      final year = c.folders.firstWhere((f) => f.id == 'folder_2026');
+      expect(await c.deleteFolder(year, 'refuse', s), isNull);
+      expect(c.folder, 'folder_contracts');
+      final urgent = c.tags.firstWhere((t) => t.id == 'tag_urgent');
+      expect(await c.renameTag(urgent, 'legal', s),
+          'A tag named legal already exists.');
+      expect(await c.renameTag(urgent, 'Today', s), isNull);
+      await c.setTagFilter('tag_urgent');
+      expect(await c.deleteTag(c.tags.first, s), isNull);
+      expect(c.tagFilter, isNull);
+      repo.manageError = const ApiException(403, 'Not yours');
+      expect(await c.deleteTag(c.tags.last, s), s.t('org.tag.manageDenied'));
+      expect(await c.deleteFolder(c.folders.first, 'delete', s),
+          s.t('org.folder.manageNote'));
+      repo.manageError = const ApiException(
+          409, 'HR is not empty: it holds 2 files and 0 subfolders.');
+      expect(await c.deleteFolder(c.folders.first, 'refuse', s),
+          contains('is not empty'));
+    });
+
+    test('the zip is refused above the phone cap and says what happened',
+        () async {
+      final repo = managed();
+      final c = FilesController(repo);
+      await c.load();
+      c.selectAll();
+      expect(await c.downloadSelected(s), isNull);
+      expect(repo.calls.last, startsWith('downloadZip file_a,file_b'));
+      expect(c.notice, 'Saved 3 files as one zip.');
+      repo.zipSaved = false;
+      await c.downloadSelected(s);
+      expect(c.notice, 'The zip was not saved.');
+      repo.manageError = const ApiException(409, 'report.txt is quarantined.');
+      expect(await c.downloadSelected(s),
+          'The download failed: report.txt is quarantined.');
+      repo
+        ..manageError = null
+        ..files = [
+          WorkspaceFile(
+              id: 'file_big',
+              name: 'video.mp4',
+              contentType: 'video/mp4',
+              sizeBytes: 300 * 1024 * 1024,
+              createdAt: _time,
+              createdBy: 'user_me')
+        ];
+      await c.load();
+      c
+        ..clearSelection()
+        ..selectAll();
+      final calls = repo.calls.length;
+      expect(await c.downloadSelected(s), contains('256 MB'));
+      expect(repo.calls.length, calls, reason: 'nothing was sent');
+    });
+
+    testWidgets('the folder menu renames, moves and deletes the open folder',
+        (tester) async {
+      final repo = managed()
+        ..files = [
+          ...managedFiles(),
+        ];
+      final c = FilesController(repo);
+      await _pump(tester, FilesTab(controller: c, currentUserId: 'user_me'));
+      await _tapText(tester, 'Contracts · 1 file');
+      await tester.tap(find.byKey(const Key('folder-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('folder-rename')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('name-dialog-field')), 'Agreements');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('name-dialog-save')));
+      await tester.pumpAndSettle();
+      expect(repo.calls, contains('renameFolder folder_contracts Agreements'));
+      expect(find.text('Folder renamed to Agreements.'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('folder-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('folder-move')));
+      await tester.pumpAndSettle();
+      // Its own subfolder is not offered.
+      expect(find.byKey(const Key('folder-move-folder_2026')), findsNothing);
+      await tester.tap(find.byKey(const Key('folder-move-folder_hr')));
+      await tester.pumpAndSettle();
+      expect(repo.calls, contains('moveFolder folder_contracts to folder_hr'));
+
+      await tester.tap(find.byKey(const Key('folder-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('folder-delete')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('This folder holds 1 file and 1 subfolder'),
+          findsOneWidget);
+      await tester.tap(find.byKey(const Key('folder-delete-all')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('folder-delete-confirm')));
+      await tester.pumpAndSettle();
+      expect(repo.calls, contains('deleteFolder folder_contracts delete'));
+      expect(c.folder, 'folder_hr');
+    });
+
+    testWidgets('someone else\'s folder says who can change it',
+        (tester) async {
+      final repo = managed();
+      final c = FilesController(repo);
+      await _pump(tester, FilesTab(controller: c, currentUserId: 'user_me'));
+      await _tapText(tester, 'HR · 0 files');
+      expect(find.byKey(const Key('folder-menu')), findsNothing);
+      expect(find.byKey(const Key('folder-manage-note')), findsOneWidget);
+    });
+
+    testWidgets('Manage tags renames and deletes; others are read only',
+        (tester) async {
+      final repo = managed();
+      final c = FilesController(repo);
+      await _pump(tester, FilesTab(controller: c, currentUserId: 'user_me'));
+      await _show(tester, find.byKey(const Key('tags-manage')));
+      await tester.tap(find.byKey(const Key('tags-manage')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('tag-rename-tag_theirs')), findsNothing);
+      expect(find.text(s.t('org.tag.manageDenied')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('tag-rename-tag_urgent')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('name-dialog-field')), 'Today');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('name-dialog-save')));
+      await tester.pumpAndSettle();
+      expect(repo.calls, contains('renameTag tag_urgent Today'));
+      await tester.tap(find.byKey(const Key('tag-delete-tag_urgent')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('It is removed from 1 file'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('tag-delete-confirm')));
+      await tester.pumpAndSettle();
+      expect(repo.calls, contains('deleteTag tag_urgent'));
+      expect(find.byKey(const Key('tag-row-tag_urgent')), findsNothing);
+    });
+
+    testWidgets('Download saves the selection as one zip', (tester) async {
+      final repo = managed();
+      final c = FilesController(repo);
+      await _pump(tester, FilesTab(controller: c, currentUserId: 'user_me'));
+      await _tapText(tester, 'Select');
+      await _tapTile(tester, 0);
+      await _tapTile(tester, 2);
+      await _show(tester, find.byKey(const Key('files-download-zip')));
+      await tester.tap(find.byKey(const Key('files-download-zip')));
+      await tester.pumpAndSettle();
+      expect(repo.calls.last, 'downloadZip file_a,file_c');
+      expect(c.notice, 'Saved 2 files as one zip.');
+    });
+
+    for (final (width, scale) in [
+      (320, 2.0),
+      (390, 2.0),
+      (768, 2.0),
+      (1024, 2.0)
+    ]) {
+      testWidgets(
+          'folder and tag dialogs fit at $width wide, ${scale}x, Arabic',
+          (tester) async {
+        final repo = managed();
+        final c = FilesController(repo);
+        await _pump(tester, FilesTab(controller: c, currentUserId: 'user_me'),
+            size: Size(width.toDouble(), 900), textScale: scale, arabic: true);
+        await _tapText(tester, 'Contracts · ملف واحد');
+        await tester.tap(find.byKey(const Key('folder-menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('folder-delete')));
+        await tester.pumpAndSettle();
+        expect(find.text('احذف المجلد مع كل ما فيه'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('إلغاء'));
+        await tester.pumpAndSettle();
+        await _show(tester, find.byKey(const Key('tags-manage')));
+        await tester.tap(find.byKey(const Key('tags-manage')));
+        await tester.pumpAndSettle();
+        expect(find.text('إدارة الوسوم'), findsWidgets);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
 }
+
+List<WorkspaceFile> managedFiles() => [
+      _file('file_a', 'readme.txt', tags: const [_urgent]),
+      _file('file_d', 'lease.txt',
+          folderId: 'folder_contracts', folderPath: 'Contracts'),
+    ];
 
 /// A repository whose first list call answers 404 (a deleted folder).
 class _FailingOnce implements FilesRepository {
@@ -553,6 +928,23 @@ class _FailingOnce implements FilesRepository {
   @override
   Future<FileTag> createTag(String name) => inner.createTag(name);
   @override
+  Future<FileFolder> renameFolder(String id, String name) =>
+      inner.renameFolder(id, name);
+  @override
+  Future<FileFolder> moveFolder(String id, String? parentId) =>
+      inner.moveFolder(id, parentId);
+  @override
+  Future<void> deleteFolder(String id, String contents) =>
+      inner.deleteFolder(id, contents);
+  @override
+  Future<FileTag> renameTag(String id, String name) =>
+      inner.renameTag(id, name);
+  @override
+  Future<void> deleteTag(String id) => inner.deleteTag(id);
+  @override
+  Future<bool> downloadZip(List<String> fileIds, String dialogTitle) =>
+      inner.downloadZip(fileIds, dialogTitle);
+  @override
   Future<WorkspaceFile> upload(String path,
           {required String name,
           required void Function(int sent, int total) onProgress,
@@ -576,4 +968,21 @@ class _FailingOnce implements FilesRepository {
   Future<Uint8List> bytes(String id) => inner.bytes(id);
   @override
   Future<void> download(WorkspaceFile file) => inner.download(file);
+}
+
+class _Zip implements ApiDownloads {
+  final calls = <String>[];
+  @override
+  Future<bool> save(String method, String path,
+      {Map<String, Object?>? body,
+      required String fileName,
+      required String dialogTitle}) async {
+    calls.add('$method $path $body $fileName');
+    return true;
+  }
+}
+
+class _NoTransfer implements FileStreamTransfer {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

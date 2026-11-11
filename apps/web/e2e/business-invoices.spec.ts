@@ -322,6 +322,31 @@ test('a member sees who has access but cannot create or turn off a link', async 
   await expect(lead.getByRole('button', { name: 'Create a portal link' })).toHaveCount(0);
   await expect(lead.getByRole('button', { name: 'Turn off' })).toHaveCount(0);
   await expect(lead.getByText('Only an owner can create or turn off a link.')).toBeVisible();
+  // What this customer decided: the newest ten first, paged with the shared Pager.
+  await expect(lead.getByText(/No decisions in the portal yet/)).toBeVisible();
+});
+
+test('the account shows what the customer decided in the portal, ten a page', async ({ page }) => {
+  const mock = await mockInvoices(page);
+  for (let n = 0; n < 12; n++) {
+    mock.decisions.push({ id: `bpdec_${n}`, subject_kind: n % 2 ? 'change_order' : 'proposal', subject_id: `bprop_${n}`, version: n + 1, decision: n % 3 ? 'approved' : 'declined',
+      signer_name: 'Sara Khan', note: n === 0 ? 'Please start in January.' : '', decided_at: new Date(Date.now() - n * 86_400_000).toISOString(), contact_name: 'Sara Khan' });
+  }
+  await page.goto('/#business-leads');
+  await page.getByRole('button', { name: 'New lead' }).first().click();
+  const leadForm = page.getByRole('form', { name: 'New lead' });
+  await leadForm.getByLabel('Company name').fill('Gulf Mixers LLC');
+  await leadForm.getByLabel('Lead title').fill('Fleet reporting');
+  await leadForm.getByRole('button', { name: 'Add lead' }).click();
+  const decided = page.getByRole('dialog', { name: 'Gulf Mixers LLC' }).getByRole('group', { name: 'What this customer decided' });
+  await expect(decided.getByRole('listitem')).toHaveCount(10);
+  await expect(decided.getByText('Proposal, version 1')).toBeVisible();
+  await expect(decided.getByText('Their note: Please start in January.')).toBeVisible();
+  const pager = decided.getByRole('navigation', { name: 'Decision pages' });
+  await expect(pager).toContainText('1 to 10 of 12');
+  await pager.getByRole('button', { name: 'Next' }).click();
+  await expect(decided.getByRole('listitem')).toHaveCount(2);
+  expect(mock.calls.some((call) => call.path === '/portal/decisions')).toBe(true);
 });
 
 test('the owner sees the customer decision on a proposal, and whether it is about the current version', async ({ page }) => {

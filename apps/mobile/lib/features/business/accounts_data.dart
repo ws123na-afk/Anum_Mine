@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
+import '../records_kit/records_export.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
 
@@ -116,7 +117,13 @@ abstract interface class AccountsRepository {
     String? query,
     required int offset,
     int limit,
+    String sort,
+    bool desc,
   });
+
+  /// The list as a CSV file (`GET /accounts/export`): the same search and
+  /// order, counts only, no contact's personal data.
+  Future<String> exportCsv({String? query, String sort, bool desc});
   Future<BusinessAccount> account(String id);
   Future<BusinessAccount> createAccount(Map<String, Object?> fields);
   Future<BusinessAccount> updateAccount(String id, Map<String, Object?> fields);
@@ -150,9 +157,13 @@ class ApiAccountsRepository implements AccountsRepository {
     String? query,
     required int offset,
     int limit = 20,
+    String sort = 'name',
+    bool desc = false,
   }) async {
     final params = <String, String>{
       if (query != null && query.isNotEmpty) 'q': query,
+      'sort': sort,
+      if (desc) 'desc': 'true',
       'offset': '$offset',
       'limit': '$limit',
     };
@@ -160,6 +171,18 @@ class ApiAccountsRepository implements AccountsRepository {
       await _call('GET', '/accounts?${Uri(queryParameters: params).query}'),
       BusinessAccount.fromJson,
     );
+  }
+
+  @override
+  Future<String> exportCsv(
+      {String? query, String sort = 'name', bool desc = false}) {
+    final params = <String, String>{
+      if (query != null && query.isNotEmpty) 'q': query,
+      'sort': sort,
+      if (desc) 'desc': 'true',
+    };
+    return fetchCsv(
+        api, '$_base/accounts/export?${Uri(queryParameters: params).query}');
   }
 
   @override
@@ -232,8 +255,13 @@ class AccountsController extends ChangeNotifier {
   final AccountsRepository repository;
   static const pageSize = 20;
 
+  /// The orders the API accepts (`ACCOUNT_SORTS`), in the menu's order.
+  static const sorts = ['name', 'place', 'industry', 'updated', 'created'];
+
   BusinessLoad state = BusinessLoad.idle;
   final List<BusinessAccount> items = [];
+  String sort = 'name';
+  bool desc = false;
   int total = 0;
   bool loadingMore = false;
   String? error, query;
@@ -251,6 +279,8 @@ class AccountsController extends ChangeNotifier {
         query: query,
         offset: 0,
         limit: pageSize,
+        sort: sort,
+        desc: desc,
       );
       if (generation != _generation) return;
       items
@@ -273,6 +303,18 @@ class AccountsController extends ChangeNotifier {
     return load();
   }
 
+  /// Orders the list by [by] (one of [sorts]) and reloads from the first
+  /// page; the server orders, so every page follows it.
+  Future<void> order(String by, {bool? descending}) {
+    sort = sorts.contains(by) ? by : 'name';
+    desc = descending ?? desc;
+    return load();
+  }
+
+  /// The list as shown (search and order) as a CSV file.
+  Future<String> exportCsv() =>
+      repository.exportCsv(query: query, sort: sort, desc: desc);
+
   Future<void> more() async {
     if (loadingMore || !hasMore) return;
     final generation = _generation;
@@ -283,6 +325,8 @@ class AccountsController extends ChangeNotifier {
         query: query,
         offset: items.length,
         limit: pageSize,
+        sort: sort,
+        desc: desc,
       );
       if (generation != _generation) return;
       items.addAll(page.items);
@@ -317,6 +361,9 @@ class AccountsController extends ChangeNotifier {
   void reset() {
     items.clear();
     total = 0;
+    sort = 'name';
+    desc = false;
+    query = null;
     state = BusinessLoad.idle;
     notifyListeners();
   }

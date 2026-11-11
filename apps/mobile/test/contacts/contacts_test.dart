@@ -185,6 +185,79 @@ class FakeContacts implements ContactsRepository {
     }
     marks.removeWhere((m) => m['channel'] == channel);
   }
+
+  final created = <JsonMap>[];
+  final updated = <JsonMap>[];
+  final proposalRows = <JsonMap>[
+    {
+      'id': 'prop_1',
+      'reason': 'same_phone',
+      'matched_value': '+971501234567',
+      'status': 'open',
+      'a': personJson('ct_sara', 'Sara Ahmed'),
+      'b': personJson('ct_sarah', 'Sarah A.'),
+      'created_at': '2026-11-10T09:30:00Z',
+    }
+  ];
+  bool exportSaved = true;
+  Object? exportError;
+  bool mergeGone = false;
+
+  @override
+  Future<PersonDetail> create(JsonMap body) async {
+    calls.add('POST person ${body['name']}');
+    created.add(body);
+    return PersonDetail.fromJson(JsonReader({
+      ...detailJson(personJson('ct_new', body['name']! as String)),
+      'proposals': [proposalRows.first],
+    }));
+  }
+
+  @override
+  Future<PersonDetail> update(String id, JsonMap body) async {
+    calls.add('PATCH $id ${body['name']}');
+    updated.add(body);
+    return PersonDetail.fromJson(JsonReader(detailJson(
+        {...personJson(id, body['name']! as String), 'notes': body['notes']})));
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    calls.add('DELETE person $id');
+    if (!owner) throw const ApiException(403, 'Only workspace owners');
+  }
+
+  @override
+  Future<PersonDetail> merge(String keepId, String otherId) async {
+    calls.add('MERGE $otherId into $keepId');
+    if (mergeGone) throw const ApiException(404, 'Person not found');
+    proposalRows.clear();
+    return PersonDetail.fromJson(
+        JsonReader(detailJson(personJson(keepId, 'Sara Ahmed'))));
+  }
+
+  @override
+  Future<ProposalPage> proposals({int offset = 0}) async {
+    calls.add('GET proposals offset=$offset');
+    return ProposalPage.fromJson(JsonReader({
+      'items': proposalRows,
+      'total': proposalRows.length,
+      'can_write': true,
+    }));
+  }
+
+  @override
+  Future<void> dismissProposal(String id) async {
+    calls.add('DISMISS $id');
+    proposalRows.removeWhere((p) => p['id'] == id);
+  }
+
+  @override
+  Future<bool> exportCsv(String dialogTitle) async {
+    calls.add('EXPORT');
+    if (exportError != null) throw exportError!;
+    return exportSaved;
+  }
 }
 
 Future<void> pump(WidgetTester tester, FakeContacts repo,
@@ -269,6 +342,11 @@ void main() {
     expect(find.text('Do not contact: WhatsApp'), findsOneWidget);
     expect(find.text('30 people'), findsOneWidget);
     expect(find.textContaining('2 people, 1 marked'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Show more'), 200,
+        scrollable: find
+            .descendant(
+                of: find.byType(ListView), matching: find.byType(Scrollable))
+            .first);
     await tester.tap(find.text('Show more'));
     await tester.pumpAndSettle();
     expect(find.text('Person More'), findsOneWidget);
@@ -358,8 +436,167 @@ void main() {
     expect(find.byKey(const Key('clear-phone')), findsNothing);
     expect(find.text('Only workspace owners clear a mark.'), findsOneWidget);
     expect(find.text('Blocked'), findsOneWidget);
-    expect(find.textContaining('on the web'), findsOneWidget);
+    // Members edit and merge; only owners delete.
+    expect(find.byKey(const Key('person-edit')), findsOneWidget);
+    expect(find.byKey(const Key('person-delete')), findsNothing);
   });
+
+  test('the person form is checked like the API', () {
+    const l = AnumLocalizations(Locale('en'));
+    final ok = personBody(const PersonDraft(
+        name: '  Sara   Ahmed ',
+        phones: '050 123 4567\n+971 4 555 0000',
+        emails: 'SARA@tyre.example; ops@tyre.example'));
+    expect(ok.body!['name'], 'Sara Ahmed');
+    expect(ok.body!['phones'], ['050 123 4567', '+971 4 555 0000']);
+    expect(ok.body!['emails'], ['SARA@tyre.example', 'ops@tyre.example']);
+    expect(personBody(const PersonDraft()).error, 'contacts.err.name');
+    final bad = personBody(const PersonDraft(name: 'X', phones: '12345'));
+    expect(l.f(bad.error!, {'value': bad.value!}),
+        '"12345" is not a phone number. Use the country code, for example +971501234567.');
+    expect(personBody(const PersonDraft(name: 'X', emails: 'not-mail')).error,
+        'contacts.err.email');
+    expect(
+        personBody(PersonDraft(
+                name: 'X', phones: List.filled(11, '+971501234567').join('\n')))
+            .error,
+        'contacts.err.tooMany');
+    final draft = PersonDraft.of(
+        Person.fromJson(JsonReader(personJson('ct_sara', 'Sara Ahmed'))));
+    expect(draft.phones, '050 123 4567');
+    expect(draft.emails, 'sara@tyre.example');
+  });
+
+  testWidgets('Add person checks the form, saves and opens the person',
+      (tester) async {
+    final repo = FakeContacts();
+    await pump(tester, repo);
+    await tester.tap(find.byKey(const Key('contacts-add')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('person-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Give the person a name (up to 200 characters).'),
+        findsOneWidget);
+    await tester.enterText(
+        find.byKey(const Key('person-name')), 'Nadia Kausar');
+    await tester.enterText(
+        find.byKey(const Key('person-phones')), '0501234567');
+    await tester.tap(find.byKey(const Key('person-save')));
+    await tester.pumpAndSettle();
+    expect(repo.created.single['phones'], ['0501234567']);
+    expect(
+        find.textContaining('a possible duplicate was opened'), findsOneWidget);
+    expect(find.byKey(const Key('channel-phone')), findsOneWidget);
+  });
+
+  testWidgets('Edit, Merge with and Delete on the person page', (tester) async {
+    final repo = FakeContacts();
+    await pump(tester, repo);
+    await tester.tap(find.byKey(const Key('person-ct_sara')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('person-edit')));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit Sara Ahmed'), findsOneWidget);
+    await tester.enterText(
+        find.byKey(const Key('person-notes')), 'Calls after 4');
+    await tester.tap(find.byKey(const Key('person-save')));
+    await tester.pumpAndSettle();
+    expect(repo.updated.single['notes'], 'Calls after 4');
+    expect(repo.updated.single['phones'], ['050 123 4567']);
+    expect(find.text('Calls after 4'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('person-merge')));
+    await tester.pumpAndSettle();
+    expect(find.text('Merge Sara Ahmed with another person'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('merge-pick-ct_omar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('merge-confirm')));
+    await tester.pumpAndSettle();
+    expect(repo.calls, contains('MERGE ct_omar into ct_sara'));
+    expect(find.text('Merged Omar Khan into Sara Ahmed.'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('person-delete')));
+    await tester.tap(find.byKey(const Key('person-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('person-delete-confirm')));
+    await tester.pumpAndSettle();
+    expect(repo.calls, contains('DELETE person ct_sara'));
+    expect(find.byKey(const Key('contacts-search')), findsOneWidget);
+  });
+
+  testWidgets('possible duplicates: keep one, or different people',
+      (tester) async {
+    final repo = FakeContacts();
+    await pump(tester, repo);
+    await tester.tap(find.byKey(const Key('contacts-duplicates')));
+    await tester.pumpAndSettle();
+    expect(find.text('Same phone number: +971501234567'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('keep-prop_1-ct_sarah')));
+    await tester.pumpAndSettle();
+    expect(repo.calls, contains('MERGE ct_sara into ct_sarah'));
+    expect(find.text('Merged Sara Ahmed into Sarah A..'), findsOneWidget);
+    expect(find.text('No possible duplicates'), findsOneWidget);
+
+    repo.proposalRows.add({
+      'id': 'prop_2',
+      'reason': 'same_email',
+      'matched_value': 'ops@tyre.example',
+      'status': 'open',
+      'a': personJson('ct_a', 'Ali'),
+      'b': personJson('ct_b', 'Alia'),
+      'created_at': '2026-11-10T09:30:00Z',
+    });
+    await tester.drag(find.byType(ListView).first, const Offset(0, 300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('dismiss-prop_2')));
+    await tester.pumpAndSettle();
+    expect(repo.calls, contains('DISMISS prop_2'));
+    expect(find.text('Kept as different people.'), findsOneWidget);
+  });
+
+  testWidgets('owners export the directory as CSV; members do not see it',
+      (tester) async {
+    final repo = FakeContacts();
+    await pump(tester, repo);
+    await tester.tap(find.byKey(const Key('contacts-export')));
+    await tester.pumpAndSettle();
+    expect(repo.calls, contains('EXPORT'));
+    expect(find.text('The CSV was saved.'), findsOneWidget);
+    repo.exportError = const ApiException(403, 'Only workspace owners');
+    await tester.tap(find.byKey(const Key('contacts-export')));
+    await tester.pumpAndSettle();
+    expect(find.text('Only workspace owners export the directory.'),
+        findsOneWidget);
+    await pump(tester, FakeContacts()..owner = false);
+    expect(find.byKey(const Key('contacts-export')), findsNothing);
+    expect(find.byKey(const Key('contacts-add')), findsOneWidget);
+  });
+
+  for (final width in [320.0, 390.0, 768.0, 1024.0]) {
+    testWidgets('the form and duplicates fit at $width wide, 2x, Arabic',
+        (tester) async {
+      for (final locale in const [Locale('en'), Locale('ar')]) {
+        final repo = FakeContacts();
+        await pump(tester, repo,
+            size: Size(width, 900), textScale: 2, locale: locale);
+        await tester.ensureVisible(find.byKey(const Key('contacts-add')));
+        await tester.tap(find.byKey(const Key('contacts-add')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        Navigator.of(tester.element(find.byKey(const Key('person-save'))))
+            .pop();
+        await tester.pumpAndSettle();
+        await tester
+            .ensureVisible(find.byKey(const Key('contacts-duplicates')));
+        await tester.tap(find.byKey(const Key('contacts-duplicates')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        if (locale.languageCode == 'ar') {
+          expect(find.text('التكرارات المحتملة'), findsWidgets);
+        }
+      }
+    });
+  }
 
   testWidgets('layouts from 320 px at 200% text to 1440 px, English and Arabic',
       (tester) async {

@@ -42,23 +42,38 @@ class FakeRequest {
 class FakeResponse {
   const FakeResponse.json(this.body, {this.status = 200})
       : events = null,
-        raw = null;
+        raw = null,
+        bytesBody = null,
+        headers = const {};
   const FakeResponse.empty({this.status = 204})
       : body = null,
         events = null,
-        raw = null;
+        raw = null,
+        bytesBody = null,
+        headers = const {};
 
   /// `text/event-stream` frames, written as the API's SSE encoder writes them.
   const FakeResponse.events(this.events, {this.status = 200})
       : body = null,
-        raw = null;
+        raw = null,
+        bytesBody = null,
+        headers = const {};
 
   /// A response body that stays open until the client goes away, as a quiet
   /// live stream does (team call signalling, task events).
   FakeResponse.openStream({this.status = 200})
       : body = null,
         events = null,
-        raw = StreamController<List<int>>();
+        raw = StreamController<List<int>>(),
+        bytesBody = null,
+        headers = const {};
+
+  /// A file the API sends as bytes (a zip, a CSV), with its headers.
+  FakeResponse.bytes(List<int> this.bytesBody,
+      {this.status = 200, this.headers = const {}})
+      : body = null,
+        events = null,
+        raw = null;
 
   /// The API's error envelope (`{"error": {"code", "message"}}`).
   FakeResponse.error(int status, String code, String message)
@@ -70,6 +85,8 @@ class FakeResponse {
   final Object? body;
   final List<(String, Object)>? events;
   final StreamController<List<int>>? raw;
+  final List<int>? bytesBody;
+  final Map<String, String> headers;
 }
 
 typedef FakeHandler = FutureOr<FakeResponse> Function(FakeRequest request);
@@ -185,6 +202,11 @@ class FakeAnumApi {
       return http.StreamedResponse(
           Stream.value(utf8.encode(text.toString())), response.status,
           headers: {'content-type': 'text/event-stream'});
+    }
+    final bytes = response.bytesBody;
+    if (bytes != null) {
+      return http.StreamedResponse(Stream.value(bytes), response.status,
+          headers: response.headers, contentLength: bytes.length);
     }
     final body = response.body;
     if (body == null) {

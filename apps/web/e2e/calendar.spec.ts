@@ -361,3 +361,86 @@ test('the repeat form reads right to left in Arabic with its own words', async (
   await expect(dialog.getByRole('combobox', { name: 'التذكير 1' })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+test('a send to the connected calendar that kept failing shows why and is sent again on request', async ({ page }) => {
+  const state = await openCalendar(page, { sync: 'connected', failedPush: true });
+  await agenda(page).getByRole('button', { name: /Fleet review with the team/ }).click();
+  const detail = page.getByRole('article', { name: 'Fleet review with the team' });
+  await expect(detail.getByText('Not sent to Google Calendar')).toBeVisible();
+  await expect(detail.getByText(/ANUM could not send this event to Google Calendar and stopped trying: Google Calendar answered 400: Invalid recurrence rule./)).toBeVisible();
+  await expect(detail.getByText(/Fix what the message says/)).toBeVisible();
+  await detail.getByRole('button', { name: 'Send again' }).click();
+  await expect(page.getByText('Sent Fleet review with the team to Google Calendar.')).toBeVisible();
+  expect(state.retries).toEqual(['evt_1']);
+  await expect(detail.getByText('Synced with Google Calendar')).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Send again' })).toHaveCount(0);
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
+test('a viewer sees why a send failed and who can send it again', async ({ page }) => {
+  await openCalendar(page, { sync: 'connected', failedPush: true, role: 'viewer' });
+  await agenda(page).getByRole('button', { name: /Fleet review with the team/ }).click();
+  const detail = page.getByRole('article', { name: 'Fleet review with the team' });
+  await expect(detail.getByText('The person who added the event or an owner can send it again.')).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Send again' })).toHaveCount(0);
+});
+
+test('a reply on one occurrence of a series is for that occurrence; email reminders are chosen per reminder', async ({ page, isMobile }) => {
+  const state = await openCalendar(page, { empty: true, sync: 'connected' });
+  const start = new Date(); start.setHours(15, 0, 0, 0);
+  (state.events as Record<string, unknown>[]).push({
+    tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', source: 'manual', created_by: 'user_local', created_at: start.toISOString(), updated_at: start.toISOString(),
+    id: 'evt_series', title: 'Daily standup', kind: 'meeting', status: 'scheduled', starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 30 * 60_000).toISOString(),
+    location: null, conference_url: null, phone: null, description: null, reminders: [10, 60], email_reminders: [60], timezone: 'Asia/Dubai', recurrence: { freq: 'daily', interval: 1, count: 5 },
+    connection_id: 'cal_1', external_id: 'g_series', sync_state: 'synced',
+    attendees: [{ id: 'att_s', name: 'Sara Ali', email: 'sara@example.com', role: null, response: 'accepted' }],
+  });
+  await page.getByRole('button', { name: 'Week', exact: true }).click();
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  await agenda(page).getByRole('button', { name: /Daily standup/ }).first().click();
+  const detail = page.getByRole('article', { name: 'Daily standup' });
+  // A series is synced like any event, and its reminders say which go by email.
+  await expect(detail.getByText('Synced with Google Calendar')).toBeVisible();
+  await expect(detail.getByText('10 minutes before and 1 hour before, also by email')).toBeVisible();
+  await expect(detail.getByLabel('Replies apply to')).toHaveValue('this');
+  await detail.getByLabel('Reply from Sara Ali').selectOption('declined');
+  await expect(page.getByText('Saved the reply from Sara Ali.')).toBeVisible();
+  expect(state.responses[0]).toEqual({ event: 'evt_series', attendee: 'att_s', response: 'declined', scope: 'this', occurrence_start: start.toISOString() });
+  await expect(detail.getByText('For this event only')).toBeVisible();
+  // The next occurrence keeps the series reply.
+  if (isMobile) await back(page);
+  await agenda(page).getByRole('button', { name: /Daily standup/ }).nth(1).click();
+  await expect(page.getByRole('article', { name: 'Daily standup' }).getByLabel('Reply from Sara Ali')).toHaveValue('accepted');
+  await expect(page.getByRole('article', { name: 'Daily standup' }).getByText('For this event only')).toHaveCount(0);
+  // A new repeating event with an email reminder goes to the connected calendar too.
+  if (isMobile) await back(page);
+  await page.getByRole('button', { name: 'New event' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'New event' });
+  await dialog.getByLabel('Title').fill('Weekly yard walk');
+  await dialog.getByRole('group', { name: 'Repeat' }).getByRole('combobox', { name: 'Repeat' }).selectOption('weekly');
+  await expect(dialog.getByLabel('Also add to Google Calendar (owner@example.com)')).toBeChecked();
+  await dialog.getByRole('button', { name: 'Add reminder' }).click();
+  await dialog.getByRole('combobox', { name: 'Reminder 1' }).selectOption('60');
+  await dialog.getByRole('checkbox', { name: 'Email 1 hour before' }).check();
+  await expect(dialog.getByText(/Email reminders go to the same people/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Add event' }).click();
+  await expect(page.getByText('Added "Weekly yard walk".')).toBeVisible();
+  const body = state.created[0] as Record<string, unknown>;
+  expect([body.reminders, body.email_reminders, 'sync' in body]).toEqual([[60], [60], false]);
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
+test('the email reminder, reply scope and send failure read right to left in Arabic', async ({ page }) => {
+  await useSavedLocale(page, 'ar');
+  await openCalendar(page, { sync: 'connected', failedPush: true });
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await page.getByRole('button', { name: /Fleet review with the team/ }).first().click();
+  const detail = page.getByRole('article', { name: 'Fleet review with the team' });
+  await expect(detail.getByText(/لم يُرسل إلى .Google Calendar/)).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'أرسل مرة أخرى' })).toBeVisible();
+  await page.getByRole('button', { name: 'حدث جديد' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'حدث جديد' });
+  await dialog.getByRole('button', { name: 'إضافة تذكير' }).click();
+  await expect(dialog.getByRole('checkbox', { name: /^بريد/ })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});

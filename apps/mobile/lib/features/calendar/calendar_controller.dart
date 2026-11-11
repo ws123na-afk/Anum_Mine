@@ -183,14 +183,35 @@ class CalendarController extends ChangeNotifier {
     truncated = page.truncated;
   }
 
+  /// Records a reply. On an occurrence of a series [thisOccurrence] keeps it
+  /// to that occurrence; otherwise it is the reply for the whole series.
   Future<CalendarEvent?> respond(
-      CalendarEvent event, Attendee attendee, String response) async {
+      CalendarEvent event, Attendee attendee, String response,
+      {bool thisOccurrence = false}) async {
     final attendeeId = attendee.id;
     if (attendeeId == null) return null;
     CalendarEvent? saved;
     await _run('respond:${event.id}', () async {
-      saved = await repository.respond(event.id, attendeeId, response);
-      _replace(saved!);
+      saved = await repository.respond(event.id, attendeeId, response,
+          occurrenceStart: thisOccurrence ? event.occurrenceStart : null);
+      if (thisOccurrence || event.isRecurring) {
+        await _refetch();
+      } else {
+        _replace(saved!);
+      }
+    });
+    return saved;
+  }
+
+  /// Sends an event to its connected calendar again (its creator or an owner).
+  Future<CalendarEvent?> retrySync(CalendarEvent event) async {
+    CalendarEvent? saved;
+    await _run('retry:${event.id}', () async {
+      saved = await repository.retrySync(
+          event.overridden && event.overrideId != null
+              ? event.overrideId!
+              : event.id);
+      await _refetch();
     });
     return saved;
   }

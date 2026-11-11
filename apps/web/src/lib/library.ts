@@ -134,3 +134,25 @@ export function downloadName(header: string | null, fallback: string): string {
   const match = /filename="?([^";]+)"?/i.exec(header ?? '');
   return match ? match[1] : fallback;
 }
+
+// ---- Favorites order (docs/knowledge-base.md#favorites) ----
+
+export const FAVORITE_SORTS = ['custom', 'newest', 'oldest', 'name'] as const;
+export type FavoriteSortChoice = (typeof FAVORITE_SORTS)[number];
+
+/** The list with the row at `from` moved to `to` (both indexes in the list as shown). */
+export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
+  const next = [...items];
+  if (from < 0 || from >= next.length || to < 0 || to >= next.length || from === to) return next;
+  const [row] = next.splice(from, 1);
+  next.splice(to, 0, row);
+  return next;
+}
+
+/**
+ * What `POST /favorites/{id}/move` needs for a row dropped on `target`: moving up lands just before
+ * the target, moving down just after it, so the target ends up on the other side either way.
+ */
+export function moveAnchor(movingDown: boolean, targetId: string): { before_id: string } | { after_id: string } {
+  return movingDown ? { after_id: targetId } : { before_id: targetId };
+}

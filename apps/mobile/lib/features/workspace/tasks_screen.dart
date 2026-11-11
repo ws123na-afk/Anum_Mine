@@ -377,6 +377,31 @@ class _TasksScreenState extends State<TasksScreen> {
 }
 
 /// One task: status icon, title, priority and status, due label.
+/// "Private to you" on a task only its person can see
+/// (docs/tasks.md#private-tasks).
+class PrivateTaskPill extends StatelessWidget {
+  const PrivateTaskPill({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return Tooltip(
+      message: l.t('ad.task.privateHint'),
+      child: AnumPill(
+          key: const Key('task-private'),
+          label: l.t('ad.task.private'),
+          icon: Icons.lock_outline),
+    );
+  }
+}
+
+/// Why a private task is private, in words: the hint plus what its kind means.
+String privateTaskNote(AnumLocalizations l, String? kind) => [
+      l.t('ad.task.privateHint'),
+      if (kind == 'data') l.t('ad.task.private.data'),
+      if (kind == 'chat') l.t('ad.task.private.chat'),
+    ].join(' ');
+
 class TaskListRow extends StatelessWidget {
   const TaskListRow({required this.task, required this.onTap, super.key});
   final WorkspaceTask task;
@@ -410,6 +435,7 @@ class TaskListRow extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             PriorityPill(task.priority),
+            if (task.isPrivate) const PrivateTaskPill(),
             Text(status,
                 style: Theme.of(context)
                     .textTheme
@@ -424,6 +450,7 @@ class TaskListRow extends StatelessWidget {
                   fontWeight: overdue ? FontWeight.w700 : FontWeight.w500)),
       semanticLabel: [
         task.title,
+        if (task.isPrivate) l.t('ad.task.private'),
         l.t(priorityKey(task.priority)),
         status,
         if (dueText != null) l.f('dueSpoken', {'when': dueText}),
@@ -869,8 +896,17 @@ class _TaskDetailState extends State<TaskDetailScreen> {
                             color: p.text,
                             fontSize: AnumType.x2lPlus,
                             fontWeight: FontWeight.w700)),
+                    if (task.isPrivate) const PrivateTaskPill(),
                     WorkStatusPill(task.status),
                   ]),
+              if (task.isPrivate) ...[
+                const SizedBox(height: 8),
+                Text(
+                    key: const Key('task-private-note'),
+                    privateTaskNote(
+                        AnumLocalizations.maybeOf(context), task.privateKind),
+                    style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
+              ],
               const SizedBox(height: 12),
               Text('What was asked',
                   style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
