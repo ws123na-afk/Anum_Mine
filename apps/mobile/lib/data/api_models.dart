@@ -343,6 +343,9 @@ class NotificationPreferences {
     this.desktopEnabled = true,
     this.pushEnabled = true,
     this.commerceAlerts = true,
+    this.tyreAlerts = true,
+    this.calendarEmail = true,
+    this.calendarEmailLanguage,
   });
 
   factory NotificationPreferences.fromJson(JsonMap json) {
@@ -358,6 +361,14 @@ class NotificationPreferences {
       pushEnabled: r.optBool('push_enabled') ?? true,
       // Older servers do not send it; it is on there (docs/commerce.md#alerts).
       commerceAlerts: r.optBool('commerce_alerts') ?? true,
+      // Kept as the server has it, so saving here never resets it.
+      tyreAlerts: r.optBool('tyre_alerts') ?? true,
+      // Older servers do not send these: calendar emails are on, in both languages.
+      calendarEmail: r.optBool('calendar_email') ?? true,
+      calendarEmailLanguage:
+          const {'en', 'ar'}.contains(r.optString('calendar_email_language'))
+              ? r.optString('calendar_email_language')
+              : null,
     );
   }
 
@@ -374,6 +385,16 @@ class NotificationPreferences {
   /// Store alerts: low stock, late orders, returns and prices (docs/commerce.md).
   final bool commerceAlerts;
 
+  /// Tyre planning alerts (docs/tyre-planning.md#alerts); not shown here.
+  final bool tyreAlerts;
+
+  /// Calendar reminders by email, on top of [emailEnabled] (docs/calendar.md#reminders).
+  final bool calendarEmail;
+
+  /// The language of calendar reminder emails: `en`, `ar`, or null for
+  /// English followed by Arabic.
+  final String? calendarEmailLanguage;
+
   JsonMap toJson() => {
         'task_completed': taskCompleted,
         'approval_required': approvalRequired,
@@ -383,6 +404,9 @@ class NotificationPreferences {
         'desktop_enabled': desktopEnabled,
         'push_enabled': pushEnabled,
         'commerce_alerts': commerceAlerts,
+        'tyre_alerts': tyreAlerts,
+        'calendar_email': calendarEmail,
+        'calendar_email_language': calendarEmailLanguage,
       };
 }
 

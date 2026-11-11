@@ -8,7 +8,8 @@ in ``email_reminders`` is emailed to the same people too (``send_reminder_emails
 workspace's mail server (``notifications.send_with_retries``), only to a person whose email
 notifications are on, who has an address ANUM knows, and whom the Contacts directory does not
 mark do not contact by email; once per event, occurrence, reminder and person
-(``calendar_reminder_email_sends``), in English and Arabic. Each in-app reminder is
+(``calendar_reminder_email_sends``), in the language the person chose (English, Arabic, or
+English followed by Arabic), and only while their calendar reminder emails are on. Each in-app reminder is
 sent once per event, occurrence, reminder and person: ``calendar_reminder_sends`` records it,
 claimed with ``insert ... on conflict do nothing``, so a second pass, a restart or two API
 processes never send it twice. A reminder whose time passed while the job was not running is
@@ -131,8 +132,12 @@ class EmailJob:
     occurrence_start: datetime
     minutes: int
     user_id: str
-    subject: str
-    body: str
+    # The subject and body in each language the person may have chosen: ``en``, ``ar`` and
+    # ``both`` (English followed by Arabic, for a person who chose none).
+    texts: dict[str, tuple[str, str]]
+
+    def text_for(self, language: str | None) -> tuple[str, str]:
+        return self.texts.get(language or "both") or self.texts["both"]
 
 
 class SqlReminderSendStore:
@@ -222,9 +227,20 @@ def _in_text_ar(actual: datetime, now: datetime) -> str:
     return f"بعد {hours // 24} يوم"
 
 
-def reminder_email(event: CalendarEvent, actual: datetime, now: datetime) -> tuple[str, str]:
-    """The reminder email's subject and plain-text body: English, then the same in Arabic. The
-    event's own title, time in its zone and place; the meeting link stays in ANUM."""
+_ENGLISH_FOOTER = (
+    "You get this email because the event has an email reminder and calendar reminder emails are on in your "
+    "ANUM notification settings. Turn them off or choose their language under Settings, Notifications."
+)
+_ARABIC_FOOTER = (
+    "تصلك هذه الرسالة لأن للحدث تذكيرًا بالبريد ولأن رسائل تذكير التقويم مفعّلة في إعدادات الإشعارات في ANUM. "
+    "يمكنك إيقافها أو اختيار لغتها من الإعدادات، الإشعارات."
+)
+
+
+def reminder_email(event: CalendarEvent, actual: datetime, now: datetime, language: str | None = None) -> tuple[str, str]:
+    """The reminder email's subject and plain-text body in the person's language: ``en``,
+    ``ar``, or None for English followed by the same in Arabic. The event's own title, time in
+    its zone and place; the meeting link stays in ANUM."""
     zone = zone_of(event.timezone)
     local = actual.astimezone(zone)
     stamp = f"{local:%Y-%m-%d}" if event.all_day else f"{local:%Y-%m-%d %H:%M} ({zone.key})"
@@ -237,13 +253,18 @@ def reminder_email(event: CalendarEvent, actual: datetime, now: datetime) -> tup
         arabic.append("انضم من الحدث في التقويم داخل ANUM.")
     elif event.phone:
         arabic.append(f"اتصل على {event.phone}")
-    body = (
-        f"{english_body}.\n\nOpen Calendar in ANUM to see the event.\n\n"
-        f"{chr(10).join(arabic)}\n\nافتح التقويم في ANUM لرؤية الحدث.\n\n"
-        "You get this email because the event has an email reminder and email notifications are on in your ANUM notification settings.\n"
-        "تصلك هذه الرسالة لأن للحدث تذكيرًا بالبريد ولأن إشعارات البريد مفعّلة في إعدادات الإشعارات في ANUM."
-    )
-    return f"ANUM: {english_title}"[:200], body[:4000]
+    english = f"{english_body}.\n\nOpen Calendar in ANUM to see the event."
+    arabic_text = f"{chr(10).join(arabic)}\n\nافتح التقويم في ANUM لرؤية الحدث."
+    if language == "en":
+        return f"ANUM: {english_title}"[:200], f"{english}\n\n{_ENGLISH_FOOTER}"[:4000]
+    if language == "ar":
+        return f"ANUM: تذكير: {event.title}، {arabic_when}"[:200], f"{arabic_text}\n\n{_ARABIC_FOOTER}"[:4000]
+    return f"ANUM: {english_title}"[:200], f"{english}\n\n{arabic_text}\n\n{_ENGLISH_FOOTER}\n{_ARABIC_FOOTER}"[:4000]
+
+
+def reminder_emails(event: CalendarEvent, actual: datetime, now: datetime) -> dict[str, tuple[str, str]]:
+    """The reminder email in every language a person may have chosen (see ``EmailJob``)."""
+    return {"en": reminder_email(event, actual, now, "en"), "ar": reminder_email(event, actual, now, "ar"), "both": reminder_email(event, actual, now)}
 
 
 def recipients_of(event: CalendarEvent, profiles: dict[str, Any]) -> list[str]:
@@ -310,10 +331,10 @@ def _remind_in_app(context: TenantContext, event_id: str, now: datetime, jobs: l
         for original, actual, minutes in due:
             title, body = reminder_text(event, actual, now)
             if jobs is not None and minutes in event.email_reminders:
-                subject, text_body = reminder_email(event, actual, now)
+                texts = reminder_emails(event, actual, now)
                 for user_id in people:
                     if emails.claim(context, event.series_id or event.id, original, minutes, user_id, now):
-                        jobs.append(EmailJob(event.series_id or event.id, original, minutes, user_id, subject, text_body))
+                        jobs.append(EmailJob(event.series_id or event.id, original, minutes, user_id, texts))
             for user_id in people:
                 if not sends.claim(context, event.series_id or event.id, original, minutes, user_id, now):
                     continue
@@ -334,8 +355,9 @@ def _remind_in_app(context: TenantContext, event_id: str, now: datetime, jobs: l
     return sent
 
 
-def _email_outcome(context: TenantContext, user_id: str) -> tuple[str | None, str | None]:
-    """(address, None) when ``user_id`` may get the email, else (None, why not)."""
+def _email_outcome(context: TenantContext, user_id: str) -> tuple[str | None, str | None, str | None]:
+    """(address, None, language) when ``user_id`` may get the email, else (None, why not, None).
+    ``language`` is the one the person chose for calendar reminder emails (None: both)."""
     from .contacts.models import Channel
     from .contacts.service import do_not_contact_block
     from .notifications import recipient_address
@@ -345,13 +367,15 @@ def _email_outcome(context: TenantContext, user_id: str) -> tuple[str | None, st
     with open_notification_preference_store(recipient) as store:
         preferences = store.get(recipient) or NotificationPreferences()
     if not preferences.email_enabled:
-        return None, "Email notifications are off in this person's notification settings"
+        return None, "Email notifications are off in this person's notification settings", None
+    if not preferences.calendar_email:
+        return None, "Calendar reminder emails are off in this person's notification settings", None
     address = recipient_address(context, user_id)
     if not address:
-        return None, "This person has no email address ANUM knows"
+        return None, "This person has no email address ANUM knows", None
     if do_not_contact_block(context, Channel.EMAIL, address):
-        return None, "The Contacts directory marks this address do not contact by email"
-    return address, None
+        return None, "The Contacts directory marks this address do not contact by email", None
+    return address, None, preferences.calendar_email_language
 
 
 def send_reminder_emails(context: TenantContext, jobs: list[EmailJob], now: datetime) -> dict[str, int]:
@@ -364,11 +388,12 @@ def send_reminder_emails(context: TenantContext, jobs: list[EmailJob], now: date
     counts = {"sent": 0, "failed": 0, "skipped": 0}
     for job in jobs:
         try:
-            address, why_not = _email_outcome(context, job.user_id)
+            address, why_not, language = _email_outcome(context, job.user_id)
             if address is None:
                 status, detail, attempts = "skipped", why_not, 0
             else:
-                outcome = send_with_retries(address, job.subject, job.body)
+                subject, body = job.text_for(language)
+                outcome = send_with_retries(address, subject, body)
                 status = "sent" if outcome.status == "sent" else "failed"
                 detail, attempts = outcome.error, outcome.attempts
         except Exception:  # one person's email must never stop the others

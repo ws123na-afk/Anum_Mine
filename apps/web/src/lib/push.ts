@@ -46,9 +46,16 @@ export interface NotificationPreferences {
   commerce_alerts?: boolean;
   /** Tyre planning alerts (docs/tyre-planning.md#alerts); older servers do not send it, on there. */
   tyre_alerts?: boolean;
+  /** Calendar reminders by email (docs/calendar.md#reminders), on top of Email; older servers do not send it, on there. */
+  calendar_email?: boolean;
+  /** The language of calendar reminder emails: English, Arabic, or null for English then Arabic. */
+  calendar_email_language?: CalendarEmailLanguage | null;
 }
 
-export type NotificationKey = keyof Required<NotificationPreferences>;
+export type CalendarEmailLanguage = 'en' | 'ar';
+
+/** The on and off switches (the reminder language is a choice of its own). */
+export type NotificationKey = Exclude<keyof Required<NotificationPreferences>, 'calendar_email_language'>;
 
 export interface NotificationSwitch {
   key: NotificationKey;
@@ -58,8 +65,15 @@ export interface NotificationSwitch {
 
 /** The switches in the order Settings shows them: what to hear about, then where. */
 export const NOTIFICATION_KEYS: NotificationKey[] = [
-  'approval_required', 'task_completed', 'run_failed', 'automation_failed', 'commerce_alerts', 'tyre_alerts', 'push_enabled', 'desktop_enabled', 'email_enabled',
+  'approval_required', 'task_completed', 'run_failed', 'automation_failed', 'commerce_alerts', 'tyre_alerts', 'push_enabled', 'desktop_enabled', 'email_enabled', 'calendar_email',
 ];
+
+/** The choices for the language of calendar reminder emails ('' is English then Arabic). */
+export const CALENDAR_EMAIL_LANGUAGES: Array<CalendarEmailLanguage | ''> = ['', 'en', 'ar'];
+
+export function calendarEmailLanguageLabel(value: CalendarEmailLanguage | '' | null | undefined): string {
+  return t(`settings.notifications.calendar_email_language.${value || 'both'}` as MessageKey);
+}
 
 /** What each switch means, in the current language. */
 export function notificationSwitches(): NotificationSwitch[] {
@@ -71,7 +85,10 @@ export function notificationSwitches(): NotificationSwitch[] {
 }
 
 export function withDefaults(value: NotificationPreferences): Required<NotificationPreferences> {
-  return { ...value, push_enabled: value.push_enabled ?? true, commerce_alerts: value.commerce_alerts ?? true, tyre_alerts: value.tyre_alerts ?? true };
+  return {
+    ...value, push_enabled: value.push_enabled ?? true, commerce_alerts: value.commerce_alerts ?? true, tyre_alerts: value.tyre_alerts ?? true,
+    calendar_email: value.calendar_email ?? true, calendar_email_language: value.calendar_email_language ?? null,
+  };
 }
 
 /** GET /api/v1/notification-channels: what the Email switch can do for the caller right now. */

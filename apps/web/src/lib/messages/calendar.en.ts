@@ -329,4 +329,11 @@ export const calendarEn = {
   'calendar.deletedOccurrence': 'Removed this occurrence of "{title}".',
   'calendar.deletedFollowing': 'Ended "{title}" before this occurrence.',
   'calendar.allDayRow': 'All-day events',
+  'settings.notifications.calendar_email': 'Calendar reminders by email',
+  'settings.notifications.calendar_email.hint': 'Also email the calendar reminders an event asks to send by email. Needs Email above to be on.',
+  'settings.notifications.calendar_email.needsEmail': 'Off while Email is off: switch Email on to get calendar reminder emails.',
+  'settings.notifications.calendar_email_language': 'Language of calendar reminder emails',
+  'settings.notifications.calendar_email_language.both': 'English, then Arabic',
+  'settings.notifications.calendar_email_language.en': 'English',
+  'settings.notifications.calendar_email_language.ar': 'Arabic',
 } satisfies Record<string, Message>;

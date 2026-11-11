@@ -330,4 +330,11 @@ export const calendarAr: Record<keyof typeof calendarEn, Message> = {
   'calendar.deletedOccurrence': 'أُزيل هذا التكرار من "{title}".',
   'calendar.deletedFollowing': 'انتهى "{title}" قبل هذا التكرار.',
   'calendar.allDayRow': 'أحداث اليوم الكامل',
+  'settings.notifications.calendar_email': 'تذكيرات التقويم بالبريد',
+  'settings.notifications.calendar_email.hint': 'أرسل بالبريد أيضًا تذكيرات التقويم التي يطلب الحدث إرسالها بالبريد. يلزم تفعيل البريد الإلكتروني أعلاه.',
+  'settings.notifications.calendar_email.needsEmail': 'متوقفة ما دام البريد الإلكتروني متوقفًا: فعّل البريد الإلكتروني لتصلك رسائل تذكير التقويم.',
+  'settings.notifications.calendar_email_language': 'لغة رسائل تذكير التقويم',
+  'settings.notifications.calendar_email_language.both': 'الإنجليزية ثم العربية',
+  'settings.notifications.calendar_email_language.en': 'الإنجليزية',
+  'settings.notifications.calendar_email_language.ar': 'العربية',
 };

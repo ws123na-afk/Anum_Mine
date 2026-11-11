@@ -9,7 +9,7 @@ import hmac
 import secrets
 import sys
 from threading import RLock
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
@@ -202,6 +202,9 @@ class ModelConnectionTest(BaseModel):
     status: str = "connected"
 
 
+CALENDAR_EMAIL_FIELDS = ("calendar_email", "calendar_email_language")
+
+
 class NotificationPreferences(BaseModel):
     task_completed: bool = True
     approval_required: bool = True
@@ -215,6 +218,10 @@ class NotificationPreferences(BaseModel):
     commerce_alerts: bool = True
     # Tyre planning alerts (docs/tyre-planning.md#alerts).
     tyre_alerts: bool = True
+    # Calendar reminders by email (docs/calendar.md#reminders), on top of ``email_enabled``, and the
+    # language they are written in: ``en``, ``ar``, or None for English followed by Arabic.
+    calendar_email: bool = True
+    calendar_email_language: Literal["en", "ar"] | None = None
 
 
 def _config_view(config: StoredModelConfig) -> ModelConfigView:
@@ -767,4 +774,11 @@ def get_notification_preferences(context: TenantContext = Depends(tenant_context
 @router.put("/notification-preferences", response_model=NotificationPreferences)
 def set_notification_preferences(payload: NotificationPreferences, context: TenantContext = Depends(tenant_context)) -> NotificationPreferences:
     with open_notification_preference_store(context) as store:
+        stored = store.get(context)
+        if stored is not None:
+            # A client that does not know the calendar email settings yet (an older phone app)
+            # keeps them as they are instead of resetting them.
+            for name in CALENDAR_EMAIL_FIELDS:
+                if name not in payload.model_fields_set:
+                    setattr(payload, name, getattr(stored, name))
         return store.save(context, payload)
