@@ -25,6 +25,7 @@ import 'finance_review_strings.dart';
 import 'finance_review_view.dart';
 import 'finance_strings.dart';
 import 'finance_trading_models.dart';
+import 'finance_tools_strings.dart';
 
 /// Finance on the phone (docs/finance.md): the signed-in person's own month,
 /// transactions, accounts, bills, debts and goals. Read only: nothing here
@@ -892,6 +893,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   detail: formatAmount(bill.amount, bill.currency)),
         ]),
       ),
+      if (d.netWorth.isNotEmpty) _netWorth(context, d),
       if (d.accounts.isNotEmpty)
         AnumSurface(
           child:
@@ -909,6 +911,67 @@ class _FinanceScreenState extends State<FinanceScreen> {
           ]),
         ),
     ];
+  }
+
+  /// Net worth per currency with its parts (the web's Reports, Net worth):
+  /// each currency on its own, nothing converted.
+  Widget _netWorth(BuildContext context, FinanceSummary d) {
+    final t = FinanceToolsStrings.of(context);
+    final muted = TextStyle(color: context.palette.muted);
+    return AnumSurface(
+      key: const Key('finance-net-worth'),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        AnumHeader(title: t.t('worth.title'), subtitle: t.t('worth.sub')),
+        for (final part in d.netWorth) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: AnumSpacing.sm),
+            child: Row(children: [
+              Expanded(
+                child: Text(t.t('worth.net', {'currency': part.currency}),
+                    style: Theme.of(context).textTheme.titleSmall),
+              ),
+              const SizedBox(width: AnumSpacing.sm),
+              Flexible(
+                child: Text(formatAmount(part.net, part.currency),
+                    key: Key('worth-net-${part.currency}'),
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.titleSmall),
+              ),
+            ]),
+          ),
+          for (final key in NetWorthPart.lines)
+            if ((double.tryParse(part.line(key)) ?? 0) != 0 ||
+                key == 'accounts')
+              Row(children: [
+                Expanded(child: Text(t.t('worth.$key'), style: muted)),
+                const SizedBox(width: AnumSpacing.sm),
+                Flexible(
+                  child: Text(
+                      formatAmount(
+                          key == 'debts' || key == 'installments'
+                              ? '-${part.line(key).replaceFirst('-', '')}'
+                              : part.line(key),
+                          part.currency),
+                      textAlign: TextAlign.end,
+                      style: muted),
+                ),
+              ]),
+        ],
+        if (d.netWorthExcluded.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: AnumSpacing.sm),
+            child: Text(
+                t.t('worth.excluded', {
+                  'list': d.netWorthExcluded
+                      .map((e) =>
+                          '${e.name} (${t.label('worth.reason', e.reason)})')
+                      .join(', ')
+                }),
+                key: const Key('worth-excluded'),
+                style: muted),
+          ),
+      ]),
+    );
   }
 
   // -- transactions --------------------------------------------------------

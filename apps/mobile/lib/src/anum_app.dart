@@ -144,9 +144,12 @@ abstract final class AnumRoutes {
   /// where the daily trading report push opens.
   static const financeIntel = '/finance/intel';
 
-  /// Finance (docs/finance.md#money-advisor): where the weekly money note
-  /// push opens. The full note is on the web, Finance, Money advisor.
+  /// Finance (docs/finance.md).
   static const finance = '/finance';
+
+  /// Finance, Money advisor (docs/finance.md#money-advisor): where the
+  /// weekly money note push opens, behind the app lock like Finance.
+  static const financeAdvisor = '/finance/advisor';
   static const command = '/command';
 
   /// In-app calls with teammates (docs/in-app-calls.md); call pushes open it.
@@ -446,7 +449,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         intelRepository: ApiFinanceIntelRepository(api),
         personalRepository: ApiFinancePersonalRepository(api),
         depthRepository: ApiFinanceDepthRepository(api),
-        more: FinanceMoreRepository(api),
+        more: FinanceMoreRepository(api, pdf: fileTransfer),
         planner: ChatMoneyPlanner(ChatRepository(api, events)));
     // The post-close trading report notice opens Finance, Trading
     // intelligence, where the daily reports are listed.
@@ -678,7 +681,8 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
   static AppLockArea _areaOfRoute(String route) =>
       route == AnumRoutes.finance ||
               route == AnumRoutes.financeIntel ||
-              route == OwnerDeskRoutes.ibkr
+              route == OwnerDeskRoutes.ibkr ||
+              route == AnumRoutes.financeAdvisor
           ? AppLockArea.finance
           : route == RecordModuleRoutes.books
               ? AppLockArea.books
@@ -1045,6 +1049,19 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         settings: settings,
         builder: (_) => _AuthenticatedDestination(
             auth: auth, child: FinanceScreen(controller: finance)),
+      );
+    }
+    if (name == AnumRoutes.financeAdvisor) {
+      final more = finance.more;
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth,
+            child: more == null
+                ? FinanceScreen(controller: finance)
+                : AppLockGate(
+                    area: AppLockArea.finance,
+                    child: AdvisorScreen(repository: more))),
       );
     }
     if (name == AnumRoutes.financeIntel) {

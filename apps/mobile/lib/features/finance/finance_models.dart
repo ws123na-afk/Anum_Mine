@@ -117,8 +117,17 @@ class FinanceSummary {
     required this.minimumPayments,
     required this.debtCount,
     required this.goals,
+    this.netWorth = const [],
+    this.netWorthExcluded = const [],
   });
   final String month, baseCurrency;
+
+  /// Net worth per currency, line by line (docs/finance.md#how-figures-are-counted):
+  /// never added across currencies.
+  final List<NetWorthPart> netWorth;
+
+  /// What net worth leaves out, with the reason.
+  final List<NetWorthExcluded> netWorthExcluded;
   final List<FinanceAccount> accounts;
   final List<CurrencyAmount> balances,
       income,
@@ -162,6 +171,9 @@ class FinanceSummary {
       minimumPayments: amounts('minimum_payments'),
       debtCount: r.optInt('debt_count') ?? 0,
       goals: r.optObjects('goals', GoalProgress.fromJson),
+      netWorth: r.optObjects('net_worth_parts', NetWorthPart.fromJson),
+      netWorthExcluded:
+          r.optObjects('net_worth_excluded', NetWorthExcluded.fromJson),
     );
   }
 
@@ -248,4 +260,65 @@ class FinanceItem {
       amount: r.string('target_amount'),
       currency: r.string('currency'),
       detail: r.string('saved_amount'));
+}
+
+/// One currency's net worth, line by line (`NetWorthPart`): account
+/// balances (cards and loans by their sign), money lent still owed back,
+/// holdings at cost, less debts with no account of their own and what is
+/// still due on installment plans.
+class NetWorthPart {
+  const NetWorthPart(
+      {required this.currency,
+      required this.accounts,
+      required this.receivables,
+      required this.holdingsAtCost,
+      required this.debts,
+      required this.installments,
+      required this.net});
+  final String currency, accounts, receivables, holdingsAtCost;
+  final String debts, installments, net;
+
+  static const lines = [
+    'accounts',
+    'receivables',
+    'holdings_at_cost',
+    'debts',
+    'installments',
+  ];
+
+  String line(String key) => switch (key) {
+        'accounts' => accounts,
+        'receivables' => receivables,
+        'holdings_at_cost' => holdingsAtCost,
+        'debts' => debts,
+        _ => installments,
+      };
+
+  factory NetWorthPart.fromJson(JsonReader r) {
+    String amount(String key) => switch (r.json[key]) {
+          final String text => text,
+          final num number => number.toString(),
+          _ => '0',
+        };
+    return NetWorthPart(
+      currency: r.string('currency'),
+      accounts: amount('accounts'),
+      receivables: amount('receivables'),
+      holdingsAtCost: amount('holdings_at_cost'),
+      debts: amount('debts'),
+      installments: amount('installments'),
+      net: amount('net'),
+    );
+  }
+}
+
+/// Something net worth leaves out (a holding without a cost basis, or in
+/// another currency than its account).
+class NetWorthExcluded {
+  const NetWorthExcluded(this.name, this.currency, this.reason);
+  final String name, currency, reason;
+  factory NetWorthExcluded.fromJson(JsonReader r) => NetWorthExcluded(
+      r.optString('name') ?? '',
+      r.optString('currency') ?? '',
+      r.optString('reason') ?? '');
 }

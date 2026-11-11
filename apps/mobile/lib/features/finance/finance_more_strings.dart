@@ -36,7 +36,7 @@ class FinanceMoreStrings extends ModuleStrings {
     // -- reconciliation -------------------------------------------------------
     'recon.title': 'Reconciliation',
     'recon.intro':
-        'Each statement checked against your books: the balances, every row and what needs you. Resolving rows and completing a session are on the web.',
+        'Each statement checked against your books: the balances, every row and what needs you. Resolve the rows, then complete the session.',
     'recon.open': 'Open reconciliation',
     'recon.queue.title': 'Everything that needs you',
     'recon.queue.sub': 'Open exceptions across your accounts',
@@ -110,10 +110,8 @@ class FinanceMoreStrings extends ModuleStrings {
     'recon.reason.rent_shown_as_incoming': 'Rent shown as money in',
     'recon.reason.money_in_type_paid_out': 'An income type, but money went out',
     'recon.reason.spending_type_paid_in': 'A spending type, but money came in',
-    'recon.resolveOnWeb':
-        'Matching rows, correcting entries and completing are done on the web, Finance, Reconciliation.',
     'recon.completedNote':
-        'This session is completed and keeps its history. Reopen it on the web to change it.',
+        'This session is completed and keeps its history. Reopen it with a reason to change it.',
     'recon.changedNote':
         'A row up to the end of this period was added, edited or deleted after it was completed. Reopen it on the web with a reason to review it.',
     'recon.edit': 'Edit figures',
@@ -351,7 +349,7 @@ class FinanceMoreStrings extends ModuleStrings {
     'confirmDelete': 'حذف',
     'recon.title': 'المطابقة',
     'recon.intro':
-        'كل كشف يُطابق مع دفاترك: الأرصدة وكل سطر وما يحتاج قرارك. حسم الأسطر وإكمال المطابقة يتمان على الويب.',
+        'كل كشف يُطابق مع دفاترك: الأرصدة وكل سطر وما يحتاج قرارك. احسم الأسطر ثم أكمل المطابقة.',
     'recon.open': 'فتح المطابقة',
     'recon.queue.title': 'كل ما يحتاجك',
     'recon.queue.sub': 'الاستثناءات المفتوحة في حساباتك',
@@ -424,10 +422,8 @@ class FinanceMoreStrings extends ModuleStrings {
     'recon.reason.rent_shown_as_incoming': 'الإيجار ظاهر كمال وارد',
     'recon.reason.money_in_type_paid_out': 'نوع دخل، لكن المال خرج',
     'recon.reason.spending_type_paid_in': 'نوع صرف، لكن المال دخل',
-    'recon.resolveOnWeb':
-        'مطابقة الأسطر وقيود التصحيح والإكمال تتم على الويب: المالية، المطابقة.',
     'recon.completedNote':
-        'هذه المطابقة مكتملة وتحتفظ بسجلها. أعد فتحها على الويب لتغييرها.',
+        'هذه المطابقة مكتملة وتحتفظ بسجلها. أعد فتحها مع ذكر السبب لتغييرها.',
     'recon.changedNote':
         'أُضيف سطر حتى نهاية هذه الفترة أو عُدّل أو حُذف بعد إكمالها. أعد فتحها على الويب مع ذكر السبب لمراجعتها.',
     'recon.edit': 'تعديل الأرقام',

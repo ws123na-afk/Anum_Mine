@@ -71,7 +71,8 @@ void main() {
         'workspace_id': 'workspace_test',
       })!;
       expect(advice.kind, PushDestinationKind.financeAdvice);
-      expect(advice.route, '/finance');
+      // The weekly money note opens the Money advisor, not Finance.
+      expect(advice.route, '/finance/advisor');
       final reminder = PushDestination.fromData({
         'anum_kind': 'calendar_reminder',
         'workspace_id': 'workspace_test',
