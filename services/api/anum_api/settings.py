@@ -451,6 +451,9 @@ class Settings(BaseSettings):
     # workspace gets this quota), and how long a signed download or preview link works.
     files_workspace_quota_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
     files_link_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    # Most bytes one bulk zip download may hold (docs/files.md#bulk-actions). The zip is built in a
+    # temporary file on the API's disk, so the ceiling is 8 GiB; the Helm chart refuses the same range.
+    files_bulk_download_max_bytes: int = Field(default=1024 * 1024 * 1024, ge=1024 * 1024, le=8 * 1024 * 1024 * 1024)
     # Live agent meeting turns started per minute (S-05, anum_api/live_agent_meeting_rate.py): by one
     # person, and by the whole workspace. ``run`` counts one per turn it executes (up to three).
     meeting_turns_per_minute_actor: int = Field(default=6, ge=3, le=600)

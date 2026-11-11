@@ -163,7 +163,8 @@ so the chart refuses the same values. OAuth client secrets belong in secrets.app
   (list "ANUM_EMAIL_BODY_MAX_BYTES" 4096 4194304)
   (list "ANUM_EMAIL_ATTACHMENT_MAX_BYTES" 1024 52428800)
   (list "ANUM_EMAIL_OAUTH_STATE_TTL_SECONDS" 60 3600)
-  (list "ANUM_LEARNING_SIGNAL_RETENTION_DAYS" 7 3650) -}}
+  (list "ANUM_LEARNING_SIGNAL_RETENTION_DAYS" 7 3650)
+  (list "ANUM_FILES_BULK_DOWNLOAD_MAX_BYTES" 1048576 8589934592) -}}
 {{- range $ints -}}
 {{- $key := index . 0 -}}
 {{- $raw := trim (toString (get $all $key | default "")) -}}

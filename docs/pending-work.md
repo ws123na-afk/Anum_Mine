@@ -10,7 +10,7 @@ Done in [Calendar](calendar.md#recurrence): series with the RFC 5545 subset, exc
 
 ## Open work from the November 2026 depth batch (files)
 
-- **Bulk download cap** is a constant (1 GiB); make it a setting if an operator needs another limit. The phone refuses a selection over 256 MiB before sending ([Mobile](files.md#mobile)): it holds the zip in memory until the save dialog writes it.
+- **Bulk download limit**: an operator setting since November 2026 (`ANUM_FILES_BULK_DOWNLOAD_MAX_BYTES`, default 1 GiB, 1 MiB to 8 GiB, [Bulk actions](files.md#bulk-actions)); nothing open on the server. The phone refuses a selection over 256 MiB before sending ([Mobile](files.md#mobile)): it holds the zip in memory until the save dialog writes it.
 
 ## Open work from the November 2026 depth batch (web leads)
 
