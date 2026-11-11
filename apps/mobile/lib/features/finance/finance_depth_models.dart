@@ -24,8 +24,8 @@ class FinanceSettingsData {
       this.rules = const []});
   final String baseCurrency, timezone;
 
-  /// The keyword rules exactly as read (`{match, category}`), sent back
-  /// unchanged: they are edited on the web.
+  /// The keyword rules exactly as read (`{match, category}`): sent back
+  /// unchanged by the currency form, replaced by the keyword rules page.
   final List<Map<String, Object?>> rules;
 
   factory FinanceSettingsData.fromJson(JsonReader r) => FinanceSettingsData(
@@ -41,10 +41,14 @@ class FinanceSettingsData {
       );
 
   /// The `PUT /settings` body with a new currency and time zone.
-  Map<String, Object?> body({String? currency, String? timezone}) => {
+  Map<String, Object?> body(
+          {String? currency,
+          String? timezone,
+          List<Map<String, Object?>>? rules}) =>
+      {
         'base_currency': (currency ?? baseCurrency).toUpperCase(),
         'timezone': timezone ?? this.timezone,
-        'category_rules': rules,
+        'category_rules': rules ?? this.rules,
       };
 }
 

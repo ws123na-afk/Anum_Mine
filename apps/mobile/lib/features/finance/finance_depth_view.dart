@@ -10,6 +10,7 @@ import 'finance_controller.dart';
 import 'finance_depth_controller.dart';
 import 'finance_depth_models.dart';
 import 'finance_depth_strings.dart';
+import 'finance_keyword_rules.dart';
 import 'finance_models.dart';
 import 'finance_personal_controller.dart';
 import 'finance_personal_view.dart' show MoneyLinkOpener;
@@ -219,17 +220,28 @@ class _GeneralCard extends StatelessWidget {
               RecordsField(d.t('set.timezone'), s.timezone),
               Text(d.t('set.zoneHelp'),
                   style: TextStyle(color: context.palette.muted)),
-              if (s.rules.isNotEmpty)
-                Text(d.t('set.rulesKept', {'n': s.rules.length}),
-                    style: TextStyle(color: context.palette.muted)),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: OutlinedButton.icon(
-                  key: const Key('set-general-edit'),
-                  onPressed: () => _edit(context, s),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(d.t('set.edit')),
-                ),
+              Text(d.t('set.rulesKept', {'n': s.rules.length}),
+                  style: TextStyle(color: context.palette.muted)),
+              Wrap(
+                spacing: AnumSpacing.sm,
+                runSpacing: AnumSpacing.sm,
+                children: [
+                  OutlinedButton.icon(
+                    key: const Key('set-general-edit'),
+                    onPressed: () => _edit(context, s),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: Text(d.t('set.edit')),
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('set-rules-edit'),
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) =>
+                                KeywordRulesScreen(controller: controller))),
+                    icon: const Icon(Icons.rule_folder_outlined),
+                    label: Text(d.t('set.rulesEdit')),
+                  ),
+                ],
               ),
             ],
     );

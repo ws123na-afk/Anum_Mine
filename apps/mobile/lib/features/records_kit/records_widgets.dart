@@ -490,3 +490,78 @@ class ModuleStrings {
       en.keys.toSet().difference(ar.keys.toSet()).isEmpty &&
       ar.keys.toSet().difference(en.keys.toSet()).isEmpty;
 }
+
+/// Asks before a change that cannot be taken back (a delete, an undo);
+/// true when the person confirmed. The confirm button says what happens.
+Future<bool> confirmRecords(BuildContext context,
+    {required String title,
+    required String message,
+    required String action}) async {
+  final k = KitStrings.of(context);
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (dialog) => AlertDialog(
+      title: Text(title),
+      content: SingleChildScrollView(child: Text(message)),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: Text(k.t('cancel'))),
+        FilledButton(
+            key: const Key('records-confirm'),
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text(action)),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
+/// A paged list's body: its state (loading, denied with [deniedHint],
+/// failed with Retry), [empty] when there is nothing, else the rows on one
+/// surface and "Load more".
+List<Widget> recordsPagedBody<T>(
+  RecordsList<T> list, {
+  required String deniedHint,
+  required Widget empty,
+  required Widget Function(T item) row,
+}) {
+  if (list.phase != RecordsPhase.ready) {
+    return [
+      RecordsStateView(
+          phase: list.phase,
+          failure: list.failure,
+          deniedHint: deniedHint,
+          onRetry: list.load),
+    ];
+  }
+  if (list.items.isEmpty) return [empty];
+  return [
+    AnumSurface(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
+      child: Column(children: [for (final item in list.items) row(item)]),
+    ),
+    RecordsMore(list: list),
+  ];
+}
+
+/// A row with its action under it, aligned to the end: a text button
+/// beside a row's text would squeeze it on a narrow phone or at large
+/// text, so it goes below instead.
+class RecordsRowAction extends StatelessWidget {
+  const RecordsRowAction({required this.row, this.action, super.key});
+  final Widget row;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => action == null
+      ? row
+      : Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            row,
+            Align(alignment: AlignmentDirectional.centerEnd, child: action),
+          ],
+        );
+}

@@ -7,6 +7,8 @@ import 'finance_controller.dart';
 import 'finance_models.dart';
 import 'finance_personal_view.dart' show MoneyLinkOpener, financeWebLink;
 import 'finance_review_models.dart';
+import 'finance_more_menu.dart';
+import 'finance_more_strings.dart';
 import 'finance_review_strings.dart';
 import 'finance_strings.dart';
 
@@ -673,6 +675,17 @@ class ReconciliationCard extends StatelessWidget {
             _ReconAccount(h: h, open: c.recon!.openFor(h), next: _next(s, h)),
           ],
         const SizedBox(height: AnumSpacing.xs),
+        if (c.more != null)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilledButton.icon(
+              key: const Key('recon-open'),
+              onPressed: () =>
+                  openFinanceMore(context, c, FinanceMorePage.recon),
+              icon: const Icon(Icons.fact_check_outlined),
+              label: Text(FinanceMoreStrings.of(context).t('recon.open')),
+            ),
+          ),
         web,
       ]),
     );

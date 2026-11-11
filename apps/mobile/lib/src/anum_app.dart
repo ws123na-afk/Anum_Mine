@@ -43,6 +43,8 @@ import '../features/email/inbox_screen.dart';
 import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_ops_data.dart';
 import '../features/commerce/commerce_repository.dart';
+import '../features/finance/finance_advisor_screens.dart';
+import '../features/finance/finance_more_data.dart';
 import '../features/finance/finance_controller.dart';
 import '../features/finance/finance_depth_models.dart';
 import '../features/finance/finance_intel_models.dart';
@@ -436,6 +438,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         intelRepository: ApiFinanceIntelRepository(api),
         personalRepository: ApiFinancePersonalRepository(api),
         depthRepository: ApiFinanceDepthRepository(api),
+        more: FinanceMoreRepository(api),
         planner: ChatMoneyPlanner(ChatRepository(api, events)));
     // The post-close trading report notice opens Finance, Trading
     // intelligence, where the daily reports are listed.
@@ -478,14 +481,17 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
               builder: (_) => FinanceScreen(controller: finance)));
       await loading;
     };
-    // The weekly money note opens Finance (docs/finance.md#money-advisor).
+    // The weekly money note opens the Money advisor, behind the app lock
+    // like Finance (docs/finance.md#money-advisor).
     NotificationsScreen.openers['finance_weekly_advice'] = (context) async {
-      final loading = finance.select(FinanceSection.overview);
+      final more = finance.more;
+      if (more == null) return;
       await Navigator.push(
           context,
           MaterialPageRoute<void>(
-              builder: (_) => FinanceScreen(controller: finance)));
-      await loading;
+              builder: (_) => AppLockGate(
+                  area: AppLockArea.finance,
+                  child: AdvisorScreen(repository: more))));
     };
     tyre = TyreController(ApiTyreRepository(api),
         ops: TyreOps(ApiTyreOpsRepository(api)));

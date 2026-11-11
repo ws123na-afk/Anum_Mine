@@ -9,7 +9,9 @@ import '../records_kit/records_form.dart';
 import '../records_kit/records_widgets.dart';
 import 'finance_lending_strings.dart';
 import 'finance_personal_controller.dart';
+import 'finance_more_strings.dart';
 import 'finance_personal_models.dart';
+import 'finance_split_screen.dart';
 import 'finance_personal_strings.dart';
 import 'finance_review_models.dart';
 
@@ -230,6 +232,19 @@ class _LoanDetailSheetState extends State<LoanDetailSheet> {
         _state = FinancePersonalController.failedState(error);
         _error = FinancePersonalController.reason(error);
       });
+    }
+  }
+
+  /// One payment split across this person's open loans
+  /// (`POST /people-loans/split`); reloads the detail once split.
+  Future<void> _split(PersonLoan loan) async {
+    final more = widget.controller.more;
+    if (more == null) return;
+    final split = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => SplitPaymentScreen(repository: more, loan: loan)));
+    if (split == true && mounted) {
+      await _load();
+      await widget.controller.loadLoans();
     }
   }
 
@@ -541,6 +556,16 @@ class _LoanDetailSheetState extends State<LoanDetailSheet> {
                 : 'loan.linkBorrowed')),
           ),
         ),
+        if (widget.controller.more != null && !loan.settled)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton.icon(
+              key: const Key('loan-split'),
+              onPressed: _busy ? null : () => _split(loan),
+              icon: const Icon(Icons.call_split),
+              label: Text(FinanceMoreStrings.of(context).t('split.open')),
+            ),
+          ),
       ],
     );
   }
