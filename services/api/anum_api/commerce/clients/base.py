@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
-from ..models import OrderStatus
+from ..models import Money, OrderStatus, to_money
 
 
 class RemoteListing(BaseModel):
@@ -18,7 +19,7 @@ class RemoteListing(BaseModel):
     title_ar: str | None = None
     brand: str | None = None
     product_type: str | None = None
-    price: float | None = None
+    price: Money | None = None
     currency: str | None = None
     quantity: int | None = None
     status: str = "active"
@@ -30,8 +31,8 @@ class RemoteLine(BaseModel):
     external_line_id: str | None = None
     title: str = ""
     quantity: int = 1
-    unit_price: float | None = None
-    total: float | None = None
+    unit_price: Money | None = None
+    total: Money | None = None
 
 
 class RemoteBuyer(BaseModel):
@@ -51,7 +52,7 @@ class RemoteOrder(BaseModel):
     purchased_at: datetime
     updated_at: datetime | None = None
     ship_by: datetime | None = None
-    total_amount: float = 0.0
+    total_amount: Money = Decimal(0)
     currency: str | None = None
     item_count: int = 0
     fulfillment: str | None = None
@@ -69,7 +70,7 @@ class RemoteReturn(BaseModel):
     quantity: int = 1
     reason: str | None = None
     status: str = "refunded"
-    amount: float | None = None
+    amount: Money | None = None
     currency: str | None = None
     returned_at: datetime
 
@@ -79,15 +80,15 @@ class RemoteFee(BaseModel):
     order_external_id: str | None = None
     kind: str
     description: str = ""
-    amount: float
+    amount: Money
     currency: str | None = None
     posted_at: datetime
 
 
 class RemoteCompetition(BaseModel):
-    buy_box_price: float | None = None
+    buy_box_price: Money | None = None
     buy_box_winner: bool | None = None
-    lowest_competitor_price: float | None = None
+    lowest_competitor_price: Money | None = None
 
 
 class PageResult(BaseModel):
@@ -105,7 +106,7 @@ class ChannelClient(Protocol):
     async def fetch_returns(self, since: datetime, page_token: str | None) -> PageResult: ...
     async def fetch_fees(self, since: datetime, page_token: str | None) -> PageResult: ...
     async def fetch_competition(self, marketplace_id: str, external_id: str) -> RemoteCompetition | None: ...
-    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: float, currency: str) -> str: ...
+    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: Decimal, currency: str) -> str: ...
     async def update_stock(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, quantity: int) -> str: ...
 
 
@@ -129,15 +130,18 @@ def iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def number(value: Any) -> float | None:
+def number(value: Any) -> Decimal | None:
+    """An exact amount from a channel payload (a number, a string or an Amazon money object); never a float."""
     if value is None or value == "":
         return None
     if isinstance(value, dict):
         value = value.get("Amount", value.get("amount", value.get("CurrencyAmount")))
-    try:
-        return round(float(value), 2)
-    except (TypeError, ValueError):
-        return None
+    return to_money(value)
+
+
+def wire_amount(value: Decimal) -> float:
+    """An exact amount as the JSON number a channel API expects (``Decimal("19.99")`` is sent as ``19.99``)."""
+    return float(value)
 
 
 def integer(value: Any) -> int | None:

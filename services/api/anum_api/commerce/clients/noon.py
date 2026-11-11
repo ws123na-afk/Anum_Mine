@@ -15,13 +15,27 @@ renamed field degrades to an empty value instead of a failed sync.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
 
 from ..config import commerce_config
 from ..http import check_owner_url, request_json
-from ..models import NOON_MARKETPLACES, OrderStatus
-from .base import PageResult, RemoteCompetition, RemoteLine, RemoteListing, RemoteOrder, RemoteReturn, integer, iso, number, parse_time, text
+from ..models import NOON_MARKETPLACES, OrderStatus, cents
+from .base import (
+    PageResult,
+    RemoteCompetition,
+    RemoteLine,
+    RemoteListing,
+    RemoteOrder,
+    RemoteReturn,
+    integer,
+    iso,
+    number,
+    parse_time,
+    text,
+    wire_amount,
+)
 
 DEFAULT_PATHS = {
     "check": "/partner/v1/whoami",
@@ -149,7 +163,7 @@ class NoonClient:
             ]
             for line in lines:
                 if line.total is None and line.unit_price is not None:
-                    line.total = round(line.unit_price * line.quantity, 2)
+                    line.total = cents(line.unit_price * line.quantity)
             status_text = str(_first(row, "status", "order_status") or "").lower()
             orders.append(
                 RemoteOrder(
@@ -159,7 +173,7 @@ class NoonClient:
                     purchased_at=parse_time(_first(row, "created_at", "order_created_at", "ordered_at")) or since,
                     updated_at=parse_time(_first(row, "updated_at", "last_updated_at")),
                     ship_by=parse_time(_first(row, "ship_by", "shipment_due_at", "sla_at")),
-                    total_amount=number(_first(row, "total", "order_total", "grand_total")) or sum(line.total or 0 for line in lines),
+                    total_amount=number(_first(row, "total", "order_total", "grand_total")) or sum((line.total or Decimal(0) for line in lines), Decimal(0)),
                     currency=_first(row, "currency", "currency_code") or NOON_MARKETPLACES[marketplace]["currency"],
                     item_count=sum(line.quantity for line in lines),
                     fulfillment="noon" if str(_first(row, "fulfillment", "fulfillment_type") or "").lower() in ("fbn", "noon") else "merchant",
@@ -201,12 +215,12 @@ class NoonClient:
     async def fetch_competition(self, marketplace_id: str, external_id: str) -> RemoteCompetition | None:
         return None
 
-    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: float, currency: str) -> str:
+    async def update_price(self, marketplace_id: str, sku: str, external_id: str | None, product_type: str | None, price: Decimal, currency: str) -> str:
         await self._call(
             "PATCH",
             self.paths["offer"].replace("{sku}", quote(sku, safe="")),
             "update price",
-            json_body={"country_code": marketplace_id, "price": price, "currency": currency},
+            json_body={"country_code": marketplace_id, "price": wire_amount(price), "currency": currency},
         )
         return "noon accepted the new price."
 

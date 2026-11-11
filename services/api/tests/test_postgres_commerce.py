@@ -233,3 +233,39 @@ def test_notification_preference_for_commerce_alerts_persists(channels: FakeChan
     assert prefs["commerce_alerts"] is True
     client.put("/api/v1/notification-preferences", headers=A, json={**prefs, "commerce_alerts": False})
     assert client.get("/api/v1/notification-preferences", headers=A).json()["commerce_alerts"] is False
+
+
+def test_amounts_are_stored_and_read_back_as_exact_decimals(channels: FakeChannels, database_engine: Engine) -> None:
+    """0171_commerce_money_numeric: every commerce amount is numeric(18,4), read back as Decimal, summed without float
+    error, and still a JSON number on the wire."""
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from anum_api.commerce.models import Channel, Order, OrderLine, OrderStatus
+    from anum_api.commerce.store import open_commerce_store
+    from anum_api.schemas import TenantContext
+
+    with database_engine.connect() as connection:
+        types = dict(connection.execute(text("""select table_name || '.' || column_name, data_type || '(' || numeric_precision || ',' ||
+            numeric_scale || ')' from information_schema.columns where table_name like 'commerce_%' and column_name in
+            ('cost_price', 'price', 'buy_box_price', 'lowest_competitor_price', 'total_amount', 'unit_price', 'total', 'amount')""")).all())
+    assert len(types) == 9 and set(types.values()) == {"numeric(18,4)"}
+
+    created = connect(AMAZON)
+    context = TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A, user_id="owner_test", roles=["owner"])
+    now = datetime.now(UTC)
+    with open_commerce_store(context) as store:
+        for n, amount in enumerate(["0.1", "0.2"] * 5 + ["1.234"], start=1):
+            store.upsert_order(Order(
+                id=f"ord_money_{n}", tenant_id=TENANT_A, workspace_id=WORKSPACE_A, connector_id=created["id"], channel=Channel.AMAZON,
+                marketplace_id=SA, external_id=f"MONEY-{n}", status=OrderStatus.SHIPPED, purchased_at=now, total_amount=amount,
+                currency="KWD" if amount == "1.234" else "SAR", item_count=1,
+                lines=[OrderLine(sku="MONEY-SKU", quantity=1, unit_price=amount, total=amount)], synced_at=now))
+    commerce_store.clear()
+    with open_commerce_store(context) as store:
+        kwd = next(o for o in store.orders_between(context, now.replace(hour=0, minute=0), now.replace(hour=23, minute=59), limit=50)
+                   if o.external_id == "MONEY-11")
+    assert kwd.total_amount == Decimal("1.234") and isinstance(kwd.lines[0].unit_price, Decimal)
+    dashboard = client.get(f"{API}/dashboard", headers=VIEWER).json()
+    revenue = {c["currency"]: c["revenue"] for c in dashboard["currencies"]}
+    assert revenue["SAR"] == 1.5 and revenue["KWD"] == 1.23  # shown to the cent, half up; stored to the fil

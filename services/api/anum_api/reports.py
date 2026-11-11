@@ -851,7 +851,7 @@ def automation_summary(context: TenantContext, days: int, now: datetime) -> Repo
 def commerce_summary(context: TenantContext, days: int, now: datetime) -> ReportCreate:
     """Orders synced from the connected channels (docs/commerce.md): no buyer details."""
     from .commerce.config import commerce_config
-    from .commerce.models import COUNTED_ORDER_STATUSES
+    from .commerce.models import COUNTED_ORDER_STATUSES, cents
     from .commerce.store import open_commerce_store
 
     start, end = _period(days, now)
@@ -890,7 +890,7 @@ def commerce_summary(context: TenantContext, days: int, now: datetime) -> Report
                      change_percent=_change(total_units, sum(units(o) for o in previous))),
     ]
     for currency, amount in revenue.most_common(2):
-        metrics.append(ReportMetric(label="Revenue", value=f"{amount:,.2f}", unit=currency,
+        metrics.append(ReportMetric(label="Revenue", value=f"{cents(amount):,.2f}", unit=currency,
                                     change_percent=_change(round(amount), round(before.get(currency, 0)))))
     highlights = [f"{channel}: {count} order{'s' if count != 1 else ''}" for channel, count in by_channel.most_common()]
     highlights += [f"Best seller {sku}: {count} sold" for sku, count in skus.most_common(3)]
@@ -911,7 +911,7 @@ def commerce_summary(context: TenantContext, days: int, now: datetime) -> Report
             columns=["channel", "order", "status", "purchased_at", "items", "total", "currency"],
             rows=[
                 [o.channel.value, o.external_id, o.status.value, aware(o.purchased_at).isoformat(), units(o),
-                 round(o.total_amount, 2), o.currency]
+                 float(cents(o.total_amount)), o.currency]
                 for o in current[:MAX_ROWS]
             ],
         ),
