@@ -24,7 +24,7 @@ invoice per schedule and period, so two passes that overlap draft each period on
 ``business_invoice_messages`` (``schedule_step``): the reminder step (1 to 4) the daily pass planned, so it asks
 for each step once per invoice.
 
-Chained after ``0173_favorites_position``. Expand only: the previous release never reads or writes the new tables
+Chained after ``0174_calendar_email_prefs``. Expand only: the previous release never reads or writes the new tables
 and columns (all nullable or defaulted), so it keeps working. Rollback never reverses it in production.
 """
 
@@ -32,8 +32,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0174_business_depth"
-down_revision = "0173_favorites_position"
+revision = "0175_business_depth"
+down_revision = "0174_calendar_email_prefs"
 branch_labels = None
 depends_on = None
 

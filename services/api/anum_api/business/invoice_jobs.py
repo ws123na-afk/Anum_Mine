@@ -16,7 +16,7 @@ process next to the delivery tools, on every replica, in a worker thread. Each p
   (``last_run_on``), so two replicas never plan the same day twice.
 
 Workspaces are discovered as ``anum_maintenance``, which may read only the scope, status and next date of active
-schedules and the scope and switches of the automation rows (migration ``0174_business_depth``); the work runs as
+schedules and the scope and switches of the automation rows (migration ``0175_business_depth``); the work runs as
 the application role inside each workspace's own RLS context. Nothing bypasses row level security. The counts it
 returns are all it reports.
 """

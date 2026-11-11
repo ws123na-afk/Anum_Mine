@@ -101,7 +101,7 @@ KINDS: dict[str, type[BaseModel]] = {
     "payment_links": PaymentLink,
     "portal_access": PortalAccess,
     "portal_decisions": PortalDecision,
-    # Recurring invoices, the daily pass and customer replies in the portal (migration 0174_business_depth).
+    # Recurring invoices, the daily pass and customer replies in the portal (migration 0175_business_depth).
     "invoice_schedules": InvoiceSchedule,
     "invoice_automation": InvoiceAutomation,
     "ticket_messages": TicketMessage,

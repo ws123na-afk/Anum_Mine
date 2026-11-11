@@ -458,7 +458,7 @@ class BusinessInvoiceRecord(Base, _Updated):
     marked_milestones: Mapped[list[Any]] = mapped_column(JSONB)
     decision_note: Mapped[str] = mapped_column(String(500))
     created_by: Mapped[str] = mapped_column(String(160))
-    # Migration 0174_business_depth: the recurring invoice that drafted it and the period.
+    # Migration 0175_business_depth: the recurring invoice that drafted it and the period.
     schedule_id: Mapped[str | None] = mapped_column(String(80))
     period_date: Mapped[date | None] = mapped_column(Date)
 

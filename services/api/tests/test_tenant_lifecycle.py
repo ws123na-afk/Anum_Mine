@@ -238,7 +238,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
                 "contacts", "contact_identifiers", "contact_links", "contact_do_not_contact", "contact_merge_proposals")},
             "model_usage_daily": "0170_model_usage_daily",
             "calendar_reminder_email_sends": "0171_calendar_sync_depth",
-            **{name: "0174_business_depth" for name in ("business_invoice_schedules", "business_invoice_automation", "business_ticket_messages")},
+            **{name: "0175_business_depth" for name in ("business_invoice_schedules", "business_invoice_automation", "business_ticket_messages")},
             **{name: "0152_finance_rules_learning" for name in (
                 "finance_rules", "finance_merchant_aliases", "finance_subcategories", "finance_suggestion_decisions", "finance_rule_batches",
                 "finance_automation_settings")},

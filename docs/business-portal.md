@@ -58,7 +58,7 @@ A request's page has a **Conversation**: what the customer wrote there and what 
 - The team sees it in the ticket ([Business: replies and approval](business.md#replies-and-approval)) with an unread count, and answers there; the answer appears in the customer's portal. Nothing is delivered by email or WhatsApp in either direction, so neither side needs an approval; an e-mail or WhatsApp reply keeps its own approval path.
 - Audit: `business.portal.ticket_message` (ids only, never the text) and an activity on the account (`portal_ticket_message`, or `ticket_reopened`); the team's answer is `business.ticket.portal_answer`.
 
-Web: `PortalApp.tsx` (the request page) and `BusinessSupport.tsx` (the ticket drawer). Phone: `apps/mobile/lib/features/portal/portal_screens.dart` (the request screen) and `apps/mobile/lib/features/business/support_screen.dart` (the ticket). Storage: `business_ticket_messages`, migration `0174_business_depth` (forced RLS, a scoped foreign key to the ticket that removes its messages with it, the purge grants).
+Web: `PortalApp.tsx` (the request page) and `BusinessSupport.tsx` (the ticket drawer). Phone: `apps/mobile/lib/features/portal/portal_screens.dart` (the request screen) and `apps/mobile/lib/features/business/support_screen.dart` (the ticket). Storage: `business_ticket_messages`, migration `0175_business_depth` (forced RLS, a scoped foreign key to the ticket that removes its messages with it, the purge grants).
 
 ## Decisions
 
