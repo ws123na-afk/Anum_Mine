@@ -1,11 +1,11 @@
 import { Fragment, lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { CircleDot, Copy, Database, Download, FileText, Image as ImageIcon, Link2, Lock, Pencil, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { CheckSquare, CircleDot, Copy, Database, Download, FileText, Image as ImageIcon, Link2, Lock, Pencil, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import * as api from './lib/api';
 import type { RetrievalIndexStatus } from './lib/capabilities';
 import { describeError, isPermissionDenied, ApiError } from './lib/errors';
 import {
   sortOptions, canReindex, fileBadge, fileTypeLabel, formatBytes, indexBadge, isQuarantined, mergePage, parseMarkdown, previewMode, progressText,
-  renameProblem, uploadProblem, uploaderLabel, usageMeter, PAGE_SIZE, type ApiFile, type ApiFileLink, type ApiFileUsage, type Block, type Inline, type SortValue,
+  renameProblem, uploadProblem, uploaderLabel, usageMeter, folderTrail, toggleSelection, PAGE_SIZE, type ApiFile, type ApiFileLink, type ApiFileUsage, type ApiFolder, type ApiTag, type Block, type FolderScope, type Inline, type SortValue,
 } from './lib/files';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { FILE_INDEX_FILTERS, FILE_TYPE_FILTERS, figure, filterFiles, indexCounts, type FileIndexFilter, type FileTypeFilter } from './lib/pageSummary';
@@ -17,6 +17,7 @@ import './admin.css';
 import './files.css';
 import { FileStorage } from './FileStorage';
 import { FileVersions } from './FileVersions';
+import { BulkBar, FileTags, FolderBar, TagBar } from './FilesOrganize';
 
 const PdfPreview = lazy(() => import('./PdfPreview'));
 
@@ -47,6 +48,10 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [storageOpen, setStorageOpen] = useState(false), [storageKey, setStorageKey] = useState(0);
+  // Folders, tags and the selection (docs/files.md#folders, #tags, #bulk-actions).
+  const [folders, setFolders] = useState<ApiFolder[]>([]), [tags, setTags] = useState<ApiTag[]>([]);
+  const [folder, setFolder] = useState<FolderScope>(null), [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false), [selected, setSelected] = useState<Set<string>>(new Set()), [anchor, setAnchor] = useState<string | null>(null);
   // Moves focus into the preview pane only when a person picked the file (not the default pick).
   const [picked, setPicked] = useState(() => (focusFileId ? 1 : 0));
   // A file opened by link ("Sources used") counts as the pick: closing it never reopens the first file.
@@ -55,17 +60,25 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
 
   const loadUsage = useCallback(() => api.getFileUsage().then((value) => setUsage({ state: 'ready', value }), () => setUsage({ state: 'error' })), []);
   const loadIndex = useCallback(() => api.getRetrievalStatus().then((value) => setIndex({ state: 'ready', value }), () => setIndex({ state: 'error' })), []);
+  const searching = query.trim().length > 0;
+  const loadFolders = useCallback(() => api.getFolders().then((tree) => setFolders(Array.isArray(tree?.items) ? tree.items : []), (e: unknown) => { if (!isPermissionDenied(e)) setProblem(t('files.folder.loadFailed', { message: describeError(e) })); }), []);
+  const loadTags = useCallback(() => api.getFileTags().then((list) => setTags(Array.isArray(list?.items) ? list.items : []), (e: unknown) => { if (!isPermissionDenied(e)) setProblem(t('files.tag.loadFailed', { message: describeError(e) })); }), []);
   const load = useCallback(async () => {
     setList((current) => current.state === 'ready' ? current : { state: 'loading' });
     try {
-      const page = await api.getFiles({ query, sort });
+      // A search looks everywhere; otherwise the list is the open folder (the root: files in no folder).
+      const page = await api.getFiles({ query, sort, folder: searching ? 'all' : folder, tag: tagFilter });
       setItems(page); setMore(page.length === PAGE_SIZE); setList({ state: 'ready' });
     } catch (e) {
+      if (e instanceof ApiError && e.status === 404) { setNote(t('files.folder.missing')); setFolder(null); setTagFilter(null); return; }
       setList(isPermissionDenied(e) ? { state: 'denied' } : { state: 'error', message: describeError(e) });
     }
-  }, [query, sort]);
+  }, [query, sort, folder, tagFilter, searching]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void loadUsage(); void loadIndex(); }, [loadUsage, loadIndex]);
+  useEffect(() => { void loadUsage(); void loadIndex(); void loadFolders(); void loadTags(); }, [loadUsage, loadIndex, loadFolders, loadTags]);
+  // What changed the files also changed the folder counts and the tag counts.
+  const refreshAll = useCallback(async () => { await Promise.all([load(), loadUsage(), loadIndex(), loadFolders(), loadTags()]); setStorageKey((n) => n + 1); }, [load, loadUsage, loadIndex, loadFolders, loadTags]);
+  const openFolder = (next: FolderScope) => { setFolder(next); setSelected(new Set()); setAnchor(null); setDraft(''); setQuery(''); };
 
   const shown = filterFiles(items, { type: typeFilter, index: indexFilter });
   // On a wide screen the preview pane opens on the first file, once.
@@ -80,7 +93,7 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
     if (!last) return;
     setPaging(true);
     try {
-      const page = await api.getFiles({ query, sort, cursor: last.id });
+      const page = await api.getFiles({ query, sort, cursor: last.id, folder: searching ? 'all' : folder, tag: tagFilter });
       setItems((current) => mergePage(current, page)); setMore(page.length === PAGE_SIZE);
     } catch (e) {
       // A cursor whose file was deleted meanwhile: start the list again.
@@ -100,11 +113,11 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
       const abort = new AbortController();
       setUploads((u) => [...u, { key, name: file.name, size: file.size, loaded: 0, state: 'uploading', abort }]);
       try {
-        const created = await api.uploadFile(file, (loaded) => setUploads((u) => u.map((x) => x.key === key ? { ...x, loaded } : x)), abort.signal);
+        const created = await api.uploadFile(file, (loaded) => setUploads((u) => u.map((x) => x.key === key ? { ...x, loaded } : x)), abort.signal, searching ? null : folder);
         setUploads((u) => u.filter((x) => x.key !== key));
         setNote(t('files.uploaded', { name: created.name, detail: indexBadge(created.index).detail }));
         if (limits) limits = { ...limits, used_bytes: limits.used_bytes + created.size_bytes, file_count: limits.file_count + 1 };
-        await Promise.all([load(), loadUsage(), loadIndex()]); setStorageKey((n) => n + 1);
+        await refreshAll();
       } catch (e) {
         const cancelled = e instanceof DOMException && e.name === 'AbortError';
         setUploads((u) => u.map((x) => x.key === key ? { ...x, state: cancelled ? 'cancelled' : 'failed', error: cancelled ? t('files.uploadCancelled') : uploadError(e) } : x));
@@ -117,10 +130,16 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
     setConfirming(null);
     setNote(t('files.deleted', { name: file.name }));
     if (focusFileId === file.id) onFocusChange(null);
-    await Promise.all([load(), loadUsage(), loadIndex()]); setStorageKey((n) => n + 1);
+    setSelected((current) => { const next = new Set(current); next.delete(file.id); return next; });
+    await refreshAll();
   }
 
   function replaceFile(file: ApiFile) { setItems((current) => current.map((x) => x.id === file.id ? file : x)); void loadIndex(); }
+  const selectedFiles = items.filter((x) => selected.has(x.id));
+  const hereFolder = folderTrail(folders, folder).at(-1) ?? null;
+  const shownIds = () => shown.map((x) => x.id);
+  function pick(file: ApiFile, range: boolean) { setSelected((current) => toggleSelection(current, shownIds(), file.id, anchor, range)); setAnchor(file.id); }
+  function clearSelection() { setSelected(new Set()); setAnchor(null); }
   // Versions and deletes change what the workspace stores: refresh the figures and the storage screen.
   const usageChanged = useCallback(() => { void loadUsage(); setStorageKey((n) => n + 1); }, [loadUsage]);
   function open(id: string) { setPicked((n) => n + 1); onFocusChange(id); }
@@ -128,11 +147,10 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
   const usageValue = usage.state === 'ready' ? usage.value : null;
   const canUpload = usageValue?.can_upload ?? true;
   const meter = usageValue ? usageMeter(usageValue) : null;
-  const searching = query.trim().length > 0;
   const filtered = Boolean(typeFilter || indexFilter);
   const counts = index.state === 'ready' ? indexCounts(index.value.sources, 'file') : null;
   const submitSearch = (event: FormEvent) => { event.preventDefault(); setQuery(draft.trim()); };
-  const clearAll = () => { setDraft(''); setQuery(''); setTypeFilter(''); setIndexFilter(''); };
+  const clearAll = () => { setDraft(''); setQuery(''); setTypeFilter(''); setIndexFilter(''); setTagFilter(null); };
   const figures = [
     figure('files', t('pages.files.fig.files'), usage, () => ({ value: formatNumber(usageValue!.file_count), hint: t('pages.files.fig.filesHint', { size: formatBytes(usageValue!.max_upload_bytes) }) })),
     figure('storage', t('pages.files.fig.storage'), usage, () => ({ value: formatBytes(usageValue!.used_bytes), hint: t('pages.files.fig.storageHint', { quota: formatBytes(usageValue!.quota_bytes), percent: Math.round(meter!.percent) }), tone: meter!.tone === 'stop' ? 'danger' : meter!.tone === 'warn' ? 'warn' : '' })),
@@ -180,20 +198,28 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
           <select id={`${searchId}-type`} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as FileTypeFilter)}><option value="">{t('pages.files.anyType')}</option>{FILE_TYPE_FILTERS.map((value) => <option key={value} value={value}>{t(`pages.files.type.${value}` as MessageKey)}</option>)}</select>
           <label className="visuallyHidden" htmlFor={`${searchId}-index`}>{t('pages.files.indexFilter')}</label>
           <select id={`${searchId}-index`} value={indexFilter} onChange={(e) => setIndexFilter(e.target.value as FileIndexFilter)}><option value="">{t('pages.files.anyIndex')}</option>{FILE_INDEX_FILTERS.map((value) => <option key={value} value={value}>{t(`pages.files.index.${value}` as MessageKey)}</option>)}</select>
+          <button type="button" className={`secondary iconOnly ${selecting ? 'on' : ''}`} aria-pressed={selecting} aria-label={selecting ? t('files.sel.done') : t('files.sel.select')} title={selecting ? t('files.sel.done') : t('files.sel.select')} onClick={() => { setSelecting((on) => !on); if (selecting) clearSelection(); }}><CheckSquare aria-hidden="true" /></button>
           {filtered && <p className="toolbarNote">{t('pages.files.filterNote', { shown: shown.length, loaded: items.length })}</p>}
         </form>
+        {list.state !== 'error' && <div className="paneBody folderPane">
+          <FolderBar folders={folders} current={folder} canUpload={canUpload} searching={searching} onOpen={openFolder} onChanged={refreshAll} onNote={setNote} onProblem={setProblem} />
+          <TagBar tags={tags} active={tagFilter} canUpload={canUpload} onToggle={(id) => { setTagFilter(id); clearSelection(); }} onChanged={refreshAll} onNote={setNote} onProblem={setProblem} />
+        </div>}
+        {selectedFiles.length > 0 && <div className="paneBody"><BulkBar selected={selectedFiles} shown={shown.length} folders={folders} tags={tags} folder={hereFolder} canUpload={canUpload} onClear={clearSelection} onChanged={async () => { if (selectedFiles.some((x) => x.id === focusFileId)) onFocusChange(null); await refreshAll(); }} onNote={setNote} onProblem={setProblem} /></div>}
         {list.state === 'error' && <div className="paneBody"><div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('files.loadFailed', { message: list.message })}</span><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('common.retry')}</button></div></div>}
         {list.state === 'loading' && <div className="paneBody"><Notice>{t('files.loading')}</Notice></div>}
         {shown.length > 0 && <div className="dataTableWrap"><table className="dataTable filesTable">
           <caption className="visuallyHidden">{t('files.list')}</caption>
-          <thead><tr><th scope="col">{t('pages.files.col.name')}</th><th scope="col" className="num">{t('pages.files.col.size')}</th><th scope="col">{t('pages.files.col.index')}</th><th scope="col"><span className="visuallyHidden">{t('pages.files.col.actions')}</span></th></tr></thead>
+          <thead><tr>{selecting && <th scope="col" className="selectCol"><input type="checkbox" aria-label={t('files.sel.all')} checked={shown.length > 0 && shown.every((x) => selected.has(x.id))} onChange={(e) => { setSelected(e.target.checked ? new Set(shownIds()) : new Set()); setAnchor(null); }} /></th>}<th scope="col">{t('pages.files.col.name')}</th><th scope="col" className="num">{t('pages.files.col.size')}</th><th scope="col">{t('pages.files.col.index')}</th><th scope="col"><span className="visuallyHidden">{t('pages.files.col.actions')}</span></th></tr></thead>
           <tbody>{shown.map((x) => {
             const badge = fileBadge(x);
-            return <tr key={x.id} className={x.id === focusFileId ? 'selected' : undefined}>
+            return <tr key={x.id} className={`${x.id === focusFileId ? 'selected' : ''} ${selected.has(x.id) ? 'picked' : ''}`}>
+              {selecting && <td className="selectCol"><input type="checkbox" aria-label={t('files.sel.row', { name: x.name })} checked={selected.has(x.id)} onClick={(e) => { e.preventDefault(); pick(x, e.shiftKey); }} onKeyDown={(e) => { if (e.key === ' ') { e.preventDefault(); pick(x, e.shiftKey); } }} onChange={() => undefined} /></td>}
               <th scope="row"><button type="button" className="cellButton" aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => open(x.id)}>
                 <span className="visuallyHidden">{t('files.showDetailsHint')} </span>
                 <strong dir="auto">{x.kind === 'image' ? <ImageIcon aria-hidden="true" className="cellIcon" /> : <FileText aria-hidden="true" className="cellIcon" />}{x.name}</strong>{' '}
-                <small>{fileTypeLabel(x.content_type)} · {uploaderLabel(x.created_by, me)} · <time dateTime={x.created_at}>{formatDateTime(x.created_at, { dateStyle: 'medium' })}</time></small>
+                <small>{fileTypeLabel(x.content_type)} · {uploaderLabel(x.created_by, me)} · <time dateTime={x.created_at}>{formatDateTime(x.created_at, { dateStyle: 'medium' })}</time>{searching && x.folder_path ? <> · <span dir="auto">{t('files.folder.inFolder', { path: x.folder_path })}</span></> : null}</small>
+                {(x.tags ?? []).length > 0 && <span className="rowTags">{x.tags!.map((tag) => <span key={tag.id} className="tagChip" dir="auto">{tag.name}</span>)}</span>}
               </button></th>
               <td className="num muted"><bdi>{formatBytes(x.size_bytes)}</bdi></td>
               <td><span className={`statusBadge ${badge.tone}`} title={badge.detail}>{badge.label}</span></td>
@@ -209,13 +235,15 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
           })}</tbody>
         </table></div>}
         {more && items.length > 0 && <div className="paneBody filesMore"><button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('files.loadMore')}</button></div>}
-        {list.state === 'ready' && !shown.length && (searching || filtered
+        {list.state === 'ready' && !shown.length && (searching || filtered || tagFilter
           ? <div className="paneEmpty"><Search aria-hidden="true" /><h3>{searching ? t('files.noMatch', { query }) : t('pages.files.noFilterMatch')}</h3><p>{t('files.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={clearAll}>{t('files.clearSearch')}</button></div></div>
-          : <div className="paneEmpty"><Upload aria-hidden="true" /><h3>{t('files.empty')}</h3><p>{canUpload ? t('files.emptyUpload') : t('files.emptyReadOnly')}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.uploadFirst')}</button></div>}</div>)}
+          : hereFolder
+            ? <div className="paneEmpty"><Upload aria-hidden="true" /><h3>{t('files.folder.empty')}</h3><p>{canUpload ? t('files.folder.emptyUpload') : t('files.folder.emptyReadOnly')}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.folder.uploadHere', { name: hereFolder.name })}</button></div>}</div>
+            : <div className="paneEmpty"><Upload aria-hidden="true" /><h3>{t('files.empty')}</h3><p>{canUpload ? t('files.emptyUpload') : t('files.emptyReadOnly')}</p>{canUpload && <div className="actions"><button type="button" onClick={() => picker.current?.click()}><Upload aria-hidden="true" />{t('files.uploadFirst')}</button></div>}</div>)}
       </section>
       <section data-pane="detail" className="pane filesDetailPane" aria-label={focusFileId ? undefined : t('files.detail.title')}>
         {focusFileId
-          ? <FileDetail key={focusFileId} fileId={focusFileId} me={me} canUpload={canUpload} usage={usageValue} onUsage={usageChanged} linkTtl={usageValue?.link_ttl_seconds ?? null} focusSignal={picked} onClose={() => onFocusChange(null)} onDelete={remove} onChange={replaceFile} />
+          ? <FileDetail key={focusFileId} fileId={focusFileId} me={me} canUpload={canUpload} usage={usageValue} onUsage={usageChanged} linkTtl={usageValue?.link_ttl_seconds ?? null} focusSignal={picked} onClose={() => onFocusChange(null)} onDelete={remove} onChange={replaceFile} tags={tags} onTagsChanged={async () => { await loadTags(); }} />
           : <div className="paneEmpty"><FileText aria-hidden="true" /><h3>{t('pages.files.pickTitle')}</h3><p>{items.length ? t('pages.files.pickText') : t('pages.files.pickEmpty')}</p></div>}
       </section>
     </SplitView>}
@@ -228,8 +256,9 @@ function uploadError(e: unknown): string {
   return describeError(e);
 }
 
-function FileDetail({ fileId, me, canUpload, usage, onUsage, linkTtl, focusSignal, onClose, onDelete, onChange }: {
+function FileDetail({ fileId, me, canUpload, usage, onUsage, linkTtl, focusSignal, onClose, onDelete, onChange, tags, onTagsChanged }: {
   fileId: string; me: string | null; canUpload: boolean; usage: ApiFileUsage | null; onUsage(): void; linkTtl: number | null; focusSignal: number; onClose(): void; onDelete(file: ApiFile): Promise<void>; onChange(file: ApiFile): void;
+  tags: ApiTag[]; onTagsChanged(): Promise<void>;
 }) {
   const [detail, setDetail] = useState<Detail>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0), [confirming, setConfirming] = useState(false), [busy, setBusy] = useState<null | 'delete' | 'rename' | 'reindex' | 'link'>(null);
@@ -296,6 +325,7 @@ function FileDetail({ fileId, me, canUpload, usage, onUsage, linkTtl, focusSigna
             <div><dt>{t('files.detail.size')}</dt><dd><bdi>{formatBytes(file.size_bytes)}</bdi></dd></div>
             <div><dt>{t('files.detail.uploaded')}</dt><dd><time dateTime={file.created_at}>{date(file.created_at)}</time></dd></div>
             <div><dt>{t('files.detail.uploadedBy')}</dt><dd>{file.created_by === me ? t('files.you') : <code dir="ltr">{file.created_by}</code>}</dd></div>
+            <div><dt>{t('files.folder.meta')}</dt><dd dir="auto">{file.folder_path ?? t('files.folder.root')}</dd></div>
             {file.updated_at && file.updated_by && <div><dt>{t('files.detail.renamed')}</dt><dd>{rich('files.detail.renamedBy', { when: <time dateTime={file.updated_at}>{date(file.updated_at)}</time>, who: file.updated_by === me ? t('files.you') : <code dir="ltr">{file.updated_by}</code> })}</dd></div>}
             <div className="wideMeta"><dt>{t('files.detail.retrieval')}</dt><dd><span className={`statusBadge ${badge.tone}`}>{badge.label}</span> <small className="muted">{badge.detail}</small></dd></div>
             <div><dt>{t('files.detail.fileId')}</dt><dd><code dir="ltr">{file.id}</code></dd></div>
@@ -325,6 +355,7 @@ function FileDetail({ fileId, me, canUpload, usage, onUsage, linkTtl, focusSigna
             <small className="muted">{t('pages.files.share.expires', { when: formatDateTime(link.expires_at, { timeStyle: 'short' }), minutes: Math.max(1, Math.round((linkTtl ?? 300) / 60)) })}</small>
           </div>}
           {!file.can_manage && <p className="muted filesNote"><Lock aria-hidden="true" />{t('files.manageNote')}</p>}
+          <FileTags file={file} tags={tags} canUpload={canUpload} onChange={update} onTagsChanged={onTagsChanged} />
           <FileVersions file={file} me={me} usage={usage} onChange={update} onUsage={onUsage} />
           <FilePreview key={`${file.id}-${file.sha256}`} file={file} />
         </>}

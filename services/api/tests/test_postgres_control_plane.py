@@ -288,7 +288,9 @@ def test_marketplace_and_routing_survive_a_restart_and_are_scoped(client: TestCl
     assert client.delete(f"/api/v1/marketplace/packages/{PACKAGE['id']}", headers=A2).status_code == 204
     assert _count(database_engine, "marketplace_packages") == 0
     operations = client.get("/api/v1/enterprise/operations", headers=A).json()
-    assert operations["installed_packages"] == 0 and operations["active_regions"] == 2
+    # Health is measured, never typed (0166): both targets are unprobed, so no region counts yet.
+    assert operations["installed_packages"] == 0 and operations["active_regions"] == 0
+    assert operations["unprobed_targets"] == 2
 
 
 def test_a_workspace_owner_without_org_admin_writes_no_tenant_catalog_routing_or_skill(

@@ -425,7 +425,7 @@ def test_overdue_reminder_is_sent_once_and_follow_up_comments_as_anum(client: Te
     item = create(client, AHMED, title="Count stock", assignee={"type": "user", "id": "user_sara"}, due_at=past, follow_up_at=past)
     counts = run_reminder_pass()
     assert counts["reminded"] == 1 and counts["followed_up"] == 1
-    assert run_reminder_pass() == {"reminded": 0, "followed_up": 0, "emails": 0, "approvals_reminded": 0}
+    assert run_reminder_pass() == {"reminded": 0, "followed_up": 0, "emails": 0, "approvals_reminded": 0, "calendar_reminded": 0}
     kinds = {n["kind"] for n in inbox(client, SARA)["items"]}
     assert {"work_overdue", "work_follow_up"} <= kinds
     assert "work_overdue" in {n["kind"] for n in inbox(client, AHMED)["items"]}

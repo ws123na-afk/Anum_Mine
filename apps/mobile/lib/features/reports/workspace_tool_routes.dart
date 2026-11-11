@@ -4,6 +4,9 @@ import '../../data/api_client.dart';
 import '../calls/calls_controller.dart';
 import '../calls/calls_repository.dart';
 import '../calls/calls_screen.dart';
+import '../contacts/contacts_controller.dart';
+import '../contacts/contacts_repository.dart';
+import '../contacts/contacts_screen.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/calendar_repository.dart';
 import '../calendar/calendar_screen.dart';
@@ -30,6 +33,7 @@ import '../library/library_screens.dart';
 ///   (docs/email.md#email-center)
 /// * `/calls`: phone calls through the phone's own dialer, with the call
 ///   log and contacts (docs/calls.md#mobile)
+/// * `/contacts`: the Contacts directory (docs/contacts.md#mobile)
 class WorkspaceToolRoutes {
   WorkspaceToolRoutes(
       {required this.api,
@@ -49,6 +53,7 @@ class WorkspaceToolRoutes {
   static const emailSummary = '/email/summary';
   static const mailCenter = '/mail';
   static const calls = '/calls';
+  static const contacts = '/contacts';
 
   late final calendarController =
       CalendarController(ApiCalendarRepository(api));
@@ -57,6 +62,8 @@ class WorkspaceToolRoutes {
       transfer: mailTransfer,
       allInboxesRepository: ApiMailAllInboxesRepository(api));
   late final callsController = CallsController(ApiCallsRepository(api));
+  late final contactsRepository = ApiContactsRepository(api);
+  late final contactsController = ContactsController(contactsRepository);
 
   /// The route for [settings], wrapped by [guard] (the signed-in check), or
   /// null when the name is not one of these.
@@ -89,6 +96,9 @@ class WorkspaceToolRoutes {
       screen = MailCenterScreen(controller: mailCenterController);
     } else if (uri.path == calls) {
       screen = CallsScreen(controller: callsController);
+    } else if (uri.path == contacts) {
+      screen = ContactsScreen(
+          controller: contactsController, repository: contactsRepository);
     }
     if (screen == null) return null;
     final child = screen;
@@ -101,11 +111,13 @@ class WorkspaceToolRoutes {
     calendarController.steps = const [];
     mailCenterController.reset();
     callsController.reset();
+    contactsController.reset();
   }
 
   void dispose() {
     calendarController.dispose();
     mailCenterController.dispose();
     callsController.dispose();
+    contactsController.dispose();
   }
 }

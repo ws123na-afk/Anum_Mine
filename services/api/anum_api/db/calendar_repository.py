@@ -2,7 +2,10 @@
 
 ``calendar_events`` rows are scoped to a tenant and workspace under forced RLS; the session
 already carries that context (``open_scoped_store``) and every query filters on it as well.
-Attendees are a JSONB list on the event, validated by the API models.
+Attendees are a JSONB list on the event, validated by the API models. Migration
+``0167_calendar_recurrence`` adds the series columns (``recurrence``, ``recurrence_until``,
+``skipped``, ``series_id``, ``recurrence_start``), ``all_day``, ``timezone`` and ``reminders``;
+a child row (one occurrence changed on its own) goes with its series (``on delete cascade``).
 """
 
 from __future__ import annotations
@@ -10,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, delete, func, select, update
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -48,6 +51,15 @@ class CalendarEventRecord(Base, WorkspaceScopedMixin):
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sync_state: Mapped[str | None] = mapped_column(String(20))
     invites_hash: Mapped[str | None] = mapped_column(String(64))
+    # Repeating and all-day events (docs/calendar.md#recurrence).
+    all_day: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    timezone: Mapped[str | None] = mapped_column(String(64))
+    recurrence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    recurrence_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    skipped: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    reminders: Mapped[list[int]] = mapped_column(JSONB, nullable=False, default=list)
+    series_id: Mapped[str | None] = mapped_column(String(80), ForeignKey("calendar_events.id", ondelete="CASCADE"))
+    recurrence_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (_workspace_fk("calendar_events"),)
 
@@ -56,6 +68,7 @@ _FIELDS = (
     "title", "description", "location", "kind", "status", "starts_at", "ends_at", "conference_url", "phone",
     "source", "source_ref", "created_by", "updated_by", "created_at", "updated_at",
     "connection_id", "external_id", "external_etag", "synced_at", "sync_state", "invites_hash",
+    "all_day", "timezone", "recurrence_until", "reminders", "series_id", "recurrence_start",
 )
 
 
@@ -66,6 +79,8 @@ def _event(record: CalendarEventRecord) -> CalendarEvent:
             "tenant_id": record.tenant_id,
             "workspace_id": record.workspace_id,
             "attendees": list(record.attendees or []),
+            "recurrence": record.recurrence,
+            "skipped": list(record.skipped or []),
             **{name: getattr(record, name) for name in _FIELDS},
         }
     )
@@ -76,6 +91,9 @@ def _apply(event: CalendarEvent, record: CalendarEventRecord) -> None:
         value = getattr(event, name)
         setattr(record, name, value.value if hasattr(value, "value") else value)
     record.attendees = [a.model_dump(mode="json") for a in event.attendees]
+    record.recurrence = event.recurrence.model_dump(mode="json") if event.recurrence else None
+    record.skipped = [s.isoformat() for s in event.skipped]
+    record.reminders = list(event.reminders)
 
 
 class SqlAlchemyCalendarStore:
@@ -116,11 +134,22 @@ class SqlAlchemyCalendarStore:
 
     def between(self, start: datetime, end: datetime, *, include_cancelled: bool, limit: int) -> list[CalendarEvent]:
         e = CalendarEventRecord
-        statement = select(e).where(*self._scope(), e.starts_at < end, e.ends_at > start)
+        # One-off events and changed occurrences by their own times; a series by its run
+        # (``recurrence_until`` null = no end). The API expands the series it gets back.
+        statement = select(e).where(
+            *self._scope(),
+            e.starts_at < end,
+            or_(e.ends_at > start, e.recurrence.is_not(None) & (e.recurrence_until.is_(None) | (e.recurrence_until > start))),
+        )
         if not include_cancelled:
             statement = statement.where(e.status == EventStatus.SCHEDULED.value)
         records = self.session.scalars(statement.order_by(e.starts_at, e.id).limit(limit)).all()
         return [_event(record) for record in records]
+
+    def overrides(self, series_id: str) -> list[CalendarEvent]:
+        e = CalendarEventRecord
+        statement = select(e).where(*self._scope(), e.series_id == series_id).order_by(e.recurrence_start, e.id)
+        return [_event(record) for record in self.session.scalars(statement).all()]
 
     def by_external(self, connection_id: str, external_id: str) -> CalendarEvent | None:
         e = CalendarEventRecord

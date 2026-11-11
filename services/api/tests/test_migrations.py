@@ -1280,6 +1280,36 @@ def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_ref
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
+def test_files_folders_tags_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0168_files_folders_tags.py").read_text(encoding="utf-8")
+    assert 'revision = "0168_files_folders_tags"' in revision_text and len("0168_files_folders_tags") <= 32
+    assert 'down_revision = "0167_calendar_recurrence"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0168_files_folders_tags.py"]
+    assert not [path for path in others if 'down_revision = "0167_calendar_recurrence"' in path.read_text(encoding="utf-8")]
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 3 and upgrade.count("op.add_column(") == 1
+    # The new column is nullable (the root), so the previous release keeps inserting rows.
+    assert 'sa.column("folder_id", sa.string(80), nullable=true)' in upgrade
+    assert "create index concurrently if not exists ix_workspace_files_scope_folder" in upgrade
+    # Names are unique per level and per workspace, case folded; the root is parent ''.
+    assert "(tenant_id, workspace_id, coalesce(parent_id, ''), lower(name))" in upgrade
+    assert "(tenant_id, workspace_id, lower(name))" in upgrade
+    # Every reference carries the scope: a folder's parent, a file's folder, a link's file and tag.
+    assert '["tenant_id", "workspace_id", "parent_id"]' in revision_text and '["tenant_id", "workspace_id", "folder_id"]' in revision_text
+    assert '["tenant_id", "workspace_id", "file_id"]' in revision_text and '["tenant_id", "workspace_id", "tag_id"]' in revision_text
+    assert upgrade.count('ondelete="cascade"') == 3 and upgrade.count('ondelete="set null (folder_id)"') == 1
+    # Each table is isolated and purgeable through the two helpers (which follow upgrade in the file).
+    assert upgrade.count("_isolate(") == 4 and upgrade.count("_purge_policy(") == 4, "three calls and the definitions"
+    assert "force row level security" in upgrade and "with check (" in upgrade
+    assert "current_setting('anum.tenant_id', true)" in revision_text and "current_setting('anum.workspace_id', true)" in revision_text
+    assert "alter_column" not in upgrade and "drop " not in upgrade and "op.drop" not in upgrade
+    # Only the organisation purge role may delete rows (and read the scope columns); nothing is granted beyond that.
+    assert revision_text.count("grant select (tenant_id, ctid, workspace_id), delete on") == 1
+    assert "create policy lifecycle_purge_" in revision_text and "grant insert" not in revision_text and "grant update" not in revision_text
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
 def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0078_demo_records.py").read_text(encoding="utf-8")

@@ -6,8 +6,8 @@ import { t, type MessageKey } from './i18n.ts';
 export type View =
   | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'vault' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
-  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations'
-  | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles' | 'purchases';
+  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'approvalSettings' | 'suppressions' | 'developer' | 'organisations'
+  | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles' | 'purchases' | 'contacts';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -25,9 +25,9 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'vehicles', 'vault', 'attendance', 'purchases', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'contacts', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'vehicles', 'vault', 'attendance', 'purchases', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive'] },
   { group: 'more', views: ['favorites', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
-  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
+  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'approvalSettings', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
 
 /** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */
@@ -47,7 +47,7 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platf
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
   'home', 'command', 'voice', 'assistant', 'files', 'vault', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
-  'tasks', 'approvals', 'commerce', 'finance', 'team', 'assistants', 'agents', 'automation', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance', 'vehicles', 'purchases', 'integrations',
+  'tasks', 'approvals', 'commerce', 'finance', 'team', 'assistants', 'agents', 'automation', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance', 'vehicles', 'purchases', 'integrations', 'contacts',
 ]);
 
 export function isView(value: string): value is View {
@@ -62,6 +62,8 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('invitation=')) return 'members';
   if (id.startsWith('meetings?')) return 'meetings';
   if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
+  // Approvals settings: the former #policy page and its sections (#approvalSettings/rules, docs/approvals-and-risk.md#approvals-settings).
+  if (id === 'policy' || id.startsWith('approvalSettings/')) return 'approvalSettings';
   // Settings > Billing and its sections (#billing-plans, #billing-contact, docs/billing.md).
   if (id === 'billing' || id.startsWith('billing-')) return 'settings';
   // Settings > Integrations > iPhone (docs/iphone-integrations.md).
@@ -87,6 +89,8 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('finance-')) return 'finance';
   // A Phone calls tab opened by link (#calls-contacts, docs/calls.md).
   if (id.startsWith('calls-') || id.startsWith('calls?')) return 'calls';
+  // A Contacts tab or person opened by link (#contacts-duplicates, #contacts?person=<id>, docs/contacts.md#web).
+  if (id.startsWith('contacts-') || id.startsWith('contacts?')) return 'contacts';
   // A Document vault tab opened by link (#vault-review, docs/documents.md#the-web-page).
   if (id.startsWith('vault-')) return 'vault';
   // A Commerce tab opened by link (#commerce-orders, docs/commerce.md).
@@ -109,7 +113,7 @@ export function visibleViews(owner: boolean | null, operator = false): View[] {
 
 // ---------------------------------------------------------------- command palette
 
-export type PaletteKind = 'view' | 'task' | 'file' | 'email';
+export type PaletteKind = 'view' | 'task' | 'file' | 'email' | 'contact';
 export interface PaletteItem { kind: PaletteKind; id: string; label: string; detail?: string }
 
 const fold = (text: string) => text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim();

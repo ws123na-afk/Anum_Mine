@@ -8,7 +8,7 @@ scope and the owner rule explicitly, so a missing context finds nothing.
 
 from datetime import datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from anum_api.memory import (
@@ -27,7 +27,9 @@ from .models import MemoryRecord, TaskRecord
 TASK_NOTE_KIND = "task_note"
 # Facts remembered from a user's conversation (owner_user_id set, no task).
 CONVERSATION_FACT_KIND = "conversation_fact"
-LISTED_KINDS = (TASK_NOTE_KIND, CONVERSATION_FACT_KIND)
+# A shared note attached to no task (docs/memory.md#workspace-memories).
+WORKSPACE_NOTE_KIND = "workspace_note"
+LISTED_KINDS = (TASK_NOTE_KIND, CONVERSATION_FACT_KIND, WORKSPACE_NOTE_KIND)
 
 
 def _visible(context: TenantContext):  # type: ignore[no-untyped-def]
@@ -53,18 +55,22 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
             )
             if task is None:
                 raise ValueError("Cannot create memory for an unavailable task")
-        elif note.owner_user_id is None and note.provenance.source_type != KNOWLEDGE_BASE_SOURCE_TYPE:
-            # Shared notes belong to a task, or to a knowledge base collection (docs/knowledge-base.md).
-            raise ValueError("A memory without a task must be private to its owner")
         if self.session.get(MemoryRecord, note.id) is not None:
             raise ValueError(f"Memory already exists: {note.id}")
 
+        if note.task_id is not None:
+            kind = TASK_NOTE_KIND
+        elif note.owner_user_id is not None or note.provenance.source_type == KNOWLEDGE_BASE_SOURCE_TYPE:
+            # A private chat fact, or a knowledge base note (docs/knowledge-base.md): stored as before.
+            kind = CONVERSATION_FACT_KIND
+        else:
+            kind = WORKSPACE_NOTE_KIND
         record = MemoryRecord(
             id=note.id,
             tenant_id=note.tenant_id,
             workspace_id=note.workspace_id,
             source_task_id=note.task_id,
-            kind=TASK_NOTE_KIND if note.task_id is not None else CONVERSATION_FACT_KIND,
+            kind=kind,
             owner_user_id=note.owner_user_id,
             content=note.content,
             provenance=note.provenance.model_dump(mode="json"),
@@ -89,7 +95,27 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
         filters: MemoryListFilters,
         now: datetime,
     ) -> list[MemoryNote]:
-        statement = select(MemoryRecord).where(
+        statement = self._matching(select(MemoryRecord), context, filters, now)
+        if filters.limit is not None or filters.offset > 0:
+            newest_first = statement.order_by(MemoryRecord.created_at.desc(), MemoryRecord.id.desc()).offset(filters.offset)
+            if filters.limit is not None:
+                newest_first = newest_first.limit(filters.limit)
+            records = list(self.session.scalars(newest_first).all())
+            records.reverse()
+        else:
+            records = list(
+                self.session.scalars(
+                    statement.order_by(MemoryRecord.created_at, MemoryRecord.id)
+                ).all()
+            )
+        return [self._from_record(record) for record in records]
+
+    def count(self, context: TenantContext, filters: MemoryListFilters, now: datetime) -> int:
+        statement = self._matching(select(func.count()).select_from(MemoryRecord), context, filters, now)
+        return int(self.session.scalar(statement) or 0)
+
+    def _matching(self, statement, context: TenantContext, filters: MemoryListFilters, now: datetime):  # type: ignore[no-untyped-def]
+        statement = statement.where(
             *_visible(context),
             MemoryRecord.kind.in_(LISTED_KINDS),
         )
@@ -109,21 +135,7 @@ class SqlAlchemyMemoryRepository(MemoryRepository):
         if filters.query:
             for term in filters.query.casefold().split():
                 statement = statement.where(MemoryRecord.content.ilike(f"%{term}%"))
-        if filters.limit is not None:
-            records = list(
-                self.session.scalars(
-                    statement.order_by(MemoryRecord.created_at.desc(), MemoryRecord.id.desc())
-                    .limit(filters.limit)
-                ).all()
-            )
-            records.reverse()
-        else:
-            records = list(
-                self.session.scalars(
-                    statement.order_by(MemoryRecord.created_at, MemoryRecord.id)
-                ).all()
-            )
-        return [self._from_record(record) for record in records]
+        return statement
 
     def delete(self, note_id: str, context: TenantContext) -> bool:
         record = self.session.scalar(

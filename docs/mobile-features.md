@@ -191,7 +191,7 @@ This panel is fully translated into Arabic. Details: [Memory, At run time](memor
 | Create or edit role templates and approval rules | Web only |
 | Marketplace: install or uninstall published packages | Done (workspace owners) |
 | Publish skill versions or marketplace packages | Web only |
-| Advanced routing: see where AI requests go and mark a target healthy, degraded or offline | Done for administrators; read-only for others |
+| Advanced routing: see where AI requests go, with the health the probe measured (never typed), probe a target or take it out of routing | Done for administrators; read-only for others |
 | Export the whole audit log as CSV or JSON | Done |
 
 Screen: **Organization** (also reached as Policy packs, Marketplace and Advanced routing from More). Details: [Governance and scale](governance-and-scale.md#who-may-change-what).

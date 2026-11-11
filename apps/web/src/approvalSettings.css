@@ -1,0 +1,15 @@
+/* Approvals settings (ApprovalSettingsView.tsx): the section index and the routing section. The policy
+   panel, switches and rule rows come from admin.css and governance.css; spacing from the tokens. */
+.approvalSections { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s4); }
+.approvalSections a { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-pill); color: var(--d-text); display: inline-flex; font-size: var(--text-sm); font-weight: 600; min-height: 36px; padding: 0 var(--d-s3); text-decoration: none; }
+.approvalSections a:hover { background: var(--d-glass-2); border-color: var(--d-line-hover); }
+.approvalSections a:focus-visible { outline: 2px solid var(--d-ring); outline-offset: 2px; }
+.policyPanel:focus { outline: none; }
+.approvalRuleList { margin-top: var(--d-s3); }
+.approvalRulesSection .actions, .approvalRoutingSection .actions { margin-top: var(--d-s3); }
+.approvalRoutingSteps { display: grid; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding-inline-start: 22px; }
+.approvalRoutingSteps li { color: var(--d-text); font-size: var(--text-md); }
+.approvalRoutingHeading { font-size: var(--text-md); margin: var(--d-s4) 0 var(--d-s2); }
+.approvalRoutingBands { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.approvalRoutingBands li { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-size: var(--text-sm); padding: var(--d-s2) var(--d-s3); }
+.approvalRoutingPolicy { color: var(--d-muted); display: grid; font-size: var(--text-sm); gap: var(--d-s1); margin: var(--d-s3) 0 0; padding-inline-start: 18px; }

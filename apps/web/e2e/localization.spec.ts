@@ -71,7 +71,7 @@ test('the Assistant, Approvals, Memory, Notifications and Privacy read in Arabic
   await expect(page.getByRole('article', { name: 'المساعد' }).getByText('Approve the announcement')).toBeVisible();
 
   await openNavMenu(page);
-  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: /الموافقات/ }).click();
+  await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: /^الموافقات/ }).click();
   const card = page.getByRole('article', { name: /^موافقة على .?external\.action.?$/ });
   await expect(card.getByRole('heading', { name: 'يريد الوكيل استدعاء external.action' })).toBeVisible();
   await expect(card.getByText('0 من موافقتين')).toBeVisible();

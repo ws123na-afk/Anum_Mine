@@ -950,6 +950,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
               Icons.contact_phone_outlined,
               () => Navigator.of(context).pushNamed('/calls'),
             ),
+            // The Contacts directory (docs/contacts.md#mobile), a named route.
+            page(
+              'contacts.menu',
+              Icons.contacts_outlined,
+              () => Navigator.of(context).pushNamed('/contacts'),
+            ),
             // Calendar & next actions (docs/calendar.md), a named route.
             page(
               'calendar',

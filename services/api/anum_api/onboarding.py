@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import secrets
+import sys
 from threading import RLock
 from typing import Any, Protocol
 
@@ -33,7 +34,7 @@ from .model_config_store import (
     memory_model_config_store,
     open_model_config_store,
 )
-from .model_budget import BudgetedModelGateway
+from .model_budget import BudgetedModelGateway, feature_for_module
 from .model_egress import (
     EgressPolicy,
     UnsafeModelEndpointError,
@@ -434,16 +435,23 @@ def _build_workspace_gateway(config: StoredModelConfig) -> ModelGateway:
     )
 
 
-def budgeted_model_gateway(context: TenantContext, fallback: ModelGateway) -> ModelGateway:
+def budgeted_model_gateway(context: TenantContext, fallback: ModelGateway, *, feature: str | None = None) -> ModelGateway:
     """The workspace's gateway behind its monthly model budget (model_budget.py).
 
     Every model call made for a workspace (task runs, voice answers) uses this. Calls are
     attributed to the default assistant unless a run or a chat thread rebinds the gateway
-    to a custom agent with ``for_agent`` (docs/agent-controls.md).
+    to a custom agent with ``for_agent`` (docs/agent-controls.md), and to ``feature`` for the
+    spend breakdown: given, or read from the module that asked for the gateway
+    (``model_budget.feature_for_module``; ``anum_api.voice`` is ``voice``, ``main`` is ``tasks``).
     """
     from .agent_controls import DEFAULT_ASSISTANT_ID
 
-    return BudgetedModelGateway(workspace_model_gateway(context, fallback), context, agent_id=DEFAULT_ASSISTANT_ID)
+    if feature is None:
+        caller = sys._getframe(1).f_globals.get("__name__") if hasattr(sys, "_getframe") else None
+        feature = feature_for_module(caller if isinstance(caller, str) else None)
+    return BudgetedModelGateway(
+        workspace_model_gateway(context, fallback), context, agent_id=DEFAULT_ASSISTANT_ID, feature=feature
+    )
 
 
 GENERIC_CONNECTION_FAILURE = (

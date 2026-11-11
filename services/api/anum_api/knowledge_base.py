@@ -670,7 +670,7 @@ async def upload_document(
     from .files import upload_file
 
     record = await upload_file(
-        request, context, name_param=name, x_file_name=x_file_name, x_content_sha256=x_content_sha256
+        request, context, name_param=name, x_file_name=x_file_name, x_content_sha256=x_content_sha256, folder_id=None
     )
     item = _new_item(context, collection, ItemKind.FILE, record.id, record.name, (x_item_tags or "").split(","))
     return await asyncio.to_thread(_save_new_item, context, collection, item)

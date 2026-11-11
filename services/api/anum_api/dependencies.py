@@ -1,3 +1,4 @@
+import logging
 import asyncio
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -138,6 +139,14 @@ def _require_workspace_role(context: TenantContext, permission: Permission) -> N
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Workspace permission denied",
         ) from exc
+    if context.permission_limit is not None and permission.value not in context.permission_limit:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ROLE_TEMPLATE_DENIED)
+
+
+ROLE_TEMPLATE_DENIED = (
+    "Workspace permission denied: your role template does not include this permission. "
+    "A workspace owner can assign you another template, or none, in Members"
+)
 
 
 def get_oidc_validator() -> OidcValidator:
@@ -318,8 +327,33 @@ def latest_event_id_for_stream(context: TenantContext) -> str | None:
 
 
 def _membership_context(identity: TenantContext, membership: WorkspaceMembershipRecord) -> TenantContext:
-    """The persisted membership role is authoritative for workspace authorization."""
-    return identity.model_copy(update={"roles": [membership.role.lower()]})
+    """The persisted membership role is authoritative for workspace authorization; a role
+    template on the membership narrows it (docs/governance-and-scale.md#role-templates)."""
+    limit = membership.permission_limit
+    return identity.model_copy(update={
+        "roles": [membership.role.lower()],
+        "permission_limit": list(limit) if limit is not None else None,
+    })
+
+
+def _with_persisted_limit(context: TenantContext) -> TenantContext:
+    """Header authentication (local and test): the membership, when one is stored, lends its
+    role template limit, so a template is enforced the same way as in ``oidc`` mode.
+
+    Header mode never runs outside local and test, so a database that cannot be reached
+    (unit tests that point ``repository_backend`` at PostgreSQL without one) means "no
+    stored membership" here; in ``oidc`` mode the lookup's failure still fails the request.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        membership = lookup_membership(context)
+    except OperationalError:
+        logging.getLogger(__name__).warning("role template lookup skipped: the database is unreachable (header authentication)")
+        return context
+    if membership is None or not membership.active or membership.permission_limit is None:
+        return context
+    return context.model_copy(update={"permission_limit": list(membership.permission_limit)})
 
 
 def _local_session_context(authorization: str) -> TenantContext:
@@ -434,6 +468,7 @@ async def tenant_context(
         context = _traced(_membership_context(identity, membership))
     else:
         context = _traced(_header_context(authorization, x_tenant_id, x_workspace_id, x_user_id, x_user_roles))
+        context = await asyncio.to_thread(_with_persisted_limit, context)
     await asyncio.to_thread(refuse_writes_to_archived_workspace, request, context)
     return context
 

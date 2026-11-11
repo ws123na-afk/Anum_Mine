@@ -171,6 +171,7 @@ def _record(context: TenantContext, provider: str, model: str, cost: float | Non
         record_model_usage(
             context,
             ModelUsage(input_tokens=0, output_tokens=0, provider=provider, model=model, estimated_cost_usd=cost),
+            feature="speech",
         )
     except Exception as exc:  # the call already happened; never fail the user's request
         logger.warning("speech_usage_record_failed error_class=%s", type(exc).__name__)

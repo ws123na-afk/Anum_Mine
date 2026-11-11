@@ -399,10 +399,27 @@ class _RoutingTab extends StatelessWidget {
         _ => AnumTone.neutral,
       };
 
-  String _label(String status) => switch (status) {
-        'unverified' => 'Not measured',
-        _ => '${status[0].toUpperCase()}${status.substring(1)}',
-      };
+  String _label(RoutingTarget x) {
+    if (!x.enabled) return 'Out of routing';
+    if (!x.probed) return 'Not yet probed';
+    return '${x.status[0].toUpperCase()}${x.status.substring(1)}';
+  }
+
+  AnumTone _rowTone(RoutingTarget x) =>
+      !x.enabled || !x.probed ? AnumTone.neutral : _tone(x.status);
+
+  /// What the probe measured, never a typed status.
+  String _detail(RoutingTarget x) {
+    if (!x.enabled) return 'Taken out of routing; decisions skip it.';
+    if (!x.probed) return 'Run a probe to measure this target.';
+    final when = x.lastCheckedAt!.toLocal();
+    final stamp =
+        '${when.year}-${when.month.toString().padLeft(2, '0')}-${when.day.toString().padLeft(2, '0')} '
+        '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
+    if (x.lastError != null) return '$stamp: ${x.lastError}';
+    return '${x.measuredLatencyMs ?? 0} ms measured $stamp · '
+        '\$${x.cost.toStringAsFixed(3)} per 1k tokens';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -441,8 +458,8 @@ class _RoutingTab extends StatelessWidget {
             eyebrow: 'Model routing',
             title: 'Where AI requests go',
             subtitle: canManage
-                ? 'Mark a target healthy, degraded or offline for every workspace.'
-                : 'Organization administrators mark targets healthy, degraded or offline.',
+                ? 'Health is measured by a probe through this workspace\'s model configuration, never typed. Probe a target, or take it out of routing.'
+                : 'Health is measured by a probe, never typed. Organization administrators probe targets and take them out of routing.',
           ),
           const SizedBox(height: 6),
           if (snapshot.targets.isEmpty)
@@ -456,38 +473,35 @@ class _RoutingTab extends StatelessWidget {
             for (final x in snapshot.targets)
               AnumRow(
                 icon: Icons.route,
-                tone: _tone(x.status),
+                tone: _rowTone(x),
                 title: '${x.provider} · ${x.model}',
                 subtitle: 'Region: ${x.region}',
-                detail: x.status == 'unverified'
-                    ? 'Cost and latency not measured yet'
-                    : '${x.latencyMs} ms · \$${x.cost.toStringAsFixed(3)} per 1k tokens',
+                detail: _detail(x),
                 trailing: !canManage
-                    ? AnumPill(label: _label(x.status), tone: _tone(x.status))
+                    ? AnumPill(label: _label(x), tone: _rowTone(x))
                     : PopupMenuButton<String>(
-                        tooltip: 'Change status',
-                        onSelected: (status) =>
-                            controller.updateTarget(RoutingTarget(
-                          id: x.id,
-                          region: x.region,
-                          provider: x.provider,
-                          model: x.model,
-                          status: status,
-                          latencyMs: x.latencyMs,
-                          cost: x.cost,
-                          modalities: x.modalities,
-                          sensitivity: x.sensitivity,
-                        )),
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                              value: 'healthy', child: Text('Mark healthy')),
-                          PopupMenuItem(
-                              value: 'degraded', child: Text('Mark degraded')),
-                          PopupMenuItem(
-                              value: 'offline', child: Text('Mark offline')),
+                        tooltip: 'Target actions',
+                        onSelected: (action) => switch (action) {
+                          'probe' => controller.probeTarget(x.id),
+                          'disable' =>
+                            controller.updateTarget(x.copyWith(enabled: false)),
+                          _ =>
+                            controller.updateTarget(x.copyWith(enabled: true)),
+                        },
+                        itemBuilder: (_) => [
+                          if (x.enabled)
+                            const PopupMenuItem(
+                                value: 'probe', child: Text('Probe now')),
+                          if (x.enabled)
+                            const PopupMenuItem(
+                                value: 'disable',
+                                child: Text('Take out of routing'))
+                          else
+                            const PopupMenuItem(
+                                value: 'enable',
+                                child: Text('Put back in routing')),
                         ],
-                        child: AnumPill(
-                            label: _label(x.status), tone: _tone(x.status)),
+                        child: AnumPill(label: _label(x), tone: _rowTone(x)),
                       ),
               ),
         ]),

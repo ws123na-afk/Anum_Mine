@@ -22,6 +22,8 @@ from anum_api.model_budget import (
     ModelBudgetExceededError,
     ModelBudgetLimits,
     UsageDelta,
+    UsageGroup,
+    UsageKey,
 )
 from anum_api.model_gateway import ModelResponse, ModelUsage
 from anum_api.settings import settings
@@ -236,7 +238,7 @@ def test_api_sets_budgets_audits_changes_and_the_gateway_enforces_them(
         ).one()
     assert audit.actor == "user_test"
     assert audit.target == f"model_budget:tenant:{TENANT_A}"
-    assert audit.metadata["limits"] == "cost_usd=none tokens=150"
+    assert audit.metadata["limits"] == "cost_usd=none tokens=150 alert_percent=none"
 
     refused = client.put(
         "/api/v1/model-budgets/workspace",
@@ -268,3 +270,67 @@ def test_a_workspace_owner_without_org_admin_cannot_change_the_tenant_budget(
     # The workspace's own budget stays with its owner.
     saved = client.put("/api/v1/model-budgets/workspace", headers=WORKSPACE_OWNER, json={"monthly_token_limit": 9})
     assert saved.status_code == 200, saved.text
+
+
+def test_daily_detail_rows_group_by_day_person_agent_and_feature_under_rls(
+    seed_scopes: None, app_session: Callable[..., Iterator[Session]]
+) -> None:
+    first = tenant_context()
+    second = tenant_context(TENANT_A, WORKSPACE_A2)
+    day1, day2 = date(2026, 10, 3), date(2026, 10, 4)
+    with app_session(first, commit=True) as session:
+        store = SqlAlchemyModelBudgetStore(session)
+        store.set_budget(first, BudgetScope.WORKSPACE, _limits(monthly_cost_limit_usd=10, alert_percent=20), FIXED_NOW)
+        store.record_usage(first, OCTOBER, UsageDelta(10, 10, 1.0), FIXED_NOW)
+        store.record_usage_detail(first, UsageKey(day1, "user_test", "assistant", "tasks"), UsageDelta(10, 10, 1.0), FIXED_NOW)
+        # The same key twice adds up (insert ... on conflict do update).
+        store.record_usage_detail(first, UsageKey(day2, "user_test", "assistant", "tasks"), UsageDelta(5, 5, 0.5), FIXED_NOW)
+        store.record_usage_detail(first, UsageKey(day2, "user_test", "assistant", "tasks"), UsageDelta(5, 5, None), FIXED_NOW)
+        store.record_usage_detail(first, UsageKey(day2, "user_other", "agent_x", "voice"), UsageDelta(1, 1, 2.0), FIXED_NOW)
+    with app_session(second, commit=True) as session:
+        store = SqlAlchemyModelBudgetStore(session)
+        store.record_usage(second, OCTOBER, UsageDelta(100, 0, 4.0), FIXED_NOW)
+        store.record_usage_detail(second, UsageKey(day2, "user_test", "assistant", "email"), UsageDelta(100, 0, 4.0), FIXED_NOW)
+
+    end = date(2026, 11, 1)
+    with app_session(first) as session:
+        store = SqlAlchemyModelBudgetStore(session)
+        budget = store.get_budget(first, BudgetScope.WORKSPACE)
+        assert budget is not None and budget.alert_percent == 20
+        days = {row.key: row for row in store.usage_breakdown(first, BudgetScope.WORKSPACE, UsageGroup.DAY, OCTOBER, end)}
+        assert set(days) == {"2026-10-03", "2026-10-04"}
+        assert (days["2026-10-04"].calls, days["2026-10-04"].total_tokens, days["2026-10-04"].unpriced_calls) == (3, 22, 1)
+        assert days["2026-10-04"].estimated_cost_usd == pytest.approx(2.5)
+        users = {row.key: row.calls for row in store.usage_breakdown(first, BudgetScope.WORKSPACE, UsageGroup.USER, OCTOBER, end)}
+        assert users == {"user_test": 3, "user_other": 1}
+        agents = {row.key: row.estimated_cost_usd for row in store.usage_breakdown(first, BudgetScope.WORKSPACE, UsageGroup.AGENT, OCTOBER, end)}
+        assert agents["agent_x"] == pytest.approx(2.0) and agents["assistant"] == pytest.approx(1.5)
+        # The organization scope sees the sibling workspace's rows (tenant-wide reads), the workspace scope does not.
+        features = {row.key: row.calls for row in store.usage_breakdown(first, BudgetScope.TENANT, UsageGroup.FEATURE, OCTOBER, end)}
+        assert features == {"tasks": 3, "voice": 1, "email": 1}
+        assert "email" not in {row.key for row in store.usage_breakdown(first, BudgetScope.WORKSPACE, UsageGroup.FEATURE, OCTOBER, end)}
+        months = store.usage_breakdown(first, BudgetScope.TENANT, UsageGroup.MONTH, date(2026, 1, 1), end)
+        # The monthly rows: one call recorded per workspace above (the daily rows are a separate table).
+        assert [(row.key, row.calls) for row in months] == [("2026-10-01", 2)]
+        assert store.first_recorded_day(first) == day1
+        # The range end is exclusive.
+        assert store.usage_breakdown(first, BudgetScope.WORKSPACE, UsageGroup.DAY, OCTOBER, day2) and not store.usage_breakdown(
+            first, BudgetScope.WORKSPACE, UsageGroup.DAY, end, date(2026, 12, 1)
+        )
+
+    # Another workspace of the tenant reads but cannot change A's rows; another tenant sees nothing.
+    with app_session(second) as session:
+        assert session.execute(text("update model_usage_daily set calls = 0 where workspace_id = :ws"), {"ws": WORKSPACE_A}).rowcount == 0
+        assert session.execute(text("delete from model_usage_daily where workspace_id = :ws"), {"ws": WORKSPACE_A}).rowcount == 0
+    with pytest.raises(DBAPIError, match="row-level security"):
+        with app_session(second) as session:
+            session.execute(
+                text("insert into model_usage_daily (tenant_id, workspace_id, day, user_id, agent_id, feature) values (:t, :w, :d, 'u', 'a', 'f')"),
+                {"t": TENANT_A, "w": WORKSPACE_A, "d": day1},
+            )
+    other = tenant_context(TENANT_B, WORKSPACE_B)
+    with app_session(other) as session:
+        store = SqlAlchemyModelBudgetStore(session)
+        assert session.execute(text("select count(*) from model_usage_daily")).scalar_one() == 0
+        assert store.usage_breakdown(other, BudgetScope.TENANT, UsageGroup.DAY, OCTOBER, end) == []
+        assert store.first_recorded_day(other) is None

@@ -50,7 +50,20 @@
 .frecLegs { border-collapse: collapse; width: 100%; }
 .frecLegs th, .frecLegs td { border-block-end: 1px solid var(--d-line); padding: var(--d-s1) var(--d-s2); text-align: start; }
 .frecLegs td:last-child, .frecLegs th:last-child { text-align: end; }
+/* The exceptions table across accounts (QueueCard): the header text is the sort button; rows keep the severity edge. */
+.frecQueueCount, .frecKept { margin: 0; }
+.frecQueue th[scope="row"] { font-weight: 600; overflow-wrap: anywhere; }
+.frecQueue td, .frecQueue th { vertical-align: top; }
+.frecQueue th .finSortButton { background: none; border: 0; box-shadow: none; min-height: 0; padding: 0; }
+.frecQueue .fpmRowActions { justify-content: flex-start; }
+.frecQueueRow.blocking th[scope="row"] { box-shadow: inset 4px 0 0 rgb(var(--c-stop)); }
+.frecQueueRow.warning th[scope="row"] { box-shadow: inset 4px 0 0 var(--d-warn); }
+[dir="rtl"] .frecQueueRow.blocking th[scope="row"], [dir="rtl"] .frecQueueRow.warning th[scope="row"] { box-shadow: inset -4px 0 0 currentColor; }
+.frecDetailActions { margin-inline-start: auto; }
 @media (max-width: 760px) {
+  .frecHideSm { display: none; }
+  .frecDetailActions { flex-basis: 100%; justify-content: flex-start; margin-inline-start: 0; }
+  .frecQueue .fpmRowActions { flex-wrap: wrap; }
   .frecSession, .frecException { grid-template-columns: minmax(0, 1fr); }
   .frecSession > button, .frecException .fpmRowActions { justify-self: stretch; }
   .frecException .fpmRowActions button { flex: 1 1 140px; justify-content: center; }

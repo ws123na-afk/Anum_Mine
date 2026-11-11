@@ -68,15 +68,27 @@ class FakeFiles implements FilesRepository {
   Object? listError;
   Completer<void>? holdUpload;
 
+  List<FileFolder> folderRows = const [];
+  List<FileTag> tagRows = const [];
+
   @override
   Future<List<WorkspaceFile>> list(
       {String query = '',
       String sort = 'created_at:desc',
       String? cursor,
-      int limit = filesPageSize}) async {
-    calls.add('list q=$query sort=$sort cursor=$cursor');
+      int limit = filesPageSize,
+      String? folder = everyFolder,
+      String? tag}) async {
+    calls
+        .add('list q=$query sort=$sort cursor=$cursor folder=$folder tag=$tag');
     if (listError != null) throw listError!;
     var rows = files.where((f) => f.name.contains(query)).toList();
+    if (folder != everyFolder) {
+      rows = rows.where((f) => f.folderId == folder).toList();
+    }
+    if (tag != null) {
+      rows = rows.where((f) => f.tags.any((t) => t.id == tag)).toList();
+    }
     if (cursor != null) {
       rows = rows.sublist(rows.indexWhere((f) => f.id == cursor) + 1);
     }
@@ -87,11 +99,56 @@ class FakeFiles implements FilesRepository {
   Future<FileUsage> usage() async => usageValue;
 
   @override
+  Future<List<FileFolder>> folders() async => folderRows;
+  @override
+  Future<List<FileTag>> tags() async => tagRows;
+  @override
+  Future<FileFolder> createFolder(String name, String? parentId) async {
+    calls.add('createFolder $name in $parentId');
+    final created = FileFolder(
+        id: 'folder_new', name: name, path: name, parentId: parentId);
+    folderRows = [...folderRows, created];
+    return created;
+  }
+
+  @override
+  Future<int> bulkMove(List<String> fileIds, String? folderId) async {
+    calls.add('bulkMove ${fileIds.join(',')} to $folderId');
+    return fileIds.length;
+  }
+
+  @override
+  Future<int> bulkDelete(List<String> fileIds) async {
+    calls.add('bulkDelete ${fileIds.join(',')}');
+    files = files.where((f) => !fileIds.contains(f.id)).toList();
+    return fileIds.length;
+  }
+
+  @override
+  Future<WorkspaceFile> tagFile(String id, List<String> tagIds) async {
+    calls.add('tagFile $id ${tagIds.join(',')}');
+    return files.firstWhere((f) => f.id == id);
+  }
+
+  @override
+  Future<WorkspaceFile> untagFile(String id, String tagId) async {
+    calls.add('untagFile $id $tagId');
+    return files.firstWhere((f) => f.id == id);
+  }
+
+  @override
+  Future<FileTag> createTag(String name) async {
+    calls.add('createTag $name');
+    return FileTag(id: 'tag_new', name: name, canManage: true);
+  }
+
+  @override
   Future<WorkspaceFile> upload(String path,
       {required String name,
       required void Function(int sent, int total) onProgress,
-      required UploadCancellation cancellation}) async {
-    calls.add('upload $name');
+      required UploadCancellation cancellation,
+      String? folderId}) async {
+    calls.add('upload $name${folderId == null ? '' : ' in $folderId'}');
     onProgress(5, 10);
     final hold = holdUpload;
     if (hold != null) {
@@ -193,7 +250,8 @@ class _NoBytes implements FileStreamTransfer {
   Future<JsonMap> uploadStream(String path,
           {required String name,
           required void Function(int, int) onProgress,
-          required UploadCancellation cancellation}) async =>
+          required UploadCancellation cancellation,
+          String? folderId}) async =>
       const {};
 }
 
@@ -295,7 +353,9 @@ void main() {
       expect(c.items, hasLength(55));
       expect(c.hasMore, isFalse);
       expect(
-          repo.calls, contains('list q= sort=created_at:desc cursor=file_49'));
+          repo.calls,
+          contains(
+              'list q= sort=created_at:desc cursor=file_49 folder=null tag=null'));
     });
 
     test('a 403 list is a permission state, not an error', () async {
@@ -363,7 +423,8 @@ void main() {
       await tester.enterText(find.byType(TextField).first, 'logo');
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pumpAndSettle();
-      expect(repo.calls.last, 'list q=logo sort=created_at:desc cursor=null');
+      expect(repo.calls.last,
+          'list q=logo sort=created_at:desc cursor=null folder=all tag=null');
       expect(find.text('notes.md'), findsNothing);
 
       await tester.tap(find.byTooltip('Clear search'));

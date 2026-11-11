@@ -8,6 +8,7 @@ import 'package:anum_mobile/features/calendar/calendar_controller.dart';
 import 'package:anum_mobile/features/calendar/calendar_models.dart';
 import 'package:anum_mobile/features/calendar/calendar_repository.dart';
 import 'package:anum_mobile/features/calendar/calendar_screen.dart';
+import 'package:anum_mobile/features/calendar/event_form.dart';
 import 'package:anum_mobile/features/calendar/event_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -82,8 +83,12 @@ class FakeCalendar implements CalendarRepository {
         canWrite: canWrite);
   }
 
+  final deletes = <String>[];
+  final opened = <String>[];
+
   @override
-  Future<CalendarEvent> event(String id) async {
+  Future<CalendarEvent> event(String id, {DateTime? occurrenceStart}) async {
+    opened.add('$id@${occurrenceStart?.toUtc().toIso8601String()}');
     final found = store[id];
     if (found == null) throw const ApiException(404, 'Event not found');
     return CalendarEvent.fromJson(JsonReader(found));
@@ -121,7 +126,12 @@ class FakeCalendar implements CalendarRepository {
   }
 
   @override
-  Future<void> delete(String id) async => store.remove(id);
+  Future<void> delete(String id,
+      {EditScope? scope, DateTime? occurrenceStart}) async {
+    deletes
+        .add('$id:${scope?.api}:${occurrenceStart?.toUtc().toIso8601String()}');
+    if (scope == null || scope == EditScope.all) store.remove(id);
+  }
 
   @override
   Future<CalendarSyncStatus> sync() async {
@@ -354,6 +364,163 @@ void main() {
     await tester.tap(find.text('Sajid Kamboh'));
     await tester.pumpAndSettle();
     expect(find.text('Reply from Sajid Kamboh'), findsNothing);
+  });
+
+  // Repeating, all-day events and reminders (docs/calendar.md#recurrence).
+  Map<String, Object?> seriesJson({bool overridden = false}) => {
+        ...eventJson('series_1', title: 'Daily standup', hour: 9),
+        'attendees': <Object?>[],
+        'timezone': 'Asia/Dubai',
+        'recurrence': {'freq': 'daily', 'interval': 1, 'count': 5},
+        'reminders': [10, 1440],
+        'occurrence_start': DateTime(2026, 10, 7, 9).toUtc().toIso8601String(),
+        'occurrence_key': 'series_1@2026-10-07',
+        'is_recurring': true,
+        'overridden': overridden,
+        'rrule': 'FREQ=DAILY;COUNT=5',
+      };
+
+  test('models: a series, an all-day event and the draft body with a scope',
+      () {
+    final series = CalendarEvent.fromJson(JsonReader(seriesJson()));
+    expect(series.isRecurring, isTrue);
+    expect(series.recurrence!.count, 5);
+    expect(series.reminders, [10, 1440]);
+    expect(series.key, 'series_1@2026-10-07');
+    final draft = EventDraft.from(series);
+    final one = draft.toJson(
+        scope: EditScope.thisOne, occurrenceStart: series.occurrenceStart);
+    expect(one['scope'], 'this');
+    expect(one.containsKey('recurrence'), isFalse);
+    expect(one['occurrence_start'],
+        series.occurrenceStart!.toUtc().toIso8601String());
+    final all = draft.toJson(scope: EditScope.all);
+    expect((all['recurrence'] as Map)['freq'], 'daily');
+    expect(all['reminders'], [10, 1440]);
+    final allDay = CalendarEvent.fromJson(JsonReader({
+      ...eventJson('allday'),
+      'all_day': true,
+      'start_date': '2026-10-07',
+      'end_date': '2026-10-08',
+      'timezone': 'Asia/Dubai',
+    }));
+    expect(allDay.allDayLength, 2);
+    final body = EventDraft.from(allDay).toJson();
+    expect(body['all_day'], isTrue);
+    expect(body['start_date'], '2026-10-07');
+    expect(body['end_date'], '2026-10-08');
+    expect(body['timezone'], 'Asia/Dubai');
+  });
+
+  testWidgets('the form offers all day, a repeat rule and reminders',
+      (tester) async {
+    EventDraft? saved;
+    await pumpScreen(
+        tester,
+        Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async => saved = await showEventForm(context,
+                  draft: EventDraft(
+                      title: '',
+                      kind: 'meeting',
+                      startsAt: DateTime(2026, 10, 7, 10),
+                      endsAt: DateTime(2026, 10, 7, 11))),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+        height: 1800);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'Site inspection');
+    await tester.tap(find.text('All day'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Starts '), findsNothing);
+    expect(find.textContaining('Last day:'), findsOneWidget);
+    await tester.tap(find.text('Does not repeat'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Weekly').last);
+    await tester.pumpAndSettle();
+    expect(find.text('On these days'), findsOneWidget);
+    expect(find.textContaining('Every week on Wednesday'), findsOneWidget);
+    await tester.tap(find.text('After a number of times'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Times'), '4');
+    await tester.pumpAndSettle();
+    expect(find.textContaining(', 4 times'), findsOneWidget);
+    await tester.tap(find.text('Add reminder'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1 day before'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 day before'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Save'));
+    await tester.pumpAndSettle();
+    expect(saved, isNotNull);
+    expect(saved!.allDay, isTrue);
+    expect(saved!.recurrence!.freq, 'weekly');
+    expect(saved!.recurrence!.byWeekday, ['WE']);
+    expect(saved!.recurrence!.count, 4);
+    expect(saved!.reminders, [1440]);
+    expect(saved!.timezone, isNotNull);
+  });
+
+  testWidgets(
+      'an occurrence shows its rule and reminders; delete asks which events',
+      (tester) async {
+    final repo = FakeCalendar();
+    repo.store['series_1'] = seriesJson();
+    final c = controllerFor(repo);
+    await c.load();
+    await pumpScreen(
+        tester, CalendarScreen(controller: c, openLink: (_) async => true),
+        height: 1400);
+    expect(find.text('Daily standup'), findsOneWidget);
+    expect(find.textContaining('Every day, 5 times'), findsOneWidget);
+    await tester.tap(find.text('Daily standup'));
+    await tester.pumpAndSettle();
+    expect(repo.opened.last, startsWith('series_1@2026-10-07'));
+    expect(find.text('10 minutes before · 1 day before'), findsOneWidget);
+    await tester.tap(find.byTooltip('More actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete event').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Which events should be deleted?'), findsOneWidget);
+    expect(find.text('This and following events'), findsOneWidget);
+    await tester.tap(find.text('This event only'));
+    await tester.pumpAndSettle();
+    expect(repo.deletes.single, startsWith('series_1:this:2026-10-07'));
+    expect(repo.store.containsKey('series_1'), isTrue);
+  });
+
+  testWidgets(
+      'cancelling one occurrence sends its scope; a changed occurrence has no following',
+      (tester) async {
+    final repo = FakeCalendar();
+    repo.store['series_1'] = seriesJson(overridden: true);
+    final c = controllerFor(repo);
+    await c.load();
+    await pumpScreen(
+        tester,
+        EventScreen(
+            controller: c,
+            eventId: 'series_1',
+            occurrenceStart: DateTime(2026, 10, 7, 9),
+            openLink: (_) async => true));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Changed from the series'), findsOneWidget);
+    await tester.tap(find.byTooltip('More actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel event').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Which events should be cancelled?'), findsOneWidget);
+    expect(find.text('This and following events'), findsNothing);
+    await tester.tap(find.text('This event only'));
+    await tester.pumpAndSettle();
+    expect(repo.changes.last['scope'], 'this');
+    expect(repo.changes.last['status'], 'cancelled');
+    expect(repo.changes.last['occurrence_start'],
+        DateTime(2026, 10, 7, 9).toUtc().toIso8601String());
   });
 
   group('calendar sync (docs/calendar.md#sync)', () {

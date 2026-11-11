@@ -28,6 +28,7 @@ The owner wants finished features, not placeholders. Before calling any page or 
 ## Working with the owner
 - Keep working until every module is enterprise-grade and complete (definition of done above, in depth); do not stop to ask whether to continue.
 - Messages to the owner are short: only what the owner must do (with exact steps), blockers, and decisions only the owner can make. Do not narrate progress, agent reports or test counts unless asked.
+- Owner, 11 Nov 2026: "dont explain all, keep only things that need my attention, just work." Status updates, merges, CI fixes and agent results are not reported at all; a message goes out only for an owner step, a blocker or a decision.
 - Merge PRs once CI is green; keep the next batch of work going.
 
 ## Owner's Oracle setup (as of 19 Oct 2026)
@@ -96,3 +97,9 @@ Design and QA skills (owner, 12 Oct: load them, every helper too; sources and li
 - When two features land under similar names (phone `calls` vs in-app `app-calls`), check routes, Flutter routes, push kinds, i18n keys and privacy helper names for silent clashes after the merge; git can merge two identical-looking lines into one.
 - Random ids are hex, so they can contain any digit fixture: a test asserting that `"1234"` is absent from an export failed by chance on a `je_…1234…` id. Strip generated ids before checking, or use a fixture that cannot occur in hex.
 - A test that recomputes an HMAC-SHA1 over a variable named like an id trips CodeQL's weak-hash rule, and a hard-coded expected digest trips gitleaks: compute the expected value in the test from a constant label instead.
+- Parallel agents share one scratchpad directory: two wrote a `commit.sh` with the same name and one committed the other's files. Each agent gets its own subfolder, and `git stash` is shared across worktrees too, so agents never stash.
+- Playwright shards split the ordered test list, so the 61 `hq-*` specs (software rendering, up to 240 s each) land in adjacent shards; with six shards one took 67 minutes and timed out at 75 once more tests landed. CI runs twelve.
+- axe's `label-content-name-mismatch` (serious, fails the gate) needs the visible text inside the accessible name in every language: an Arabic button showing one verb form with another in `aria-label` fails; start the label with the visible words.
+- Bandit (B608) flags any f-string that builds SQL, migrations included, even with a fixed table name; write one literal statement per table.
+- A migration's backfill runs as the migrator with FORCE RLS on: a sub-select over a forced table it did not un-force matches nothing and the backfill silently updates zero rows. Lift FORCE on every table the backfill reads, and test the upgrade as a non-superuser owner.
+- A row policy's sub-select runs with the querying role's privileges, so a narrow role that must evaluate it needs a column grant on the referenced table (`anum_maintenance` reads `tasks.id`); a test asserting that role cannot read `tasks` must select a content column, not the id.

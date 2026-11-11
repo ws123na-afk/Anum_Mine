@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExtern
 import {
   Activity, Bell, BellOff, BookOpen, GraduationCap, Phone, ShoppingCart, Wallet, Bot, Building2, ChevronDown, CircleAlert, FileLock2, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
-  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark, Compass, Clock3, CarFront, PackageOpen, Menu, X } from 'lucide-react';
+  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark, Compass, Clock3, CarFront, PackageOpen, BookUser, Menu, X } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -22,6 +22,8 @@ import type { AutomationAlert } from './lib/automation';
 import type { ActionNotice } from './lib/autonomy';
 import type { EmailMessage } from './lib/email';
 import { searchEmails, searchFiles, searchTasks } from './lib/commandApi';
+import { searchPeople } from './lib/contactsApi';
+import type { PersonView } from './lib/contacts';
 import { NAV, badgeText, initials, isPaletteShortcut, matchViews, moveActive, notificationCount, viewLabel, type NavGroup, type PaletteItem, type View } from './lib/shell';
 import { Modal, useModal } from './Dialog';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
@@ -33,8 +35,8 @@ const ICONS: Record<View, ReactNode> = {
   home: <House />, command: <Sparkles />, assistant: <MessageSquare />, agents: <Bot />, voice: <Mic />, call: <Phone />, calls: <PhoneOutgoing />, tyre: <Disc3 />, meetings: <PhoneCall />, calendar: <CalendarDays />, commerce: <ShoppingCart />, finance: <Wallet />, marketing: <Megaphone />, business: <Handshake />, learning: <GraduationCap />, automation: <Workflow />, tasks: <ListTodo />,
   integrations: <Plug />, files: <FileText />, vault: <FileLock2 />, memory: <BookOpen />, knowledge: <Library />, reports: <FileBarChart />, favorites: <Star />, skills: <Store />, inbox: <Mail />, email: <AtSign />, whatsapp: <MessageCircle />,
   approvals: <ShieldCheck />, activity: <Activity />, autonomy: <SlidersHorizontal />, settings: <Settings />, governance: <Building2 />, setup: <ClipboardList />, suppressions: <BellOff />,
-  enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, agentControls: <ShieldAlert />, policy: <Scale />, developer: <Hammer />,
-  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, office: <Building2 />, executive: <Compass />, attendance: <Clock3 />, vehicles: <CarFront />, purchases: <PackageOpen />,
+  enterprise: <Store />, members: <Users />, audit: <ScrollText />, budgets: <Gauge />, agentControls: <ShieldAlert />, approvalSettings: <Scale />, developer: <Hammer />,
+  team: <ClipboardCheck />, assistants: <BriefcaseBusiness />, organisations: <Building />, platformBilling: <Landmark />, office: <Building2 />, executive: <Compass />, attendance: <Clock3 />, vehicles: <CarFront />, purchases: <PackageOpen />, contacts: <BookUser />,
 };
 export const viewIcon = (view: View) => ICONS[view];
 
@@ -373,17 +375,18 @@ export function CommandPalette({ views, recentTasks, onClose, onPick }: {
   const [tasks, setTasks] = useState<Section<Task>>(idle());
   const [files, setFiles] = useState<Section<api.FileRecord>>(idle());
   const [emails, setEmails] = useState<Section<EmailMessage>>(idle());
+  const [people, setPeople] = useState<Section<PersonView>>(idle());
   const [active, setActive] = useState(0);
   const listId = useId();
   const q = query.trim();
   useEffect(() => {
-    if (!q) { setTasks(idle()); setFiles(idle()); setEmails(idle()); return; }
+    if (!q) { setTasks(idle()); setFiles(idle()); setEmails(idle()); setPeople(idle()); return; }
     let live = true;
     const run = <T,>(set: (s: Section<T>) => void, load: () => Promise<T[]>) => {
       set({ state: 'loading', items: [] });
       load().then((items) => { if (live) set({ state: 'ready', items }); }).catch(() => { if (live) set({ state: 'error', items: [] }); });
     };
-    const timer = window.setTimeout(() => { run(setTasks, () => searchTasks(q)); run(setFiles, () => searchFiles(q)); run(setEmails, () => searchEmails(q)); }, 250);
+    const timer = window.setTimeout(() => { run(setTasks, () => searchTasks(q)); run(setFiles, () => searchFiles(q)); run(setEmails, () => searchEmails(q)); run(setPeople, () => searchPeople(q)); }, 250);
     return () => { live = false; window.clearTimeout(timer); };
   }, [q]);
   useEffect(() => setActive(0), [q]);
@@ -391,14 +394,15 @@ export function CommandPalette({ views, recentTasks, onClose, onPick }: {
   const sections = useMemo(() => {
     const viewItems = matchViews(q, views).slice(0, q ? 6 : views.length);
     const taskItems: PaletteItem[] = (q ? tasks.items : [...recentTasks].slice(0, 5)).map((task) => ({ kind: 'task', id: task.id, label: task.title, detail: statusLabel(task.status) }));
-    const fileItems: PaletteItem[] = files.items.map((file) => ({ kind: 'file', id: file.id, label: file.name, detail: file.content_type }));
+    const fileItems: PaletteItem[] = files.items.map((file) => ({ kind: 'file', id: file.id, label: file.name, detail: file.folder_path ? `${file.folder_path} · ${file.content_type}` : file.content_type }));
+    const peopleItems: PaletteItem[] = people.items.map((person) => ({ kind: 'contact', id: person.id, label: person.name, detail: [person.organisation, person.phones[0]?.value, person.emails[0]?.value].filter(Boolean).join(' · ') }));
     const emailItems: PaletteItem[] = emails.items.map((message) => ({ kind: 'email', id: message.id, label: message.subject || t('search.noSubject'), detail: message.from_name ?? message.from_address }));
     return [
       { key: 'views', title: t('search.views'), items: viewItems, state: 'ready' as const },
       { key: 'tasks', title: q ? t('search.tasks') : t('search.recentTasks'), items: taskItems, state: q ? tasks.state : 'ready' as const },
-      ...(q ? [{ key: 'files', title: t('search.files'), items: fileItems, state: files.state }, { key: 'emails', title: t('search.emails'), items: emailItems, state: emails.state }] : []),
+      ...(q ? [{ key: 'files', title: t('search.files'), items: fileItems, state: files.state }, { key: 'emails', title: t('search.emails'), items: emailItems, state: emails.state }, { key: 'contacts', title: t('search.contacts'), items: peopleItems, state: people.state }] : []),
     ];
-  }, [q, views, recentTasks, tasks, files, emails]);
+  }, [q, views, recentTasks, tasks, files, emails, people]);
   const flat = sections.flatMap((section) => section.items);
   const optionId = (index: number) => `${listId}-opt-${index}`;
   const onKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -425,7 +429,7 @@ export function CommandPalette({ views, recentTasks, onClose, onPick }: {
           index += 1;
           const mine = index;
           return <div key={`${item.kind}:${item.id}`} id={optionId(mine)} role="option" aria-selected={mine === active} className={`paletteOption ${mine === active ? 'active' : ''}`} onMouseEnter={() => setActive(mine)} onMouseDown={(event) => event.preventDefault()} onClick={() => onPick(item)}>
-            <span className="paletteIcon" aria-hidden="true">{item.kind === 'view' ? ICONS[item.id as View] : item.kind === 'task' ? <ListTodo /> : item.kind === 'file' ? <FileText /> : <Mail />}</span>
+            <span className="paletteIcon" aria-hidden="true">{item.kind === 'view' ? ICONS[item.id as View] : item.kind === 'task' ? <ListTodo /> : item.kind === 'file' ? <FileText /> : item.kind === 'contact' ? <BookUser /> : <Mail />}</span>
             <span className="paletteText"><strong dir="auto">{item.label}</strong>{item.detail && <small dir="auto">{item.detail}</small>}</span>
           </div>;
         })}

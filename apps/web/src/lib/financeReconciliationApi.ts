@@ -4,7 +4,9 @@ import type {
   FinanceReconCorrectionPreview, FinanceReconDetail, FinanceReconHealthPage, FinanceReconInput, FinanceReconPage, FinanceReconQueuePage,
   FinanceReconResolution, FinanceReconResolutionInput,
 } from '@anum/contracts';
-import { apiRequest, apiRequestVoid } from './api';
+import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
+import { apiErrorFromResponse } from './errors';
+import { fileNameFromDisposition, saveBlob } from './fileSave';
 import { query } from './financeApi';
 import type { SeverityFilter } from './financeReconciliation';
 
@@ -17,7 +19,15 @@ const send = <T>(method: string, path: string, body: unknown) => apiRequest<T>(`
 
 export const listReconciliations = (limit: number, offset: number) => get<FinanceReconPage>(query({ limit, offset }));
 export const reconciliationHealth = () => get<FinanceReconHealthPage>('/health');
-export const reconciliationExceptions = (limit: number, offset: number) => get<FinanceReconQueuePage>(`/exceptions${query({ limit, offset })}`);
+export const reconciliationExceptions = (limit: number, offset: number, order?: { sort: string; desc: boolean }) =>
+  get<FinanceReconQueuePage>(`/exceptions${query({ limit, offset, sort: order?.sort, desc: order?.desc ? 'true' : undefined })}`);
+
+/** Downloads every open exception as a CSV made by the server (formula-safe) and returns the file name. */
+export async function exportExceptions(order?: { sort: string; desc: boolean }): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}${BASE}/exceptions/export${query({ sort: order?.sort, desc: order?.desc ? 'true' : undefined })}`, { headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return saveBlob(await response.blob(), fileNameFromDisposition(response.headers.get('content-disposition'), 'anum-reconciliation-exceptions.csv'));
+}
 export const getReconciliation = (recId: string, p: { severity?: SeverityFilter; kind?: string; limit: number; offset: number }) =>
   get<FinanceReconDetail>(`/${id(recId)}${query({ severity: p.severity === 'all' ? undefined : p.severity, kind: p.kind, limit: p.limit, offset: p.offset })}`);
 export const createReconciliation = (body: FinanceReconInput) => send<FinanceReconDetail>('POST', '', body);

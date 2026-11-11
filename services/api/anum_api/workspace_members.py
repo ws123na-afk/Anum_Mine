@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .audit import AuditRecord
-from .authorization import Permission, Role
+from .authorization import ROLE_PERMISSIONS, Permission, Role
 from .dependencies import (
     AuthenticatedIdentity,
     authenticated_identity,
@@ -163,6 +163,12 @@ class MemberRoleUpdate(BaseModel):
     role: Role
 
 
+class MemberRoleTemplateUpdate(BaseModel):
+    """``PUT /workspace-members/{user_id}/role-template``: a template id, or null for none."""
+
+    role_template_id: str | None = Field(default=None, max_length=80)
+
+
 class InvitationResend(BaseModel):
     ttl_hours: int = Field(default=DEFAULT_TTL_HOURS, ge=1, le=MAX_TTL_HOURS)
     send_email: bool = True
@@ -173,6 +179,40 @@ class MemberView(WorkspaceMembership):
     # The verified email of the invitation this member accepted, when there was one.
     # Memberships themselves hold only the sign-in subject (user id).
     email: str | None = None
+    # The assigned role template (docs/governance-and-scale.md#role-templates), when there is
+    # one: its name (null if it no longer exists) and the member's effective permissions,
+    # the role's intersected with the template's. Without a template the role alone applies
+    # and ``effective_permissions`` is null.
+    role_template_name: str | None = None
+    effective_permissions: list[str] | None = None
+
+
+def effective_permissions(role: str, limit: list[str] | None) -> list[str] | None:
+    """What a member may do: the role's permissions intersected with the template's."""
+    if limit is None:
+        return None
+    try:
+        granted = ROLE_PERMISSIONS[Role(role)]
+    except ValueError:
+        return []
+    allowed = set(limit)
+    return sorted(permission.value for permission in granted if permission.value in allowed)
+
+
+def _member_view(member: WorkspaceMembership, email: str | None, templates: dict[str, str]) -> MemberView:
+    return MemberView(
+        **member.model_dump(), email=email,
+        role_template_name=templates.get(member.role_template_id) if member.role_template_id else None,
+        effective_permissions=effective_permissions(member.role, member.permission_limit),
+    )
+
+
+def _template_names(context: TenantContext) -> dict[str, str]:
+    """Role template names by id, read in their own short unit of work (the governance store)."""
+    from .governance import open_governance_store
+
+    with open_governance_store(context) as governance:
+        return {template.id: template.name for template in governance.list_role_templates(context)}
 
 
 class MembersSummary(BaseModel):
@@ -767,9 +807,10 @@ def list_members(
     """
     _require_manager(context)
     emails = _accepted_emails(repository, context)
+    templates = _template_names(context)
     needle = q.strip().casefold() if q and q.strip() else None
     members = [
-        MemberView(**member.model_dump(), email=emails.get(member.user_id))
+        _member_view(member, emails.get(member.user_id), templates)
         for member in repository.list_memberships(context)
         if (member_status == "all" or member.active == (member_status == "active"))
         and (role is None or member.role == role.value)
@@ -834,8 +875,13 @@ def change_member_role(
         _ensure_not_last_owner(repository, context, member)
     now = utc_now()
     previous = member.role
+    # Owners keep the whole owner role: a template assigned to the member or viewer is dropped.
+    cleared = payload.role == Role.OWNER and member.role_template_id is not None
     member = repository.save_membership(
-        member.model_copy(update={"role": payload.role.value, "updated_at": now})
+        member.model_copy(update={
+            "role": payload.role.value, "updated_at": now,
+            **({"role_template_id": None, "permission_limit": None} if cleared else {}),
+        })
     )
     _record_change(
         repository,
@@ -843,10 +889,62 @@ def change_member_role(
         event_type=CanonicalEventName.WORKSPACE_MEMBER_ROLE_CHANGED,
         audit_action="workspace_member.role_change",
         target=member.user_id,
-        payload={"user_id": member.user_id, "previous_role": previous, "role": member.role},
+        payload={"user_id": member.user_id, "previous_role": previous, "role": member.role,
+                 **({"role_template_cleared": True} if cleared else {})},
         now=now,
     )
     return member
+
+
+@router.put("/workspace-members/{user_id}/role-template", response_model=MemberView)
+def change_member_role_template(
+    user_id: str,
+    payload: MemberRoleTemplateUpdate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> MemberView:
+    """Give a member or viewer a role template, or take it away (``role_template_id: null``).
+
+    The template's permissions are copied onto the membership; from the member's next request
+    their effective permissions are the role's intersected with them. Owners cannot carry a
+    template (``409``): change the role first (docs/governance-and-scale.md#role-templates).
+    """
+    _require_manager(context)
+    member = _member_or_404(repository, context, _validated_user_id(user_id))
+    template = None
+    if payload.role_template_id is not None:
+        from .governance import open_governance_store
+
+        with open_governance_store(context) as governance:
+            template = governance.get_role_template(context, payload.role_template_id)
+        if template is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role template not found")
+        if member.role == Role.OWNER.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Owners keep the whole owner role and cannot carry a role template. Change the role to member or viewer first.",
+            )
+    now = utc_now()
+    previous = member.role_template_id
+    member = repository.save_membership(member.model_copy(update={
+        "role_template_id": template.id if template else None,
+        "permission_limit": list(template.permissions) if template else None,
+        "updated_at": now,
+    }))
+    _record_change(
+        repository,
+        context,
+        event_type=CanonicalEventName.WORKSPACE_MEMBER_ROLE_CHANGED,
+        audit_action="workspace_member.role_template",
+        target=member.user_id,
+        payload={
+            "user_id": member.user_id, "role": member.role, "previous_role_template_id": previous,
+            "role_template_id": member.role_template_id, "permission_limit": list(member.permission_limit or []),
+        },
+        now=now,
+    )
+    emails = _accepted_emails(repository, context)
+    return _member_view(member, emails.get(member.user_id), {template.id: template.name} if template else {})
 
 
 @router.post("/workspace-members/{user_id}/deactivate", response_model=WorkspaceMembership)

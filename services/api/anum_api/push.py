@@ -392,6 +392,8 @@ class PushKind(StrEnum):
     # In-app calls (docs/in-app-calls.md#phone-push): a teammate is ringing, or rang.
     INCOMING_CALL = "incoming_call"
     MISSED_CALL = "missed_call"
+    # A calendar reminder before an event starts (docs/calendar.md#reminders).
+    CALENDAR_REMINDER = "calendar_reminder"
 
 
 # Which notification preference switch gates each kind.
@@ -413,6 +415,7 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.FINANCE_ADVICE: "push_enabled",
     PushKind.INCOMING_CALL: "push_enabled",
     PushKind.MISSED_CALL: "push_enabled",
+    PushKind.CALENDAR_REMINDER: "push_enabled",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -431,6 +434,7 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.FINANCE_ADVICE: ("Weekly money note", "Your weekly money note is ready. ANUM only advises: it never moves money."),
     PushKind.INCOMING_CALL: ("Incoming call", "A teammate is calling you. Open ANUM to answer."),
     PushKind.MISSED_CALL: ("Missed call", "A teammate tried to call you in ANUM."),
+    PushKind.CALENDAR_REMINDER: ("Event reminder", "An event on your calendar starts soon. Open ANUM to see it."),
 }
 
 # The same fixed text in Arabic, for phones whose app shows Arabic (``push_devices.language``).
@@ -449,6 +453,7 @@ TEXT_AR: dict[PushKind, tuple[str, str]] = {
     PushKind.FINANCE_ADVICE: ("ملاحظة المال الأسبوعية", "ملاحظة المال الأسبوعية جاهزة. ANUM يقدّم النصيحة فقط ولا ينقل المال أبدًا."),
     PushKind.INCOMING_CALL: ("مكالمة واردة", "زميل يتصل بك. افتح ANUM للرد."),
     PushKind.MISSED_CALL: ("مكالمة فائتة", "حاول زميل الاتصال بك في ANUM."),
+    PushKind.CALENDAR_REMINDER: ("تذكير بحدث", "حدث في تقويمك يبدأ قريبًا. افتح ANUM لرؤيته."),
 }
 
 
@@ -572,6 +577,9 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
             return None  # the inbox row only, never a phone push
         if event.payload.get("kind") == "missed_call":
             return PushIntent(**{**common, "kind": PushKind.MISSED_CALL}, recipient=recipient)
+        if event.payload.get("kind") == "calendar_reminder":
+            # Its own kind and text, opening Calendar on the phone (docs/calendar.md#reminders).
+            return PushIntent(**{**common, "kind": PushKind.CALENDAR_REMINDER}, recipient=recipient)
         if event.payload.get("kind") == "finance_daily_report":
             # Not team work: its own kind and text, opening Finance on the phone.
             return PushIntent(**{**common, "kind": PushKind.FINANCE_REPORT}, recipient=recipient)
@@ -627,6 +635,9 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
                 recipients = [intent.recipient]
         elif intent.kind in {PushKind.FINANCE_REPORT, PushKind.FINANCE_ADVICE}:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.FINANCE_READ):
+                recipients = [intent.recipient]
+        elif intent.kind == PushKind.CALENDAR_REMINDER:
+            if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.CALENDAR_READ):
                 recipients = [intent.recipient]
         elif intent.kind in {PushKind.AUTOMATION_NOTICE, PushKind.AUTOMATION_FAILED}:
             recipients = [

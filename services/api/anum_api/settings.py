@@ -416,6 +416,12 @@ class Settings(BaseSettings):
     # notification email retries run in the same background loop as the automation
     # scheduler (ANUM_AUTOMATION_SCHEDULER_ENABLED) and use the same anum_maintenance grant.
     team_reminder_poll_seconds: float = Field(default=60.0, gt=0)
+    # Routing target health probes (docs/governance-and-scale.md#routing-targets): the
+    # scheduler pass re-probes enabled, already probed targets older than the interval, at
+    # most batch_size per pass; an answer slower than degraded_ms counts as degraded.
+    routing_probe_interval_seconds: float = Field(default=900.0, gt=0)
+    routing_probe_batch_size: int = Field(default=50, ge=1, le=500)
+    routing_probe_degraded_ms: int = Field(default=10_000, ge=100)
     team_reminder_batch_size: int = Field(default=200, ge=1, le=2000)
     # Notification email (docs/team-work.md#notifications). Unset host: email is recorded
     # as not_configured and only the in-app notification is delivered. "tls" is implicit

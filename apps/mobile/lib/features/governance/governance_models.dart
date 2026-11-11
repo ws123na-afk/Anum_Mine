@@ -59,11 +59,41 @@ class RoutingTarget {
       required this.latencyMs,
       required this.cost,
       this.modalities = const ['text'],
-      this.sensitivity = const ['standard']});
+      this.sensitivity = const ['standard'],
+      this.enabled = true,
+      this.lastCheckedAt,
+      this.measuredLatencyMs,
+      this.lastError});
   final String id, region, provider, model, status;
   final int latencyMs;
   final double cost;
   final List<String> modalities, sensitivity;
+
+  /// In routing; off: decisions skip it and it can be deleted.
+  final bool enabled;
+
+  /// What the health probe measured (docs/governance-and-scale.md#routing-targets);
+  /// all null until the first probe, so a typed status is never shown as health.
+  final DateTime? lastCheckedAt;
+  final int? measuredLatencyMs;
+  final String? lastError;
+
+  bool get probed => lastCheckedAt != null;
+
+  RoutingTarget copyWith({bool? enabled}) => RoutingTarget(
+      id: id,
+      region: region,
+      provider: provider,
+      model: model,
+      status: status,
+      latencyMs: latencyMs,
+      cost: cost,
+      modalities: modalities,
+      sensitivity: sensitivity,
+      enabled: enabled ?? this.enabled,
+      lastCheckedAt: lastCheckedAt,
+      measuredLatencyMs: measuredLatencyMs,
+      lastError: lastError);
 }
 
 class EnterpriseOperations {

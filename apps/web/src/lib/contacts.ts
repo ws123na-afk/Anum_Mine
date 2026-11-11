@@ -1,0 +1,131 @@
+// The Contacts directory (docs/contacts.md#web): wire types, the hash of each tab and open person,
+// the person form's checks and plain words. Pure, so `pnpm --filter @anum/web test:unit` covers it.
+import { t, type MessageKey } from './i18n.ts';
+
+export type LinkKind = 'call_contact' | 'business_contact' | 'whatsapp_contact';
+export type PersonSource = 'manual' | 'calls' | 'business' | 'whatsapp' | 'merge';
+export type Channel = 'phone' | 'email' | 'whatsapp' | 'all';
+export type ContactChannel = 'phone' | 'email' | 'whatsapp';
+export type DncFilter = '' | 'any' | 'phone' | 'email' | 'whatsapp' | 'none';
+export type SortKey = 'name' | 'updated' | 'created';
+
+export const CONTACT_TABS = ['people', 'duplicates'] as const;
+export type ContactTab = (typeof CONTACT_TABS)[number];
+export const SOURCES: readonly PersonSource[] = ['manual', 'calls', 'business', 'whatsapp', 'merge'];
+export const CHANNELS: readonly Channel[] = ['phone', 'email', 'whatsapp', 'all'];
+export const DNC_FILTERS: readonly DncFilter[] = ['', 'any', 'phone', 'email', 'whatsapp', 'none'];
+export const SORTS: readonly SortKey[] = ['name', 'updated', 'created'];
+export const PAGE_SIZE = 25;
+
+export interface IdentifierView { kind: 'phone' | 'email'; value: string; label: string }
+export interface DoNotContactView { channel: Channel; reason: string; set_by: string; set_at: string }
+export interface PersonView {
+  id: string; name: string; organisation: string; notes: string; source: PersonSource;
+  phones: IdentifierView[]; emails: IdentifierView[]; sources: LinkKind[]; do_not_contact: DoNotContactView[];
+  open_proposals: number; created_by: string; created_at: string; updated_at: string;
+}
+export interface LinkView { id: string; kind: LinkKind; source_id: string; found: boolean; title: string; detail: string; href: string; facts: Record<string, unknown> }
+export type FactSource = 'calls' | 'business' | 'whatsapp' | 'consent_records' | 'suppression' | 'directory';
+export type FactState = 'granted' | 'withdrawn' | 'unknown' | 'none' | 'blocked' | 'customer_wrote' | 'no_message_yet';
+export interface ConsentFact { source: FactSource; state: FactState; detail: string; at: string | null }
+export interface ChannelSummary { channel: ContactChannel; identifiers: string[]; do_not_contact: DoNotContactView | null; facts: ConsentFact[]; can_contact: boolean }
+export interface MailContactView { id: string; email: string; name: string; href: string }
+export interface ProposalView {
+  id: string; reason: 'same_phone' | 'same_email'; matched_value: string; status: 'open' | 'dismissed' | 'merged';
+  a: PersonView | null; b: PersonView | null; created_at: string; decided_by: string | null; decided_at: string | null;
+}
+export interface PersonDetail { person: PersonView; links: LinkView[]; channels: ChannelSummary[]; proposals: ProposalView[]; mail_contacts: MailContactView[]; can_write: boolean; can_manage: boolean }
+export interface Counts { people: number; do_not_contact: number; open_proposals: number; by_source: Record<string, number> }
+export interface PeoplePage { items: PersonView[]; total: number; counts: Counts; can_write: boolean; can_manage: boolean; can_export: boolean }
+export interface ProposalPage { items: ProposalView[]; total: number; can_write: boolean }
+export interface BuildReport { scanned: number; linked: number; people_created: number; proposals_created: number; complete: boolean }
+
+export interface PeopleFilters { q: string; source: PersonSource | ''; dnc: DncFilter; sort: SortKey }
+export const NO_FILTERS: PeopleFilters = { q: '', source: '', dnc: '', sort: 'name' };
+export const filtered = (f: PeopleFilters): boolean => Boolean(f.q.trim() || f.source || f.dnc);
+
+// ---------------------------------------------------------------- hashes
+
+/** `#contacts`, `#contacts-duplicates`, `#contacts?person=<id>`. */
+export function parseContactsHash(hash: string): { tab: ContactTab; person: string | null } {
+  const [id, search = ''] = hash.replace(/^#/, '').split('?');
+  const tab = id === 'contacts-duplicates' ? 'duplicates' : 'people';
+  const person = new URLSearchParams(search).get('person');
+  return { tab, person: person && person.trim() ? person : null };
+}
+export const tabFromHash = (hash: string): ContactTab => parseContactsHash(hash).tab;
+export function contactsHash(tab: ContactTab, person: string | null = null): string {
+  const base = tab === 'duplicates' ? '#contacts-duplicates' : '#contacts';
+  return person ? `${base}?person=${encodeURIComponent(person)}` : base;
+}
+
+// ---------------------------------------------------------------- the person form
+
+export interface PersonDraft { name: string; organisation: string; notes: string; phones: string; emails: string }
+export const emptyPersonDraft = (): PersonDraft => ({ name: '', organisation: '', notes: '', phones: '', emails: '' });
+export const draftOf = (p: PersonView): PersonDraft => ({
+  name: p.name, organisation: p.organisation, notes: p.notes,
+  phones: p.phones.map((i) => i.label || i.value).join('\n'), emails: p.emails.map((i) => i.label || i.value).join('\n'),
+});
+export interface PersonBody { name: string; organisation: string; notes: string; phones: string[]; emails: string[] }
+export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/** One value per line or comma; blanks dropped. */
+export const splitValues = (text: string): string[] => text.split(/[\n,;]+/).map((v) => v.trim()).filter(Boolean);
+
+/** A phone number by the API's rule: 8 to 15 digits once the formatting is gone (`00` and UAE `05x` are read too). */
+export function looksLikePhone(value: string): boolean {
+  const digits = value.replace(/\D/g, '');
+  return digits.length >= 8 && digits.length <= 15;
+}
+export const looksLikeEmail = (value: string): boolean => /^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$/.test(value.trim());
+
+/** The body of `POST /contacts` or `PATCH /contacts/{id}`, or the first problem in plain words. */
+export function personBody(draft: PersonDraft): Result<PersonBody> {
+  const name = draft.name.trim().replace(/\s+/g, ' ');
+  if (!name || name.length > 200) return { ok: false, error: t('ct.err.name') };
+  const phones = splitValues(draft.phones), emails = splitValues(draft.emails);
+  if (phones.length > 10 || emails.length > 10) return { ok: false, error: t('ct.err.tooMany') };
+  const badPhone = phones.find((v) => !looksLikePhone(v));
+  if (badPhone) return { ok: false, error: t('ct.err.phone', { value: badPhone }) };
+  const badEmail = emails.find((v) => !looksLikeEmail(v));
+  if (badEmail) return { ok: false, error: t('ct.err.email', { value: badEmail }) };
+  return { ok: true, value: { name, organisation: draft.organisation.trim(), notes: draft.notes.trim(), phones, emails } };
+}
+
+/** A do-not-contact reason, as the API requires it (3 to 300 characters). */
+export function reasonText(reason: string): Result<string> {
+  const text = reason.trim();
+  return text.length >= 3 && text.length <= 300 ? { ok: true, value: text } : { ok: false, error: t('ct.err.reason') };
+}
+
+// ---------------------------------------------------------------- words
+
+const label = (key: string): string => t(key as MessageKey);
+export const sourceLabel = (source: string): string => (SOURCES.includes(source as PersonSource) ? label(`ct.source.${source}`) : source);
+export const linkKindLabel = (kind: string): string => (['call_contact', 'business_contact', 'whatsapp_contact'].includes(kind) ? label(`ct.link.${kind}`) : kind);
+export const channelLabel = (channel: string): string => (CHANNELS.includes(channel as Channel) ? label(`ct.channel.${channel}`) : channel);
+export const tabLabel = (tab: ContactTab): string => label(`ct.tab.${tab}`);
+export const sortLabel = (sort: SortKey): string => label(`ct.sort.${sort}`);
+export const dncFilterLabel = (value: DncFilter): string => label(`ct.dncFilter.${value || 'all'}`);
+export const reasonLabel = (reason: ProposalView['reason']): string => label(`ct.proposal.${reason}`);
+
+/** One consent fact in words ("Phone calls: consent to AI calls recorded"). */
+export function factText(fact: ConsentFact): string {
+  const key = `ct.fact.${fact.source}.${fact.state}` as MessageKey;
+  const text = t(key, { detail: fact.detail });
+  return text === key ? `${fact.source}: ${fact.state}` : text;
+}
+
+/** The channels a person is blocked on, for the list row ("Do not contact: phone, e-mail"). */
+export function blockedChannels(marks: DoNotContactView[]): ContactChannel[] {
+  const channels = new Set(marks.map((m) => m.channel));
+  if (channels.has('all')) return ['phone', 'email', 'whatsapp'];
+  return (['phone', 'email', 'whatsapp'] as const).filter((c) => channels.has(c));
+}
+
+/** The CSV file name from Content-Disposition, or the default. */
+export function exportName(disposition: string | null): string {
+  const name = disposition?.match(/filename="?([^";]+)"?/i)?.[1]?.trim();
+  return name && /^[\w.@-]+$/.test(name) ? name : 'contacts.csv';
+}

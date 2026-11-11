@@ -198,7 +198,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
   // Memories the Assistant remembered from the caller's chats, for the context rail.
   const loadMemories = useCallback(() => {
     if (!page) return;
-    searchMemories('', true).then((items) => setMemories({ state: 'ready', items }), () => setMemories({ state: 'error', retry: () => { setMemories({ state: 'loading' }); loadMemories(); } }));
+    searchMemories('', true).then((page) => setMemories({ state: 'ready', items: page.items }), () => setMemories({ state: 'error', retry: () => { setMemories({ state: 'loading' }); loadMemories(); } }));
   }, [page]);
   useEffect(() => { loadMemories(); }, [loadMemories]);
 

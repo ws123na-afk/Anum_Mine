@@ -76,6 +76,11 @@ export async function changeMemberRole(userId: string, role: WorkspaceRole): Pro
   return mapMember(await apiRequest<ApiMember>(`/api/v1/workspace-members/${id(userId)}/role`, { method: 'PUT', body: JSON.stringify({ role }) }));
 }
 
+/** Give a member a role template, or none (docs/governance-and-scale.md#role-templates). */
+export async function changeMemberRoleTemplate(userId: string, roleTemplateId: string | null): Promise<WorkspaceMember> {
+  return mapMember(await apiRequest<ApiMember>(`/api/v1/workspace-members/${id(userId)}/role-template`, { method: 'PUT', body: JSON.stringify({ role_template_id: roleTemplateId }) }));
+}
+
 export async function setMemberActive(userId: string, active: boolean): Promise<WorkspaceMember> {
   return mapMember(await apiRequest<ApiMember>(`/api/v1/workspace-members/${id(userId)}/${active ? 'reactivate' : 'deactivate'}`, { method: 'POST' }));
 }

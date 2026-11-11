@@ -166,9 +166,21 @@ class CalendarController extends ChangeNotifier {
     CalendarEvent? saved;
     await _run('save:$id', () async {
       saved = await repository.update(id, changes);
-      _replace(saved!);
+      if (saved!.isRecurring) {
+        // A series changed: its occurrences are recomputed by the API.
+        await _refetch();
+      } else {
+        _replace(saved!);
+      }
     });
     return saved;
+  }
+
+  Future<void> _refetch() async {
+    final page = await repository.events(
+        weekStart, weekStart.add(const Duration(days: 7)));
+    events = page.items;
+    truncated = page.truncated;
   }
 
   Future<CalendarEvent?> respond(
@@ -183,14 +195,20 @@ class CalendarController extends ChangeNotifier {
     return saved;
   }
 
-  Future<bool> delete(String id) async {
+  Future<bool> delete(String id,
+      {EditScope? scope, DateTime? occurrenceStart}) async {
     var ok = false;
     await _run('delete:$id', () async {
-      await repository.delete(id);
-      events = [
-        for (final e in events)
-          if (e.id != id) e
-      ];
+      await repository.delete(id,
+          scope: scope, occurrenceStart: occurrenceStart);
+      if (scope != null && scope != EditScope.all) {
+        await _refetch();
+      } else {
+        events = [
+          for (final e in events)
+            if (e.id != id) e
+        ];
+      }
       ok = true;
     });
     return ok;
@@ -211,13 +229,13 @@ class CalendarController extends ChangeNotifier {
   void _replace(CalendarEvent event) {
     events = [
       for (final e in events)
-        if (e.id == event.id) event else e
+        if (e.key == event.key) event else e
     ];
-    if (!events.any((e) => e.id == event.id)) events = [...events, event];
+    if (!events.any((e) => e.key == event.key)) events = [...events, event];
     if (event.cancelled) {
       events = [
         for (final e in events)
-          if (e.id != event.id) e
+          if (e.key != event.key) e
       ];
     }
   }

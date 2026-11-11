@@ -771,6 +771,10 @@ async def attach_and_push(context: TenantContext, event_id: str, *, create: bool
             event = events.get(event_id)
             if event is None:
                 return None, None, False
+            if event.recurrence is not None or event.all_day or event.series_id is not None:
+                # Series, their changed occurrences and all-day events stay in ANUM
+                # (docs/calendar.md#recurrence, "Synced calendars").
+                return event, None, False
             if create:
                 if connection is None:
                     return event, None, False

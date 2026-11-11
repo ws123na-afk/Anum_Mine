@@ -1682,6 +1682,12 @@ async def send(
             account = _require_account(store, include_secrets=payload.template is not None)
             conversation = _conversation_or_404(store, conversation_id)
             reply_to = None
+        # The Contacts directory's do-not-contact mark for WhatsApp (docs/contacts.md#enforcement): 409 with the reason.
+        from .contacts.models import Channel as ContactChannel
+        from .contacts.service import refuse_if_blocked
+
+        refuse_if_blocked(context, ContactChannel.WHATSAPP, f"+{conversation.wa_id}")
+        with open_whatsapp_store(context) as store:
             if payload.reply_to_message_id:
                 quoted = store.get_message(payload.reply_to_message_id)
                 if quoted is None or quoted.conversation_id != conversation_id or not quoted.wamid:

@@ -1,3 +1,5 @@
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from anum_api.main import app
@@ -65,14 +67,43 @@ def test_routing_rejects_unsatisfied_policy() -> None:
     assert response.status_code == 503
 
 
-def test_enterprise_snapshot_reports_multi_region_readiness_from_real_targets() -> None:
+def test_enterprise_snapshot_reports_multi_region_readiness_from_probed_targets_only(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(app)
-    headers = {**ORG_ADMIN, "x-tenant-id": "tenant_regions"}
+    headers = {**ORG_ADMIN, "x-tenant-id": "tenant_regions", "x-workspace-id": "workspace_regions"}
     for target in (_target("us-a", "us-east", 0.01), _target("eu-a", "eu-west", 0.01)):
         assert client.put(f"/api/v1/routing/targets/{target['id']}", headers=headers, json=target).status_code == 200
+    # Typed "healthy" counts for nothing until a probe measured it.
     payload = client.get("/api/v1/enterprise/operations", headers=headers).json()
-    assert payload["active_regions"] >= 2
+    assert (payload["healthy_targets"], payload["unprobed_targets"], payload["failover_ready"]) == (0, 3, False)
+
+    _answering_provider(monkeypatch)
+    client.put("/api/v1/model-config", headers=headers, json=OPENAI_CONFIG)
+    for target_id in ("us-a", "eu-a"):
+        probed = client.post(f"/api/v1/routing/targets/{target_id}/probe", headers=headers)
+        assert probed.status_code == 200, probed.text
+        assert probed.json()["status"] == "healthy" and probed.json()["last_checked_at"] and probed.json()["last_error"] is None
+        assert probed.json()["probe_workspace_id"] == "workspace_regions"
+    payload = client.get("/api/v1/enterprise/operations", headers=headers).json()
+    assert payload["active_regions"] == 2 and payload["healthy_targets"] == 2 and payload["unprobed_targets"] == 1
     assert payload["failover_ready"] is True
+
+
+OPENAI_CONFIG = {"provider": "openai_compatible", "model": "primary", "base_url": "http://localhost:18080/v1", "api_key": "sk-example"}
+
+
+def _answering_provider(monkeypatch: pytest.MonkeyPatch, handler=None) -> list[httpx.Request]:
+    import anum_api.onboarding as onboarding
+
+    seen: list[httpx.Request] = []
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if handler is not None:
+            return handler(request)
+        return httpx.Response(200, json={"model": "primary", "choices": [{"message": {"content": "ANUM_OK"}, "finish_reason": "stop"}]})
+
+    monkeypatch.setattr(onboarding, "_test_client_factory", lambda: httpx.AsyncClient(transport=httpx.MockTransport(reply)))
+    return seen
 
 
 def test_member_can_read_catalog_but_cannot_configure_routes() -> None:
@@ -108,3 +139,129 @@ def test_a_workspace_owner_cannot_change_the_tenant_catalog_or_routing() -> None
     assert client.delete(f"/api/v1/marketplace/packages/{package['id']}/install", headers=owner).status_code == 204
     # The admin may remove the package once nothing installs it.
     assert client.delete(f"/api/v1/marketplace/packages/{package['id']}", headers=admin).status_code == 204
+
+
+# ------------------------------------------------------------------- probes, delete, in routing
+
+
+def _fresh(name: str) -> dict:
+    return {**ORG_ADMIN, "x-tenant-id": f"tenant_{name}", "x-workspace-id": f"workspace_{name}"}
+
+
+def test_probe_needs_the_target_provider_configured_and_reports_why_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    headers = _fresh("probe_cfg")
+    assert client.put("/api/v1/routing/targets/eu-a", headers=headers, json=_target("eu-a", "eu-west", 0.01)).status_code == 200
+    # No model configuration in this workspace at all.
+    probed = client.post("/api/v1/routing/targets/eu-a/probe", headers=headers).json()
+    assert probed["status"] == "unverified" and "no model configuration" in probed["last_error"]
+    assert probed["last_checked_at"] is not None and probed["measured_latency_ms"] is None
+    # A configuration for another provider.
+    client.put("/api/v1/model-config", headers=headers, json={"provider": "mock", "model": "anum-mock", "base_url": "http://localhost:8000"})
+    probed = client.post("/api/v1/routing/targets/eu-a/probe", headers=headers).json()
+    assert probed["status"] == "unverified" and "is for mock, not openai-compatible" in probed["last_error"]
+    # The built-in configured model is the mock here: always answers, and probing stores it as a tenant target.
+    built_in = client.post("/api/v1/routing/targets/configured-model/probe", headers=headers).json()
+    assert built_in["status"] == "healthy" and built_in["measured_latency_ms"] is not None
+    assert client.post("/api/v1/routing/targets/missing/probe", headers=headers).status_code == 404
+    assert client.post("/api/v1/routing/targets/eu-a/probe", headers={**headers, "x-user-roles": "owner"}).status_code == 403
+
+
+def test_probe_marks_provider_errors_degraded_and_unreachable_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    headers = _fresh("probe_err")
+    client.put("/api/v1/routing/targets/eu-a", headers=headers, json=_target("eu-a", "eu-west", 0.01))
+    client.put("/api/v1/model-config", headers=headers, json=OPENAI_CONFIG)
+    _answering_provider(monkeypatch, lambda request: httpx.Response(404, json={"error": "unknown model"}))
+    degraded = client.post("/api/v1/routing/targets/eu-a/probe", headers=headers).json()
+    assert degraded["status"] == "degraded" and degraded["last_error"]
+
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    _answering_provider(monkeypatch, unreachable)
+    offline = client.post("/api/v1/routing/targets/eu-a/probe", headers=headers).json()
+    assert offline["status"] == "offline" and offline["measured_latency_ms"] is None and "Could not reach" in offline["last_error"]
+    actions = [r.action for r in _audit(headers)]
+    assert actions.count("routing_target.probed") == 2
+
+
+def _audit(headers: dict) -> list:
+    from anum_api.store import store as memory_store
+
+    return [r for r in memory_store.audit_records if r.tenant_id == headers["x-tenant-id"]]
+
+
+def test_put_keeps_the_probe_result_unless_provider_or_model_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    headers = _fresh("probe_keep")
+    target = _target("eu-a", "eu-west", 0.01)
+    client.put("/api/v1/routing/targets/eu-a", headers=headers, json=target)
+    client.put("/api/v1/model-config", headers=headers, json=OPENAI_CONFIG)
+    _answering_provider(monkeypatch)
+    probed = client.post("/api/v1/routing/targets/eu-a/probe", headers=headers).json()
+    # Probe fields sent by a client are ignored; the stored result and status stay while provider and model do.
+    forged = {**target, "status": "offline", "region": "eu-central", "last_checked_at": None, "last_error": "forged"}
+    saved = client.put("/api/v1/routing/targets/eu-a", headers=headers, json=forged).json()
+    assert saved["region"] == "eu-central" and saved["status"] == "healthy"
+    assert saved["last_checked_at"] == probed["last_checked_at"] and saved["last_error"] is None
+    # A new model starts over: not yet probed.
+    changed = client.put("/api/v1/routing/targets/eu-a", headers=headers, json={**target, "model": "secondary", "status": "unverified"}).json()
+    assert changed["last_checked_at"] is None and changed["status"] == "unverified"
+
+
+def test_delete_refuses_a_target_in_use_and_the_built_in_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    headers = _fresh("probe_del")
+    target = _target("eu-a", "eu-west", 0.01)
+    client.put("/api/v1/routing/targets/eu-a", headers=headers, json=target)
+    client.put("/api/v1/model-config", headers=headers, json=OPENAI_CONFIG)
+    _answering_provider(monkeypatch)
+    assert client.post("/api/v1/routing/targets/eu-a/probe", headers=headers).json()["status"] == "healthy"
+    in_use = client.delete("/api/v1/routing/targets/eu-a", headers=headers)
+    assert in_use.status_code == 409 and "Take it out of routing first" in in_use.json()["error"]["message"]
+    # Out of routing: decisions skip it, the figures count it as disabled, and it can go.
+    disabled = client.put("/api/v1/routing/targets/eu-a", headers=headers, json={**target, "enabled": False}).json()
+    assert disabled["enabled"] is False and disabled["status"] == "healthy"
+    decision = client.post("/api/v1/routing/decisions", headers=headers, json={})
+    assert decision.json()["target"]["id"] != "eu-a"
+    assert client.get("/api/v1/enterprise/operations", headers=headers).json()["disabled_targets"] == 1
+    assert client.delete("/api/v1/routing/targets/eu-a", headers={**headers, "x-user-roles": "owner"}).status_code == 403
+    assert client.delete("/api/v1/routing/targets/eu-a", headers=headers).status_code == 204
+    assert client.delete("/api/v1/routing/targets/eu-a", headers=headers).status_code == 404
+    built_in = client.delete("/api/v1/routing/targets/configured-model", headers=headers)
+    assert built_in.status_code == 409 and "configured model" in built_in.json()["error"]["message"]
+    assert [r.action for r in _audit(headers) if r.action == "routing_target.deleted"] == ["routing_target.deleted"]
+    # An unprobed target is not in use: it goes at once.
+    client.put("/api/v1/routing/targets/us-a", headers=headers, json=_target("us-a", "us-east", 0.01))
+    assert client.delete("/api/v1/routing/targets/us-a", headers=headers).status_code == 204
+
+
+def test_scheduler_pass_reprobes_only_due_targets_that_were_probed_before(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import timedelta
+
+    from anum_api import routing_probe
+    from anum_api.schemas import TenantContext as Context
+    from anum_api.settings import settings
+
+    client = TestClient(app)
+    headers = _fresh("probe_sched")
+    for target_id in ("eu-a", "us-a"):
+        client.put(f"/api/v1/routing/targets/{target_id}", headers=headers, json=_target(target_id, "eu-west", 0.01))
+    client.put("/api/v1/model-config", headers=headers, json=OPENAI_CONFIG)
+    seen = _answering_provider(monkeypatch)
+    client.post("/api/v1/routing/targets/eu-a/probe", headers=headers)
+    assert len(seen) == 1
+    # Nothing is due yet: eu-a was probed just now and us-a never (the scheduler never probes first).
+    assert routing_probe.run_due_routing_probes() == 0
+    context = Context(tenant_id=headers["x-tenant-id"], workspace_id=headers["x-workspace-id"], user_id="x", roles=["owner"])
+    probed = next(t for t in store.targets(context) if t.id == "eu-a")
+    assert probed.last_checked_at is not None
+    aged = probed.model_copy(update={"last_checked_at": probed.last_checked_at - timedelta(seconds=settings.routing_probe_interval_seconds + 5)})
+    store.upsert_target(aged, context)
+    assert routing_probe.run_due_routing_probes() == 1
+    assert len(seen) == 2
+    reprobed = next(t for t in store.targets(context) if t.id == "eu-a")
+    assert reprobed.last_checked_at > aged.last_checked_at and reprobed.status.value == "healthy"
+    # A scheduled probe with the same outcome writes no audit row; only changes do.
+    assert [r for r in _audit(headers) if r.action == "routing_target.probed" and r.metadata.get("scheduled")] == []

@@ -9,12 +9,12 @@ import { useSavedLocale } from './support/workspaceApi';
 // other specs; every figure is SYNTHETIC. Nothing here moves money or forces a balance.
 
 const stamp = '2026-11-01T00:00:00Z';
-interface Mock { corrected: boolean; completed: boolean; created: boolean; posted: string[] }
+interface Mock { corrected: boolean; completed: boolean; created: boolean; reopened: boolean; deleted: boolean; closing: string; posted: string[] }
 
 function figures(m: Mock) {
   const closing = m.corrected ? '930.00' : '950.00';
   return { currency: 'AED', book_opening: '1000.00', deposits: '0.00', payments: m.corrected ? '-70.00' : '-50.00', book_closing: closing, statement_opening: '1000.00',
-    statement_closing: '930.00', difference: m.corrected ? '0.00' : '-20.00', pending_total: '0.00', adjusted_book_closing: closing,
+    statement_closing: m.closing, difference: m.corrected ? '0.00' : '-20.00', pending_total: '0.00', adjusted_book_closing: closing,
     unexplained: m.corrected ? '0.00' : '-20.00', opening_difference: '0.00' };
 }
 
@@ -32,12 +32,12 @@ function session(m: Mock) {
   return {
     id: 'rec_1', account_id: 'fin_acct_current', account_name: 'Everyday account', account_kind: 'bank', currency: 'AED', period_start: '2026-10-01', period_end: '2026-10-31',
     source: 'import', import_id: 'fin_imp_1', status: m.completed ? 'completed' : 'open', state: balanced ? 'balanced' : 'unresolved', changed: false,
-    can_complete: balanced && !m.completed, blockers: balanced ? [] : ['difference', 'statement_rows_not_in_ledger'], statement_closing: '930.00', book_closing: f.book_closing,
+    can_complete: balanced && !m.completed, blockers: balanced ? [] : ['difference', 'statement_rows_not_in_ledger'], statement_closing: m.closing, book_closing: f.book_closing,
     unexplained: f.unexplained, exceptions: items.filter((i) => i.severity !== 'info').length, blocking: items.filter((i) => i.severity === 'blocking').length,
     completed_at: m.completed ? stamp : null, completed_by: m.completed ? 'user_local' : null, version: m.completed ? 2 : 1,
     figures: f, card: null, counts: { blocking: balanced ? 0 : 1, warning: 1, info: 1 }, items, total: items.length, limit: 20, offset: 0,
     resolutions: m.corrected ? [{ id: 'rci_1', kind: 'correction', statement_ref: 'fin_imp_1#2', transaction_id: 'tx_new', other_transaction_id: null, note: null, created_at: stamp }] : [],
-    history: m.completed ? [{ action: 'completed', at: stamp, by: 'user_local', unexplained: '0.00' }] : [], snapshot: {},
+    history: m.completed || m.reopened ? [{ action: 'completed', at: stamp, by: 'user_local', unexplained: '0.00' }, ...(m.reopened ? [{ action: 'reopened', at: stamp, by: 'user_local', reason: 'Late rows' }] : [])] : [], snapshot: {},
   };
 }
 
@@ -49,10 +49,22 @@ const health = (empty: boolean) => ({ today: '2026-11-09', accounts: empty ? [] 
     missing_months: [], gaps: 0, reconciled_through: null, open_reconciliation_id: null, changed_reconciliation_id: null, next_step: 'import_statement', next_month: null, bank_feed: 'not_connected' },
 ] });
 
-async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?: boolean } = {}): Promise<Mock> {
+/** The open exceptions across accounts, as GET /reconciliations/exceptions lists them (the session's two plus a missing month). */
+function queue(m: Mock, sort: string | null, desc: boolean) {
+  const own = session(m).items.filter((i) => i.severity !== 'info').map((e) => ({ source: 'reconciliation', reconciliation_id: 'rec_1', account_id: 'fin_acct_current', account_name: 'Everyday account', currency: 'AED', period_start: '2026-10-01', period_end: '2026-10-31', exception: e }));
+  const missing = { source: 'reconciliation', reconciliation_id: null, account_id: 'fin_acct_card', account_name: 'Rewards card', currency: 'AED', period_start: null, period_end: null,
+    exception: { id: 'missing_period:2026-09', kind: 'missing_period', severity: 'warning', actions: ['import'], posted_on: null, amount: null, description: null, transaction_id: null, other_transaction_id: null, statement_ref: null, reason: null, month: '2026-09', age_days: null, details: {} } };
+  const items = m.deleted ? [missing] : [...own, missing];
+  if (sort === 'account') items.sort((a, b) => a.account_name.localeCompare(b.account_name));
+  if (sort === 'severity') items.sort((a, b) => (a.exception.severity === 'blocking' ? 0 : 1) - (b.exception.severity === 'blocking' ? 0 : 1));
+  if (desc) items.reverse();
+  return items;
+}
+
+async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?: boolean; reopened?: boolean } = {}): Promise<Mock> {
   const state = financeState({ denied: o.denied });
   let failures = o.fail ?? 0;
-  const mock: Mock = { corrected: false, completed: false, created: false, posted: [] };
+  const mock: Mock = { corrected: false, completed: false, created: false, reopened: Boolean(o.reopened), deleted: false, closing: '930.00', posted: [] };
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -70,8 +82,27 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
       mock.posted.push(`${request.method()} ${sub}`);
       if (o.denied) return json({ error: { code: 'forbidden', message: 'Finance is for workspace owners and members. Ask a workspace owner to change your role.', correlation_id: 'c', details: [] } }, 403);
       if (failures > 0 && request.method() === 'GET') { failures -= 1; return json({ error: { code: 'unavailable', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503); }
-      const none = o.empty && !mock.created;
+      const none = (o.empty && !mock.created) || mock.deleted;
       if (sub === '/reconciliations/health') return json(health(Boolean(o.empty)));
+      if (sub === '/reconciliations/exceptions') {
+        const items = queue(mock, url.searchParams.get('sort'), url.searchParams.get('desc') === 'true');
+        return json({ items, total: items.length, limit: 20, offset: 0 });
+      }
+      if (sub === '/reconciliations/exceptions/export') {
+        const rows = queue(mock, url.searchParams.get('sort'), false).map((i) => `${i.account_name},${i.period_start ?? ''},${i.period_end ?? ''},${i.exception.severity},${i.exception.kind},${i.exception.posted_on ?? ''},${i.exception.month ?? ''},${i.exception.amount ?? ''},AED,${i.exception.description ?? ''},${i.exception.reason ?? ''},${i.exception.actions.join(' ')},${i.reconciliation_id ?? ''}`);
+        return route.fulfill({ status: 200, contentType: 'text/csv; charset=utf-8', headers: { 'content-disposition': 'attachment; filename="anum-reconciliation-exceptions.csv"' }, body: ['account,period_start,period_end,severity,kind,posted_on,month,amount,currency,description,reason,actions,reconciliation_id', ...rows].join('\r\n') });
+      }
+      if (sub === '/reconciliations/rec_1' && request.method() === 'PATCH') {
+        if (mock.completed) return json({ error: { code: 'completed', message: 'This reconciliation is completed. Reopen it with a reason to change it.', correlation_id: 'c', details: [] } }, 409);
+        if (body.version !== 1) return json({ error: { code: 'stale', message: 'This reconciliation changed in another tab. Reload it and try again.', correlation_id: 'c', details: [] } }, 409);
+        mock.closing = Number(body.statement_closing).toFixed(2);
+        return json(session(mock));
+      }
+      if (sub === '/reconciliations/rec_1' && request.method() === 'DELETE') {
+        if (mock.completed || mock.reopened) return json({ error: { code: 'has_history', message: 'A reconciliation that was completed keeps its history. Reopen it to work on it again.', correlation_id: 'c', details: [] } }, 409);
+        mock.deleted = true;
+        return route.fulfill({ status: 204 });
+      }
       if (sub === '/reconciliations' && request.method() === 'GET') {
         const { items: _items, figures: _f, card: _c, counts: _k, resolutions: _r, history: _h, snapshot: _s, total: _t, limit: _l, offset: _o, ...summary } = session(mock);
         return json({ items: none ? [] : [summary], total: none ? 0 : 1, limit: 10, offset: 0 });
@@ -173,6 +204,71 @@ test('a role without Finance is told who can do it', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Finance is not available to your role' })).toBeVisible();
 });
 
+test('the statement figures can be edited while open, and the page sends the version it saw', async ({ page }) => {
+  const mock = await mockApi(page);
+  await page.goto('/#finance-reconciliation');
+  await page.getByRole('button', { name: /Open the reconciliation of Everyday account/ }).click();
+  await page.getByRole('button', { name: 'Edit figures' }).click();
+  const form = page.getByRole('form', { name: 'Edit figures' });
+  await expect(form.getByLabel('Closing balance (AED)')).toHaveValue('930.00');
+  await form.getByLabel('Closing balance (AED)').fill(' ');
+  await form.getByRole('button', { name: 'Save figures' }).click();
+  await expect(form.getByRole('alert')).toContainText('Enter the closing balance');
+  await form.getByLabel('Closing balance (AED)').fill('925');
+  await form.getByRole('button', { name: 'Save figures' }).click();
+  await expect(page.getByText('Statement figures saved.')).toBeVisible();
+  await expect(page.getByRole('region', { name: /Statement against books/ })).toContainText('925.00');
+  expect(mock.posted).toContain('PATCH /reconciliations/rec_1');
+});
+
+test('a reconciliation that was ever completed is kept in the server\'s words; a fresh one is deleted after a confirmation', async ({ page }) => {
+  await mockApi(page, { reopened: true });
+  await page.goto('/#finance-reconciliation');
+  await page.getByRole('button', { name: /Open the reconciliation of Everyday account/ }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Delete this reconciliation' });
+  await expect(confirm).toContainText('Delete the reconciliation of Everyday account');
+  await confirm.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByRole('alert')).toContainText('A reconciliation that was completed keeps its history.');
+  await expect(page.getByRole('heading', { name: /Everyday account/ })).toBeVisible();
+
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  const mock = await mockApi(page);
+  await page.reload();
+  await page.getByRole('button', { name: /Open the reconciliation of Everyday account/ }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Delete this reconciliation' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('Reconciliation deleted.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No reconciliation yet' })).toBeVisible();
+  expect(mock.posted).toContain('DELETE /reconciliations/rec_1');
+});
+
+test('every open item across accounts is listed with its next step, sorts on the server and exports as a file', async ({ page }) => {
+  const mock = await mockApi(page);
+  await page.goto('/#finance-reconciliation');
+  const card = page.getByRole('region', { name: /Everything that needs you/ });
+  await expect(card).toContainText('3 open items. Sorted by Severity, ascending');
+  const rows = card.locator('tbody tr');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.first()).toContainText('Everyday account');
+  await expect(rows.first()).toContainText('Needs you');
+  await expect(rows.last()).toContainText('Rewards card');
+  await expect(rows.last()).toContainText('No statement for this month');
+  await expect(rows.last()).toContainText('September 2026');
+  await expect(rows.last().getByRole('button', { name: 'Import statement' })).toBeVisible();
+  await card.getByRole('button', { name: 'Sort by Account' }).click();
+  await expect(card.getByRole('columnheader', { name: /Account/ })).toHaveAttribute('aria-sort', 'ascending');
+  await card.getByRole('button', { name: 'Sort by Account' }).click();
+  await expect(rows.first()).toContainText('Rewards card');
+  expect(mock.posted.some((p) => p.startsWith('GET /reconciliations/exceptions'))).toBe(true);
+  const download = page.waitForEvent('download');
+  await card.getByRole('button', { name: 'Export CSV' }).click();
+  expect((await download).suggestedFilename()).toBe('anum-reconciliation-exceptions.csv');
+  await expect(card.getByText('Saved anum-reconciliation-exceptions.csv.')).toBeVisible();
+  await card.getByRole('button', { name: 'Open reconciliation' }).first().click();
+  await expect(page.getByRole('heading', { name: /Everyday account/ })).toBeVisible();
+});
+
 test('the sidebar lists Reconciliation under data capture and keeps it in view at 1440 (phones: the section strip)', async ({ page, isMobile }) => {
   await mockApi(page);
   if (!isMobile) await page.setViewportSize({ width: 1440, height: 900 });
@@ -199,7 +295,7 @@ for (const locale of ['en', 'ar'] as const) {
       await expect(page.locator('.frecEquation')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `detail at ${width}x${height}`).toBeLessThanOrEqual(0);
       await shot(page, `recon-detail-${locale}-${width}`);
-      await page.locator('.frecDetailHead button').click();
+      await page.locator('.frecDetailHead button').first().click();
     }
   });
 }

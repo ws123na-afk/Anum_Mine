@@ -60,6 +60,8 @@ async function mockApi(page: Page, options: Options = {}) {
       return json(options.directory.map((entry) => ({ tenant_id: 'tenant_local', status: 'active', ...entry })));
     }
     if (path === '/api/v1/workspace-members') return json([member('user_local', 'owner'), member('user_member', 'member')]);
+    if (path === '/api/v1/organization/approval-rules') return json([{ id: 'rule_refunds', name: 'Refunds above 250', action_pattern: 'commerce.refund', minimum_approvers: 1, required_roles: ['owner'], enabled: true, created_at: now, conditions: { amount_above: 250 }, approver_steps: [{ approvers: ['owner'] }] }]);
+    if (path === '/api/v1/approval-reminders/settings' && method === 'GET') return json({ reminder_hours: null, updated_by: null, updated_at: null });
     if (path === '/api/v1/approval-policy' && method === 'GET') return json(policy);
     if (path === '/api/v1/approval-policy' && method === 'PUT') {
       if (options.putForbidden) return json(envelope('forbidden', 'permission_denied: policy:manage'), 403);
@@ -75,6 +77,8 @@ test('owners see each switch explained, are warned about a single owner, and sav
   const calls = await mockApi(page);
   await page.goto('/#policy');
 
+  // #policy still opens the page, which is now Approvals settings with the policy as its first section.
+  await expect(page.getByRole('heading', { level: 1, name: 'Approvals settings' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Who must approve risky actions' })).toBeVisible();
   const settings = page.getByRole('region', { name: 'Approval policy settings' });
   await expect(settings.getByText('Never changed: both switches are off by default.')).toBeVisible();

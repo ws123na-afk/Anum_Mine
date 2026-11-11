@@ -376,8 +376,18 @@ class WorkspaceFile {
       this.previewable = false,
       this.canManage = false,
       this.index,
-      this.version = 1});
+      this.version = 1,
+      this.folderId,
+      this.folderPath,
+      this.tags = const []});
   final String id, name, contentType;
+
+  /// The folder the file is in and its path from the root
+  /// (docs/files.md#folders); null at the root.
+  final String? folderId, folderPath;
+
+  /// The file's tags, A to Z (docs/files.md#tags).
+  final List<FileTag> tags;
 
   /// The current version number (docs/files.md#versions); 1 until a new
   /// version is uploaded.
@@ -397,6 +407,34 @@ class WorkspaceFile {
   /// Whether the caller may rename and delete it (uploader or owner).
   final bool canManage;
   final FileIndexState? index;
+}
+
+/// One tag of the workspace (docs/files.md#tags).
+class FileTag {
+  const FileTag(
+      {required this.id,
+      required this.name,
+      this.fileCount = 0,
+      this.canManage = false});
+  final String id, name;
+  final int fileCount;
+  final bool canManage;
+}
+
+/// A folder in the workspace's file tree (docs/files.md#folders).
+class FileFolder {
+  const FileFolder(
+      {required this.id,
+      required this.name,
+      required this.path,
+      this.parentId,
+      this.depth = 1,
+      this.fileCount = 0,
+      this.canManage = false});
+  final String id, name, path;
+  final String? parentId;
+  final int depth, fileCount;
+  final bool canManage;
 }
 
 /// Retrieval index state of a file: `indexed`, `stale`, `failed`, `skipped`

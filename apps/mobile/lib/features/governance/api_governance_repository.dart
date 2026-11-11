@@ -136,8 +136,13 @@ class ApiGovernanceRepository implements GovernanceRepository {
         'modalities': t.modalities,
         'sensitivity': t.sensitivity,
         'cost_per_1k_tokens': t.cost,
-        'latency_ms': t.latencyMs
+        'latency_ms': t.latencyMs,
+        'enabled': t.enabled
       })));
+
+  @override
+  Future<RoutingTarget> probeTarget(String id) async => _target(JsonReader(
+      await api.request('POST', '/api/v1/routing/targets/$id/probe')));
   @override
   Future<void> exportAudit(String format) => auditExporter.export(format);
   GovernanceSummary _summary(JsonReader j) => GovernanceSummary(
@@ -173,7 +178,11 @@ class ApiGovernanceRepository implements GovernanceRepository {
       latencyMs: j.integer('latency_ms'),
       cost: j.number('cost_per_1k_tokens'),
       modalities: j.optStrings('modalities') ?? const ['text'],
-      sensitivity: j.optStrings('sensitivity') ?? const ['standard']);
+      sensitivity: j.optStrings('sensitivity') ?? const ['standard'],
+      enabled: j.optBool('enabled') ?? true,
+      lastCheckedAt: j.optDate('last_checked_at'),
+      measuredLatencyMs: j.optInt('measured_latency_ms'),
+      lastError: j.optString('last_error'));
   EnterpriseOperations _ops(JsonReader j) => EnterpriseOperations(
       activeRegions: j.integer('active_regions'),
       healthyTargets: j.integer('healthy_targets'),

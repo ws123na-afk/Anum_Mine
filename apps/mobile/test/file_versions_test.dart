@@ -379,11 +379,17 @@ void main() {
             'stor.versionsCell.other',
             'stor.files.one',
             'stor.files.other',
+            'org.filesIn.one',
+            'org.filesIn.other',
+            'org.selected.one',
+            'org.selected.other',
           }).union({
             for (final base in [
               'stor.versions',
               'stor.versionsCell',
-              'stor.files'
+              'stor.files',
+              'org.filesIn',
+              'org.selected'
             ])
               for (final form in ['one', 'two', 'few', 'many', 'other'])
                 '$base.$form'

@@ -66,3 +66,18 @@
 .memoryBulk .featureMeta { flex: 1 1 260px; }
 .memoryBulk .actions { margin-top: 0; }
 .moduleIntro ~ .chatMemorySetting { margin-bottom: var(--d-s4); }
+
+/* Memory view: editing a memory in its row, and the page footer (how many are shown, Load more). */
+.memoryEdit { display: grid; gap: var(--d-s2); margin-top: var(--d-s2); }
+.memoryEdit textarea { font-size: var(--text-md); min-height: 72px; resize: vertical; width: 100%; }
+.memoryEdit .actions { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.memoryPaging { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; margin-top: var(--d-s3); }
+.memoryPaging .featureMeta { margin: 0; }
+/* Below 1024 px the shell's sidebar leaves the table too narrow for its fixed columns: let the text
+   column take the room, drop the date column and keep the actions compact. */
+@media (max-width: 1023px) {
+  .memoryRows { table-layout: auto; }
+  .memoryRows .optional, .memoryRows col.optional { display: none; }
+  .memoryCell { min-width: 160px; }
+  .memoryRows .cellActions { flex-wrap: wrap; }
+}

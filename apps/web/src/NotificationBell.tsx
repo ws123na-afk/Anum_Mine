@@ -69,6 +69,8 @@ export function useTeamNotifications(signal: { recipient: unknown; at: number } 
       else if (n.kind === 'finance_daily_report') location.hash = REPORTS_HASH;
       // The weekly money note opens Finance, Money advisor (docs/finance.md#money-advisor).
       else if (n.kind === 'finance_weekly_advice') location.hash = '#finance-advisor';
+      // A calendar reminder opens the Calendar (docs/calendar.md#reminders).
+      else if (n.kind === 'calendar_reminder') location.hash = '#calendar';
     },
     readAll: async () => { try { await team.readAllNotifications(); await load(); } catch (e) { setError(describeError(e)); } },
     enableDesktop: () => { void Notification.requestPermission().then(setPermission); },

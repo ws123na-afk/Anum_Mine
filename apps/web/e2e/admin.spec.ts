@@ -24,7 +24,7 @@ function invitationRow(overrides: Json = {}): Json {
 
 /** What the mock mail server does with an invitation email (docs/identity.md#invitation-email). */
 type MailMode = 'sent' | 'failed' | 'off';
-interface MockOptions { mail?: MailMode; forbidden?: boolean; runStatus?: number; /** The API's `can_manage_tenant_budget` for the caller (org_admin). */ orgAdmin?: boolean; /** USD spent on agent meetings this month. */ meetingUsed?: number }
+interface MockOptions { mail?: MailMode; forbidden?: boolean; runStatus?: number; /** No role templates exist yet. */ noTemplates?: boolean; /** The API's `can_manage_tenant_budget` for the caller (org_admin). */ orgAdmin?: boolean; /** USD spent on agent meetings this month. */ meetingUsed?: number }
 
 async function mockApi(page: Page, options: MockOptions = {}) {
   const calls: { method: string; path: string; body: unknown; workspace: string | undefined }[] = [];
@@ -111,6 +111,16 @@ async function mockApi(page: Page, options: MockOptions = {}) {
     if (path === '/api/v1/workspace-invitations/accept') {
       return json({ invitation: invitationRow({ status: 'accepted', accepted_by_user_id: 'user_local', accepted_at: now, workspace_id: 'workspace_sales' }), membership: { ...memberRow('user_local', 'member'), workspace_id: 'workspace_sales' } });
     }
+    if (path === '/api/v1/role-templates') return json(options.noTemplates ? [] : [{ id: 'role_reader', tenant_id: 'tenant_local', name: 'Reader', permissions: ['task:read', 'task:run', 'memory:read'], created_at: now }]);
+    const template = path.match(/^\/api\/v1\/workspace-members\/([^/]+)\/role-template$/);
+    if (template) {
+      if (options.forbidden) return forbidden(route);
+      const wanted = (body as Json).role_template_id as string | null;
+      const target = members.find((m) => m.user_id === template[1]);
+      if (target?.role === 'owner' && wanted) return json(envelope('conflict', 'Owners keep the whole owner role and cannot carry a role template. Change the role to member or viewer first.'), 409);
+      members = members.map((m) => m.user_id === template[1] ? { ...m, role_template_id: wanted, role_template_name: wanted ? 'Reader' : null, permission_limit: wanted ? ['task:read', 'task:run', 'memory:read'] : null, effective_permissions: wanted ? (m.role === 'viewer' ? ['memory:read', 'task:read'] : ['memory:read', 'task:read', 'task:run']) : null } : m);
+      return json(members.find((m) => m.user_id === template[1]));
+    }
     const role = path.match(/^\/api\/v1\/workspace-members\/([^/]+)\/role$/);
     if (role) {
       if (role[1] === 'user_local' && (body as Json).role !== 'owner') return json(envelope('conflict', 'The last active owner cannot be demoted or deactivated'), 409);
@@ -132,6 +142,22 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       }
       const used = meetingBudget.used_usd as number, limit = meetingBudget.limit_usd as number;
       return json({ ...meetingBudget, remaining_usd: Math.max(0, limit - used), percent: limit > 0 ? Math.min(100, Math.floor((used / limit) * 1000) / 10) : 100, exceeded: used >= limit });
+    }
+    if (path === '/api/v1/model-budgets/usage') {
+      const url = new URL(request.url());
+      const group = url.searchParams.get('group_by') ?? 'day';
+      if (url.searchParams.get('format') === 'csv') return route.fulfill({ status: 200, contentType: 'text/csv; charset=utf-8', headers: { 'Content-Disposition': 'attachment; filename="usage.csv"' }, body: `${group},label,calls\n2026-10-03,,2\n` });
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      const rows = group === 'day'
+        ? [{ key: '2026-10-03', label: null, calls: 2, input_tokens: 700, output_tokens: 300, total_tokens: 1000, estimated_cost_usd: 0.9, unpriced_calls: 0 }, { key: '2026-10-04', label: null, calls: 2, input_tokens: 500, output_tokens: 500, total_tokens: 1000, estimated_cost_usd: 0.6, unpriced_calls: 1 }]
+        : group === 'agent'
+          ? [{ key: 'assistant', label: 'ANUM assistant', calls: 3, input_tokens: 900, output_tokens: 600, total_tokens: 1500, estimated_cost_usd: 1.1, unpriced_calls: 0 }, { key: 'agent_fleet', label: 'Fleet planner', calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.4, unpriced_calls: 1 }]
+          : group === 'feature'
+            // Three groups, one per page, so Load more has work to do (limit comes from the page: 50; the mock pages by one).
+            ? [[{ key: 'tasks', label: null, calls: 2, input_tokens: 600, output_tokens: 400, total_tokens: 1000, estimated_cost_usd: 0.8, unpriced_calls: 0 }], [{ key: 'voice', label: null, calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.4, unpriced_calls: 0 }], [{ key: 'email', label: null, calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.3, unpriced_calls: 1 }]][Math.min(2, offset)] ?? []
+            : [];
+      const count = group === 'feature' ? 3 : rows.length;
+      return json({ scope: url.searchParams.get('scope') ?? 'workspace', group_by: group, from_day: url.searchParams.get('from') ?? '2026-10-01', to_day: url.searchParams.get('to') ?? '2026-10-31', rows, total: { input_tokens: 1200, output_tokens: 800, estimated_cost_usd: 1.5, calls: 4, unpriced_calls: 1 }, count, limit: 50, offset, truncated: offset + rows.length < count, recorded_since: group === 'day' ? '2026-10-02' : null });
     }
     if (path === '/api/v1/model-budgets' && method === 'GET') {
       return options.forbidden ? json(envelope('forbidden', 'permission_denied: organization:manage'), 403) : json(budgets);
@@ -352,7 +378,7 @@ test('budgets show usage against limits, the reset date, and save new limits', a
   await workspace.getByRole('button', { name: 'Save limits' }).click();
   await expect(workspace.getByText('Budget saved.')).toBeVisible();
   await expect(workspace.getByText('limited', { exact: true })).toBeVisible();
-  expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ monthly_cost_limit_usd: 25, monthly_token_limit: 5_000_000 });
+  expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ monthly_cost_limit_usd: 25, monthly_token_limit: 5_000_000, alert_percent: null });
 });
 
 test('a workspace owner who is not an organization administrator reads the organization budget', async ({ page }) => {
@@ -385,7 +411,7 @@ test('an organization administrator sets the organization budget', async ({ page
   await tenant.getByRole('button', { name: 'Save limits' }).click();
   await expect(tenant.getByText('Budget saved.')).toBeVisible();
   await expect(tenant.getByText('limited', { exact: true })).toBeVisible();
-  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/model-budgets/tenant')?.body).toEqual({ monthly_cost_limit_usd: null, monthly_token_limit: 9000 });
+  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/model-budgets/tenant')?.body).toEqual({ monthly_cost_limit_usd: null, monthly_token_limit: 9000, alert_percent: null });
 });
 
 test('budgets are owner-only: a 403 shows the API answer instead of numbers', async ({ page }) => {
@@ -460,3 +486,34 @@ for (const [width, height] of gateSizes) {
     if (process.env.ANUM_SCREENSHOTS) await page.screenshot({ path: `${process.env.ANUM_SCREENSHOTS}/budget-${width}x${height}.png`, fullPage: true });
   });
 }
+
+
+test('members: a workspace owner gives a member a role template and sees what it does', async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.goto('/#members');
+  // Owners carry no template, so their row has no template control; the member's row does.
+  const owner = page.getByRole('article', { name: /user_local/ });
+  await expect(owner.getByLabel('Role template for user_local')).toHaveCount(0);
+  const member = page.getByRole('article', { name: /user_member/ });
+  const pick = member.getByLabel('Role template for user_member');
+  await expect(pick).toHaveValue('');
+  await pick.selectOption('role_reader');
+  const dialog = page.getByRole('alertdialog', { name: 'Give user_member the template Reader?' });
+  await expect(dialog.getByText('From their next request, user_member keeps only the permissions the member role and the template share.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Change template' }).click();
+  await expect(page.getByText('user_member now has the role template Reader.')).toBeVisible();
+  await expect(member.getByText('3 permissions apply')).toBeVisible();
+  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/workspace-members/user_member/role-template')?.body).toEqual({ role_template_id: 'role_reader' });
+  // Removing it explains that the whole role returns.
+  await member.getByLabel('Role template for user_member').selectOption('');
+  await expect(page.getByRole('alertdialog', { name: 'Remove the role template from user_member?' })).toBeVisible();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Change template' }).click();
+  await expect(page.getByText('user_member no longer has a role template.')).toBeVisible();
+});
+
+test('members: without role templates the control says where they come from', async ({ page }) => {
+  await mockApi(page, { noTemplates: true });
+  await page.goto('/#members');
+  const member = page.getByRole('article', { name: /user_member/ });
+  await expect(member.getByText('No role templates yet. An organization administrator adds them under Governance.')).toBeVisible();
+});

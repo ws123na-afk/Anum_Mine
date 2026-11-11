@@ -125,6 +125,16 @@ class _FilesTabState extends State<FilesTab> {
                   title: 'Files',
                   subtitle: 'Text files are indexed so tasks can use them.'),
               Wrap(spacing: 8, runSpacing: 8, children: [
+                if (c.phase == FilesPhase.ready)
+                  OutlinedButton.icon(
+                    onPressed: c.toggleSelecting,
+                    icon: Icon(c.selecting
+                        ? Icons.check_box_outlined
+                        : Icons.check_box_outline_blank),
+                    label: Text(c.selecting
+                        ? FileStrings.of(context).t('org.done')
+                        : FileStrings.of(context).t('org.select')),
+                  ),
                 if (c.versions != null)
                   OutlinedButton.icon(
                     onPressed: () => openStorageScreen(context, c.versions!,
@@ -195,6 +205,11 @@ class _FilesTabState extends State<FilesTab> {
                     '${c.error ?? 'The request failed.'} Check the connection, then retry.',
                 action: 'Retry',
                 onAction: c.load)),
+      if (c.phase == FilesPhase.ready) _FolderStrip(controller: c),
+      if (c.phase == FilesPhase.ready && (c.tags.isNotEmpty))
+        _TagStrip(controller: c),
+      if (c.phase == FilesPhase.ready && c.selected.isNotEmpty)
+        _BulkBar(controller: c),
       if (c.phase == FilesPhase.ready &&
           (c.items.isNotEmpty || c.query.isNotEmpty))
         _toolbar(c),
@@ -206,42 +221,76 @@ class _FilesTabState extends State<FilesTab> {
                     semanticsLabel: 'Loading files'))),
       if (c.phase == FilesPhase.ready && c.items.isEmpty)
         AnumSurface(
-          child: c.query.isNotEmpty
+          child: c.query.isNotEmpty || c.tagFilter != null
               ? AnumEmpty(
                   icon: Icons.search_off,
-                  title: 'No files match "${c.query}"',
+                  title: c.query.isNotEmpty
+                      ? 'No files match "${c.query}"'
+                      : 'No files carry this tag',
                   message: 'Try another part of the name.',
                   action: 'Clear search',
                   onAction: () {
                     _search.clear();
+                    c.tagFilter = null;
                     c.search('');
                   })
-              : AnumEmpty(
-                  icon: Icons.folder_open,
-                  title: 'No files yet',
-                  message: c.canUpload
-                      ? 'Upload documents, data or images. Text files are indexed so tasks can use them.'
-                      : 'Nobody has uploaded a file to this workspace yet.',
-                  action: c.canUpload ? 'Upload a file' : null,
-                  onAction: c.canUpload ? _upload : null),
+              : c.currentFolder != null
+                  ? AnumEmpty(
+                      icon: Icons.folder_open,
+                      title: FileStrings.of(context).t('org.emptyFolder'),
+                      message: c.canUpload
+                          ? FileStrings.of(context).t('org.emptyFolderText')
+                          : FileStrings.of(context)
+                              .t('org.emptyFolderReadOnly'),
+                      action: c.canUpload
+                          ? FileStrings.of(context).t(
+                              'org.uploadHere', {'name': c.currentFolder!.name})
+                          : null,
+                      onAction: c.canUpload ? _upload : null)
+                  : AnumEmpty(
+                      icon: Icons.folder_open,
+                      title: 'No files yet',
+                      message: c.canUpload
+                          ? 'Upload documents, data or images. Text files are indexed so tasks can use them.'
+                          : 'Nobody has uploaded a file to this workspace yet.',
+                      action: c.canUpload ? 'Upload a file' : null,
+                      onAction: c.canUpload ? _upload : null),
         ),
       if (c.items.isNotEmpty)
         AnumSurface(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(children: [
             for (final f in c.items)
-              AnumRow(
-                icon: _icon(f),
-                title: f.name,
-                subtitle:
-                    '${fileTypeLabel(f.contentType)} · ${formatBytes(f.sizeBytes)} · '
-                    '${uploaderLabel(f.createdBy, widget.currentUserId)}',
-                detail:
-                    '${exactTime(f.createdAt)} · ${indexDescription(f.index).$1}',
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => openFileDetail(context, c, f,
-                    currentUserId: widget.currentUserId),
-              ),
+              c.selecting
+                  ? CheckboxListTile(
+                      value: c.selected.contains(f.id),
+                      onChanged: (_) => c.toggleSelected(f),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(f.name,
+                          semanticsLabel: FileStrings.of(context)
+                              .t('org.selectRow', {'name': f.name})),
+                      subtitle: Text(
+                          '${fileTypeLabel(f.contentType)} · ${formatBytes(f.sizeBytes)}'
+                          '${c.searching && f.folderPath != null ? ' · ${FileStrings.of(context).t('org.inFolder', {
+                                  'path': f.folderPath!
+                                })}' : ''}'),
+                    )
+                  : AnumRow(
+                      icon: _icon(f),
+                      title: f.name,
+                      subtitle:
+                          '${fileTypeLabel(f.contentType)} · ${formatBytes(f.sizeBytes)} · '
+                          '${uploaderLabel(f.createdBy, widget.currentUserId)}'
+                          '${c.searching && f.folderPath != null ? ' · ${FileStrings.of(context).t('org.inFolder', {
+                                  'path': f.folderPath!
+                                })}' : ''}',
+                      detail:
+                          '${exactTime(f.createdAt)} · ${indexDescription(f.index).$1}'
+                          '${f.tags.isEmpty ? '' : ' · ${f.tags.map((t) => t.name).join(', ')}'}',
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => openFileDetail(context, c, f,
+                          currentUserId: widget.currentUserId),
+                    ),
           ]),
         ),
       if (c.hasMore && c.items.isNotEmpty)
@@ -545,6 +594,18 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
                 uploaderLabel(file.createdBy, widget.currentUserId)),
             if (file.updatedAt != null)
               meta('Renamed', exactTime(file.updatedAt!)),
+            meta(FileStrings.of(context).t('org.folderMeta'),
+                file.folderPath ?? FileStrings.of(context).t('org.root')),
+            _FileTags(
+                controller: widget.controller,
+                file: file,
+                canUpload: canUpload,
+                onChanged: (updated) => setState(() {
+                      file = updated;
+                      error = null;
+                    }),
+                onError: (message) => setState(() => error = message)),
+            const SizedBox(height: 8),
             Text('Retrieval',
                 style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
             const SizedBox(height: 4),
@@ -710,6 +771,401 @@ class _RenameDialogState extends State<_RenameDialog> {
                 ? () => Navigator.pop(context, _field.text)
                 : null,
             child: const Text('Save name')),
+      ],
+    );
+  }
+}
+
+/// The folder trail (All documents, then the open folder's ancestors), the
+/// open folder's subfolders as chips, and New folder (docs/files.md#folders).
+class _FolderStrip extends StatelessWidget {
+  const _FolderStrip({required this.controller});
+  final FilesController controller;
+
+  Future<void> _newFolder(BuildContext context) async {
+    final strings = FileStrings.of(context);
+    final name = await showDialog<String>(
+        context: context,
+        builder: (_) => _FolderNameDialog(
+            strings: strings, siblings: controller.subfolders));
+    if (name == null) return;
+    final problem = await controller.createFolder(name);
+    if (problem != null && context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final s = FileStrings.of(context);
+    final p = context.palette;
+    final trail = c.trail;
+    return AnumSurface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Semantics(
+          container: true,
+          label: s.t('org.trail'),
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              if (c.folder == null)
+                Text(s.t('org.root'),
+                    style:
+                        TextStyle(color: p.text, fontWeight: FontWeight.w600))
+              else
+                TextButton(
+                    onPressed: () => c.openFolder(null),
+                    child: Text(s.t('org.root'))),
+              for (final (i, f) in trail.indexed) ...[
+                Icon(Icons.chevron_right, size: 16, color: p.faint),
+                if (i == trail.length - 1)
+                  Text(f.name,
+                      style:
+                          TextStyle(color: p.text, fontWeight: FontWeight.w600))
+                else
+                  TextButton(
+                      onPressed: () => c.openFolder(f.id), child: Text(f.name)),
+              ],
+              if (c.canUpload)
+                TextButton.icon(
+                    onPressed: () => _newFolder(context),
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    label: Text(s.t('org.newFolder'))),
+            ],
+          ),
+        ),
+        if (c.searching)
+          Text(s.t('org.searchEverywhere'),
+              style: TextStyle(color: p.muted, fontSize: AnumType.sm))
+        else if (c.subfolders.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final f in c.subfolders)
+              ActionChip(
+                avatar: Icon(Icons.folder_outlined, size: 18, color: p.violet),
+                label:
+                    Text('${f.name} · ${s.count('org.filesIn', f.fileCount)}'),
+                tooltip: s.t('org.openFolder', {'name': f.name}),
+                onPressed: () => c.openFolder(f.id),
+              ),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
+/// The workspace's tags as filter chips (docs/files.md#tags).
+class _TagStrip extends StatelessWidget {
+  const _TagStrip({required this.controller});
+  final FilesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final s = FileStrings.of(context);
+    return Semantics(
+      container: true,
+      label: s.t('org.tags'),
+      child: Wrap(spacing: 8, runSpacing: 8, children: [
+        for (final tag in c.tags)
+          FilterChip(
+            label: Text('${tag.name} · ${tag.fileCount}'),
+            tooltip: s.t('org.filterBy', {'name': tag.name}),
+            selected: c.tagFilter == tag.id,
+            onSelected: (on) => c.setTagFilter(on ? tag.id : null),
+          ),
+        if (c.tagFilter != null)
+          ActionChip(
+              label: Text(s.t('org.clearTag')),
+              onPressed: () => c.setTagFilter(null)),
+      ]),
+    );
+  }
+}
+
+/// Over a selection: how many, Move, Delete and Clear (docs/files.md#bulk-actions).
+class _BulkBar extends StatelessWidget {
+  const _BulkBar({required this.controller});
+  final FilesController controller;
+
+  Future<void> _report(BuildContext context, Future<String?> work) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final problem = await work;
+    if (problem != null) {
+      messenger.showSnackBar(SnackBar(content: Text(problem)));
+    }
+  }
+
+  Future<void> _move(BuildContext context) async {
+    final s = FileStrings.of(context);
+    final target = await showModalBottomSheet<(String?,)>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(shrinkWrap: true, children: [
+          ListTile(
+              title: Text(s.t('org.moveTitle'),
+                  style: const TextStyle(fontWeight: FontWeight.w700))),
+          ListTile(
+              leading: const Icon(Icons.home_outlined),
+              title: Text(s.t('org.root')),
+              onTap: () => Navigator.pop(context, (null,))),
+          for (final f in folderChoices(controller.folders))
+            ListTile(
+                leading: Padding(
+                    padding:
+                        EdgeInsetsDirectional.only(start: 16.0 * (f.depth - 1)),
+                    child: const Icon(Icons.folder_outlined)),
+                title: Text(f.name),
+                onTap: () => Navigator.pop(context, (f.id,))),
+        ]),
+      ),
+    );
+    if (target == null || !context.mounted) return;
+    await _report(context, controller.moveSelected(target.$1));
+  }
+
+  Future<void> _delete(BuildContext context) async {
+    final s = FileStrings.of(context);
+    final n = controller.selected.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.t('org.deleteTitle', {'n': n})),
+        content: Text(s.t('org.deleteText')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(s.t('org.keep'))),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(s.t('org.delete'))),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    await _report(context, controller.deleteSelected());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    final s = FileStrings.of(context);
+    final p = context.palette;
+    final allowed = c.selectionManageable;
+    return AnumSurface(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Semantics(
+                liveRegion: true,
+                child: Text(s.count('org.selected', c.selected.length),
+                    style:
+                        TextStyle(color: p.text, fontWeight: FontWeight.w700))),
+            TextButton(
+                onPressed: c.selectAll, child: Text(s.t('org.selectAll'))),
+            OutlinedButton.icon(
+                onPressed: allowed ? () => _move(context) : null,
+                icon: const Icon(Icons.drive_file_move_outline),
+                label: Text(s.t('org.move'))),
+            OutlinedButton.icon(
+                onPressed: allowed ? () => _delete(context) : null,
+                icon: const Icon(Icons.delete_outline),
+                label: Text(s.t('org.delete'))),
+            TextButton(
+                onPressed: c.clearSelection, child: Text(s.t('org.clear'))),
+          ],
+        ),
+        if (!allowed) ...[
+          const SizedBox(height: 4),
+          Text(c.canUpload ? s.t('org.notYours') : s.t('org.denied'),
+              style: TextStyle(color: p.muted, fontSize: AnumType.xs)),
+        ],
+      ]),
+    );
+  }
+}
+
+/// The tags on one file: chips with remove, and Add tag (pick or create).
+class _FileTags extends StatelessWidget {
+  const _FileTags(
+      {required this.controller,
+      required this.file,
+      required this.canUpload,
+      required this.onChanged,
+      required this.onError});
+  final FilesController controller;
+  final WorkspaceFile file;
+  final bool canUpload;
+  final void Function(WorkspaceFile file) onChanged;
+  final void Function(String message) onError;
+
+  WorkspaceFile _current() =>
+      controller.items.firstWhere((f) => f.id == file.id, orElse: () => file);
+
+  Future<void> _add(BuildContext context) async {
+    final s = FileStrings.of(context);
+    final free = controller.tags
+        .where((t) => !file.tags.any((x) => x.id == t.id))
+        .toList();
+    final choice = await showModalBottomSheet<(String?, String?)>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => _AddTagSheet(strings: s, free: free),
+    );
+    if (choice == null) return;
+    final problem =
+        await controller.addTag(file, tagId: choice.$1, newName: choice.$2);
+    if (problem != null) {
+      onError(problem);
+    } else {
+      onChanged(_current());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = FileStrings.of(context);
+    final p = context.palette;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(s.t('org.tags'),
+          style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
+      const SizedBox(height: 4),
+      Wrap(spacing: 8, runSpacing: 4, children: [
+        if (file.tags.isEmpty)
+          Text(s.t('org.noTags'), style: TextStyle(color: p.muted)),
+        for (final tag in file.tags)
+          InputChip(
+            label: Text(tag.name),
+            onDeleted: canUpload
+                ? () async {
+                    final problem = await controller.removeTag(file, tag);
+                    if (problem != null) {
+                      onError(problem);
+                    } else {
+                      onChanged(_current());
+                    }
+                  }
+                : null,
+            deleteButtonTooltipMessage: s.t('org.removeTag', {'tag': tag.name}),
+          ),
+        if (canUpload)
+          ActionChip(
+              avatar: const Icon(Icons.add, size: 18),
+              label: Text(s.t('org.addTag')),
+              onPressed: () => _add(context)),
+      ]),
+    ]);
+  }
+}
+
+class _AddTagSheet extends StatefulWidget {
+  const _AddTagSheet({required this.strings, required this.free});
+  final FileStrings strings;
+  final List<FileTag> free;
+  @override
+  State<_AddTagSheet> createState() => _AddTagSheetState();
+}
+
+class _AddTagSheetState extends State<_AddTagSheet> {
+  final _field = TextEditingController();
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strings;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+            left: 16,
+            right: 16),
+        child: ListView(shrinkWrap: true, children: [
+          Text(s.t('org.pickTag'),
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+          for (final tag in widget.free)
+            ListTile(
+                leading: const Icon(Icons.label_outline),
+                title: Text(tag.name),
+                onTap: () => Navigator.pop(context, (tag.id, null))),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _field,
+            maxLength: 64,
+            decoration: InputDecoration(labelText: s.t('org.newTag')),
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (value) => value.trim().isEmpty
+                ? null
+                : Navigator.pop(context, (null, value.trim())),
+          ),
+          FilledButton(
+              onPressed: _field.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(context, (null, _field.text.trim())),
+              child: Text(s.t('org.addTag'))),
+          const SizedBox(height: 16),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Owns its text field, so the field outlives the dialog's closing animation.
+class _FolderNameDialog extends StatefulWidget {
+  const _FolderNameDialog({required this.strings, required this.siblings});
+  final FileStrings strings;
+  final List<FileFolder> siblings;
+  @override
+  State<_FolderNameDialog> createState() => _FolderNameDialogState();
+}
+
+class _FolderNameDialogState extends State<_FolderNameDialog> {
+  final _field = TextEditingController();
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strings;
+    final problem = folderNameProblem(_field.text, widget.siblings);
+    return AlertDialog(
+      title: Text(s.t('org.newFolder')),
+      content: TextField(
+        controller: _field,
+        autofocus: true,
+        maxLength: 255,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+            labelText: s.t('org.folderName'),
+            errorText: _field.text.isEmpty ? null : problem,
+            helperText: s.t('org.folderHint'),
+            helperMaxLines: 3),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+            onPressed: problem == null
+                ? () => Navigator.pop(context, _field.text.trim())
+                : null,
+            child: Text(s.t('org.createFolder'))),
       ],
     );
   }

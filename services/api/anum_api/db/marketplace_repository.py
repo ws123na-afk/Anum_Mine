@@ -159,6 +159,11 @@ class SqlAlchemyScaleStore:
                     sensitivity=list(record.sensitivity),
                     cost_per_1k_tokens=record.cost_per_1k_tokens,
                     latency_ms=record.latency_ms,
+                    enabled=record.enabled,
+                    last_checked_at=record.last_checked_at,
+                    measured_latency_ms=record.measured_latency_ms,
+                    last_error=record.last_error,
+                    probe_workspace_id=record.probe_workspace_id,
                 )
                 for record in records
             ]
@@ -179,8 +184,21 @@ class SqlAlchemyScaleStore:
         record.sensitivity = list(target.sensitivity)
         record.cost_per_1k_tokens = target.cost_per_1k_tokens
         record.latency_ms = target.latency_ms
+        record.enabled = target.enabled
+        record.last_checked_at = target.last_checked_at
+        record.measured_latency_ms = target.measured_latency_ms
+        record.last_error = target.last_error
+        record.probe_workspace_id = target.probe_workspace_id
         self.session.flush()
         return target
+
+    def delete_target(self, context: TenantContext, target_id: str) -> bool:
+        result = self.session.execute(
+            delete(RoutingTargetRecord).where(
+                RoutingTargetRecord.tenant_id == context.tenant_id, RoutingTargetRecord.id == target_id
+            )
+        )
+        return bool(result.rowcount)
 
 
 def _package(record: MarketplacePackageRecord) -> MarketplacePackage:

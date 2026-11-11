@@ -69,7 +69,9 @@ import { businessAr } from './business.ar.ts';
 import { businessPipelineAr } from './businessPipeline.ar.ts';
 import { businessSupportAr } from './businessSupport.ar.ts';
 import { filesVersionsAr } from './filesVersions.ar.ts';
+import { filesOrganizeAr } from './filesOrganize.ar.ts';
 import { invoiceMoneyAr } from './invoiceMoney.ar.ts';
+import { businessAccountsAr } from './businessAccounts.ar.ts';
 import { invoiceSendAr } from './invoiceSend.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
 import { portalAr } from './portal.ar.ts';
@@ -82,6 +84,7 @@ import { attendanceAr } from './attendance.ar.ts';
 import { vehiclesAr } from './vehicles.ar.ts';
 import { opsAr } from './ops.ar.ts';
 import { purchasesAr } from './purchases.ar.ts';
+import { contactsAr } from './contacts.ar.ts';
 import { businessBooksAr } from './businessBooks.ar.ts';
 import { businessLedgerAr } from './businessLedger.ar.ts';
 import { businessTaxAr } from './businessTax.ar.ts';
@@ -96,6 +99,7 @@ import { agentsPageAr } from './agentsPage.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
+import { adminDepthAr } from './adminDepth.ar.ts';
 import { governanceAr } from './ar.governance.ts';
 import { setupPlanAr } from './setupPlan.ar.ts';
 import { routingAr } from './routing.ar.ts';
@@ -171,8 +175,10 @@ export const ar: Record<MessageKey, Message> = {
   ...businessPipelineAr,
   ...businessSupportAr,
   ...filesVersionsAr,
+  ...filesOrganizeAr,
   ...invoicesAr,
   ...invoiceMoneyAr,
+  ...businessAccountsAr,
   ...invoiceSendAr,
   ...portalAr,
   ...brevoAr,
@@ -184,6 +190,7 @@ export const ar: Record<MessageKey, Message> = {
   ...vehiclesAr,
   ...opsAr,
   ...purchasesAr,
+  ...contactsAr,
   ...businessBooksAr,
   ...businessLedgerAr,
   ...businessTaxAr,
@@ -283,7 +290,6 @@ export const ar: Record<MessageKey, Message> = {
   'nav.enterprise': 'المؤسسة',
   'nav.members': 'الأعضاء',
   'nav.budgets': 'الميزانيات',
-  'nav.policy': 'سياسة الموافقة',
   'nav.whatsapp': 'واتساب',
   'nav.activity': 'النشاط',
   'nav.autonomy': 'الاستقلالية',
@@ -1056,7 +1062,7 @@ export const ar: Record<MessageKey, Message> = {
   'memory.selectTask': 'اختر مهمة',
   'memory.memory': 'الذكرى',
   'memory.addPlaceholder': 'أضف سياقًا دائمًا',
-  'memory.taskOnly': 'تنتمي الذكريات إلى مهمة؛ لا تقبل واجهة البرمجة ملاحظات على مستوى مساحة العمل ولا تعديلات.',
+  'memory.taskOnly': 'الذكرى المرتبطة بمهمة تُحفظ معها وتُعرض ضمن ملاحظاتها.',
   'memory.add': 'إضافة ذكرى',
   'memory.added': 'أُضيفت الذكرى.',
   'memory.deleted': 'حُذفت الذكرى.',
@@ -3959,6 +3965,7 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Owner screens, Governance, Enterprise and Voice (their own files) ----
   ...ownerAr,
+  ...adminDepthAr,
   ...governanceAr,
   ...setupPlanAr,
   ...routingAr,

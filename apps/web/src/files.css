@@ -81,3 +81,91 @@ button.secondary.dangerText { color: var(--d-stop); }
 .fileStorageGrid { display: grid; gap: var(--d-s4); min-width: 0; }
 @media (min-width: 1024px) { .fileStorageGrid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); } .fileStorageGrid > p { grid-column: 1 / -1; } }
 .fileStorage caption { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding-bottom: var(--d-s2); text-align: start; }
+
+/* Folders, tags and the selection (FilesOrganize.tsx, docs/files.md#folders, #tags, #bulk-actions). */
+.folderPane { display: grid; gap: var(--d-s3); padding-block: var(--d-s3); }
+.folderBar { display: grid; gap: var(--d-s2); min-width: 0; }
+.folderTrail { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.folderTrail ol { align-items: center; display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--d-s1); list-style: none; margin: 0; min-width: 0; padding: 0; }
+.folderTrail li { align-items: center; display: inline-flex; gap: var(--d-s1); min-width: 0; }
+.folderTrail li > span, .folderTrail li > button { align-items: center; display: inline-flex; gap: var(--d-s1); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folderTrail [aria-current="location"] { color: var(--d-text); font-weight: 600; }
+.folderTrail svg { flex: none; height: 16px; width: 16px; }
+.folderTrail .trailSep { color: var(--d-faint); }
+[dir="rtl"] .folderTrail .trailSep { transform: scaleX(-1); }
+.folderTrail button.secondary.small, .tagBar button.secondary.small, .fileTagsHead button.secondary.small { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-height: 32px; padding: 0 var(--d-s3); }
+.folderNote { margin: 0; }
+.folderList { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.folderList li { align-items: center; display: inline-flex; gap: 2px; max-width: 100%; min-width: 0; position: relative; }
+.folderChip {
+  align-items: center; background: var(--d-control-bg); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex;
+  font-size: var(--text-sm); font-weight: 600; gap: var(--d-s2); max-width: 100%; min-height: var(--d-control-h-sm); min-width: 0; padding: 4px var(--d-s3); text-align: start;
+}
+.folderChip:hover { background: var(--d-control-bg-hover); border-color: var(--d-line-hover); }
+.folderChip svg { color: var(--d-violet); flex: none; height: 16px; width: 16px; }
+.folderChip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folderChip small { color: var(--d-muted); font-weight: 400; white-space: nowrap; }
+.folderActions { display: inline-flex; position: relative; }
+.folderMenu { background: var(--d-surface); border: 1px solid var(--d-line); border-radius: var(--d-r-control); box-shadow: var(--d-shadow-2); display: grid; gap: var(--d-s1); inset-inline-start: 0; padding: var(--d-s2); position: absolute; top: calc(100% + 4px); z-index: 5; }
+.folderMenu button { align-items: center; display: inline-flex; gap: var(--d-s2); justify-content: flex-start; white-space: nowrap; }
+.folderPick { font-family: inherit; min-height: 0; padding: var(--d-s1); }
+.folderPick option { padding: var(--d-s1) var(--d-s2); }
+.radioList { display: grid; gap: var(--d-s2); margin-top: var(--d-s3); }
+.radioList label { align-items: center; display: flex; gap: var(--d-s2); }
+.radioList small { padding-inline-start: calc(var(--d-s2) + 18px); }
+.tagBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.tagBarIcon { color: var(--d-muted); flex: none; height: 16px; width: 16px; }
+.tagChipButton {
+  align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-text); display: inline-flex; font-size: var(--text-sm);
+  gap: var(--d-s1); max-width: 100%; min-height: 28px; min-width: 0; padding: 2px var(--d-s3);
+}
+.tagChipButton:not(.static):hover { background: var(--d-control-bg-hover); border-color: var(--d-line-hover); }
+.tagChipButton.on { background: rgb(var(--c-accent) / .14); border-color: rgb(var(--c-accent) / .4); color: var(--d-accent-text); font-weight: 600; }
+.tagChipButton > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tagChipButton small { color: var(--d-muted); }
+.tagChipButton.on small { color: inherit; }
+.tagManage { margin-inline-start: auto; }
+.tagRemove { align-items: center; background: transparent; border: 0; border-radius: 50%; color: var(--d-muted); display: inline-flex; height: 22px; justify-content: center; margin-inline-end: -6px; min-height: 0; padding: 0; width: 22px; }
+.tagRemove:hover { background: var(--d-control-bg-hover); color: var(--d-stop); }
+.tagRemove svg { height: 14px; width: 14px; }
+.tagsDialog { max-width: 560px; }
+.tagNewForm { align-items: end; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; }
+.tagNewForm .field { margin: 0; }
+.tagNewForm small { grid-column: 1 / -1; }
+.tagNewForm button { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.tagManageList, .tagCheckList, .fileTagList, .bulkNames { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.tagManageList li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
+.tagManageList .cellActions { margin-inline-start: auto; }
+.tagRenameForm { align-items: center; display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--d-s2); }
+.tagRenameForm .field { flex: 1 1 160px; margin: 0; }
+.tagLock svg { height: 14px; width: 14px; }
+.tagCheckList { max-height: 40vh; overflow: auto; }
+.tagCheckList label { align-items: center; display: flex; gap: var(--d-s2); }
+.fileTags { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-top: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.fileTags h3 { font-size: var(--text-lg); }
+.fileTagsHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.fileTagList { display: flex; flex-wrap: wrap; }
+.fileTagList li.muted { font-size: var(--text-sm); }
+.tagAddForm { display: grid; gap: var(--d-s2); max-width: 520px; }
+.tagAddForm .field { margin: 0; }
+.tagAddForm .actions { margin-top: 0; }
+.tagAddForm .actions button { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.filesTable .selectCol { width: 36px; }
+.filesTable .selectCol input { height: 18px; margin: 0; vertical-align: middle; width: 18px; }
+.filesTable tr.picked { background: rgb(var(--c-accent) / .06); }
+.rowTags { display: flex; flex-wrap: wrap; gap: var(--d-s1); margin-top: var(--d-s1); }
+.rowTags .tagChip { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted); font-size: var(--text-xs); font-weight: 500; line-height: 1.4; max-width: 100%; overflow-wrap: anywhere; padding: 0 var(--d-s2); }
+.filesToolbar .iconOnly.on { background: rgb(var(--c-accent) / .14); border-color: rgb(var(--c-accent) / .4); color: var(--d-accent-text); }
+.bulkBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); margin-bottom: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
+.bulkBar:focus-visible { outline: 2px solid var(--d-sky); outline-offset: 2px; }
+.bulkActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
+.bulkActions button { align-items: center; border-radius: var(--d-r-control); display: inline-flex; gap: var(--d-s1); min-height: 34px; padding: 0 var(--d-s3); }
+.bulkNote { align-items: center; display: flex; flex-basis: 100%; gap: var(--d-s1); }
+.bulkNote svg { flex: none; height: 14px; width: 14px; }
+.bulkNames { margin-top: var(--d-s2); max-height: 30vh; overflow: auto; }
+.bulkNames li { overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .bulkActions { margin-inline-start: 0; }
+  .tagNewForm { grid-template-columns: minmax(0, 1fr); }
+  .tagManage { margin-inline-start: 0; }
+}

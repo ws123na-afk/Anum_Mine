@@ -143,6 +143,8 @@ class SqlAlchemyRepository(AnumRepository):
         record.active = membership.active
         record.created_at = membership.created_at
         record.updated_at = membership.updated_at
+        record.role_template_id = membership.role_template_id
+        record.permission_limit = list(membership.permission_limit) if membership.permission_limit is not None else None
         self.session.flush()
         return self._membership_from_record(record)
 
@@ -1311,6 +1313,8 @@ class SqlAlchemyRepository(AnumRepository):
             active=record.active,
             created_at=record.created_at,
             updated_at=record.updated_at,
+            role_template_id=record.role_template_id,
+            permission_limit=list(record.permission_limit) if record.permission_limit is not None else None,
         )
 
     @staticmethod

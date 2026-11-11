@@ -6,16 +6,122 @@ import 'calendar_models.dart';
 import 'calendar_screen.dart' show dateOf, timeOf;
 
 /// Add or edit an event; returns the filled draft or null when cancelled.
+/// [scope] says which occurrences of a series the edit is for: one
+/// occurrence cannot carry a repeat rule of its own.
 Future<EventDraft?> showEventForm(BuildContext context,
-        {required EventDraft draft}) =>
+        {required EventDraft draft, EditScope? scope}) =>
     Navigator.of(context).push<EventDraft>(MaterialPageRoute(
       fullscreenDialog: true,
-      builder: (_) => EventForm(draft: draft),
+      builder: (_) => EventForm(draft: draft, scope: scope),
     ));
 
+/// "10 minutes before", "1 day before", "At the start".
+String reminderLabel(AnumLocalizations l, int minutes) {
+  if (minutes == 0) return l.t('calendarReminderAtStart');
+  for (final (unit, name) in [(10080, 'Week'), (1440, 'Day'), (60, 'Hour')]) {
+    if (minutes % unit == 0) {
+      final count = minutes ~/ unit;
+      return count == 1
+          ? l.t('calendarReminder$name')
+          : l.f('calendarReminder${name}s', {'count': count});
+    }
+  }
+  return minutes == 1
+      ? l.t('calendarReminderMinute')
+      : l.f('calendarReminderMinutes', {'count': minutes});
+}
+
+/// The weekday's name in the app's language: the full date of a known
+/// Monday (5 January 2026) plus the code's offset starts with it.
+String weekdayName(BuildContext context, String code) {
+  final day = DateTime(2026, 1, 5 + weekdayCodes.indexOf(code));
+  final text = MaterialLocalizations.of(context).formatFullDate(day);
+  return text.split(RegExp(r'[,،]')).first.trim();
+}
+
+/// A readable sentence for a rule: "Every 2 weeks on Monday and Wednesday,
+/// until 31 December 2026".
+String recurrenceSummary(BuildContext context, Recurrence? rule) {
+  final l = AnumLocalizations.maybeOf(context);
+  if (rule == null) return l.t('calendarRepeat_none');
+  final every = rule.interval == 1
+      ? l.t('calendarSummary${_cap(rule.freq)}')
+      : l.f('calendarSummaryEvery${_cap(rule.freq)}', {'count': rule.interval});
+  var base = every;
+  if (rule.freq == 'weekly' && rule.byWeekday.isNotEmpty) {
+    base = l.f('calendarSummaryOn', {
+      'rule': every,
+      'days': rule.byWeekday.map((d) => weekdayName(context, d)).join(', '),
+    });
+  } else if (rule.freq == 'monthly' &&
+      rule.byWeekday.isNotEmpty &&
+      rule.bySetpos != null) {
+    base = l.f('calendarSummaryOnWeekday', {
+      'rule': every,
+      'position': l.t(
+          'calendarPosition_${rule.bySetpos == -1 ? 'last' : rule.bySetpos}'),
+      'day': weekdayName(context, rule.byWeekday.first),
+    });
+  } else if (rule.freq == 'monthly' && rule.byMonthday != null) {
+    base = l.f('calendarSummaryOnDay', {
+      'rule': every,
+      'day': rule.byMonthday == -1
+          ? l.t('calendarLastDay')
+          : rule.byMonthday.toString(),
+    });
+  }
+  if (rule.until != null) {
+    return l.f('calendarSummaryUntil', {
+      'rule': base,
+      'date': MaterialLocalizations.of(context)
+          .formatMediumDate(DateTime.parse(rule.until!)),
+    });
+  }
+  if (rule.count != null) {
+    return l.f('calendarSummaryTimes', {'rule': base, 'count': rule.count!});
+  }
+  return base;
+}
+
+String _cap(String value) => value[0].toUpperCase() + value.substring(1);
+
+/// Asks which occurrences of a series an action applies to; null = cancelled.
+Future<EditScope?> askEditScope(BuildContext context, String title,
+    {bool allowFollowing = true}) {
+  final l = AnumLocalizations.maybeOf(context);
+  return showModalBottomSheet<EditScope>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(
+            title: Text(title,
+                style: const TextStyle(fontWeight: FontWeight.w700))),
+        for (final scope in EditScope.values)
+          if (scope != EditScope.following || allowFollowing)
+            ListTile(
+              leading: Icon(switch (scope) {
+                EditScope.thisOne => Icons.event_outlined,
+                EditScope.following => Icons.event_repeat_outlined,
+                EditScope.all => Icons.repeat,
+              }),
+              title: Text(l.t('calendarScope_${scope.api}')),
+              onTap: () => Navigator.pop(context, scope),
+            ),
+        ListTile(
+          leading: const Icon(Icons.close),
+          title: Text(l.t('toolsCancel')),
+          onTap: () => Navigator.pop(context),
+        ),
+      ]),
+    ),
+  );
+}
+
 class EventForm extends StatefulWidget {
-  const EventForm({required this.draft, super.key});
+  const EventForm({required this.draft, this.scope, super.key});
   final EventDraft draft;
+  final EditScope? scope;
 
   @override
   State<EventForm> createState() => _EventFormState();
@@ -32,10 +138,28 @@ class _EventFormState extends State<EventForm> {
   late DateTime _start = widget.draft.startsAt;
   late DateTime _end = widget.draft.endsAt;
   late List<Attendee> _attendees = [...widget.draft.attendees];
+  late bool _allDay = widget.draft.allDay;
+  late String? _timezone = widget.draft.timezone;
+  late Recurrence? _rule = widget.draft.recurrence;
+  late List<int> _reminders = [...widget.draft.reminders];
+  late final _count =
+      TextEditingController(text: '${widget.draft.recurrence?.count ?? 10}');
+  late final _interval =
+      TextEditingController(text: '${widget.draft.recurrence?.interval ?? 1}');
+
+  bool get _editingOne => widget.scope == EditScope.thisOne;
 
   @override
   void dispose() {
-    for (final c in [_title, _location, _link, _phone, _notes]) {
+    for (final c in [
+      _title,
+      _location,
+      _link,
+      _phone,
+      _notes,
+      _count,
+      _interval
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -75,6 +199,92 @@ class _EventFormState extends State<EventForm> {
     });
   }
 
+  Future<void> _pickEndDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _end.isBefore(_start) ? _start : _end,
+      firstDate: DateTime(_start.year, _start.month, _start.day),
+      lastDate: DateTime(_start.year + 3),
+    );
+    if (picked != null) {
+      setState(() => _end = DateTime(
+          picked.year, picked.month, picked.day, _end.hour, _end.minute));
+    }
+  }
+
+  Future<void> _pickUntil() async {
+    final current = _rule?.until == null
+        ? _start.add(const Duration(days: 30))
+        : DateTime.parse(_rule!.until!);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current.isBefore(_start) ? _start : current,
+      firstDate: DateTime(_start.year, _start.month, _start.day),
+      lastDate: DateTime(_start.year + 10),
+    );
+    if (picked != null) {
+      setState(() => _rule = _rule!
+          .copyWith(until: dayText(picked), clearEnd: false)
+          .copyWith(count: null));
+    }
+  }
+
+  void _setRepeat(String value) {
+    setState(() {
+      if (value == 'none') {
+        _rule = null;
+        return;
+      }
+      _rule = Recurrence(
+        freq: value,
+        interval: int.tryParse(_interval.text) ?? 1,
+        byWeekday:
+            value == 'weekly' ? [weekdayCodes[_start.weekday - 1]] : const [],
+        until: _rule?.until,
+        count: _rule?.count,
+      );
+    });
+  }
+
+  String get _endMode => _rule?.until != null
+      ? 'until'
+      : _rule?.count != null
+          ? 'count'
+          : 'never';
+
+  void _setEndMode(String mode) {
+    final rule = _rule;
+    if (rule == null) return;
+    setState(() => _rule = switch (mode) {
+          'until' => rule
+              .copyWith(clearEnd: true)
+              .copyWith(until: dayText(_start.add(const Duration(days: 30)))),
+          'count' => rule
+              .copyWith(clearEnd: true)
+              .copyWith(count: int.tryParse(_count.text) ?? 10),
+          _ => rule.copyWith(clearEnd: true),
+        });
+  }
+
+  Future<void> _addReminder() async {
+    final l = AnumLocalizations.maybeOf(context);
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(shrinkWrap: true, children: [
+          for (final minutes in reminderPresets)
+            if (!_reminders.contains(minutes))
+              ListTile(
+                title: Text(reminderLabel(l, minutes)),
+                onTap: () => Navigator.pop(context, minutes),
+              ),
+        ]),
+      ),
+    );
+    if (picked != null) setState(() => _reminders = [..._reminders, picked]);
+  }
+
   Future<void> _addAttendee() async {
     final added = await showDialog<Attendee>(
         context: context, builder: (_) => const _AttendeeDialog());
@@ -84,10 +294,22 @@ class _EventFormState extends State<EventForm> {
   void _save() {
     final l = AnumLocalizations.maybeOf(context);
     if (!(_form.currentState?.validate() ?? false)) return;
-    if (!_end.isAfter(_start)) {
+    if (_allDay ? _end.isBefore(dayOf(_start)) : !_end.isAfter(_start)) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(l.t('calendarEndAfterStart'))));
       return;
+    }
+    var rule = _rule;
+    if (rule != null && !_editingOne) {
+      final count = rule.count == null ? null : int.tryParse(_count.text);
+      if (rule.count != null && (count == null || count < 1 || count > 730)) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l.t('calendarCountInvalid'))));
+        return;
+      }
+      rule = rule.copyWith(
+          interval: (int.tryParse(_interval.text) ?? 1).clamp(1, 99),
+          count: count);
     }
     Navigator.of(context).pop(EventDraft(
       title: _title.text,
@@ -99,7 +321,166 @@ class _EventFormState extends State<EventForm> {
       phone: _phone.text,
       description: _notes.text,
       attendees: _attendees,
+      allDay: _allDay,
+      timezone: _timezone ?? _localZone(),
+      recurrence: _editingOne ? widget.draft.recurrence : rule,
+      reminders: _reminders,
     ));
+  }
+
+  String _localZone() => DateTime.now().timeZoneName.contains('/')
+      ? DateTime.now().timeZoneName
+      : 'Asia/Dubai';
+
+  List<String> _zoneChoices() {
+    final chosen = _timezone;
+    return {
+      if (chosen != null) chosen,
+      _localZone(),
+      'Asia/Dubai',
+      'Asia/Riyadh',
+      'Asia/Karachi',
+      'Asia/Kolkata',
+      'Europe/London',
+      'Europe/Berlin',
+      'America/New_York',
+      'UTC',
+    }.toList();
+  }
+
+  List<Widget> _repeatFields(
+      BuildContext context, AnumLocalizations l, AnumPalette p) {
+    final rule = _rule;
+    final freq = rule?.freq ?? 'none';
+    return [
+      DropdownButtonFormField<String>(
+        initialValue: freq,
+        decoration: InputDecoration(labelText: l.t('calendarFieldRepeat')),
+        items: [
+          for (final value in ['none', ...repeatFrequencies])
+            DropdownMenuItem(
+                value: value, child: Text(l.t('calendarRepeat_$value'))),
+        ],
+        onChanged: (value) => _setRepeat(value ?? 'none'),
+      ),
+      if (rule != null) ...[
+        const SizedBox(height: AnumSpacing.sm),
+        Row(children: [
+          Text(l.t('calendarFieldInterval'), style: TextStyle(color: p.muted)),
+          const SizedBox(width: AnumSpacing.sm),
+          SizedBox(
+            width: 72,
+            child: TextFormField(
+              controller: _interval,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                  labelText: l.t('calendarFieldInterval'), isDense: true),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(width: AnumSpacing.sm),
+          Text(l.t('calendarUnit_$freq'), style: TextStyle(color: p.muted)),
+        ]),
+        if (freq == 'weekly') ...[
+          const SizedBox(height: AnumSpacing.sm),
+          Text(l.t('calendarFieldWeekdays'),
+              style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
+          Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
+            for (final code in weekdayCodes)
+              FilterChip(
+                label: Text(weekdayName(context, code)),
+                selected: rule.byWeekday.contains(code),
+                onSelected: (on) =>
+                    setState(() => _rule = rule.copyWith(byWeekday: [
+                          for (final c in weekdayCodes)
+                            if (on
+                                ? c == code || rule.byWeekday.contains(c)
+                                : c != code && rule.byWeekday.contains(c))
+                              c
+                        ])),
+              ),
+          ]),
+        ],
+        if (freq == 'monthly') ...[
+          const SizedBox(height: AnumSpacing.sm),
+          RadioGroup<String>(
+            groupValue: rule.bySetpos != null ? 'weekday' : 'day',
+            onChanged: (value) => setState(() => _rule = value == 'weekday'
+                ? rule.copyWith(
+                    clearMonthly: true,
+                    byWeekday: [weekdayCodes[_start.weekday - 1]],
+                    bySetpos:
+                        (_start.day + 6) ~/ 7 > 4 ? -1 : (_start.day + 6) ~/ 7)
+                : rule.copyWith(clearMonthly: true, byWeekday: const [])),
+            child: Column(children: [
+              RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  value: 'day',
+                  title:
+                      Text(l.f('calendarMonthlyByDay', {'day': _start.day}))),
+              RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  value: 'weekday',
+                  title: Text(l.f('calendarMonthlyByWeekday', {
+                    'position': l.t(
+                        'calendarPosition_${(_start.day + 6) ~/ 7 > 4 ? 'last' : (_start.day + 6) ~/ 7}'),
+                    'day':
+                        weekdayName(context, weekdayCodes[_start.weekday - 1]),
+                  }))),
+            ]),
+          ),
+        ],
+        const SizedBox(height: AnumSpacing.sm),
+        Text(l.t('calendarFieldRepeatEnds'),
+            style: TextStyle(color: p.text, fontWeight: FontWeight.w700)),
+        RadioGroup<String>(
+          groupValue: _endMode,
+          onChanged: (value) => _setEndMode(value ?? 'never'),
+          child: Column(children: [
+            for (final mode in ['never', 'until', 'count'])
+              RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  value: mode,
+                  title: Text(l.t('calendarEnds_$mode'))),
+          ]),
+        ),
+        if (_endMode == 'until')
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.event_outlined),
+            title: Text(l.f('calendarFieldUntil', {
+              'date': MaterialLocalizations.of(context)
+                  .formatMediumDate(DateTime.parse(rule.until!))
+            })),
+            onTap: _pickUntil,
+          ),
+        if (_endMode == 'count')
+          TextFormField(
+            controller: _count,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: l.t('calendarFieldCount')),
+            onChanged: (_) => setState(() {}),
+          ),
+        const SizedBox(height: AnumSpacing.xs),
+        Row(children: [
+          Icon(Icons.repeat, size: 16, color: p.muted),
+          const SizedBox(width: AnumSpacing.xs),
+          Expanded(
+              child: Text(
+                  recurrenceSummary(
+                      context,
+                      rule.copyWith(
+                          interval: int.tryParse(_interval.text) ?? 1,
+                          count: rule.count == null
+                              ? null
+                              : int.tryParse(_count.text) ?? rule.count)),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
+        ]),
+        Text(l.t('calendarSeriesNotSynced'),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
+        const SizedBox(height: AnumSpacing.sm),
+      ],
+    ];
   }
 
   @override
@@ -107,9 +488,16 @@ class _EventFormState extends State<EventForm> {
     final l = AnumLocalizations.maybeOf(context);
     final p = context.palette;
     final editing = widget.draft.title.isNotEmpty;
+    final title = widget.scope == EditScope.thisOne
+        ? l.t('calendarEditThis')
+        : widget.scope == EditScope.following
+            ? l.t('calendarEditFollowing')
+            : editing
+                ? l.t('calendarEdit')
+                : l.t('calendarAdd');
     return Scaffold(
       appBar: AppBar(
-        title: Text(editing ? l.t('calendarEdit') : l.t('calendarAdd')),
+        title: Text(title),
         actions: [
           TextButton(onPressed: _save, child: Text(l.t('toolsSave'))),
         ],
@@ -149,6 +537,13 @@ class _EventFormState extends State<EventForm> {
                             setState(() => _kind = value ?? _kind),
                       ),
                       const SizedBox(height: AnumSpacing.sm),
+                      if (_editingOne)
+                        Padding(
+                          padding:
+                              const EdgeInsets.only(bottom: AnumSpacing.sm),
+                          child: Text(l.t('calendarThisOnlyNote'),
+                              style: TextStyle(color: p.muted)),
+                        ),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.today_outlined),
@@ -156,20 +551,87 @@ class _EventFormState extends State<EventForm> {
                         subtitle: Text(dateOf(context, _start)),
                         onTap: _pickDate,
                       ),
-                      Wrap(spacing: AnumSpacing.xs, children: [
-                        ActionChip(
-                          avatar: const Icon(Icons.schedule, size: 18),
-                          label: Text(l.f('calendarFieldStarts',
-                              {'time': timeOf(context, _start)})),
-                          onPressed: () => _pickTime(start: true),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l.t('calendarFieldAllDay')),
+                        value: _allDay,
+                        onChanged: (value) => setState(() {
+                          _allDay = value;
+                          if (value && _end.isBefore(_start)) _end = _start;
+                        }),
+                      ),
+                      if (_allDay)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.event_outlined),
+                          title: Text(l.f('calendarFieldEndDate',
+                              {'date': dateOf(context, _end)})),
+                          onTap: _pickEndDate,
+                        )
+                      else
+                        Wrap(spacing: AnumSpacing.xs, children: [
+                          ActionChip(
+                            avatar: const Icon(Icons.schedule, size: 18),
+                            label: Text(l.f('calendarFieldStarts',
+                                {'time': timeOf(context, _start)})),
+                            onPressed: () => _pickTime(start: true),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.schedule, size: 18),
+                            label: Text(l.f('calendarFieldEnds',
+                                {'time': timeOf(context, _end)})),
+                            onPressed: () => _pickTime(start: false),
+                          ),
+                        ]),
+                      const SizedBox(height: AnumSpacing.sm),
+                      if (!_editingOne) ..._repeatFields(context, l, p),
+                      if (_allDay || _rule != null || _editingOne)
+                        DropdownButtonFormField<String>(
+                          initialValue: _timezone ?? _localZone(),
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                              labelText: l.t('calendarFieldTimezone'),
+                              helperText: l.t('calendarFieldTimezoneHelp'),
+                              helperMaxLines: 3),
+                          items: [
+                            for (final zone in _zoneChoices())
+                              DropdownMenuItem(value: zone, child: Text(zone)),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _timezone = value),
                         ),
-                        ActionChip(
-                          avatar: const Icon(Icons.schedule, size: 18),
-                          label: Text(l.f('calendarFieldEnds',
-                              {'time': timeOf(context, _end)})),
-                          onPressed: () => _pickTime(start: false),
-                        ),
-                      ]),
+                      const SizedBox(height: AnumSpacing.sm),
+                      Text(l.t('calendarFieldReminders'),
+                          style: TextStyle(
+                              color: p.text, fontWeight: FontWeight.w700)),
+                      Wrap(
+                          spacing: AnumSpacing.xs,
+                          runSpacing: AnumSpacing.xs,
+                          children: [
+                            for (final minutes in _reminders)
+                              InputChip(
+                                avatar: const Icon(Icons.notifications_none,
+                                    size: 18),
+                                label: Text(reminderLabel(l, minutes)),
+                                deleteButtonTooltipMessage: l.f(
+                                    'calendarRemoveReminder',
+                                    {'label': reminderLabel(l, minutes)}),
+                                onDeleted: () => setState(() => _reminders = [
+                                      for (final m in _reminders)
+                                        if (m != minutes) m
+                                    ]),
+                              ),
+                            if (_reminders.length < maxReminders)
+                              ActionChip(
+                                avatar: const Icon(Icons.add_alert_outlined,
+                                    size: 18),
+                                label: Text(l.t('calendarAddReminder')),
+                                onPressed: _addReminder,
+                              ),
+                          ]),
+                      Text(l.t('calendarRemindersHelp'),
+                          style:
+                              TextStyle(color: p.faint, fontSize: AnumType.xs)),
                       const SizedBox(height: AnumSpacing.sm),
                       TextFormField(
                         controller: _location,

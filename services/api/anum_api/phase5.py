@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -88,11 +89,43 @@ class RoutingTarget(BaseModel):
     region: str
     provider: str
     model: str
+    # A status typed with PUT is a hint until the health probe measures the target
+    # (docs/governance-and-scale.md#routing-targets); the probe overwrites it.
     status: RegionStatus = RegionStatus.HEALTHY
     modalities: list[str] = Field(default_factory=lambda: ["text"])
     sensitivity: list[str] = Field(default_factory=lambda: ["standard"])
     cost_per_1k_tokens: float = Field(ge=0)
     latency_ms: int = Field(gt=0)
+    # In routing. Off: routing decisions and the figures skip it, and it can be deleted.
+    enabled: bool = True
+    # Written by the probe only (values sent with PUT are ignored): when it last ran, the
+    # measured round trip, why it failed, and the workspace whose model configuration it
+    # used (the scheduled re-probe reuses it). All null: not yet probed.
+    last_checked_at: datetime | None = None
+    measured_latency_ms: int | None = None
+    last_error: str | None = None
+    probe_workspace_id: str | None = None
+
+    @property
+    def probed(self) -> bool:
+        return self.last_checked_at is not None
+
+
+PROBE_FIELDS = ("last_checked_at", "measured_latency_ms", "last_error", "probe_workspace_id")
+
+
+def keep_probe_result(incoming: RoutingTarget, stored: RoutingTarget | None) -> RoutingTarget:
+    """What PUT stores: the client's settings with the server's probe result.
+
+    The probe columns are never taken from the request. A stored target keeps its probe
+    result while its provider and model stay the same; a change to either, or a new target,
+    starts "not yet probed" (status ``unverified`` unless the client typed one)."""
+    if stored is not None and (stored.provider, stored.model) == (incoming.provider, incoming.model):
+        update = {field: getattr(stored, field) for field in PROBE_FIELDS}
+        if stored.probed:
+            update["status"] = stored.status
+        return incoming.model_copy(update=update)
+    return incoming.model_copy(update={field: None for field in PROBE_FIELDS})
 
 
 class RoutingRequest(BaseModel):
@@ -110,6 +143,8 @@ class RoutingDecision(BaseModel):
 
 
 class EnterpriseOperations(BaseModel):
+    """Regional figures from probed targets only: a typed status counts for nothing here."""
+
     tenant_id: str
     active_regions: int
     healthy_targets: int
@@ -117,6 +152,21 @@ class EnterpriseOperations(BaseModel):
     installed_packages: int
     failover_ready: bool
     generated_at: datetime
+    # Targets in routing whose health was never measured, and targets taken out of routing.
+    unprobed_targets: int = 0
+    disabled_targets: int = 0
+
+
+class RoutingTargetInUseError(ValueError):
+    """A target in routing that was probed healthy or degraded is serving requests."""
+
+
+def check_deletable(target: RoutingTarget) -> None:
+    if target.enabled and target.probed and target.status in (RegionStatus.HEALTHY, RegionStatus.DEGRADED):
+        raise RoutingTargetInUseError(
+            f"Routing target {target.id} is in use: it is in routing and its last probe found it {target.status.value}. "
+            "Take it out of routing first, then delete it."
+        )
 
 
 # The marketplace starts empty. Packages appear only when an organization administrator
@@ -213,6 +263,7 @@ class ScaleStore(Protocol):
     def uninstall(self, package_id: str, context: TenantContext) -> bool: ...
     def targets(self, context: TenantContext) -> list[RoutingTarget]: ...
     def upsert_target(self, target: RoutingTarget, context: TenantContext) -> RoutingTarget: ...
+    def delete_target(self, context: TenantContext, target_id: str) -> bool: ...
     def record_audit(self, record: AuditRecord) -> AuditRecord: ...
 
 
@@ -323,6 +374,20 @@ class Phase5Store:
         with self._lock:
             self._targets[(context.tenant_id, target.id)] = target
         return target
+
+    def delete_target(self, context: TenantContext, target_id: str) -> bool:
+        with self._lock:
+            return self._targets.pop((context.tenant_id, target_id), None) is not None
+
+    def due_probes(self, before: datetime) -> list[tuple[str, str, str]]:
+        """(tenant, workspace, target) of enabled targets probed before ``before`` (the scheduler pass)."""
+        with self._lock:
+            return [
+                (tenant_id, target.probe_workspace_id, target.id)
+                for (tenant_id, _), target in self._targets.items()
+                if target.enabled and target.probe_workspace_id and target.last_checked_at is not None
+                and target.last_checked_at <= before
+            ]
 
     def record_audit(self, record: AuditRecord) -> AuditRecord:
         # The same in-memory recorder the audit export reads.
@@ -564,7 +629,63 @@ def configure_target(
     if target.id != target_id:
         raise HTTPException(status_code=422, detail="Routing target id does not match path")
     with open_scale_store(context) as scoped:
-        return scoped.upsert_target(target, context)
+        stored = next((item for item in scoped.targets(context) if item.id == target_id), None)
+        saved = scoped.upsert_target(keep_probe_result(target, stored), context)
+        _target_audit(scoped, context, "routing_target.saved", saved, {"enabled": saved.enabled, "region": saved.region, "provider": saved.provider, "model": saved.model})
+        return saved
+
+
+def _target_audit(store: ScaleStore, context: TenantContext, action: str, target: RoutingTarget, metadata: dict[str, object]) -> None:
+    store.record_audit(
+        AuditRecord(
+            id=new_id("audit"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+            actor=context.user_id, action=action, target=f"routing_target:{target.id}",
+            outcome="success", correlation_id=new_id("correlation"), created_at=utc_now(), metadata=metadata,
+        )
+    )
+
+
+def _stored_target(store: ScaleStore, context: TenantContext, target_id: str) -> RoutingTarget:
+    target = next((item for item in store.targets(context) if item.id == target_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Routing target not found")
+    return target
+
+
+@router.delete("/routing/targets/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_target(target_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    """Delete a tenant routing target. ``409`` while it is in use (in routing and probed
+    healthy or degraded) and for the deployment's built-in configured model."""
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    with open_scale_store(context) as scoped:
+        target = _stored_target(scoped, context, target_id)
+        try:
+            check_deletable(target)
+        except RoutingTargetInUseError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        if not scoped.delete_target(context, target_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Routing target {target_id} is this server's configured model (Settings, Model), not a stored target. It cannot be deleted; override it with PUT to change it.",
+            )
+        _target_audit(scoped, context, "routing_target.deleted", target, {"region": target.region, "provider": target.provider, "model": target.model})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/routing/targets/{target_id}/probe", response_model=RoutingTarget)
+async def probe_target_now(target_id: str, context: TenantContext = Depends(tenant_context)) -> RoutingTarget:
+    """Measure the target with this workspace's model configuration and store the result
+    (docs/governance-and-scale.md#routing-targets). The model call runs with no transaction open."""
+    from .routing_probe import probe_and_store
+
+    require_permission(context, Permission.ORG_POLICY_MANAGE)
+    target = await asyncio.to_thread(_read_target, context, target_id)
+    return await probe_and_store(context, target)
+
+
+def _read_target(context: TenantContext, target_id: str) -> RoutingTarget:
+    with open_scale_store(context) as scoped:
+        return _stored_target(scoped, context, target_id)
 
 
 @router.post("/routing/decisions", response_model=RoutingDecision)
@@ -577,7 +698,8 @@ def decide_route(
         targets = scoped.targets(context)
     eligible = [
         target for target in targets
-        if target.status != RegionStatus.OFFLINE
+        if target.enabled
+        and target.status != RegionStatus.OFFLINE
         and payload.modality in target.modalities
         and payload.sensitivity in target.sensitivity
     ]
@@ -611,15 +733,22 @@ def enterprise_operations(context: TenantContext = Depends(tenant_context)) -> E
     with open_scale_store(context) as scoped:
         targets = scoped.targets(context)
         installed = len(scoped.installs(context))
-    healthy = [target for target in targets if target.status == RegionStatus.HEALTHY]
+    return operations_figures(context.tenant_id, targets, installed)
+
+
+def operations_figures(tenant_id: str, targets: list[RoutingTarget], installed: int) -> EnterpriseOperations:
+    """Health is what the probe measured: unprobed targets count as neither healthy nor degraded."""
+    routed = [target for target in targets if target.enabled]
+    probed = [target for target in routed if target.probed]
+    healthy = [target for target in probed if target.status == RegionStatus.HEALTHY]
     return EnterpriseOperations(
-        tenant_id=context.tenant_id,
-        active_regions=len({
-            target.region for target in targets if target.status != RegionStatus.OFFLINE
-        }),
+        tenant_id=tenant_id,
+        active_regions=len({target.region for target in probed if target.status != RegionStatus.OFFLINE}),
         healthy_targets=len(healthy),
-        degraded_targets=sum(target.status == RegionStatus.DEGRADED for target in targets),
+        degraded_targets=sum(target.status == RegionStatus.DEGRADED for target in probed),
         installed_packages=installed,
         failover_ready=len({target.region for target in healthy}) > 1,
         generated_at=utc_now(),
+        unprobed_targets=len(routed) - len(probed),
+        disabled_targets=len(targets) - len(routed),
     )

@@ -68,7 +68,9 @@ import { businessEn } from './business.en.ts';
 import { businessPipelineEn } from './businessPipeline.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
 import { filesVersionsEn } from './filesVersions.en.ts';
+import { filesOrganizeEn } from './filesOrganize.en.ts';
 import { invoiceMoneyEn } from './invoiceMoney.en.ts';
+import { businessAccountsEn } from './businessAccounts.en.ts';
 import { invoiceSendEn } from './invoiceSend.en.ts';
 import { invoicesEn } from './invoices.en.ts';
 import { portalEn } from './portal.en.ts';
@@ -81,6 +83,7 @@ import { attendanceEn } from './attendance.en.ts';
 import { vehiclesEn } from './vehicles.en.ts';
 import { opsEn } from './ops.en.ts';
 import { purchasesEn } from './purchases.en.ts';
+import { contactsEn } from './contacts.en.ts';
 import { businessBooksEn } from './businessBooks.en.ts';
 import { businessLedgerEn } from './businessLedger.en.ts';
 import { businessTaxEn } from './businessTax.en.ts';
@@ -95,6 +98,7 @@ import { agentsPageEn } from './agentsPage.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
+import { adminDepthEn } from './adminDepth.en.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
 import { routingEn } from './routing.en.ts';
@@ -170,8 +174,10 @@ export const en = {
   ...businessPipelineEn,
   ...businessSupportEn,
   ...filesVersionsEn,
+  ...filesOrganizeEn,
   ...invoicesEn,
   ...invoiceMoneyEn,
+  ...businessAccountsEn,
   ...invoiceSendEn,
   ...portalEn,
   ...brevoEn,
@@ -183,6 +189,7 @@ export const en = {
   ...vehiclesEn,
   ...opsEn,
   ...purchasesEn,
+  ...contactsEn,
   ...businessBooksEn,
   ...businessLedgerEn,
   ...businessTaxEn,
@@ -282,7 +289,6 @@ export const en = {
   'nav.enterprise': 'Enterprise',
   'nav.members': 'Members',
   'nav.budgets': 'Budgets',
-  'nav.policy': 'Approval policy',
   'nav.whatsapp': 'WhatsApp',
   'nav.activity': 'Activity',
   'nav.autonomy': 'Autonomy',
@@ -1055,7 +1061,7 @@ export const en = {
   'memory.selectTask': 'Select task',
   'memory.memory': 'Memory',
   'memory.addPlaceholder': 'Add durable context',
-  'memory.taskOnly': 'Memories belong to a task; the API does not accept workspace-wide notes or edits.',
+  'memory.taskOnly': 'A memory on a task is kept with that task and shown under its notes.',
   'memory.add': 'Add memory',
   'memory.added': 'Memory added.',
   'memory.deleted': 'Memory deleted.',
@@ -3944,6 +3950,7 @@ export const en = {
 
   // ---- Owner screens, Governance, Enterprise and Voice (their own files) ----
   ...ownerEn,
+  ...adminDepthEn,
   ...governanceEn,
   ...setupPlanEn,
   ...routingEn,

@@ -107,6 +107,9 @@ Future<void> openFromMenu(WidgetTester tester, FakeAnumApi api, String entry,
                 matching: find.byType(Scrollable))
             .first);
   }
+  // A built entry can still sit below the fold (the menu grows as modules are added): bring it in first.
+  await tester.ensureVisible(find.text(entry).last);
+  await tester.pump();
   await tapOn(tester, find.text(entry).last);
 }
 

@@ -184,6 +184,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "calendar_connections": "0092_calendar_sync",
         "calendar_oauth_requests": "0092_calendar_sync",
         "workspace_file_versions": "0090_file_versions",
+        **{name: "0168_files_folders_tags" for name in ("workspace_file_folders", "workspace_file_tags", "workspace_file_tag_links")},
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",
             "business_pipeline_runs", "business_outbox", "business_replies")},
@@ -228,10 +229,14 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             **{name: "0155_books_assets_fx" for name in (
                 "business_book_assets", "business_book_asset_impairments", "business_book_loans", "business_book_loan_repayments")},
             "finance_notice_claims": "0157_finance_evidence",
+            "calendar_reminder_sends": "0167_calendar_recurrence",
             "finance_expected_income": "0158_finance_depth",
             "business_book_receipt_dismissals": "0159_finance_last_gaps",
             "finance_personal_tags": "0160_finance_depth_2",
             "finance_loan_batches": "0161_finance_bank_loans",
+            **{name: "0169_contacts_directory" for name in (
+                "contacts", "contact_identifiers", "contact_links", "contact_do_not_contact", "contact_merge_proposals")},
+            "model_usage_daily": "0170_model_usage_daily",
             **{name: "0152_finance_rules_learning" for name in (
                 "finance_rules", "finance_merchant_aliases", "finance_subcategories", "finance_suggestion_decisions", "finance_rule_batches",
                 "finance_automation_settings")},

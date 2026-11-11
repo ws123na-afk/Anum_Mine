@@ -272,7 +272,7 @@ def test_budgeted_stream_is_checked_and_metered(monkeypatch: pytest.MonkeyPatch)
     checked: list[str] = []
     recorded: list[ModelUsage] = []
     monkeypatch.setattr(model_budget, "check_model_budget", lambda context, now=None: checked.append(context.tenant_id))
-    monkeypatch.setattr(model_budget, "record_model_usage", lambda context, usage, now=None: recorded.append(usage))
+    monkeypatch.setattr(model_budget, "record_model_usage", lambda context, usage, now=None, **_: recorded.append(usage))
     context = TenantContext(tenant_id="t", workspace_id="w", user_id="u", roles=["member"])
     passed_on: list[ModelUsage] = []
     gateway = BudgetedModelGateway(MockModelGateway(), context)

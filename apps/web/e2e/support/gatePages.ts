@@ -23,6 +23,8 @@ import { INTEGRATION_TABS } from '../../src/lib/integrationsHub.ts';
 import { ATTENDANCE_TABS } from '../../src/lib/attendance.ts';
 import { VEHICLE_TABS } from '../../src/lib/vehicles.ts';
 import { PURCHASE_TABS } from '../../src/lib/purchases.ts';
+import { CONTACT_TABS } from '../../src/lib/contacts.ts';
+import { mockContacts } from './contactsApi';
 
 // Every page the web app can open, for the UI quality gates: e2e/page-layout.spec.ts (overflow and
 // clipped controls), e2e/accessibility.spec.ts (axe) and e2e/journey.spec.ts (no dead buttons).
@@ -51,6 +53,7 @@ const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true })
 const headquarters = async (page: Page) => { await mockHq(page, { commerce: 'connected', tyre: 'none', meetings: 'live' }); };
 const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
 const vault = async (page: Page) => { await mockWorkspaceApi(page); await mockVault(page); };
+const contacts = async (page: Page) => { await mockWorkspaceApi(page); await mockContacts(page); };
 /** The pages that read several modules: the workspace, the business books and the document vault. */
 const operations = async (page: Page) => { await mockWorkspaceApi(page); await mockBooks(page); await mockVault(page); };
 
@@ -149,8 +152,12 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'members', view: 'members', mock: workspace, ready: '.memberRow' },
   { hash: 'audit', view: 'audit', mock: workspace, ready: '.auditTable' },
   { hash: 'budgets', view: 'budgets', mock: workspace, ready: '.budgetCard' },
-  { hash: 'policy', view: 'policy', mock: workspace, ready: '.policySwitch' },
+  { hash: 'approvalSettings', view: 'approvalSettings', mock: workspace, ready: '.policySwitch' },
   { hash: 'suppressions', view: 'suppressions', mock: workspace, ready: '.suppRow' },
+  // The Contacts directory (docs/contacts.md#web): the people list, a person page and the possible duplicates.
+  { hash: 'contacts', view: 'contacts', mock: contacts, ready: '.ctRow' },
+  { hash: 'contacts?person=ct_sara', view: 'contacts', mock: contacts, ready: '.ctChannel' },
+  { hash: 'contacts-duplicates', view: 'contacts', mock: contacts, ready: '.ctProposal, .ctList .emptyState' },
   { hash: 'developer', view: 'developer', mock: mockDeveloper, ready: '.devLayout' },
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
@@ -186,6 +193,7 @@ export const DEEP_LINKS: readonly string[] = [
   ...tabLinks('attendance', ATTENDANCE_TABS),
   ...tabLinks('vehicles', VEHICLE_TABS),
   ...tabLinks('purchases', PURCHASE_TABS),
+  ...tabLinks('contacts', CONTACT_TABS),
   ...tabLinks('integrations', INTEGRATION_TABS),
   // Settings sections and the Integrations connection setup (shell.ts viewFromHash).
   'notifications', 'language', 'privacy', 'appearance', 'connections',
@@ -202,6 +210,7 @@ function familyOf(link: string): { view: string; mock: (page: Page) => Promise<u
   if (link.startsWith('attendance-')) return { view: 'attendance', mock: workspace };
   if (link.startsWith('vehicles-')) return { view: 'vehicles', mock: workspace };
   if (link.startsWith('purchases-')) return { view: 'purchases', mock: workspace };
+  if (link.startsWith('contacts-')) return { view: 'contacts', mock: contacts };
   if (link === 'connections' || link.startsWith('integrations-')) return { view: 'integrations', mock: workspace };
   if (['notifications', 'language', 'privacy', 'appearance'].includes(link)) return { view: 'settings', mock: workspace };
   return { view: link, mock: workspace };

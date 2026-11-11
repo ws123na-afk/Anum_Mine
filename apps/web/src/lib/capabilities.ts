@@ -11,12 +11,14 @@ export interface ReindexResult { indexed: number; reused: number; failed: number
 
 /** Path for GET /api/v1/memories. The API's `query` filter is a text match; blank means "all".
  * `onlyChats` keeps the caller's own memories remembered from their chats (`source_type=conversation`). */
-export function memorySearchPath(query: string, taskId?: string, onlyChats = false): string {
+export function memorySearchPath(query: string, taskId?: string, onlyChats = false, page: { limit?: number; offset?: number } = {}): string {
   const params = new URLSearchParams();
   const q = query.trim();
   if (q) params.set('query', q);
   if (taskId) params.set('task_id', taskId);
   if (onlyChats) params.set('source_type', 'conversation');
+  if (page.limit !== undefined) params.set('limit', String(page.limit));
+  if (page.offset) params.set('offset', String(page.offset));
   const text = params.toString();
   return text ? `/api/v1/memories?${text}` : '/api/v1/memories';
 }
@@ -30,10 +32,11 @@ export function memoryIndexState(status: RetrievalIndexStatus | null, memoryId: 
 }
 
 /** What the Memory view needs to label where a memory came from. */
-export interface MemoryLike { task_id: string | null; provenance: { source_type: string; source_id: string | null; metadata?: Record<string, unknown> } }
+export interface MemoryLike { task_id: string | null; owner_user_id?: string | null; provenance: { source_type: string; source_id: string | null; metadata?: Record<string, unknown> } }
 export type MemorySource =
   | { kind: 'chat'; label: string; title: string; conversationId: string }
   | { kind: 'task'; label: string; taskId: string }
+  | { kind: 'workspace'; label: string }
   | { kind: 'other'; label: string };
 
 /**
@@ -48,7 +51,10 @@ export function memorySource(note: MemoryLike): MemorySource {
     return { kind: 'chat', label: t('memory.fromChat'), title, conversationId: id };
   }
   const label = type.replace(/_/g, ' ').trim() || t('memory.note');
-  return note.task_id ? { kind: 'task', label, taskId: note.task_id } : { kind: 'other', label };
+  if (note.task_id) return { kind: 'task', label, taskId: note.task_id };
+  // A shared note on no task: a workspace memory (docs/memory.md#workspace-memories); knowledge base notes keep their own label.
+  if (!note.owner_user_id && type !== 'knowledge_base') return { kind: 'workspace', label: t('memory.workspaceNote') };
+  return { kind: 'other', label };
 }
 
 export function indexSummary(status: RetrievalIndexStatus | null): string {

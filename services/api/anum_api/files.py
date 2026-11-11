@@ -39,6 +39,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from pydantic import BaseModel, Field
 
 from . import file_policy
+from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import has_permission, tenant_context
 from .errors import ApplicationError, ErrorCode, ErrorDetail
@@ -316,6 +317,8 @@ class FileRecord(BaseModel):
     # for an ordinary file. Vault files are never listed or served by the Files routes; `hidden`
     # ones are invisible to every unit of work that is not the vault's own.
     vault: Literal["hidden", "assistant"] | None = None
+    # The folder the file is in (migration 0168_files_folders_tags, docs/files.md#folders); None at the root.
+    folder_id: str | None = None
 
 
 # Set only inside the vault's own units of work (and the malware rescan): with PostgreSQL it turns
@@ -377,6 +380,44 @@ class FileContent(BaseModel):
     scanned_at: datetime | None = None
 
 
+class FileFolderRecord(BaseModel):
+    """A folder in the workspace's file tree (docs/files.md#folders); ``parent_id`` None at the root."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    name: str
+    parent_id: str | None = None
+    created_by: str
+    created_at: datetime
+    updated_by: str | None = None
+    updated_at: datetime | None = None
+
+
+class FileTagRecord(BaseModel):
+    """A tag name of the workspace (docs/files.md#tags)."""
+
+    id: str
+    tenant_id: str
+    workspace_id: str
+    name: str
+    created_by: str
+    created_at: datetime
+
+
+class FileTagLink(BaseModel):
+    tenant_id: str
+    workspace_id: str
+    file_id: str
+    tag_id: str
+    created_by: str
+    created_at: datetime
+
+
+class FileNameTaken(Exception):
+    """A folder or tag with that name already exists at that place (unique index)."""
+
+
 class FileSort(StrEnum):
     CREATED_AT = "created_at"
     NAME = "name"
@@ -391,6 +432,11 @@ class FilePageQuery(BaseModel):
     sort: FileSort = FileSort.CREATED_AT
     descending: bool = True
     after: FileRecord | None = None
+    # Folder scope: ``folder_id`` lists one folder's files, ``root_only`` the files in no folder;
+    # neither means every file in the workspace. ``tag_id`` keeps the files carrying that tag.
+    folder_id: str | None = None
+    root_only: bool = False
+    tag_id: str | None = None
 
 
 class FileUsage(BaseModel):
@@ -542,6 +588,61 @@ class FileMetadataStore(Protocol):
 
     def storage_report(self, context: TenantContext, largest: int) -> StorageReport: ...
 
+    # Folders, tags and bulk changes (docs/files.md#folders, #tags, #bulk-actions).
+    def get_many(self, context: TenantContext, file_ids: list[str]) -> list[FileRecord]:
+        """The listed files that exist in this scope (vault documents left out), in no order."""
+        ...
+
+    def add_folder(self, folder: FileFolderRecord) -> FileFolderRecord:
+        """Raises :class:`FileNameTaken` when a sibling has that name (case folded)."""
+        ...
+
+    def get_folder(self, context: TenantContext, folder_id: str) -> FileFolderRecord | None: ...
+    def list_folders(self, context: TenantContext, limit: int) -> list[FileFolderRecord]: ...
+    def update_folder(
+        self, context: TenantContext, folder_id: str, *, name: str, parent_id: str | None
+    ) -> FileFolderRecord | None:
+        """Rename and/or move a folder; raises :class:`FileNameTaken` on a sibling with that name."""
+        ...
+
+    def delete_folder(self, context: TenantContext, folder_id: str) -> bool:
+        """Delete a folder and (cascade) its subfolders; files inside go to the root. The API
+        moves or deletes the contents first (docs/files.md#folders)."""
+        ...
+
+    def count_folder_files(self, context: TenantContext, folder_ids: list[str]) -> int: ...
+    def file_ids_in_folders(self, context: TenantContext, folder_ids: list[str], limit: int) -> list[str]: ...
+    def move_files(self, context: TenantContext, file_ids: list[str], folder_id: str | None) -> int:
+        """Put the files in ``folder_id`` (None: the root); returns how many rows changed."""
+        ...
+
+    def delete_files(self, context: TenantContext, file_ids: list[str]) -> int: ...
+
+    def add_tag(self, tag: FileTagRecord) -> FileTagRecord:
+        """Raises :class:`FileNameTaken` when the workspace has that tag (case folded)."""
+        ...
+
+    def get_tag(self, context: TenantContext, tag_id: str) -> FileTagRecord | None: ...
+    def list_tags(self, context: TenantContext, limit: int) -> list[tuple[FileTagRecord, int]]:
+        """Every tag with how many files carry it, A to Z."""
+        ...
+
+    def rename_tag(self, context: TenantContext, tag_id: str, name: str) -> FileTagRecord | None: ...
+    def delete_tag(self, context: TenantContext, tag_id: str) -> bool: ...
+    def tag_files(self, context: TenantContext, file_ids: list[str], tag_ids: list[str]) -> int:
+        """Add every tag to every file (links that exist stay); returns how many links were added."""
+        ...
+
+    def untag_files(self, context: TenantContext, file_ids: list[str], tag_ids: list[str]) -> int: ...
+    def tags_of(self, context: TenantContext, file_ids: list[str]) -> dict[str, list[FileTagRecord]]: ...
+    def folder_file_counts(self, context: TenantContext) -> dict[str, int]:
+        """How many files each folder holds directly (folders with none are absent)."""
+        ...
+
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        """An audit row in the same unit of work as the change (docs/files.md#bulk-actions)."""
+        ...
+
 
 class FileStore:
     """Object storage for the bytes plus the in-memory metadata store (``memory`` backend)."""
@@ -550,6 +651,9 @@ class FileStore:
         self.storage = storage
         self.records: dict[str, FileRecord] = {}
         self.versions: dict[str, FileVersionRecord] = {}
+        self.folders: dict[str, FileFolderRecord] = {}
+        self.tags: dict[str, FileTagRecord] = {}
+        self.tag_links: dict[tuple[str, str, str, str], FileTagLink] = {}
         self._lock = RLock()
 
     def clear(self) -> None:
@@ -560,6 +664,9 @@ class FileStore:
                 self.storage.delete(version.storage_key)
             self.records.clear()
             self.versions.clear()
+            self.folders.clear()
+            self.tags.clear()
+            self.tag_links.clear()
 
     def _versions_of(self, context: TenantContext, file_id: str) -> list[FileVersionRecord]:
         return [v for v in self._scoped_versions(context) if v.file_id == file_id]
@@ -599,6 +706,14 @@ class FileStore:
         if query.search:
             needle = query.search.lower()
             items = [r for r in items if needle in r.name.lower()]
+        if query.folder_id is not None:
+            items = [r for r in items if r.folder_id == query.folder_id]
+        elif query.root_only:
+            items = [r for r in items if r.folder_id is None]
+        if query.tag_id is not None:
+            with self._lock:
+                tagged = {k[2] for k in self.tag_links if k[0] == context.tenant_id and k[1] == context.workspace_id and k[3] == query.tag_id}
+            items = [r for r in items if r.id in tagged]
         items.sort(key=lambda r: sort_key(r, query.sort), reverse=query.descending)
         if query.after is not None:
             boundary = sort_key(query.after, query.sort)
@@ -634,7 +749,204 @@ class FileStore:
             self.records.pop(file_id, None)
             for version in self._versions_of(context, file_id):
                 self.versions.pop(version.id, None)
+            for key in [k for k in self.tag_links if k[2] == file_id]:
+                self.tag_links.pop(key, None)
             return True
+
+    # ----------------------------------------------------------------- folders and tags
+
+    def _scope_key(self, context: TenantContext) -> tuple[str, str]:
+        return (context.tenant_id, context.workspace_id)
+
+    def get_many(self, context: TenantContext, file_ids: list[str]) -> list[FileRecord]:
+        with self._lock:
+            found = (self.get(context, file_id) for file_id in dict.fromkeys(file_ids))
+            return [r for r in found if r is not None and r.vault is None]
+
+    def _folders_in(self, context: TenantContext) -> list[FileFolderRecord]:
+        return [f for f in self.folders.values() if (f.tenant_id, f.workspace_id) == self._scope_key(context)]
+
+    def _sibling_taken(self, scope: TenantContext, parent_id: str | None, name: str, except_id: str | None) -> bool:
+        return any(
+            f.parent_id == parent_id and f.name.lower() == name.lower() and f.id != except_id for f in self._folders_in(scope)
+        )
+
+    def add_folder(self, folder: FileFolderRecord) -> FileFolderRecord:
+        scope = TenantContext(tenant_id=folder.tenant_id, workspace_id=folder.workspace_id, user_id=folder.created_by)
+        with self._lock:
+            if self._sibling_taken(scope, folder.parent_id, folder.name, None):
+                raise FileNameTaken(folder.name)
+            self.folders[folder.id] = folder
+        return folder
+
+    def get_folder(self, context: TenantContext, folder_id: str) -> FileFolderRecord | None:
+        with self._lock:
+            folder = self.folders.get(folder_id)
+        if folder is None or (folder.tenant_id, folder.workspace_id) != self._scope_key(context):
+            return None
+        return folder
+
+    def list_folders(self, context: TenantContext, limit: int) -> list[FileFolderRecord]:
+        with self._lock:
+            items = sorted(self._folders_in(context), key=lambda f: (f.name.lower(), f.id))
+        return items[:limit]
+
+    def update_folder(
+        self, context: TenantContext, folder_id: str, *, name: str, parent_id: str | None
+    ) -> FileFolderRecord | None:
+        with self._lock:
+            folder = self.get_folder(context, folder_id)
+            if folder is None:
+                return None
+            if self._sibling_taken(context, parent_id, name, folder_id):
+                raise FileNameTaken(name)
+            updated = folder.model_copy(update={"name": name, "parent_id": parent_id, "updated_by": context.user_id, "updated_at": utc_now()})
+            self.folders[folder_id] = updated
+            return updated
+
+    def _descendants(self, context: TenantContext, folder_id: str) -> list[str]:
+        ids, frontier = [], [folder_id]
+        while frontier:
+            current = frontier.pop()
+            children = [f.id for f in self._folders_in(context) if f.parent_id == current]
+            ids += children
+            frontier += children
+        return ids
+
+    def delete_folder(self, context: TenantContext, folder_id: str) -> bool:
+        with self._lock:
+            if self.get_folder(context, folder_id) is None:
+                return False
+            doomed = {folder_id, *self._descendants(context, folder_id)}
+            for one in doomed:
+                self.folders.pop(one, None)
+            for record in self._scoped(context):
+                if record.folder_id in doomed:
+                    self.records[record.id] = record.model_copy(update={"folder_id": None})
+            return True
+
+    def count_folder_files(self, context: TenantContext, folder_ids: list[str]) -> int:
+        wanted = set(folder_ids)
+        with self._lock:
+            return sum(1 for r in self._scoped(context) if r.vault is None and r.folder_id in wanted)
+
+    def folder_file_counts(self, context: TenantContext) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        with self._lock:
+            for record in self._scoped(context):
+                if record.vault is None and record.folder_id is not None:
+                    counts[record.folder_id] = counts.get(record.folder_id, 0) + 1
+        return counts
+
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        # The same in-memory recorder the audit export reads.
+        from .dependencies import memory_repository
+
+        return memory_repository.record_audit(record)
+
+    def file_ids_in_folders(self, context: TenantContext, folder_ids: list[str], limit: int) -> list[str]:
+        wanted = set(folder_ids)
+        with self._lock:
+            ids = sorted(r.id for r in self._scoped(context) if r.vault is None and r.folder_id in wanted)
+        return ids[:limit]
+
+    def move_files(self, context: TenantContext, file_ids: list[str], folder_id: str | None) -> int:
+        moved = 0
+        with self._lock:
+            for record in self.get_many(context, file_ids):
+                if record.folder_id != folder_id:
+                    self.records[record.id] = record.model_copy(update={"folder_id": folder_id})
+                    moved += 1
+        return moved
+
+    def delete_files(self, context: TenantContext, file_ids: list[str]) -> int:
+        with self._lock:
+            return sum(1 for file_id in dict.fromkeys(file_ids) if self.delete(context, file_id))
+
+    def _tags_in(self, context: TenantContext) -> list[FileTagRecord]:
+        return [t for t in self.tags.values() if (t.tenant_id, t.workspace_id) == self._scope_key(context)]
+
+    def add_tag(self, tag: FileTagRecord) -> FileTagRecord:
+        scope = TenantContext(tenant_id=tag.tenant_id, workspace_id=tag.workspace_id, user_id=tag.created_by)
+        with self._lock:
+            if any(t.name.lower() == tag.name.lower() for t in self._tags_in(scope)):
+                raise FileNameTaken(tag.name)
+            self.tags[tag.id] = tag
+        return tag
+
+    def get_tag(self, context: TenantContext, tag_id: str) -> FileTagRecord | None:
+        with self._lock:
+            tag = self.tags.get(tag_id)
+        if tag is None or (tag.tenant_id, tag.workspace_id) != self._scope_key(context):
+            return None
+        return tag
+
+    def _links_in(self, context: TenantContext) -> list[FileTagLink]:
+        return [link for link in self.tag_links.values() if (link.tenant_id, link.workspace_id) == self._scope_key(context)]
+
+    def list_tags(self, context: TenantContext, limit: int) -> list[tuple[FileTagRecord, int]]:
+        with self._lock:
+            counts: dict[str, int] = {}
+            for link in self._links_in(context):
+                counts[link.tag_id] = counts.get(link.tag_id, 0) + 1
+            items = sorted(self._tags_in(context), key=lambda t: (t.name.lower(), t.id))
+        return [(tag, counts.get(tag.id, 0)) for tag in items[:limit]]
+
+    def rename_tag(self, context: TenantContext, tag_id: str, name: str) -> FileTagRecord | None:
+        with self._lock:
+            tag = self.get_tag(context, tag_id)
+            if tag is None:
+                return None
+            if any(t.name.lower() == name.lower() and t.id != tag_id for t in self._tags_in(context)):
+                raise FileNameTaken(name)
+            renamed = tag.model_copy(update={"name": name})
+            self.tags[tag_id] = renamed
+            return renamed
+
+    def delete_tag(self, context: TenantContext, tag_id: str) -> bool:
+        with self._lock:
+            if self.get_tag(context, tag_id) is None:
+                return False
+            self.tags.pop(tag_id, None)
+            for key in [k for k in self.tag_links if k[3] == tag_id]:
+                self.tag_links.pop(key, None)
+            return True
+
+    def tag_files(self, context: TenantContext, file_ids: list[str], tag_ids: list[str]) -> int:
+        added = 0
+        now = utc_now()
+        with self._lock:
+            files = [r.id for r in self.get_many(context, file_ids)]
+            tags = [t.id for t in (self.get_tag(context, tag_id) for tag_id in dict.fromkeys(tag_ids)) if t is not None]
+            for file_id in files:
+                for tag_id in tags:
+                    key = (context.tenant_id, context.workspace_id, file_id, tag_id)
+                    if key not in self.tag_links:
+                        self.tag_links[key] = FileTagLink(tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                                                          file_id=file_id, tag_id=tag_id, created_by=context.user_id, created_at=now)
+                        added += 1
+        return added
+
+    def untag_files(self, context: TenantContext, file_ids: list[str], tag_ids: list[str]) -> int:
+        removed = 0
+        with self._lock:
+            for file_id in dict.fromkeys(file_ids):
+                for tag_id in dict.fromkeys(tag_ids):
+                    if self.tag_links.pop((context.tenant_id, context.workspace_id, file_id, tag_id), None) is not None:
+                        removed += 1
+        return removed
+
+    def tags_of(self, context: TenantContext, file_ids: list[str]) -> dict[str, list[FileTagRecord]]:
+        wanted = set(file_ids)
+        result: dict[str, list[FileTagRecord]] = {}
+        with self._lock:
+            for link in self._links_in(context):
+                tag = self.tags.get(link.tag_id)
+                if link.file_id in wanted and tag is not None:
+                    result.setdefault(link.file_id, []).append(tag)
+        for tags in result.values():
+            tags.sort(key=lambda t: (t.name.lower(), t.id))
+        return result
 
     def added_bytes(self, context: TenantContext, file_id: str, sha256: str, size: int) -> int:
         with self._lock:
@@ -754,11 +1066,70 @@ class FileIndex(BaseModel):
     indexed_at: datetime | None = None
 
 
+class FileTagView(BaseModel):
+    id: str
+    name: str
+
+
 class FileView(FileRecord):
     kind: file_policy.FileKind | None = Field(default=None, description="None for a type uploaded before the allow-list")
     previewable: bool = False
     can_manage: bool = Field(default=False, description="Whether the caller may rename and delete this file")
     index: FileIndex | None = Field(default=None, description="None when the index state could not be read")
+    folder_path: str | None = Field(default=None, description="The folder's names from the root, joined with ' / '; null at the root")
+    tags: list[FileTagView] = Field(default_factory=list, description="The file's tags, A to Z")
+
+
+MAX_FOLDERS = 1000
+FOLDER_PATH_SEPARATOR = " / "
+
+
+def folder_paths(folders: list[FileFolderRecord]) -> dict[str, str]:
+    """Each folder's path from the root (names joined with ``FOLDER_PATH_SEPARATOR``); a folder whose
+    parent is missing or part of a cycle reads from itself."""
+    by_id = {f.id: f for f in folders}
+    paths: dict[str, str] = {}
+
+    def path_of(folder_id: str, seen: set[str]) -> str:
+        if folder_id in paths:
+            return paths[folder_id]
+        folder = by_id[folder_id]
+        parent = folder.parent_id
+        if parent is None or parent not in by_id or parent in seen:
+            result = folder.name
+        else:
+            result = path_of(parent, seen | {folder_id}) + FOLDER_PATH_SEPARATOR + folder.name
+        paths[folder_id] = result
+        return result
+
+    for one in by_id:
+        path_of(one, {one})
+    return paths
+
+
+def folder_depth(folders: list[FileFolderRecord], folder_id: str | None) -> int:
+    """How many folders deep ``folder_id`` is (the root is 0; its direct folders 1)."""
+    by_id = {f.id: f for f in folders}
+    depth, seen = 0, set()
+    while folder_id is not None and folder_id in by_id and folder_id not in seen:
+        seen.add(folder_id)
+        depth += 1
+        folder_id = by_id[folder_id].parent_id
+    return depth
+
+
+def folder_descendants(folders: list[FileFolderRecord], folder_id: str) -> list[str]:
+    """Every folder below ``folder_id``, parents before children."""
+    children: dict[str | None, list[str]] = {}
+    for folder in folders:
+        children.setdefault(folder.parent_id, []).append(folder.id)
+    found, frontier = [], [folder_id]
+    while frontier:
+        current = frontier.pop(0)
+        below = children.get(current, [])
+        found += below
+        frontier += below
+    return found
 
 
 class FileUsageView(FileUsage):
@@ -830,6 +1201,8 @@ router = APIRouter(prefix="/api/v1/files", tags=["files"])
 PREVIEW_MAX_BYTES = 256 * 1024
 _NAME = re.compile(r"[^\x00-\x1f\x7f\\/]+")
 READ_DENIED = "Seeing files needs a viewer, member or owner role in this workspace. Ask a workspace owner for access."
+FOLDER_NOT_FOUND = "Folder not found: it may have been deleted. Reload the folders."
+TAG_NOT_FOUND = "Tag not found: it may have been deleted. Reload the tags."
 UPLOAD_DENIED = "Uploading and changing files needs a member or owner role in this workspace. Ask a workspace owner."
 MANAGE_DENIED = "Only the person who uploaded this file or a workspace owner can rename or delete it."
 
@@ -911,6 +1284,13 @@ def _views(context: TenantContext, records: list[FileRecord]) -> list[FileView]:
             model = current_embedding_model(context)
         except Exception:  # noqa: BLE001 - the files still list; their index state reads as unknown.
             sources = None
+    paths: dict[str, str] = {}
+    tags: dict[str, list[FileTagRecord]] = {}
+    if records:
+        with open_file_metadata_store(context) as store:
+            if any(r.folder_id for r in records):
+                paths = folder_paths(store.list_folders(context, MAX_FOLDERS))
+            tags = store.tags_of(context, [r.id for r in records])
     views = []
     for record in records:
         kind = file_policy.kind_of(record.content_type, record.name)
@@ -920,6 +1300,8 @@ def _views(context: TenantContext, records: list[FileRecord]) -> list[FileView]:
             previewable=kind in file_policy.PREVIEWABLE_KINDS and record.scan_status != "infected",
             can_manage=_can_manage(context, record),
             index=None if sources is None else _index_state(sources.get(record.id), model),
+            folder_path=paths.get(record.folder_id) if record.folder_id else None,
+            tags=[FileTagView(id=t.id, name=t.name) for t in tags.get(record.id, [])],
         ))
     return views
 
@@ -1024,6 +1406,7 @@ async def upload_file(
     ),
     x_file_name: str | None = Header(default=None, min_length=1, max_length=255),
     x_content_sha256: str | None = Header(default=None),
+    folder_id: str | None = Query(default=None, max_length=80, description="The folder to upload into; omit for the root"),
 ) -> FileView:
     _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
     raw_name = name_param or x_file_name
@@ -1050,6 +1433,8 @@ async def upload_file(
         quota = settings.files_workspace_quota_bytes
         with open_file_metadata_store(context) as store:
             current = store.usage(context)
+            if folder_id is not None and store.get_folder(context, folder_id) is None:
+                raise HTTPException(404, FOLDER_NOT_FOUND)
         if current.used_bytes + len(content) > quota:
             raise _quota_error(current, len(content))
         file_id = new_id("file")
@@ -1061,7 +1446,8 @@ async def upload_file(
         record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                             name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
                             storage_key=key, created_by=context.user_id, created_at=now,
-                            scan_status="clean" if scanned else None, scanned_at=now if scanned else None)
+                            scan_status="clean" if scanned else None, scanned_at=now if scanned else None,
+                            folder_id=folder_id)
         _store_new_object(context, record, content, quota)
         return record
 
@@ -1166,6 +1552,10 @@ def list_files(
     order: Literal["asc", "desc"] | None = Query(
         default=None, description="Default: desc (newest, largest first); asc (A to Z) for name"
     ),
+    folder: str | None = Query(
+        default=None, max_length=80, description="A folder id for its files, `root` for files in no folder; omit for every file"
+    ),
+    tag: str | None = Query(default=None, max_length=80, description="A tag id: only files carrying it"),
     context: TenantContext = Depends(tenant_context),
 ) -> list[FileView]:
     _require(context, Permission.FILE_READ, READ_DENIED)
@@ -1176,9 +1566,14 @@ def list_files(
             after = _files_get(store, context, cursor)
             if after is None:
                 raise HTTPException(400, "Unknown or invalid cursor: the file it names is gone. Reload the list.")
+        if folder is not None and folder != "root" and store.get_folder(context, folder) is None:
+            raise HTTPException(404, FOLDER_NOT_FOUND)
+        if tag is not None and store.get_tag(context, tag) is None:
+            raise HTTPException(404, TAG_NOT_FOUND)
         records = store.list_page(
             context,
-            FilePageQuery(limit=limit, search=(q or "").strip() or None, sort=sort, descending=descending, after=after),
+            FilePageQuery(limit=limit, search=(q or "").strip() or None, sort=sort, descending=descending, after=after,
+                          folder_id=folder if folder not in (None, "root") else None, root_only=folder == "root", tag_id=tag),
         )
     return _views(context, records)
 

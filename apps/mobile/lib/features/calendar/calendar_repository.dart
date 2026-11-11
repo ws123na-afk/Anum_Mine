@@ -6,11 +6,16 @@ import 'calendar_models.dart';
 /// members and owners add events and change their own; owners change any.
 abstract interface class CalendarRepository {
   Future<EventPage> events(DateTime start, DateTime end);
-  Future<CalendarEvent> event(String id);
+
+  /// One event; for a series, [occurrenceStart] opens that occurrence.
+  Future<CalendarEvent> event(String id, {DateTime? occurrenceStart});
   Future<CalendarEvent> create(EventDraft draft);
   Future<CalendarEvent> update(String id, Map<String, Object?> changes);
   Future<CalendarEvent> respond(String id, String attendeeId, String response);
-  Future<void> delete(String id);
+
+  /// Deletes an event, or with a scope one occurrence of a series or this
+  /// and the following ones (docs/calendar.md#recurrence).
+  Future<void> delete(String id, {EditScope? scope, DateTime? occurrenceStart});
   Future<List<NextStep>> nextSteps();
 
   /// Starts a suggested step as a task; returns its id.
@@ -49,8 +54,13 @@ class ApiCalendarRepository implements CalendarRepository {
   }
 
   @override
-  Future<CalendarEvent> event(String id) async => CalendarEvent.fromJson(
-      JsonReader(await api.request('GET', '$_base/events/${_id(id)}')));
+  Future<CalendarEvent> event(String id, {DateTime? occurrenceStart}) async {
+    final query = occurrenceStart == null
+        ? ''
+        : '?occurrence_start=${Uri.encodeQueryComponent(occurrenceStart.toUtc().toIso8601String())}';
+    return CalendarEvent.fromJson(
+        JsonReader(await api.request('GET', '$_base/events/${_id(id)}$query')));
+  }
 
   @override
   Future<CalendarEvent> create(EventDraft draft) async =>
@@ -70,8 +80,12 @@ class ApiCalendarRepository implements CalendarRepository {
           body: {'response': response})));
 
   @override
-  Future<void> delete(String id) async {
-    await api.request('DELETE', '$_base/events/${_id(id)}');
+  Future<void> delete(String id,
+      {EditScope? scope, DateTime? occurrenceStart}) async {
+    final query = scope == null || scope == EditScope.all
+        ? ''
+        : '?scope=${scope.api}&occurrence_start=${Uri.encodeQueryComponent((occurrenceStart ?? DateTime.now()).toUtc().toIso8601String())}';
+    await api.request('DELETE', '$_base/events/${_id(id)}$query');
   }
 
   @override

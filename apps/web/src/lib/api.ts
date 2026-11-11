@@ -4,8 +4,9 @@ import { accessToken, currentClaims, oidcEnabled } from './auth';
 import { decisionBody } from './approvals';
 import { apiErrorFrom, apiErrorFromResponse, isBillingCode, type ApiError } from './errors';
 import { getLocale, t } from './i18n';
-import type { ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, ApiFileVersionPage, ApiStorage, SortValue } from './files';
+import type { ApiBulkResult, ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage, ApiFileVersionPage, ApiFolder, ApiFolderTree, ApiStorage, ApiTag, ApiTagList, FilesListOptions, FolderContents } from './files';
 import { filesListPath, versionsPath } from './files';
+import { saveBlob } from './fileSave';
 import type { ApiCurrentMembership } from './policy';
 import type { SkillVerification } from './skillSigning';
 import * as workspaces from './workspaces';
@@ -247,10 +248,38 @@ export async function resumeRun(runId: string): Promise<RunTaskResult> {
   return { task: mapTask(result.task), run: mapRun(result.run), approval: result.approval ? mapApproval(result.approval) : null };
 }
 export async function getMemories(): Promise<MemoryNote[]> { return request('/api/v1/memories', { method: 'GET' }); }
-export async function createMemory(taskId: string, content: string): Promise<MemoryNote> { return request('/api/v1/memories', { method: 'POST', body: JSON.stringify({ task_id: taskId, content, source_type: 'user', retention: { kind: 'task' } }) }); }
+/** A note on a task (kept with the task), or a workspace memory when `taskId` is null (docs/memory.md#workspace-memories):
+ * kept until deleted, or until `expiresAt`, under the organization's memory governance. */
+export async function createMemory(taskId: string | null, content: string, expiresAt: string | null = null): Promise<MemoryNote> {
+  const retention = taskId ? { kind: 'task' } : expiresAt ? { kind: 'expires_at', expires_at: expiresAt } : { kind: 'indefinite' };
+  return request('/api/v1/memories', { method: 'POST', body: JSON.stringify({ task_id: taskId, content, source_type: 'user', retention }) });
+}
+/** Changes a memory's text: its author or a workspace owner (403 otherwise). */
+export async function updateMemory(id: string, content: string): Promise<MemoryNote> { return request(`/api/v1/memories/${id}`, { method: 'PATCH', body: JSON.stringify({ content }) }); }
 export async function deleteMemory(id: string): Promise<void> { await requestVoid(`/api/v1/memories/${id}`, { method: 'DELETE' }); }
 /** One page of workspace files (docs/files.md): search, sort and the keyset cursor (last id shown). */
-export async function getFiles(options: { query?: string; sort?: SortValue; cursor?: string | null; limit?: number } = {}): Promise<FileRecord[]> { return request(filesListPath(options), { method: 'GET' }); }
+export async function getFiles(options: FilesListOptions = {}): Promise<FileRecord[]> { return request(filesListPath(options), { method: 'GET' }); }
+// Folders, tags and bulk actions (docs/files.md#folders, #tags, #bulk-actions).
+export async function getFolders(): Promise<ApiFolderTree> { return request('/api/v1/files/folders', { method: 'GET' }); }
+export async function createFolder(name: string, parentId: string | null): Promise<ApiFolder> { return request('/api/v1/files/folders', { method: 'POST', body: JSON.stringify({ name, parent_id: parentId }) }); }
+export async function updateFolder(id: string, change: { name?: string; parent_id?: string | null }): Promise<ApiFolder> { return request(`/api/v1/files/folders/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(change) }); }
+export async function deleteFolder(id: string, contents: FolderContents = 'refuse'): Promise<void> { await requestVoid(`/api/v1/files/folders/${encodeURIComponent(id)}?${new URLSearchParams({ contents }).toString()}`, { method: 'DELETE' }); }
+export async function getFileTags(): Promise<ApiTagList> { return request('/api/v1/files/tags', { method: 'GET' }); }
+export async function createFileTag(name: string): Promise<ApiTag> { return request('/api/v1/files/tags', { method: 'POST', body: JSON.stringify({ name }) }); }
+export async function renameFileTag(id: string, name: string): Promise<ApiTag> { return request(`/api/v1/files/tags/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }); }
+export async function deleteFileTag(id: string): Promise<void> { await requestVoid(`/api/v1/files/tags/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
+export async function tagFile(id: string, tagIds: string[]): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}/tags`, { method: 'POST', body: JSON.stringify({ tag_ids: tagIds }) }); }
+export async function untagFile(id: string, tagId: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}/tags/${encodeURIComponent(tagId)}`, { method: 'DELETE' }); }
+export async function bulkMoveFiles(fileIds: string[], folderId: string | null): Promise<ApiBulkResult> { return request('/api/v1/files/bulk/move', { method: 'POST', body: JSON.stringify({ file_ids: fileIds, folder_id: folderId }) }); }
+export async function bulkDeleteFiles(fileIds: string[]): Promise<ApiBulkResult> { return request('/api/v1/files/bulk/delete', { method: 'POST', body: JSON.stringify({ file_ids: fileIds }) }); }
+export async function bulkTagFiles(fileIds: string[], tagIds: string[]): Promise<ApiBulkResult> { return request('/api/v1/files/bulk/tag', { method: 'POST', body: JSON.stringify({ file_ids: fileIds, tag_ids: tagIds }) }); }
+export async function bulkUntagFiles(fileIds: string[], tagIds: string[]): Promise<ApiBulkResult> { return request('/api/v1/files/bulk/untag', { method: 'POST', body: JSON.stringify({ file_ids: fileIds, tag_ids: tagIds }) }); }
+/** The selected files as one zip, saved from a same-origin blob URL (bearer-authenticated, at most 1 GiB server side). */
+export async function bulkDownloadFiles(fileIds: string[], name: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/files/bulk/download`, { method: 'POST', headers: { ...(await authHeaders()), 'content-type': 'application/json' }, body: JSON.stringify({ file_ids: fileIds }) });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  saveBlob(await response.blob(), name);
+}
 export async function getFile(id: string): Promise<FileRecord> { return request(`/api/v1/files/${encodeURIComponent(id)}`, { method: 'GET' }); }
 export async function getFileUsage(): Promise<ApiFileUsage> { return request('/api/v1/files/usage', { method: 'GET' }); }
 /** Names of a run's sources in one bounded lookup (`path` from retrieval.sourceNamesPath). */
@@ -259,12 +288,12 @@ export async function getSourceNames(path: string): Promise<SourceName[]> { retu
  * Upload one file with progress and cancel. XMLHttpRequest, because fetch reports no upload
  * progress. The name goes in the query (URL-encoded), so non-ASCII names work; `signal` aborts.
  */
-export async function uploadFile(file: File, onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<FileRecord> {
+export async function uploadFile(file: File, onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal, folderId: string | null = null): Promise<FileRecord> {
   const headers = await authHeaders();
   return new Promise<FileRecord>((resolve, reject) => {
     if (signal?.aborted) { reject(new DOMException('Upload cancelled', 'AbortError')); return; }
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${apiBaseUrl}/api/v1/files?${new URLSearchParams({ name: file.name }).toString()}`);
+    xhr.open('POST', `${apiBaseUrl}/api/v1/files?${new URLSearchParams({ name: file.name, ...(folderId ? { folder_id: folderId } : {}) }).toString()}`);
     for (const [key, value] of Object.entries(headers)) xhr.setRequestHeader(key, value);
     xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
     xhr.upload.onprogress = (event) => onProgress?.(event.loaded, event.lengthComputable ? event.total : file.size);
@@ -335,7 +364,10 @@ export async function getSkillInstallations(): Promise<SkillInstallation[]> { re
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
 export async function setSkillEnabled(skillId: string, enabled: boolean, acknowledgeFlagged = false): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify(acknowledgeFlagged ? { enabled, acknowledge_flagged: true } : { enabled }) }); }
 export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
-export async function searchMemories(query: string, onlyChats = false): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query, undefined, onlyChats), { method: 'GET' }); }
+/** One page of memories (the newest `limit` after skipping `offset`) and how many match in all (`X-Total-Count`; null from an older API). */
+export async function searchMemories(query: string, onlyChats = false, page: { limit?: number; offset?: number } = {}): Promise<{ items: MemoryNote[]; total: number | null }> {
+  return requestWithTotal<MemoryNote[]>(capabilities.memorySearchPath(query, undefined, onlyChats, page), { method: 'GET' });
+}
 /** The caller's own preferences, including "Remember things from my chats". */
 export async function getMyPreferences(): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'GET' }); }
 export async function saveMyPreferences(rememberConversations: boolean): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'PUT', body: JSON.stringify({ remember_conversations: rememberConversations } satisfies UserPreferencesUpdate) }); }
@@ -437,6 +469,15 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+/** A JSON list with the total behind the page (`X-Total-Count`), for paged lists such as memories. */
+async function requestWithTotal<T>(path: string, init: RequestInit): Promise<{ items: T; total: number | null }> {
+  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers: { ...(await authHeaders()), 'content-type': 'application/json', ...init.headers } });
+  if (!response.ok) throw announceBilling(await apiErrorFromResponse(response));
+  const header = response.headers.get('X-Total-Count');
+  const total = header === null ? null : Number(header);
+  return { items: (await response.json()) as T, total: Number.isFinite(total) ? total : null };
 }
 
 /** The shared JSON request (auth headers, error envelope) for feature modules such as adminApi.ts. */

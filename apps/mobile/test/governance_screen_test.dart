@@ -78,6 +78,19 @@ class FakeGovernance implements GovernanceRepository {
   Future<RoutingTarget> updateTarget(RoutingTarget target) =>
       _write('updateTarget', () => target);
   @override
+  Future<RoutingTarget> probeTarget(String id) => _write(
+      'probeTarget',
+      () => RoutingTarget(
+          id: id,
+          region: 'local',
+          provider: 'ollama',
+          model: 'llama3.2',
+          status: 'healthy',
+          latencyMs: 1,
+          cost: 0,
+          lastCheckedAt: DateTime.utc(2026, 11, 10, 10),
+          measuredLatencyMs: 240));
+  @override
   Future<void> createRoleTemplate(String name, List<String> permissions) =>
       _write('roleTemplate', () {});
   @override
@@ -139,10 +152,12 @@ void main() {
 
     expect(find.byKey(const Key('organization-read-only')), findsOneWidget);
     expect(find.text('ollama · llama3.2'), findsOneWidget);
-    expect(find.byTooltip('Change status'), findsNothing);
+    expect(find.byTooltip('Target actions'), findsNothing);
+    // A typed status counts for nothing until a probe ran.
+    expect(find.text('Not yet probed'), findsOneWidget);
     expect(
         find.text(
-            'Organization administrators mark targets healthy, degraded or offline.'),
+            'Health is measured by a probe, never typed. Organization administrators probe targets and take them out of routing.'),
         findsOneWidget);
   });
 

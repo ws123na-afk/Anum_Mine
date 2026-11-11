@@ -52,6 +52,21 @@ class GovernanceTransport implements ApiTransport {
     if (p.endsWith('/routing/targets/target_1')) {
       return ApiResponse(statusCode: 200, body: r.body);
     }
+    if (p.endsWith('/routing/targets/target_1/probe')) {
+      return const ApiResponse(statusCode: 200, body: {
+        'id': 'target_1',
+        'region': 'us-east',
+        'provider': 'openai',
+        'model': 'gpt',
+        'status': 'healthy',
+        'latency_ms': 40,
+        'cost_per_1k_tokens': 0.01,
+        'enabled': true,
+        'last_checked_at': '2026-11-10T10:00:00Z',
+        'measured_latency_ms': 240,
+        'last_error': null
+      });
+    }
     return const ApiResponse(statusCode: 200, body: {'data': []});
   }
 }
@@ -111,6 +126,13 @@ void main() {
     final body = transport.requests.last.body!;
     expect(body['id'], 'target_1');
     expect(body['modalities'], isA<List<Object?>>());
+    expect(body['enabled'], true);
+    final probed = await repo.probeTarget('target_1');
+    expect(transport.requests.last.method, 'POST');
+    expect(transport.requests.last.uri.path,
+        '/api/v1/routing/targets/target_1/probe');
+    expect(probed.probed, isTrue);
+    expect(probed.measuredLatencyMs, 240);
     await repo.exportAudit('csv');
     expect(exporter.format, 'csv');
   });
