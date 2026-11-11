@@ -248,8 +248,10 @@ class HttpWorkspaceFileTransfer
     required String name,
     required void Function(int sent, int total) onProgress,
     required UploadCancellation cancellation,
+    String? folderId,
   }) =>
-      uploadTo('api/v1/files', {'name': name}, path,
+      uploadTo('api/v1/files',
+          {'name': name, if (folderId != null) 'folder_id': folderId}, path,
           onProgress: onProgress, cancellation: cancellation);
 
   @override

@@ -19,6 +19,9 @@ WorkspaceFile parseWorkspaceFile(JsonReader j) {
     previewable: j.optBool('previewable') ?? false,
     canManage: j.optBool('can_manage') ?? false,
     version: j.optInt('version') ?? 1,
+    folderId: j.optString('folder_id'),
+    folderPath: j.optString('folder_path'),
+    tags: j.optObjects('tags', parseFileTag),
     index: index == null
         ? null
         : FileIndexState(
@@ -26,6 +29,72 @@ WorkspaceFile parseWorkspaceFile(JsonReader j) {
             error: index.optString('error'),
             chunkCount: index.optInt('chunk_count') ?? 0),
   );
+}
+
+FileTag parseFileTag(JsonReader j) => FileTag(
+      id: j.string('id'),
+      name: j.string('name'),
+      fileCount: j.optInt('file_count') ?? 0,
+      canManage: j.optBool('can_manage') ?? false,
+    );
+
+FileFolder parseFileFolder(JsonReader j) => FileFolder(
+      id: j.string('id'),
+      name: j.string('name'),
+      path: j.optString('path') ?? j.string('name'),
+      parentId: j.optString('parent_id'),
+      depth: j.optInt('depth') ?? 1,
+      fileCount: j.optInt('file_count') ?? 0,
+      canManage: j.optBool('can_manage') ?? false,
+    );
+
+/// The folders directly under [parentId] (null: the root), A to Z.
+List<FileFolder> folderChildren(List<FileFolder> folders, String? parentId) =>
+    folders.where((f) => f.parentId == parentId).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+/// The folders from the root down to [folderId] (empty at the root).
+List<FileFolder> folderTrail(List<FileFolder> folders, String? folderId) {
+  final trail = <FileFolder>[];
+  final seen = <String>{};
+  var current = folderId;
+  while (current != null && seen.add(current)) {
+    final found = folders.where((f) => f.id == current);
+    if (found.isEmpty) break;
+    trail.insert(0, found.first);
+    current = found.first.parentId;
+  }
+  return trail;
+}
+
+/// Every folder as a depth-first list, for a folder picker.
+List<FileFolder> folderChoices(List<FileFolder> folders) {
+  final out = <FileFolder>[];
+  void walk(String? parentId) {
+    for (final child in folderChildren(folders, parentId)) {
+      out.add(child);
+      walk(child.id);
+    }
+  }
+
+  walk(null);
+  return out;
+}
+
+/// Why a folder name would be refused, or null (the file-name rules).
+String? folderNameProblem(String value, List<FileFolder> siblings) {
+  final name = value.trim();
+  if (name.isEmpty) return 'Enter a folder name.';
+  if (name.length > 255) return 'Folder names are at most 255 characters.';
+  if (RegExp(r'[\\/\x00-\x1f\x7f]').hasMatch(name) ||
+      name == '.' ||
+      name == '..') {
+    return 'Folder names cannot contain / or \\ or control characters.';
+  }
+  if (siblings.any((f) => f.name.toLowerCase() == name.toLowerCase())) {
+    return 'A folder named $name already exists here.';
+  }
+  return null;
 }
 
 class FileUsage {
@@ -90,12 +159,19 @@ const fileSortOptions = <(String, String)>[
 
 const filesPageSize = 50;
 
+/// Every file of the workspace, whatever its folder (a search).
+const everyFolder = 'all';
+
 /// `GET /api/v1/files` for one page: search, sort and the keyset cursor.
+/// [folder] is null for the root (files in no folder), a folder id for one
+/// folder, or [everyFolder] for every file; [tag] keeps the files with it.
 String filesListPath(
     {String query = '',
     String sort = 'created_at:desc',
     String? cursor,
-    int limit = filesPageSize}) {
+    int limit = filesPageSize,
+    String? folder = everyFolder,
+    String? tag}) {
   final parts = sort.split(':');
   return Uri(path: '/api/v1/files', queryParameters: {
     'limit': '$limit',
@@ -103,6 +179,8 @@ String filesListPath(
     'order': parts.length > 1 ? parts[1] : 'desc',
     if (query.trim().isNotEmpty) 'q': query.trim(),
     if (cursor != null) 'cursor': cursor,
+    if (folder != everyFolder) 'folder': folder ?? 'root',
+    if (tag != null) 'tag': tag,
   }).toString();
 }
 
