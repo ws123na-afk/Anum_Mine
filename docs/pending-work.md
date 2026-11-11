@@ -8,6 +8,11 @@ Earlier state (4 November): `main` was at `6643fc1` (#359, the action browser) p
 
 Done in [Calendar](calendar.md#recurrence): series with the RFC 5545 subset, exceptions (skipped and changed occurrences, this and following), all-day events, reminders through the team sweep with their own push kind, web and Flutter forms and views. Left open, said in the doc's "Not done yet": ANUM's series and all-day events are not sent to a synced Google or Microsoft calendar (the provider would need the rule and the exceptions); a provider's recurring events still arrive flattened; an attendee's reply on a series applies to every occurrence; no email reminders and no reminder for a teammate who is not the creator or an invited profile email.
 
+## Open work from the November 2026 depth batch (files)
+
+- **Files on the phone** ([Workspace files, Mobile](files.md#mobile)): the Flutter Files tab navigates folders, filters by tag, creates folders, tags files and moves or deletes a selection, but still lacks renaming, moving and deleting folders, renaming and deleting tags, and the zip download of a selection. The web app has all of them; the API routes exist (`PATCH`/`DELETE /files/folders/{id}`, `PATCH`/`DELETE /files/tags/{id}`, `POST /files/bulk/download`).
+- **Bulk download cap** is a constant (1 GiB); make it a setting if an operator needs another limit.
+
 ## Owner steps (only the owner can do these)
 
 1. **Update the Oracle VM** to get everything above live, once CI is green again: `cd ~/anum && sudo bash infra/oracle/update.sh`.
