@@ -72,6 +72,13 @@ class HttpApiTransport implements ApiTransport {
           body: {'pdf_base64': base64Encode(bytes)});
     }
     final bodyText = utf8.decode(bytes);
+    // A spreadsheet export (`text/csv`) is text, not JSON: hand it over as
+    // `{"csv": ...}` so the caller can save it (records_export.dart). Checked
+    // before decoding, because a one-column CSV can also read as JSON.
+    if (response.statusCode < 300 && contentType.startsWith('text/csv')) {
+      return ApiResponse(
+          statusCode: response.statusCode, body: {'csv': bodyText});
+    }
     JsonMap? body;
     if (bodyText.isNotEmpty) {
       final Object? decoded;

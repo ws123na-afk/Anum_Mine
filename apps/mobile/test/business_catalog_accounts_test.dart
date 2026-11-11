@@ -11,6 +11,9 @@ import 'package:anum_mobile/features/business/catalog_data.dart';
 import 'package:anum_mobile/features/business/catalog_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:anum_mobile/features/records_kit/records_export.dart';
+
+import 'records/fake_export_saver.dart';
 
 import 'business_test.dart' show FakeBusiness, app;
 
@@ -223,8 +226,12 @@ class FakeAccounts implements AccountsRepository {
     String? query,
     required int offset,
     int limit = 20,
+    String sort = 'name',
+    bool desc = false,
   }) async {
-    calls.add('list $query $offset');
+    calls.add(sort == 'name' && !desc
+        ? 'list $query $offset'
+        : 'list $query $offset $sort${desc ? ' desc' : ''}');
     if (deny) throw const ApiException(403, 'Business is for owners.');
     final count = (total - offset).clamp(0, limit);
     return BusinessPage([
@@ -243,6 +250,16 @@ class FakeAccounts implements AccountsRepository {
           'open_leads': 1,
         }))
     ], total);
+  }
+
+  String? exportRefusal;
+
+  @override
+  Future<String> exportCsv(
+      {String? query, String sort = 'name', bool desc = false}) async {
+    calls.add('export $query $sort${desc ? ' desc' : ''}');
+    if (exportRefusal != null) throw ApiException(403, exportRefusal!);
+    return 'name,website\nGulf Mixers,https://gulfmixers.example\n';
   }
 
   @override
@@ -334,15 +351,21 @@ Widget catalogPage(CatalogController c,
 Widget accountsPage(AccountsController c,
         {bool write = true,
         bool manage = true,
-        Locale locale = const Locale('en')}) =>
+        Locale locale = const Locale('en'),
+        double textScale = 1,
+        ExportSaver? saver}) =>
     app(
       Scaffold(
         body: SingleChildScrollView(
-          child:
-              AccountsView(controller: c, canWrite: write, canManage: manage),
+          child: AccountsView(
+              controller: c,
+              canWrite: write,
+              canManage: manage,
+              saver: saver ?? FakeExportSaver()),
         ),
       ),
       locale: locale,
+      textScale: textScale,
     );
 
 Future<void> enter(WidgetTester tester, String key, String text) async {
@@ -727,6 +750,85 @@ void main() {
         await tester.tap(find.byKey(const Key('acct-row-bacct_1')));
         await tester.pumpAndSettle();
         expect(find.text('جهات الاتصال'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
+
+  group('account list order and CSV export', () {
+    testWidgets('sorting asks the server and keeps the order when paging',
+        (tester) async {
+      await phone(tester);
+      final repo = FakeAccounts();
+      final c = AccountsController(repo);
+      await tester.pumpWidget(accountsPage(c));
+      await c.load();
+      await tester.pumpAndSettle();
+      await tap(tester, 'acct-sort');
+      await tester.tap(find.text('Last updated').last);
+      await tester.pumpAndSettle();
+      expect(repo.calls.last, 'list null 0 updated');
+      await tap(tester, 'acct-sort-direction');
+      expect(repo.calls.last, 'list null 0 updated desc');
+      expect(find.byTooltip('Descending order. Tap for ascending'),
+          findsOneWidget);
+      await tap(tester, 'desk-more');
+      expect(repo.calls.last, 'list null 20 updated desc');
+    });
+
+    testWidgets('exports the list as shown through the save dialog',
+        (tester) async {
+      await phone(tester);
+      final repo = FakeAccounts();
+      final saver = FakeExportSaver();
+      final c = AccountsController(repo);
+      await tester.pumpWidget(accountsPage(c, saver: saver));
+      await c.load();
+      await c.search('gulf');
+      await c.order('industry', descending: true);
+      await tester.pumpAndSettle();
+      await tap(tester, 'acct-export');
+      expect(repo.calls.last, 'export gulf industry desc');
+      expect(saver.saved['anum-accounts.csv'], startsWith('name,website'));
+      expect(find.text('Saved anum-accounts.csv.'), findsOneWidget);
+    });
+
+    testWidgets('a cancelled, refused or failed export says so',
+        (tester) async {
+      await phone(tester);
+      final repo = FakeAccounts();
+      final saver = FakeExportSaver(accept: false);
+      final c = AccountsController(repo);
+      await tester.pumpWidget(accountsPage(c, saver: saver));
+      await c.load();
+      await tester.pumpAndSettle();
+      await tap(tester, 'acct-export');
+      expect(find.text('Nothing was saved.'), findsOneWidget);
+      saver
+        ..accept = true
+        ..fail = true;
+      await tap(tester, 'acct-export');
+      expect(find.textContaining('could not be saved on this phone'),
+          findsOneWidget);
+      repo.exportRefusal = 'Business is for owners and members.';
+      await tap(tester, 'acct-export');
+      expect(
+          find.text('The export failed: Business is for owners and members.'),
+          findsOneWidget);
+      expect(saver.saved, isEmpty);
+    });
+
+    for (final width in [320.0, 390.0, 768.0, 1024.0]) {
+      testWidgets('order and export fit at $width px, Arabic, 200% text',
+          (tester) async {
+        await phone(tester, width: width);
+        final c = AccountsController(FakeAccounts());
+        await tester.pumpWidget(
+            accountsPage(c, locale: const Locale('ar'), textScale: 2));
+        await c.load();
+        await tester.pumpAndSettle();
+        expect(find.text('الترتيب حسب'), findsOneWidget);
+        expect(find.text('تصدير CSV'), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     }

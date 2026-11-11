@@ -51,6 +51,13 @@ class KitStrings {
     'pickDate': 'Pick a date',
     'conflict':
         'Someone changed this while you were editing. It was reloaded: check it and save again.',
+    'export.csv': 'Export CSV',
+    'export.working': 'Exporting…',
+    'export.saved': 'Saved {name}.',
+    'export.cancelled': 'Nothing was saved.',
+    'export.failed': 'The export failed: {message}',
+    'export.saveFailed':
+        'The file could not be saved on this phone. Pick another folder and try again.',
   };
 
   static const _ar = <String, String>{
@@ -83,6 +90,13 @@ class KitStrings {
     'pickDate': 'اختر تاريخًا',
     'conflict':
         'غيّر شخص آخر هذا السجل أثناء تعديلك. أعيد تحميله: راجعه ثم احفظ مرة أخرى.',
+    'export.csv': 'تصدير CSV',
+    'export.working': 'جارٍ التصدير…',
+    'export.saved': 'حُفظ الملف {name}.',
+    'export.cancelled': 'لم يُحفظ شيء.',
+    'export.failed': 'تعذر التصدير: {message}',
+    'export.saveFailed':
+        'تعذر حفظ الملف على هذا الهاتف. اختر مجلدًا آخر ثم أعد المحاولة.',
   };
 
   static bool get catalogsMatch =>

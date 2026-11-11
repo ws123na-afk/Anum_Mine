@@ -71,4 +71,23 @@ void main() {
         client: MockClient((_) async => http.Response('<html></html>', 200)));
     await expectLater(transport.send(_get()), throwsFormatException);
   });
+
+  test('a CSV export is handed over as text, even one that reads as JSON',
+      () async {
+    final transport = HttpApiTransport(
+        client: MockClient((_) async => http.Response('"name"\n', 200,
+            headers: {'content-type': 'text/csv; charset=utf-8'})));
+    final response = await transport.send(_get());
+    expect(response.body, {'csv': '"name"\n'});
+  });
+
+  test('a refused CSV export keeps the API error', () async {
+    final transport = HttpApiTransport(
+        client: MockClient((_) async => http.Response(
+            '{"detail": "Owners only"}', 403,
+            headers: {'content-type': 'application/json'})));
+    final response = await transport.send(_get());
+    expect(response.statusCode, 403);
+    expect(response.body, {'detail': 'Owners only'});
+  });
 }

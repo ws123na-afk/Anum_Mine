@@ -6,6 +6,7 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import '../records_kit/records_export.dart';
 import 'accounts_data.dart';
 import 'business_controller.dart';
 import 'business_screen.dart' show stateTone;
@@ -20,10 +21,14 @@ class AccountsView extends StatefulWidget {
     required this.controller,
     required this.canWrite,
     required this.canManage,
+    this.saver = const SystemExportSaver(),
     super.key,
   });
   final AccountsController controller;
   final bool canWrite, canManage;
+
+  /// Where an exported CSV goes (the system save dialog); replaced in tests.
+  final ExportSaver saver;
 
   @override
   State<AccountsView> createState() => _AccountsViewState();
@@ -75,6 +80,8 @@ class _AccountsViewState extends State<AccountsView> {
             ),
             onSubmitted: c.search,
           ),
+          const SizedBox(height: AnumSpacing.sm),
+          _AccountsOrder(controller: c, saver: widget.saver),
           if (widget.canWrite)
             Align(
               alignment: AlignmentDirectional.centerStart,
@@ -755,6 +762,59 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
           decoration: InputDecoration(
             labelText: l.t('biz.acct.form.consentNote'),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The list's order (the server sorts, so every page follows it) and the
+/// CSV export of the list as shown. Wraps under itself on narrow screens.
+class _AccountsOrder extends StatelessWidget {
+  const _AccountsOrder({required this.controller, required this.saver});
+  final AccountsController controller;
+  final ExportSaver saver;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.anum;
+    final c = controller;
+    return Wrap(
+      spacing: AnumSpacing.sm,
+      runSpacing: AnumSpacing.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 180, maxWidth: 260),
+          child: KeyedSubtree(
+            key: ValueKey('acct-sort-${c.sort}'),
+            child: DropdownButtonFormField<String>(
+              key: const Key('acct-sort'),
+              initialValue: c.sort,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: l.t('biz.acct.sortBy')),
+              items: [
+                for (final by in AccountsController.sorts)
+                  DropdownMenuItem(
+                      value: by, child: Text(l.t('biz.acct.sort.$by'))),
+              ],
+              onChanged: (by) {
+                if (by != null && by != c.sort) c.order(by);
+              },
+            ),
+          ),
+        ),
+        IconButton(
+          key: const Key('acct-sort-direction'),
+          tooltip: l.t(c.desc ? 'biz.acct.descending' : 'biz.acct.ascending'),
+          onPressed: () => c.order(c.sort, descending: !c.desc),
+          icon: Icon(c.desc ? Icons.arrow_downward : Icons.arrow_upward),
+        ),
+        ExportCsvButton(
+          key: const Key('acct-export'),
+          load: c.exportCsv,
+          fileName: 'anum-accounts.csv',
+          saver: saver,
         ),
       ],
     );
