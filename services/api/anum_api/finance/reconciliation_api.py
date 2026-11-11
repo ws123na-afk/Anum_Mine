@@ -187,6 +187,7 @@ class QueueItem(BaseModel):
     reconciliation_id: str | None
     account_id: str
     account_name: str = ""
+    currency: str = ""
     period_start: date | None
     period_end: date | None
     exception: ExceptionView
@@ -512,7 +513,7 @@ def list_open_exceptions(context: TenantContext, *, account_id: str | None = Non
             facts = R.gather(finance, sms, links, context, account, rec, recon.items(context, rec.id), today, all_rows=rows, messages=messages)
             outcome = R.compute(rec, facts)
             with_session.add(account.id)
-            queue.extend(QueueItem(reconciliation_id=rec.id, account_id=account.id, account_name=account.name, period_start=rec.period_start, period_end=rec.period_end,
+            queue.extend(QueueItem(reconciliation_id=rec.id, account_id=account.id, account_name=account.name, currency=account.currency, period_start=rec.period_start, period_end=rec.period_end,
                                    exception=_issue(i)) for i in outcome.issues if i.severity != "info")
         this_month = date(today.year, today.month, 1)
         for account in accounts.values():
@@ -521,7 +522,7 @@ def list_open_exceptions(context: TenantContext, *, account_id: str | None = Non
             rows = R.account_rows(finance, context, account.id)
             coverage = R.coverage_for(R.account_imports(finance, context, account.id), rows)
             for month in R.missing_months(sorted({t.posted_on for t in rows}), coverage, before=this_month):
-                queue.append(QueueItem(reconciliation_id=None, account_id=account.id, account_name=account.name, period_start=None, period_end=None,
+                queue.append(QueueItem(reconciliation_id=None, account_id=account.id, account_name=account.name, currency=account.currency, period_start=None, period_end=None,
                                        exception=ExceptionView(id=f"missing_period:{month}", kind="missing_period", severity="warning", actions=["import"],
                                                                month=month)))
     if sort is not None:
@@ -588,14 +589,12 @@ def export_reconciliation_exceptions(
     descriptions are the statement's own words, no account numbers."""
     _read(context)
     page = list_open_exceptions(context, account_id=account_id, limit=EXPORT_ROWS, offset=0, sort=sort, desc=desc)
-    with open_recon_stores(context) as (finance, _sms, _links, _recon):
-        currencies = {a.id: a.currency for a in finance.list_accounts(context)}
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(QUEUE_CSV_HEAD)
     for item in page.items:
         e = item.exception
-        cells = [item.account_name, item.period_start, item.period_end, e.severity, e.kind, e.posted_on, e.month, e.amount, currencies.get(item.account_id, ""),
+        cells = [item.account_name, item.period_start, item.period_end, e.severity, e.kind, e.posted_on, e.month, e.amount, item.currency,
                  e.description, e.reason, " ".join(e.actions), item.reconciliation_id]
         writer.writerow([safe_cell(str(cell)) if cell is not None else "" for cell in cells])
     _audit(repository, context, "finance.reconciliation.exceptions_export", context.workspace_id, {"rows": len(page.items)})

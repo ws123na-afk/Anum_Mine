@@ -135,7 +135,7 @@ function QueueRow({ item, onPick, onOpen }: { item: FinanceReconQueueItem; onPic
     <td><StatusChip tone={SEVERITY_TONE[e.severity]}>{t(`frec.severity.${e.severity}` as MessageKey)}</StatusChip></td>
     <td><strong>{t(`frec.kind.${e.kind}` as MessageKey)}</strong>{e.description && <><br /><span className="muted" dir="auto">{e.description}</span></>}{e.month && <><br /><span className="muted">{monthLabel(e.month)}</span></>}</td>
     <td className="frecHideSm">{e.posted_on ? day(e.posted_on) : '-'}</td>
-    <td className="num">{e.amount === null ? '-' : <span className="frecAmount"><Money value={e.amount} currency={e.details.currency ? String(e.details.currency) : ''} signed /></span>}</td>
+    <td className="num">{e.amount === null ? '-' : <span className="frecAmount"><Money value={e.amount} currency={item.currency} signed /></span>}</td>
     <td><div className="fpmRowActions">
       {action === 'session' && <button type="button" className="secondary" onClick={() => onPick(item.reconciliation_id as string)}>{t('frec.queue.openSession')}</button>}
       {action === 'import' && <button type="button" className="secondary" onClick={() => onOpen('import')}><FileUp aria-hidden="true" />{t('frec.action.import')}</button>}

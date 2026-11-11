@@ -51,8 +51,8 @@ const health = (empty: boolean) => ({ today: '2026-11-09', accounts: empty ? [] 
 
 /** The open exceptions across accounts, as GET /reconciliations/exceptions lists them (the session's two plus a missing month). */
 function queue(m: Mock, sort: string | null, desc: boolean) {
-  const own = session(m).items.filter((i) => i.severity !== 'info').map((e) => ({ source: 'reconciliation', reconciliation_id: 'rec_1', account_id: 'fin_acct_current', account_name: 'Everyday account', period_start: '2026-10-01', period_end: '2026-10-31', exception: e }));
-  const missing = { source: 'reconciliation', reconciliation_id: null, account_id: 'fin_acct_card', account_name: 'Rewards card', period_start: null, period_end: null,
+  const own = session(m).items.filter((i) => i.severity !== 'info').map((e) => ({ source: 'reconciliation', reconciliation_id: 'rec_1', account_id: 'fin_acct_current', account_name: 'Everyday account', currency: 'AED', period_start: '2026-10-01', period_end: '2026-10-31', exception: e }));
+  const missing = { source: 'reconciliation', reconciliation_id: null, account_id: 'fin_acct_card', account_name: 'Rewards card', currency: 'AED', period_start: null, period_end: null,
     exception: { id: 'missing_period:2026-09', kind: 'missing_period', severity: 'warning', actions: ['import'], posted_on: null, amount: null, description: null, transaction_id: null, other_transaction_id: null, statement_ref: null, reason: null, month: '2026-09', age_days: null, details: {} } };
   const items = m.deleted ? [missing] : [...own, missing];
   if (sort === 'account') items.sort((a, b) => a.account_name.localeCompare(b.account_name));
