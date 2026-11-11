@@ -28,6 +28,7 @@ This is not legal, tax or investment advice. Real money can be lost.
 | Fund research, backtests and paper runs ([Fund research](finance-research.md)) | Built: figures with sources, an AI summary checked against the data, and a tested monthly rule turned into a paper-only buy plan |
 | Paper proof gate, live switch with typed code and cooling-off | Built |
 | In-app alerts for fills, rejects, limit hits, mismatches, session end and the kill switch | Built (in the IBKR tab; not yet push or email) |
+| The phone: status, paper period, gates, figures and orders; approve or reject an order with the payload hash; the kill switch ([On the phone](#on-the-phone)) | Built |
 
 ## Connector
 
@@ -153,6 +154,17 @@ How each earlier lock changed, in the narrowest way:
 ## Screens
 
 Finance, IBKR trading (English and Arabic; research and backtests are on Finance, Research: [Fund research](finance-research.md)): the PAPER or LIVE badge on every section, the kill switch, alerts, connect paper and live, account and positions, today's P&L with unrealised and realised apart, dividends and tax withheld from statements, reconciliation with the explain form, the order ticket (limit only, IBKR price labelled Delayed or real time), approvals showing the exact order and a countdown, orders with Check, Look up and send, and Cancel, limits with the daily loss explanation, allowed ETFs with Shariah labels, buy plans, the live switch with its gates and paper proof, and the audit trail. Every state is handled: loading, empty with a next action, error with a retry, permission denied, and paging.
+
+## On the phone
+
+The Flutter app has **IBKR trading** (`/finance/ibkr`, `apps/mobile/lib/features/ibkr/`, behind the app lock's Finance area; [Mobile app features](mobile-features.md#owner-desk)), reading `GET /overview` and `GET /orders` (paged):
+
+* **Read only**: the mode, market, kill switch state, both connections (masked account, IBKR session, when checked and last read, whether the records match), the paper period with a progress bar per check ("7 of 20 paper orders"), the live gates, IBKR's own figures and positions, and the orders with their state.
+* **The approval works from the phone exactly as on the web**, so it is built there: `POST /intents/{id}/approve` with the payload hash of the request the owner sees, after a confirm that shows the exact order, the account, the total, the time left and the hash (LIVE in red with "real money"). The API does every check as for the web (owner only, single use, five minutes, limits read again from IBKR before sending). The phone does not send a request whose time has run out. Reject is `POST /intents/{id}/reject`.
+* **Stop**: Stop everything (`POST /kill-switch`, with an optional reason) for anyone who manages their own finance, and Allow orders again (`POST /kill-switch/release`) only after typing RESUME.
+* **Web only**: connecting and disconnecting, reading IBKR and statements, limits, allowed ETFs, the order ticket and quotes, buy plans, the live switch and its code, explaining a mismatch, alerts, and Check, Look up and send and Cancel on an order.
+
+Tests: `apps/mobile/test/owner_desk/ibkr_test.dart`.
 
 ## API
 

@@ -46,6 +46,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Autonomy](#marketing-whatsapp-autonomy-learning-and-agents) | Done | Settings › Autonomy (Activity, levels, quiet hours, caps, blocked lists, Rules, Organization guardrails) |
 | [Learning](#marketing-whatsapp-autonomy-learning-and-agents) | Done (English only) | Settings › What ANUM learned |
 | [Agents](#marketing-whatsapp-autonomy-learning-and-agents) | Done (knowledge sources are picked on the web) | Agents, agent page, Skills loadout |
+| [Owner desk](#owner-desk) | Done for what a phone decides: the Executive desk with grants, Ready to sell, IBKR trading with order approval and the kill switch, the Action browser with step approval; HQ is web only | Menu › Executive desk, Action browser, IBKR trading, Ready to sell |
 
 ## Sign-in and accounts
 
@@ -410,6 +411,21 @@ Each screen works against the same API routes as the web, in English and Arabic 
 | Agents | List, page, editor, memory, Skills loadout (states, tools, fixes, add and remove) | Knowledge source picking, skill count on list cards |
 
 Details: [Marketing](marketing.md), [WhatsApp](whatsapp.md), [Autonomy](autonomy.md), [Learning](learning.md), [Agents](agents.md).
+
+## Owner desk
+
+Four owner screens that were web only, opened from Menu, More (`lib/features/owner_desk/owner_desk_routes.dart`, each a signed-in named route with a controller that lives as long as its page). Each works against the same API routes as the web, in English and Arabic (right to left), with loading, empty with a next action, an error that says what failed with Try again, and permission denied that says who can; checked at 320, 390, 768 and 1024 px at 200 percent text (`apps/mobile/test/owner_desk/`) and by the journey `integration_test/journeys/owner_desk.dart`.
+
+| Screen | On the phone | Web only, and why |
+| --- | --- | --- |
+| **Executive desk** `/executive` ([Executive PA](ANUM_MINE_EXECUTIVE_PA.md#mobile)) | The workspaces you may see in three groups (granted to you, not granted, could not be read), only the figures a grant shares (a scope not granted reads "Not shared", never 0), the current workspace's own summary, Switch to a workspace (the API confirms the membership, as Settings does), today's briefing in the app's language, and the grants of the current workspace for owners: request (person, what to share, an optional end date), approve the exact payload hash after a confirm that shows it, reject, narrow and revoke | Offices and agents and the headquarters assistant: they work inside the 3D office ([HQ](#hq-stays-on-the-web)) |
+| **Ready to sell** `/ready-to-sell` ([Ready to sell](selling-readiness.md#mobile)), in the menu for owners | The checklist from `GET /platform/readiness`, missing first, each item with its state, why it matters, the lines the web shows (provider, empty company fields, backups, legal facts, plans, model, issuer), what to do next and where on the web; the SPF and DMARC check of the mail domain. Others see "Only the platform owner can see this checklist" | Payment keys, company and legal details, publishing the legal pages and plans: long forms with secrets or a lawyer's review |
+| **IBKR trading** `/finance/ibkr` ([Live trading](finance-live-trading.md#on-the-phone)), behind the app lock's Finance area | Mode (PAPER or LIVE), market, kill switch, both connections (masked account, IBKR session, checked, last read, records match), the paper period with progress bars, the live gates, IBKR's own figures and positions, orders paged; an order waiting for approval shows the exact order, account, total, a countdown and the payload hash and is approved with that hash after a confirm (refused on the phone once expired; LIVE in red with "real money"), or rejected; Stop everything with a reason, and Allow orders again by typing RESUME | Connecting, limits, the order ticket and quotes, buy plans, allowed ETFs, the live switch and its code, explaining a mismatch, alerts, and Check, Look up and send, Cancel on an order |
+| **Action browser** `/action-browser` ([Action browser](action-browser.md#on-the-phone)) | The workspace's browser runs newest first (`GET /action-browser/runs`, Load more), a run's status, sites, how many saved items it may use, the step log (Arabic from the step's detail), the result; the steps it waits for with the site, address, action and amount on the page, approved with the payload hash after a confirm, or rejected; Stop for the owner or the task's creator; refreshes every 4 seconds while it runs | Saved logins and cards (no credential or card data is read or typed on the phone), the live picture, the owner's input for a "Needs you" step, and a step that needs the card security code (the phone says to approve it on the web; Reject works) |
+
+### HQ stays on the web
+
+The headquarters (the 3D office, `apps/web/src/HeadquartersCanvas.tsx`, [master plan](ANUM_MINE_VIRTUAL_HEADQUARTERS_MASTER_PLAN.md)) is not on the phone, on purpose: it is a raw WebGL scene in the browser whose frame time and memory budget are measured in desktop Chromium with the mouse orbiting the scene ([HQ performance budget](ANUM_MINE_HQ_PERFORMANCE_BUDGET.md)), Flutter has no WebGL to run it in (it would have to be rebuilt as a native 3D scene and kept in step with the web's), its navigation is built for a pointer and a keyboard, and everything it shows has a phone screen of its own (tasks, approvals, meetings, the executive desk and briefing). The Executive desk's Offices tab and the assistant that walks the headquarters stay with it for the same reason.
 
 ## Coming next
 
