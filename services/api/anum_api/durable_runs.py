@@ -15,16 +15,18 @@ import logging
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from opentelemetry import trace
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from .agent_tools import ToolCall, ToolResult, running_in
 from .model_budget import ModelBudgetExceededError
 from .repository import AnumRepository
 from .runtime import AgentRuntime
-from .schemas import AgentRun, Approval, ApprovalStatus, RunPhase, TaskStatus, TenantContext, utc_now
+from .schemas import AgentRun, Approval, ApprovalStatus, RunPhase, Task, TaskStatus, TenantContext, utc_now
 from .temporal_workflow import (
     ADVANCE_ACTIVITY,
     APPROVAL_SIGNAL,
@@ -208,6 +210,21 @@ class AgentRunActivities:
         return task, run
 
     async def advance(self, context: TenantContext, request: AgentRunInput) -> AgentRunState:
+        """One step, in short units of work (each in a worker thread, docs/realtime.md#event-loop).
+
+        No transaction and no row lock is open while the model plans or a tool works
+        (the ``inline_runs.py`` rule): a unit reads and decides, the slow call runs with
+        none open, and a new unit re-checks that the run is still where the first one left
+        it before writing the outcome. A cancel or another worker meanwhile wins.
+        """
+        step = await asyncio.to_thread(self._begin, context, request)
+        if isinstance(step, AgentRunState):
+            return step
+        if isinstance(step, _Planning):
+            return await self._plan(context, request, step)
+        return await self._execute(context, request, step)
+
+    def _begin(self, context: TenantContext, request: AgentRunInput) -> AgentRunState | _Planning | _Executing:
         with self.unit_of_work(context) as repository:
             task, run = self._load(repository, context, request)
             if task.status == TaskStatus.CANCELLED or run.checkpoint.phase == RunPhase.CANCELLED:
@@ -223,16 +240,13 @@ class AgentRunActivities:
 
             runtime = self.runtime_factory(context, repository)
             phase = run.checkpoint.phase
+            if phase == RunPhase.PLANNING:
+                # Nothing is written: the model plans with no transaction open, then
+                # ``_apply_plan`` re-checks this checkpoint version under the lock.
+                return _Planning(task.model_copy(deep=True), run.model_copy(deep=True), run.checkpoint.version)
             approval_id: str | None = None
             call = None
-            if phase == RunPhase.PLANNING:
-                try:
-                    await runtime.plan_run(task, run, context)
-                except ModelBudgetExceededError as exc:
-                    # Retrying cannot help until the budget resets or is raised: fail the
-                    # run with the budget message instead of retrying the activity.
-                    runtime._fail(task, run, context, exc.message)
-            elif phase == RunPhase.TOOL_READY:
+            if phase == RunPhase.TOOL_READY:
                 call = runtime.begin_execution(task, run, context)
             elif phase == RunPhase.WAITING_APPROVAL:
                 approval = (
@@ -248,7 +262,8 @@ class AgentRunActivities:
                 approval_id = approval.id
                 call = runtime.begin_execution(task, run, context, approval=approval)
             elif phase == RunPhase.EXECUTING:
-                await runtime.recover_interrupted_execution(task, run, context)
+                # The previous attempt stopped mid-tool: decide here, repeat (if allowed) below.
+                call = runtime.prepare_recovery(task, run, context)
             repository.save_task(task)
             repository.save_run(run)
             if call is None:
@@ -258,17 +273,105 @@ class AgentRunActivities:
                     else None
                 )
                 return state_of(run, pending)
+            # Committed as ``executing`` before the tool runs, so a crash mid-tool is visible.
+            return _Executing(task.model_copy(deep=True), run.model_copy(deep=True), call, approval_id)
 
-        # Second transaction: the `executing` checkpoint above is committed first.
+    async def _plan(self, context: TenantContext, request: AgentRunInput, step: _Planning) -> AgentRunState:
+        planner = self.runtime_factory(context, _NoUnitOpen())  # type: ignore[arg-type]
+        planner.start_planning(step.task, step.run)
+        try:
+            planned, learned = await planner.plan_with_model(step.task, step.run, context, offload=True)
+        except ModelBudgetExceededError as exc:
+            # Retrying cannot help until the budget resets or is raised: fail the run with
+            # the budget message instead of retrying the activity.
+            return await asyncio.to_thread(self._fail_planning, context, request, step, exc.message)
+        return await asyncio.to_thread(self._apply_plan, context, request, step, planned, learned)
+
+    def _claimed_planning(self, repository: AnumRepository, context: TenantContext, request: AgentRunInput,
+                          step: _Planning) -> tuple[Task, AgentRun] | AgentRunState:
+        """The locked task and run if the run is still the ``planning`` checkpoint this step read."""
+        task, run = self._load(repository, context, request)
+        if (
+            task.status == TaskStatus.CANCELLED
+            or run.checkpoint.phase != RunPhase.PLANNING
+            or run.checkpoint.version != step.version
+        ):
+            return state_of(run)  # cancelled or planned by another attempt meanwhile
+        return task, run
+
+    def _apply_plan(self, context: TenantContext, request: AgentRunInput, step: _Planning,
+                    planned: Any, learned: str | None) -> AgentRunState:
         with self.unit_of_work(context) as repository:
-            task, run = self._load(repository, context, request)
-            if run.checkpoint.phase != RunPhase.EXECUTING:
-                return state_of(run)  # cancelled or settled in between
+            claimed = self._claimed_planning(repository, context, request, step)
+            if isinstance(claimed, AgentRunState):
+                return claimed
+            task, run = claimed
             runtime = self.runtime_factory(context, repository)
-            await runtime.finish_execution(task, run, context, call, approval_id)
+            runtime.start_planning(task, run)
+            approval = runtime.apply_plan(task, run, context, planned, learned)
+            repository.save_task(task)
+            repository.save_run(run)
+            return state_of(run, approval if run.checkpoint.phase == RunPhase.WAITING_APPROVAL else None)
+
+    def _fail_planning(self, context: TenantContext, request: AgentRunInput, step: _Planning, reason: str) -> AgentRunState:
+        with self.unit_of_work(context) as repository:
+            claimed = self._claimed_planning(repository, context, request, step)
+            if isinstance(claimed, AgentRunState):
+                return claimed
+            task, run = claimed
+            runtime = self.runtime_factory(context, repository)
+            runtime.start_planning(task, run)
+            runtime._fail(task, run, context, reason)
             repository.save_task(task)
             repository.save_run(run)
             return state_of(run)
+
+    async def _execute(self, context: TenantContext, request: AgentRunInput, step: _Executing) -> AgentRunState:
+        tools = self.runtime_factory(context, _NoUnitOpen()).tools  # type: ignore[arg-type]
+        # No transaction is open here. A tool that raises leaves the committed ``executing``
+        # checkpoint, which the next attempt recovers (recover_interrupted_execution).
+        with running_in(step.task.id, step.run.id):
+            result = await tools.execute(step.call, context)
+        return await asyncio.to_thread(self._settle, context, request, step, result)
+
+    def _settle(self, context: TenantContext, request: AgentRunInput, step: _Executing, result: ToolResult) -> AgentRunState:
+        with self.unit_of_work(context) as repository:
+            runtime = self.runtime_factory(context, repository)
+            if result.audit_metadata:
+                # Recorded even when the run moved meanwhile: the call did happen.
+                runtime._audit(
+                    context, "tool.call", step.call.name, result.status, step.task.id,
+                    {**result.audit_metadata, "tool": step.call.name, "task_id": step.task.id, "run_id": step.run.id},
+                )
+            task, run = self._load(repository, context, request)
+            if run.checkpoint.phase != RunPhase.EXECUTING or run.checkpoint.version != step.run.checkpoint.version:
+                return state_of(run)  # cancelled or settled in between; the audit record is kept
+            runtime._settle(task, run, context, result, step.approval_id)
+            repository.save_task(task)
+            repository.save_run(run)
+            return state_of(run)
+
+
+class _NoUnitOpen:
+    """The runtime's repository while no unit of work is open: any use is a bug."""
+
+    def __getattr__(self, name: str) -> Any:
+        raise RuntimeError(f"repository.{name} used while no unit of work is open")
+
+
+@dataclass(frozen=True)
+class _Planning:
+    task: Task
+    run: AgentRun
+    version: int
+
+
+@dataclass(frozen=True)
+class _Executing:
+    task: Task
+    run: AgentRun
+    call: ToolCall
+    approval_id: str | None
 
 
 class RunDispatcher:
