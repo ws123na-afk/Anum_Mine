@@ -90,6 +90,11 @@ class FilesState {
 
   void install(FakeAnumApi api) {
     api.get('/api/v1/files', (_) => FakeResponse.json(files));
+    // A workspace with no folders or tags yet (docs/files.md#folders).
+    api.get('/api/v1/files/folders',
+        (_) => FakeResponse.json({'items': <Object>[]}));
+    api.get(
+        '/api/v1/files/tags', (_) => FakeResponse.json({'items': <Object>[]}));
     api.get(
         '/api/v1/files/usage',
         (_) => FakeResponse.json({
