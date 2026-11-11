@@ -9,7 +9,7 @@ export type ContactChannel = 'phone' | 'email' | 'whatsapp';
 export type DncFilter = '' | 'any' | 'phone' | 'email' | 'whatsapp' | 'none';
 export type SortKey = 'name' | 'updated' | 'created';
 
-export const CONTACT_TABS = ['people', 'duplicates'] as const;
+export const CONTACT_TABS = ['people', 'duplicates', 'import'] as const;
 export type ContactTab = (typeof CONTACT_TABS)[number];
 export const SOURCES: readonly PersonSource[] = ['manual', 'calls', 'business', 'whatsapp', 'merge'];
 export const CHANNELS: readonly Channel[] = ['phone', 'email', 'whatsapp', 'all'];
@@ -46,16 +46,16 @@ export const filtered = (f: PeopleFilters): boolean => Boolean(f.q.trim() || f.s
 
 // ---------------------------------------------------------------- hashes
 
-/** `#contacts`, `#contacts-duplicates`, `#contacts?person=<id>`. */
+/** `#contacts`, `#contacts-duplicates`, `#contacts-import`, `#contacts?person=<id>`. */
 export function parseContactsHash(hash: string): { tab: ContactTab; person: string | null } {
   const [id, search = ''] = hash.replace(/^#/, '').split('?');
-  const tab = id === 'contacts-duplicates' ? 'duplicates' : 'people';
+  const tab = id === 'contacts-duplicates' ? 'duplicates' : id === 'contacts-import' ? 'import' : 'people';
   const person = new URLSearchParams(search).get('person');
   return { tab, person: person && person.trim() ? person : null };
 }
 export const tabFromHash = (hash: string): ContactTab => parseContactsHash(hash).tab;
 export function contactsHash(tab: ContactTab, person: string | null = null): string {
-  const base = tab === 'duplicates' ? '#contacts-duplicates' : '#contacts';
+  const base = tab === 'people' ? '#contacts' : `#contacts-${tab}`;
   return person ? `${base}?person=${encodeURIComponent(person)}` : base;
 }
 
@@ -128,4 +128,80 @@ export function blockedChannels(marks: DoNotContactView[]): ContactChannel[] {
 export function exportName(disposition: string | null): string {
   const name = disposition?.match(/filename="?([^";]+)"?/i)?.[1]?.trim();
   return name && /^[\w.@-]+$/.test(name) ? name : 'contacts.csv';
+}
+
+// ---------------------------------------------------------------- import from a CSV file (docs/contacts.md#import-from-a-csv-file)
+
+export type ImportAction = 'create' | 'update' | 'skip';
+export type ImportStatus = 'new' | 'match' | 'possible_duplicate' | 'duplicate_in_file' | 'invalid';
+export const IMPORT_STATUSES: readonly ImportStatus[] = ['new', 'match', 'possible_duplicate', 'duplicate_in_file', 'invalid'];
+export const IMPORT_PAGE = 50;
+/** The API reads at most this much text and this many rows (`contacts/importer.py`). */
+export const IMPORT_MAX_CHARS = 2_000_000;
+export const IMPORT_MAX_ROWS = 2000;
+
+export interface ImportMapping { name: string[]; organisation: string | null; notes: string | null; phones: string[]; emails: string[]; do_not_contact: string | null }
+export interface ImportMatch { id: string; name: string; shared: string[]; do_not_contact: Channel[] }
+export type ImportIssueCode = 'control' | 'name_long' | 'organisation_long' | 'notes_long' | 'not_phone' | 'not_email' | 'too_many' | 'bad_dnc' | 'empty';
+export interface ImportIssue { code: ImportIssueCode; value: string }
+export interface ImportRow {
+  row: number; name: string; organisation: string; phones: string[]; emails: string[]; do_not_contact: Channel[];
+  status: ImportStatus; action: ImportAction; actions: ImportAction[]; target_id: string | null; matches: ImportMatch[];
+  duplicate_of: number | null; problems: string[]; issues?: ImportIssue[];
+}
+export interface ImportCounts { rows: number; new: number; match: number; possible_duplicate: number; duplicate_in_file: number; invalid: number }
+export interface ImportPreview { columns: string[]; mapping: ImportMapping; suggested: boolean; rows: ImportRow[]; counts: ImportCounts; fingerprint: string; delimiter: string }
+export interface ImportResult { created: number; updated: number; skipped: number; marks_added: number; proposals_created: number; rows: number }
+/** The owner's choice for a row, when it differs from the suggestion. */
+export interface ImportChoice { action: ImportAction; target_id: string | null }
+export interface ImportDecision { row: number; action: ImportAction; target_id: string | null }
+
+export const emptyMapping = (): ImportMapping => ({ name: [], organisation: null, notes: null, phones: [], emails: [], do_not_contact: null });
+
+/** The text of a chosen file, or the reason it cannot be imported. */
+export function importFileProblem(file: { name: string; size: number; type: string }): string | null {
+  // The extension decides; a name without one falls back to the type the browser gives.
+  const extension = /\.([^./\\]+)$/.exec(file.name)?.[1]?.toLowerCase();
+  if (extension ? !['csv', 'txt'].includes(extension) : !/csv|text\/plain/i.test(file.type)) return t('ct.import.err.type');
+  if (file.size === 0) return t('ct.import.err.empty');
+  if (file.size > IMPORT_MAX_CHARS * 2) return t('ct.import.err.size');
+  return null;
+}
+
+/** Every row's action as the owner left it (the suggestion unless they chose another), sent with the import. */
+export function importDecisions(rows: ImportRow[], choices: Record<number, ImportChoice>): ImportDecision[] {
+  return rows.map((row) => {
+    const choice = choices[row.row];
+    const action = choice && row.actions.includes(choice.action) ? choice.action : row.action;
+    const target = action === 'update' ? (choice?.target_id ?? row.target_id ?? row.matches[0]?.id ?? null) : null;
+    return { row: row.row, action, target_id: target };
+  });
+}
+
+/** What the import would do, counted: people added, updated, skipped. */
+export function importTotals(decisions: ImportDecision[]): { create: number; update: number; skip: number } {
+  const totals = { create: 0, update: 0, skip: 0 };
+  for (const d of decisions) totals[d.action] += 1;
+  return totals;
+}
+
+/** Rows shown under a status filter and a search over name, numbers and addresses. */
+export function importRowsShown(rows: ImportRow[], status: ImportStatus | '', query: string): ImportRow[] {
+  const q = query.trim().toLowerCase();
+  return rows.filter((row) => (!status || row.status === status)
+    && (!q || row.name.toLowerCase().includes(q) || row.phones.some((v) => v.includes(q)) || row.emails.some((v) => v.includes(q)) || String(row.row) === q));
+}
+
+export const importStatusLabel = (status: ImportStatus): string => label(`ct.import.status.${status}`);
+export const importActionLabel = (action: ImportAction): string => label(`ct.import.action.${action}`);
+export const importFieldLabel = (field: string): string => label(`ct.import.field.${field}`);
+
+/** Why a row cannot be imported, in the reader's language (the API's English when a code is unknown). */
+export function importIssues(row: ImportRow): string[] {
+  if (!row.issues?.length) return row.problems;
+  return row.issues.map((issue, index) => {
+    const key = `ct.import.issue.${issue.code}` as MessageKey;
+    const text = t(key, { value: issue.value });
+    return text === key ? (row.problems[index] ?? issue.code) : text;
+  });
 }

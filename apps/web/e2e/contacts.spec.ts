@@ -147,6 +147,90 @@ test('empty, paging, permission denied and error states', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
 });
 
+const SHEET = 'Full name,Company,Mobile,Email,Do not contact\nSara Ahmed,Tyre Co,+971501234567,,\nRana Saleh,,0507770000,,email\nR. Saleh,,+971507770000,,\nBad Number,,12,,\n';
+
+async function chooseSheet(page: import('@playwright/test').Page, name = 'people.csv', text = SHEET) {
+  await page.getByLabel('CSV file', { exact: true }).setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(text) });
+}
+
+test('owners import a CSV file: preview, columns, a decision per row, all or nothing', async ({ page }) => {
+  const mock = await open(page, {}, 'contacts-import');
+  await expect(page.getByRole('tab', { name: 'Import from CSV' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Import people from a CSV file' })).toBeVisible();
+  // Not a CSV file: said at once, nothing sent.
+  await chooseSheet(page, 'people.xlsx');
+  await expect(page.getByRole('alert').filter({ hasText: 'Choose a CSV file (.csv).' })).toBeVisible();
+  await chooseSheet(page);
+  const section = page.getByRole('region', { name: 'Import people from a CSV file' });
+  await expect(section.getByText('File: people.csv')).toBeVisible();
+  await expect(section.getByRole('heading', { name: 'What the import would do: 4 rows' })).toBeVisible();
+  const preview = mock.calls.find((c) => c.path === '/api/v1/contacts/import/preview')!;
+  expect(preview.body).toEqual({ csv: SHEET, file_name: 'people.csv' });
+  await expect(section.getByRole('combobox', { name: /^Name/ })).toHaveValue('Full name');
+  await expect(section.getByText('Holds +971501234567: Sara Ahmed')).toBeVisible();
+  await expect(section.getByText(/Sara Ahmed is marked do not contact \(Phone\); the mark stays\./)).toBeVisible();
+  await expect(section.getByText('Repeats row 3.')).toBeVisible();
+  await expect(section.getByText('"12" is not a phone number with its country code (+971...).')).toBeVisible();
+  await expect(section.getByLabel('What to do with row 5')).toBeDisabled();
+  await expect(section.getByText('Add 1, update 1, skip 2.')).toBeVisible();
+  // The owner adds the repeated row too, and filters the list.
+  await section.getByLabel('What to do with row 4').selectOption('create');
+  await expect(section.getByText('Add 2, update 1, skip 1.')).toBeVisible();
+  await section.getByLabel('Show').selectOption('invalid');
+  await expect(section.locator('.ctImportRow')).toHaveCount(1);
+  await section.getByLabel('Show').selectOption('');
+  // Changing a column checks the file again with that mapping.
+  await section.getByLabel('Organisation').selectOption('');
+  await section.getByRole('button', { name: 'Check again' }).click();
+  await expect.poll(() => mock.calls.filter((c) => c.path === '/api/v1/contacts/import/preview').length).toBe(2);
+  expect((mock.calls.filter((c) => c.path === '/api/v1/contacts/import/preview').at(-1)!.body as { mapping: { organisation: unknown } }).mapping.organisation).toBeNull();
+  // A new check resets the choices to the suggestions.
+  await expect(section.getByText('Add 1, update 1, skip 2.')).toBeVisible();
+  await section.getByLabel('What to do with row 4').selectOption('create');
+  await section.getByRole('button', { name: 'Import', exact: true }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Import these people?' });
+  await expect(confirm.getByText(/adds 2 new people and updates 1 existing people, and skips 1 rows/)).toBeVisible();
+  await confirm.getByRole('button', { name: 'Import' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Imported: 2 added, 1 updated, 1 skipped, 1 do-not-contact marks added, 1 possible duplicates to decide.' })).toBeVisible();
+  const applied = mock.calls.find((c) => c.path === '/api/v1/contacts/import/apply')!.body as { decisions: unknown[]; fingerprint: string };
+  expect(applied.fingerprint).toBe('f'.repeat(64));
+  expect(applied.decisions).toEqual([
+    { row: 2, action: 'update', target_id: 'ct_sara' }, { row: 3, action: 'create', target_id: null },
+    { row: 4, action: 'create', target_id: null }, { row: 5, action: 'skip', target_id: null },
+  ]);
+  await page.getByRole('button', { name: 'Decide possible duplicates' }).click();
+  await expect(page).toHaveURL(/#contacts-duplicates$/);
+});
+
+test('members are told who imports, and a refused file says why', async ({ page }) => {
+  await open(page, { role: 'member' }, 'contacts-import');
+  await expect(page.getByText(/Only workspace owners import into the directory/)).toBeVisible();
+  await expect(page.getByLabel('CSV file', { exact: true })).toHaveCount(0);
+  await page.goto('/#contacts');
+  await expect(page.getByRole('tab', { name: 'Import from CSV' })).toHaveCount(0);
+
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await page.goto('about:blank');
+  await open(page, {}, 'contacts-import');
+  await chooseSheet(page, 'empty.csv', 'Full name,Mobile\n');
+  await expect(page.getByRole('alert').filter({ hasText: 'The file has a header row but no people under it.' })).toBeVisible();
+});
+
+for (const locale of ['en', 'ar'] as const) {
+  test(`the import preview has no serious axe violations (${locale})`, async ({ page }) => {
+    await mockWorkspaceApi(page);
+    await mockContacts(page);
+    await useSavedLocale(page, locale);
+    await page.goto('/#contacts-import');
+    await page.locator('.ctImport input[type="file"]').setInputFiles({ name: 'people.csv', mimeType: 'text/csv', buffer: Buffer.from(SHEET) });
+    await expect(page.locator('.ctImportRow').first()).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
+    const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
+    const serious = results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+    expect(serious.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
+  });
+}
+
 for (const locale of ['en', 'ar'] as const) {
   test(`the list, a person and the duplicates have no serious axe violations (${locale})`, async ({ page }) => {
     await mockWorkspaceApi(page);

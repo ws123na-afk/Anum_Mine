@@ -226,3 +226,27 @@ def test_a_second_merge_of_the_same_pair_finds_one_gone(client: TestClient, app_
     assert reverse.status_code == 404
     assert _count(app_session, "select count(*) from contacts") == 1
     assert _count(app_session, "select count(*) from contact_identifiers") == 1
+
+
+def test_a_csv_import_is_written_in_one_transaction_under_rls_or_not_at_all(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    """docs/contacts.md#import-from-a-csv-file: owners only, every row or none, marks kept."""
+    sara = ok(client.post(URL, headers=A, json={"name": "Sara Ahmed", "phones": ["+971501234567"]}), 201)["person"]
+    ok(client.put(f"{URL}/{sara['id']}/do-not-contact", headers=A, json={"channel": "phone", "reason": "Asked us to stop calling"}), 201)
+    sheet = "Name,Phone,Email,DNC\nSara Ahmed,+971501234567,sara@tyre.example,\nRana Saleh,0507770000,,email\nBad,12,,\n"
+    assert client.post(f"{URL}/import/preview", headers=A_MEMBER, json={"csv": sheet}).status_code == 403
+    plan = ok(client.post(f"{URL}/import/preview", headers=A, json={"csv": sheet}))
+    decisions = [{"row": r["row"], "action": r["action"], "target_id": r["target_id"]} for r in plan["rows"]]
+    body = {"csv": sheet, "mapping": plan["mapping"], "fingerprint": plan["fingerprint"]}
+    # Asking to import the invalid row refuses everything: no row is written.
+    refused = client.post(f"{URL}/import/apply", headers=A, json={**body, "decisions": [*decisions[:2], {"row": 4, "action": "create"}]})
+    assert refused.status_code == 409
+    assert _count(app_session, "select count(*) from contacts") == 1
+    result = ok(client.post(f"{URL}/import/apply", headers=A, json={**body, "decisions": decisions}))
+    assert (result["created"], result["updated"], result["skipped"], result["marks_added"]) == (1, 1, 1, 1)
+    assert _count(app_session, "select count(*) from contacts") == 2
+    assert _count(app_session, "select count(*) from contact_identifiers where value = 'sara@tyre.example'") == 1
+    assert _count(app_session, "select count(*) from contact_do_not_contact where reason = 'Asked us to stop calling'") == 1
+    assert _count(app_session, "select count(*) from contact_do_not_contact where reason = 'Marked do not contact in the imported file'") == 1
+    # Another tenant sees none of it.
+    assert _count(app_session, "select count(*) from contacts", TENANT_B, WORKSPACE_B) == 0
+    assert ok(client.get(URL, headers=B))["total"] == 0

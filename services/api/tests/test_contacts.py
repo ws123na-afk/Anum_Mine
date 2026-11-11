@@ -439,8 +439,135 @@ def test_every_state_changing_route_is_audited_without_names_or_numbers() -> Non
     proposal = ok(client.get(f"{URL}/proposals", headers=MEMBER))["items"][0]
     probe.call("POST", f"{URL}/proposals/{proposal['id']}/dismiss", MEMBER)
     probe.call("POST", f"{URL}/{by_name['Sara Ahmed']['id']}/merge", MEMBER, json={"other_id": by_name["S. Ahmad"]["id"]})
+    sheet = "Name,Phone\nRana Saleh,+971507770000\n"
+    plan = ok(client.post(f"{URL}/import/preview", headers=OWNER, json={"csv": sheet}))
+    probe.call("POST", f"{URL}/import/apply", OWNER, json={"csv": sheet, "mapping": plan["mapping"], "fingerprint": plan["fingerprint"]},
+               sent=["Rana Saleh", "+971507770000"])
     probe.call("DELETE", f"{URL}/{created['id']}", OWNER)
     probe.assert_covered()
     text = audit_text(r for r in memory_repository.audit_records if r.action.startswith("contacts."))
-    for secret in ("Sara", "Huda", "971501234567", "971509990000", "tyre.example", "huda@example.com"):
+    for secret in ("Sara", "Huda", "Rana", "971501234567", "971509990000", "971507770000", "tyre.example", "huda@example.com"):
         assert secret not in text, secret
+
+
+# -- import from a CSV file ------------------------------------------------------------------------
+
+
+SHEET = (
+    "\ufeffFull name,Company,Mobile,Email,Do not contact,Notes\n"
+    "Sara Ahmed,Tyre Co,+971 50 123 4567,sara@tyre.example,,Met at the fair\n"
+    "Omar Khalid,,0501112222;+971 4 555 0000,omar@fleet.example,email,\n"
+    "S. Ahmad,,,sara@tyre.example,,\n"
+    "Omar K.,,+971501112222,,,\n"
+    "Bad Number,,12,,,\n"
+    ",,,,,\n"
+    "Huda Ali,Fleet LLC,,huda@example.com,yes,\n"
+)
+
+
+def preview_sheet(text: str = SHEET, hdrs: dict[str, str] = OWNER, **extra: Any) -> dict[str, Any]:
+    return ok(client.post(f"{URL}/import/preview", headers=hdrs, json={"csv": text, "file_name": "people.csv", **extra}))
+
+
+def apply_sheet(plan: dict[str, Any], text: str = SHEET, decisions: list[dict[str, Any]] | None = None, hdrs: dict[str, str] = OWNER) -> Any:
+    return client.post(f"{URL}/import/apply", headers=hdrs, json={
+        "csv": text, "file_name": "people.csv", "mapping": plan["mapping"], "fingerprint": plan["fingerprint"], "decisions": decisions or []})
+
+
+def test_import_preview_suggests_columns_and_says_what_each_row_would_do() -> None:
+    existing = ok(client.post(URL, headers=MEMBER, json={"name": "Sara Ahmed", "phones": ["+971501234567"]}), 201)["person"]
+    ok(client.put(f"{URL}/{existing['id']}/do-not-contact", headers=MEMBER, json={"channel": "phone", "reason": "Asked us to stop calling"}), 201)
+    plan = preview_sheet()
+    assert plan["columns"] == ["Full name", "Company", "Mobile", "Email", "Do not contact", "Notes"] and plan["suggested"] is True
+    assert plan["mapping"] == {"name": ["Full name"], "organisation": "Company", "notes": "Notes", "phones": ["Mobile"], "emails": ["Email"], "do_not_contact": "Do not contact"}
+    rows = {r["row"]: r for r in plan["rows"]}
+    # The blank line is not a row; the header is row 1.
+    assert sorted(rows) == [2, 3, 4, 5, 6, 8]
+    assert rows[2]["status"] == "match" and rows[2]["action"] == "update" and rows[2]["target_id"] == existing["id"]
+    assert rows[2]["matches"][0]["do_not_contact"] == ["phone"] and rows[2]["matches"][0]["shared"] == ["+971501234567"]
+    assert rows[3]["status"] == "new" and rows[3]["phones"] == ["+971501112222", "+97145550000"] and rows[3]["do_not_contact"] == ["email"]
+    # The same address under another name: added with a merge proposal unless the owner skips it.
+    assert rows[4]["status"] == "duplicate_in_file" and rows[4]["duplicate_of"] == 2 and rows[4]["action"] == "skip"
+    assert rows[5]["status"] == "duplicate_in_file" and rows[5]["duplicate_of"] == 3
+    assert rows[6]["status"] == "invalid" and rows[6]["actions"] == ["skip"] and "'12' is not a phone number" in rows[6]["problems"][0]
+    assert rows[8]["do_not_contact"] == ["all"]
+    assert plan["counts"] == {"rows": 6, "new": 2, "match": 1, "possible_duplicate": 0, "duplicate_in_file": 2, "invalid": 1}
+    # A row whose number belongs to someone with another name is a possible duplicate.
+    other = preview_sheet("Name,Phone\nSally Ahmed,+971501234567\n")
+    assert other["rows"][0]["status"] == "possible_duplicate" and other["rows"][0]["action"] == "create"
+    # Nothing was written.
+    assert people(OWNER)["total"] == 1
+
+
+def test_import_apply_writes_everything_keeps_marks_and_audits_counts_only() -> None:
+    existing = ok(client.post(URL, headers=MEMBER, json={"name": "Sara Ahmed", "phones": ["+971501234567"]}), 201)["person"]
+    ok(client.put(f"{URL}/{existing['id']}/do-not-contact", headers=MEMBER, json={"channel": "phone", "reason": "Asked us to stop calling"}), 201)
+    plan = preview_sheet()
+    result = ok(apply_sheet(plan, decisions=[{"row": 5, "action": "create"}]))
+    assert result == {"created": 3, "updated": 1, "skipped": 2, "marks_added": 2, "proposals_created": 1, "rows": 6}
+    sara = ok(client.get(f"{URL}/{existing['id']}", headers=OWNER))["person"]
+    # Updated: the address and the organisation are added, the notes appended, the mark and its reason kept.
+    assert [e["value"] for e in sara["emails"]] == ["sara@tyre.example"] and sara["organisation"] == "Tyre Co" and "Met at the fair" in sara["notes"]
+    assert [(d["channel"], d["reason"]) for d in sara["do_not_contact"]] == [("phone", "Asked us to stop calling")]
+    by_name = {p["name"]: p for p in people(OWNER)["items"]}
+    assert [d["channel"] for d in by_name["Huda Ali"]["do_not_contact"]] == ["all"]
+    assert by_name["Huda Ali"]["do_not_contact"][0]["reason"] == "Marked do not contact in the imported file"
+    assert [d["channel"] for d in by_name["Omar Khalid"]["do_not_contact"]] == ["email"]
+    # Row 5 was added on purpose: it shares Omar's number, so a merge proposal is open for the pair.
+    assert by_name["Omar K."]["open_proposals"] == 1
+    assert service.do_not_contact_block(CONTEXT, Channel.EMAIL, "huda@example.com") is not None
+    record = audits("contacts.imported")[-1]
+    assert record.actor == "owner_ct" and record.metadata["created"] == 3 and "Huda" not in str(record.metadata)
+
+
+def test_import_is_all_or_nothing_and_refuses_a_changed_file_or_directory() -> None:
+    plan = preview_sheet()
+    # An invalid row cannot be imported: nothing is written.
+    refused = apply_sheet(plan, decisions=[{"row": 6, "action": "create"}])
+    assert refused.status_code == 409 and refused.json()["error"]["message"].startswith("Nothing was imported. Row 6:")
+    assert people(OWNER)["total"] == 0
+    # Another file than the one previewed.
+    changed = apply_sheet(plan, text=SHEET + "Rana Saleh,,+971507770000,,,\n")
+    assert changed.status_code == 409 and "changed since the preview" in changed.json()["error"]["message"]
+    # The person chosen to update was deleted after the preview.
+    existing = ok(client.post(URL, headers=MEMBER, json={"name": "Sara Ahmed", "phones": ["+971501234567"]}), 201)["person"]
+    plan = preview_sheet()
+    ok(client.delete(f"{URL}/{existing['id']}", headers=OWNER), 204)
+    # The web sends the decision it showed for every row, so the update of a deleted person is refused.
+    gone = apply_sheet(plan, decisions=[{"row": r["row"], "action": r["action"], "target_id": r["target_id"]} for r in plan["rows"]])
+    assert gone.status_code == 409 and "Row 2" in gone.json()["error"]["message"]
+    assert people(OWNER)["total"] == 0
+    # A row number that is not in the file.
+    assert apply_sheet(preview_sheet(), decisions=[{"row": 99, "action": "skip"}]).status_code == 422
+
+
+def test_import_is_for_owners_and_checks_the_file() -> None:
+    denied = client.post(f"{URL}/import/preview", headers=MEMBER, json={"csv": SHEET})
+    assert denied.status_code == 403 and "import or export" in denied.json()["error"]["message"]
+    assert client.post(f"{URL}/import/preview", headers=VIEWER, json={"csv": SHEET}).status_code == 403
+    plan = preview_sheet()
+    assert apply_sheet(plan, hdrs=MEMBER).status_code == 403
+    for text, says in (
+        ("Name,Phone\n", "no people under it"),
+        ("Name,Name\nA,B\n", "same name"),
+        ("bad\x00file", "not a text CSV"),
+    ):
+        response = client.post(f"{URL}/import/preview", headers=OWNER, json={"csv": text})
+        assert response.status_code == 422 and says in response.json()["error"]["message"], text
+    too_many = "Name\n" + "".join(f"Person {n}\n" for n in range(2001))
+    assert client.post(f"{URL}/import/preview", headers=OWNER, json={"csv": too_many}).status_code == 413
+    # A mapping naming a column the file does not have.
+    wrong = client.post(f"{URL}/import/preview", headers=OWNER, json={"csv": SHEET, "mapping": {"name": ["Nom"]}})
+    assert wrong.status_code == 422 and "no column named 'Nom'" in wrong.json()["error"]["message"]
+    # Semicolon separated, Arabic headers, first and last name: read and suggested.
+    arabic = preview_sheet("الاسم الأول;اسم العائلة;الجوال\nرنا;صالح;0507770000\n")
+    assert arabic["delimiter"] == ";" and arabic["mapping"]["name"] == ["الاسم الأول", "اسم العائلة"]
+    assert arabic["rows"][0]["name"] == "رنا صالح" and arabic["rows"][0]["phones"] == ["+971507770000"]
+    # A file whose headers say nothing: no rows until the owner chooses the columns.
+    blind = preview_sheet("a,b\nx,y\n")
+    assert blind["rows"] == [] and blind["counts"]["rows"] == 1 and blind["columns"] == ["a", "b"]
+    chosen = preview_sheet("a,b\nx,+971507770000\n", mapping={"name": ["a"], "phones": ["b"]})
+    assert chosen["rows"][0]["status"] == "new" and chosen["suggested"] is False
+    # Other workspaces see nothing of an import.
+    ok(apply_sheet(plan))
+    assert people(headers("owner_ct", "owner", workspace="workspace_contacts_other"))["total"] == 0

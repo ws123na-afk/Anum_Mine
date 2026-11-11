@@ -77,6 +77,7 @@ EXEMPT: dict[tuple[str, str], str] = {
         "Always refused (409 zatca_onboarding_required): ANUM is not onboarded with ZATCA, so nothing is sent and nothing is stored."
     ),
     ("POST", "/api/v1/developer/resolve"): "Matches a spoken request to a project name; stores nothing.",
+    ("POST", "/api/v1/contacts/import/preview"): "Reads a CSV file and says what importing it would do; stores nothing (the import itself is audited on /import/apply).",
     ("POST", "/api/v1/automation/hooks/{tenant_id}/{workspace_id}/{trigger_id}"): (
         "An outside system's HMAC-signed delivery, not a person's action; the run it starts is in the run "
         "history with the trigger and delivery id, and every change to the trigger itself is audited."

@@ -4,7 +4,7 @@
 // the possible duplicates a person decides. Members read and write; owners clear marks, delete and export;
 // viewers get the API's 403, explained in place.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, AtSign, BellOff, BookUser, Check, Download, ExternalLink, GitMerge, Handshake, Lock, MessageCircle, Pencil, Phone, PhoneOutgoing, Plus, RefreshCw, RotateCcw, Search, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, AtSign, BellOff, BookUser, Check, Download, ExternalLink, FileUp, GitMerge, Handshake, Lock, MessageCircle, Pencil, Phone, PhoneOutgoing, Plus, RefreshCw, RotateCcw, Search, Trash2, Upload, Users, X } from 'lucide-react';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
@@ -12,7 +12,9 @@ import { describeError } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { viewLabel } from './lib/shell';
 import {
-  CHANNELS, CONTACT_TABS, DNC_FILTERS, NO_FILTERS, PAGE_SIZE, SORTS, SOURCES, blockedChannels, channelLabel, contactsHash, dncFilterLabel, draftOf,
+  CHANNELS, CONTACT_TABS, IMPORT_MAX_ROWS, IMPORT_PAGE, IMPORT_STATUSES, emptyMapping, importActionLabel, importDecisions, importFieldLabel, importFileProblem,
+  importIssues, importRowsShown, importStatusLabel, importTotals,
+  type ImportAction, type ImportChoice, type ImportMapping, type ImportPreview, type ImportResult, type ImportRow, type ImportStatus, DNC_FILTERS, NO_FILTERS, PAGE_SIZE, SORTS, SOURCES, blockedChannels, channelLabel, contactsHash, dncFilterLabel, draftOf,
   emptyPersonDraft, factText, filtered, linkKindLabel, parseContactsHash, personBody, reasonLabel, reasonText, sortLabel, sourceLabel, tabLabel,
   type Channel, type ChannelSummary, type ContactChannel, type ContactTab, type PeopleFilters, type PersonDetail, type PersonDraft, type PersonView, type ProposalView,
 } from './lib/contacts';
@@ -369,6 +371,180 @@ function DuplicatesTab({ tick, onOpen, onChanged, flash }: { tick: number; onOpe
   </section>;
 }
 
+// ---------------------------------------------------------------- import from a CSV file
+
+const STATUS_TONE: Record<ImportStatus, 'ok' | 'info' | 'warn' | 'bad' | 'muted'> = { new: 'ok', match: 'info', possible_duplicate: 'warn', duplicate_in_file: 'muted', invalid: 'bad' };
+type MappingSlot = 'name' | 'lastName' | 'organisation' | 'notes' | 'phone1' | 'phone2' | 'email1' | 'email2' | 'dnc';
+const SLOTS: MappingSlot[] = ['name', 'lastName', 'organisation', 'notes', 'phone1', 'phone2', 'email1', 'email2', 'dnc'];
+function slotValue(mapping: ImportMapping, slot: MappingSlot): string {
+  switch (slot) {
+    case 'name': return mapping.name[0] ?? '';
+    case 'lastName': return mapping.name[1] ?? '';
+    case 'organisation': return mapping.organisation ?? '';
+    case 'notes': return mapping.notes ?? '';
+    case 'phone1': return mapping.phones[0] ?? '';
+    case 'phone2': return mapping.phones[1] ?? '';
+    case 'email1': return mapping.emails[0] ?? '';
+    case 'email2': return mapping.emails[1] ?? '';
+    case 'dnc': return mapping.do_not_contact ?? '';
+  }
+}
+function withSlot(mapping: ImportMapping, slot: MappingSlot, column: string): ImportMapping {
+  const pair = (list: string[], index: number) => { const next = [list[0] ?? '', list[1] ?? '']; next[index] = column; return next.filter(Boolean); };
+  switch (slot) {
+    case 'name': return { ...mapping, name: pair(mapping.name, 0) };
+    case 'lastName': return { ...mapping, name: pair(mapping.name, 1) };
+    case 'organisation': return { ...mapping, organisation: column || null };
+    case 'notes': return { ...mapping, notes: column || null };
+    case 'phone1': return { ...mapping, phones: pair(mapping.phones, 0) };
+    case 'phone2': return { ...mapping, phones: pair(mapping.phones, 1) };
+    case 'email1': return { ...mapping, emails: pair(mapping.emails, 0) };
+    case 'email2': return { ...mapping, emails: pair(mapping.emails, 1) };
+    case 'dnc': return { ...mapping, do_not_contact: column || null };
+  }
+}
+
+function ImportRowView({ row, choice, busy, onChoose }: { row: ImportRow; choice: ImportChoice | undefined; busy: boolean; onChoose: (choice: ImportChoice) => void }) {
+  const action = choice && row.actions.includes(choice.action) ? choice.action : row.action;
+  const target = choice?.target_id ?? row.target_id ?? row.matches[0]?.id ?? null;
+  return <tr className="ctImportRow">
+    <td><bdi>{formatNumber(row.row)}</bdi></td>
+    <td>
+      <strong dir="auto">{row.name || '-'}</strong>
+      {row.organisation && <small dir="auto">{row.organisation}</small>}
+      {[...row.phones, ...row.emails].map((value) => <small key={value} dir="ltr" className="ctValue">{value}</small>)}
+    </td>
+    <td>
+      <StatusChip tone={STATUS_TONE[row.status]}>{importStatusLabel(row.status)}</StatusChip>
+      {importIssues(row).map((problem) => <small key={problem} className="ctImportProblem" dir="auto">{problem}</small>)}
+      {row.duplicate_of !== null && <small>{t('ct.import.repeats', { row: row.duplicate_of })}</small>}
+      {row.matches.map((match) => <span key={match.id} className="ctImportMatch">
+        <small dir="auto">{t('ct.import.matches', { shared: match.shared.join(', '), name: match.name })}</small>
+        {match.do_not_contact.length > 0 && <small dir="auto">{t('ct.import.matchMarked', { name: match.name, channels: match.do_not_contact.map(channelLabel).join(', ') })}</small>}
+      </span>)}
+      {row.do_not_contact.length > 0 && <small>{t('ct.import.marks', { channels: row.do_not_contact.map(channelLabel).join(', ') })}</small>}
+    </td>
+    <td>
+      <label className="field ctImportChoice"><span className="visuallyHidden">{t('ct.import.actionFor', { row: row.row })}</span>
+        <select value={action} disabled={busy || row.actions.length < 2} onChange={(e) => onChoose({ action: e.target.value as ImportAction, target_id: target })}>
+          {row.actions.map((option) => <option key={option} value={option}>{importActionLabel(option)}</option>)}
+        </select></label>
+      {action === 'update' && row.matches.length > 1 && <label className="field ctImportChoice"><span className="visuallyHidden">{t('ct.import.targetFor', { row: row.row })}</span>
+        <select value={target ?? ''} disabled={busy} onChange={(e) => onChoose({ action, target_id: e.target.value })}>
+          {row.matches.map((match) => <option key={match.id} value={match.id}>{match.name}</option>)}
+        </select></label>}
+    </td>
+  </tr>;
+}
+
+function ImportTab({ canImport, onImported, go }: { canImport: boolean; onImported: () => void; go: (tab: ContactTab) => void }) {
+  const fileId = useId();
+  const [file, setFile] = useState<{ name: string; text: string } | null>(null);
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [mapping, setMapping] = useState<ImportMapping>(emptyMapping());
+  const [choices, setChoices] = useState<Record<number, ImportChoice>>({});
+  const [status, setStatus] = useState<ImportStatus | ''>('');
+  const [query, setQuery] = useState('');
+  const [shown, setShown] = useState(IMPORT_PAGE);
+  const [busy, setBusy] = useState<'reading' | 'checking' | 'importing' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  if (!canImport) return <section className="surface ctList" aria-label={t('ct.tab.import')}><Notice>{t('ct.import.ownersOnly')}</Notice></section>;
+
+  const check = async (text: string, name: string, chosen: ImportMapping | null) => {
+    setBusy(chosen ? 'checking' : 'reading'); setError(null); setResult(null);
+    try {
+      const next = await api.previewImport(text, name, chosen);
+      setPreview(next); setMapping(next.mapping); setChoices({}); setShown(IMPORT_PAGE);
+    } catch (e) { setError(describeError(e)); } finally { setBusy(null); }
+  };
+  const choose = async (picked: File | undefined) => {
+    setError(null); setResult(null); setPreview(null);
+    if (!picked) return;
+    const problem = importFileProblem(picked);
+    if (problem) { setError(problem); return; }
+    setBusy('reading');
+    let text: string;
+    try { text = await picked.text(); } catch (e) { setBusy(null); setError(t('ct.import.err.read', { error: describeError(e) })); return; }
+    setFile({ name: picked.name, text });
+    await check(text, picked.name, null);
+  };
+  const reset = () => { setFile(null); setPreview(null); setError(null); setResult(null); setChoices({}); if (input.current) input.current.value = ''; };
+  const decisions = preview ? importDecisions(preview.rows, choices) : [];
+  const totals = importTotals(decisions);
+  const rows = preview ? importRowsShown(preview.rows, status, query) : [];
+  const run = async () => {
+    if (!preview || !file) return;
+    setBusy('importing'); setError(null);
+    try {
+      const done = await api.applyImport(file.text, file.name, preview, decisions);
+      setConfirming(false); setResult(done); setPreview(null); setFile(null); onImported();
+    } catch (e) { setConfirming(false); setError(describeError(e)); } finally { setBusy(null); }
+  };
+  return <section className="surface ctList ctImport" aria-labelledby={`${fileId}-title`}>
+    <h3 id={`${fileId}-title`}>{t('ct.import.title')}</h3>
+    <p className="muted">{t('ct.import.intro')}</p>
+    <p className="muted">{t('ct.import.limits', { rows: formatNumber(IMPORT_MAX_ROWS) })}</p>
+    {!file && <label className="field ctImportFile" htmlFor={fileId}><span>{t('ct.import.choose')}</span>
+      <input id={fileId} ref={input} type="file" accept=".csv,text/csv" disabled={busy !== null} onChange={(e) => void choose(e.target.files?.[0])} /></label>}
+    {file && <div className="actions ctImportFileName"><span dir="auto"><FileUp aria-hidden="true" />{t('ct.import.file', { name: file.name })}</span>
+      <button type="button" className="secondary" disabled={busy !== null} onClick={reset}>{t('ct.import.another')}</button></div>}
+    {busy === 'reading' && <Notice busy>{t('ct.import.reading')}</Notice>}
+    {error && <Notice error>{error}</Notice>}
+    {result && <div className="ctImportDone">
+      <Notice>{t('ct.import.done', { created: result.created, updated: result.updated, skipped: result.skipped, marks: result.marks_added, proposals: result.proposals_created })}</Notice>
+      <div className="actions">
+        <button type="button" onClick={() => go('people')}><Users aria-hidden="true" />{t('ct.import.openPeople')}</button>
+        {result.proposals_created > 0 && <button type="button" className="secondary" onClick={() => go('duplicates')}><GitMerge aria-hidden="true" />{t('ct.import.openDuplicates')}</button>}
+        <button type="button" className="secondary" onClick={reset}>{t('ct.import.another')}</button>
+      </div>
+    </div>}
+    {preview && file && <>
+      <fieldset className="ctImportMapping" disabled={busy !== null}>
+        <legend>{t('ct.import.mapping')}</legend>
+        <p className="muted">{preview.rows.length ? t('ct.import.mappingIntro') : t('ct.import.mappingNone')}</p>
+        <div className="ctImportSlots">
+          {SLOTS.map((slot) => <label key={slot} className="field"><span>{importFieldLabel(slot)}</span>
+            <select value={slotValue(mapping, slot)} onChange={(e) => setMapping(withSlot(mapping, slot, e.target.value))}>
+              <option value="">{t('ct.import.none')}</option>
+              {preview.columns.filter(Boolean).map((column) => <option key={column} value={column}>{column}</option>)}
+            </select></label>)}
+        </div>
+        <div className="actions"><button type="button" className="secondary" onClick={() => void check(file.text, file.name, mapping)}>
+          <RefreshCw aria-hidden="true" />{busy === 'checking' ? t('ct.import.checking') : t('ct.import.check')}</button></div>
+      </fieldset>
+      {preview.rows.length > 0 && <>
+        <h3 className="ctCount">{t('ct.import.summary')}: {t('ct.import.rows', { count: preview.counts.rows })}</h3>
+        <ul className="ctImportCounts">{IMPORT_STATUSES.map((s) => <li key={s}><StatusChip tone={STATUS_TONE[s]}>{importStatusLabel(s)}: <bdi>{formatNumber(preview.counts[s])}</bdi></StatusChip></li>)}</ul>
+        <form className="ctFilters" role="search" onSubmit={(e) => e.preventDefault()}>
+          <label className="field ctSearch"><span>{t('ct.import.search')}</span><input type="search" dir="auto" value={query} placeholder={t('ct.import.searchPlaceholder')} onChange={(e) => { setQuery(e.target.value); setShown(IMPORT_PAGE); }} /></label>
+          <label className="field"><span>{t('ct.import.filterStatus')}</span><select value={status} onChange={(e) => { setStatus(e.target.value as ImportStatus | ''); setShown(IMPORT_PAGE); }}>
+            <option value="">{t('ct.import.allRows')}</option>{IMPORT_STATUSES.map((s) => <option key={s} value={s}>{importStatusLabel(s)}</option>)}</select></label>
+        </form>
+        {!rows.length && <Empty icon={<Search aria-hidden="true" />} title={t('ct.import.noMatch')} text={t('ct.noMatchText')} />}
+        {rows.length > 0 && <div className="ctTableWrap"><table className="ctTable ctImportTable">
+          <thead><tr><th scope="col">{t('ct.import.col.row')}</th><th scope="col">{t('ct.import.col.person')}</th><th scope="col">{t('ct.import.col.check')}</th><th scope="col">{t('ct.import.col.action')}</th></tr></thead>
+          <tbody>{rows.slice(0, shown).map((row) => <ImportRowView key={row.row} row={row} choice={choices[row.row]} busy={busy !== null}
+            onChoose={(next) => setChoices((current) => ({ ...current, [row.row]: next }))} />)}</tbody>
+        </table></div>}
+        {rows.length > shown && <div className="actions ctMore"><span className="muted">{t('ct.import.showing', { shown: formatNumber(shown), total: formatNumber(rows.length) })}</span>
+          <button type="button" className="secondary" onClick={() => setShown((n) => n + IMPORT_PAGE)}>{t('ct.import.more')}</button></div>}
+        <div className="actions ctImportApply">
+          <span>{t('ct.import.totals', { create: totals.create, update: totals.update, skip: totals.skip })}</span>
+          <button type="button" disabled={busy !== null || totals.create + totals.update === 0} onClick={() => setConfirming(true)}><Upload aria-hidden="true" />{t('ct.import.apply')}</button>
+        </div>
+        {totals.create + totals.update === 0 && <small className="muted">{t('ct.import.nothing')}</small>}
+      </>}
+    </>}
+    {confirming && <ConfirmDialog title={t('ct.import.confirmTitle')} confirmLabel={busy === 'importing' ? t('ct.import.applying') : t('ct.import.apply')} busy={busy === 'importing'}
+      onConfirm={() => void run()} onCancel={() => setConfirming(false)}>
+      <p>{t('ct.import.confirmText', { create: totals.create, update: totals.update, skip: totals.skip })}</p>
+    </ConfirmDialog>}
+  </section>;
+}
+
 // ---------------------------------------------------------------- the page
 
 export function ContactsView() {
@@ -416,7 +592,7 @@ export function ContactsView() {
         {page.can_export && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void exportCsv()}><Download aria-hidden="true" />{busy === 'export' ? t('ct.exporting') : t('ct.export')}</button>}
       </>}
       tabs={!personId && <FinanceTabs label={viewLabel('contacts')} idPrefix="ct" value={tab} onChange={(next) => go(next)}
-        items={CONTACT_TABS.map((id) => ({ id, label: tabLabel(id), badge: id === 'duplicates' && page?.counts.open_proposals ? page.counts.open_proposals : undefined }))} />} />
+        items={CONTACT_TABS.filter((id) => id !== 'import' || page?.can_export || tab === 'import').map((id) => ({ id, label: tabLabel(id), badge: id === 'duplicates' && page?.counts.open_proposals ? page.counts.open_proposals : undefined }))} />} />
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
     {personId
       ? <PersonPage key={personId} id={personId} onBack={() => go(tab)} onOpen={(id) => go(tab, id)} onChanged={refresh} flash={setFlash} />
@@ -433,6 +609,10 @@ export function ContactsView() {
         <div {...tabPanel('ct', tab)}>
           {tab === 'people' && <PeopleList tick={tick} canWrite={canWrite} onOpen={(id) => go('people', id)} />}
           {tab === 'duplicates' && <DuplicatesTab tick={tick} onOpen={(id) => go('duplicates', id)} onChanged={refresh} flash={setFlash} />}
+          {tab === 'import' && (page ? <ImportTab canImport={page.can_export} onImported={refresh} go={(next) => go(next)} />
+            : summary.kind === 'denied' ? <ContactsDenied detail={summary.message} />
+            : summary.kind === 'error' ? <LoadError message={summary.message} retry={refresh} />
+            : <Notice busy>{t('ct.loading')}</Notice>)}
         </div>
       </>}
     {adding && <PersonForm title={t('ct.form.addTitle')} initial={emptyPersonDraft()} busy={busy === 'add'} error={addError} onSubmit={(d) => void add(d)} onClose={() => setAdding(false)} />}

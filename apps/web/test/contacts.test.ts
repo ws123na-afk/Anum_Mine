@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import {
   blockedChannels, channelLabel, contactsHash, draftOf, emptyPersonDraft, exportName, factText, linkKindLabel, looksLikeEmail, looksLikePhone,
   parseContactsHash, personBody, reasonText, sourceLabel, splitValues, type PersonView,
+  importDecisions, importFileProblem, importIssues, importRowsShown, importStatusLabel, importTotals, type ImportRow,
 } from '../src/lib/contacts.ts';
 import { viewFromHash } from '../src/lib/shell.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -21,6 +22,8 @@ describe('contacts directory', () => {
     assert.deepEqual(parseContactsHash('#contacts?person=ct_1'), { tab: 'people', person: 'ct_1' });
     assert.equal(contactsHash('people'), '#contacts');
     assert.equal(contactsHash('duplicates', 'a b'), '#contacts-duplicates?person=a%20b');
+    assert.deepEqual(parseContactsHash('#contacts-import'), { tab: 'import', person: null });
+    assert.equal(contactsHash('import'), '#contacts-import');
     for (const hash of ['#contacts', '#contacts-duplicates', '#contacts?person=ct_1']) assert.equal(viewFromHash(hash), 'contacts');
   });
 
@@ -59,5 +62,51 @@ describe('contacts directory', () => {
     assert.equal(sourceLabel('whatsapp'), 'واتساب');
     assert.equal(channelLabel('email'), 'البريد الإلكتروني');
     setLocale('en');
+  });
+});
+
+describe('import from a CSV file', () => {
+  const row = (n: number, extra: Partial<ImportRow> = {}): ImportRow => ({
+    row: n, name: `Person ${n}`, organisation: '', phones: [`+97150000000${n}`], emails: [], do_not_contact: [], status: 'new', action: 'create',
+    actions: ['create', 'skip'], target_id: null, matches: [], duplicate_of: null, problems: [], ...extra,
+  });
+  const rows = [
+    row(2),
+    row(3, { status: 'match', action: 'update', actions: ['update', 'create', 'skip'], target_id: 'ct_a', matches: [{ id: 'ct_a', name: 'A', shared: ['+971500000003'], do_not_contact: ['phone'] }] }),
+    row(4, { status: 'invalid', action: 'skip', actions: ['skip'], problems: ['bad'] }),
+    row(5, { status: 'possible_duplicate', actions: ['create', 'update', 'skip'], matches: [{ id: 'ct_b', name: 'B', shared: [], do_not_contact: [] }, { id: 'ct_c', name: 'C', shared: [], do_not_contact: [] }] }),
+  ];
+
+  test('every row is sent with the action the owner left, and a choice outside its actions is ignored', () => {
+    const decisions = importDecisions(rows, { 2: { action: 'skip', target_id: null }, 4: { action: 'create', target_id: null }, 5: { action: 'update', target_id: 'ct_c' } });
+    assert.deepEqual(decisions, [
+      { row: 2, action: 'skip', target_id: null },
+      { row: 3, action: 'update', target_id: 'ct_a' },
+      { row: 4, action: 'skip', target_id: null },
+      { row: 5, action: 'update', target_id: 'ct_c' },
+    ]);
+    assert.deepEqual(importTotals(decisions), { create: 0, update: 2, skip: 2 });
+    // Update without a chosen person uses the first match.
+    assert.equal(importDecisions(rows, { 5: { action: 'update', target_id: null } })[3].target_id, 'ct_b');
+  });
+
+  test('rows are filtered by status and found by name, number or row number', () => {
+    assert.deepEqual(importRowsShown(rows, 'invalid', '').map((r) => r.row), [4]);
+    assert.deepEqual(importRowsShown(rows, '', 'person 5').map((r) => r.row), [5]);
+    assert.deepEqual(importRowsShown(rows, '', '+971500000002').map((r) => r.row), [2]);
+    assert.deepEqual(importRowsShown(rows, '', '3').map((r) => r.row), [3]);
+    assert.equal(importStatusLabel('duplicate_in_file'), 'Repeated in the file');
+  });
+
+  test('a row problem is worded from its code, with the API text as the fallback', () => {
+    assert.deepEqual(importIssues(row(6, { problems: ["'12' is not a phone"], issues: [{ code: 'not_phone', value: '12' }] })), ['"12" is not a phone number with its country code (+971...).']);
+    assert.deepEqual(importIssues(row(7, { problems: ['Old server text'] })), ['Old server text']);
+  });
+
+  test('a file is checked before it is read', () => {
+    assert.equal(importFileProblem({ name: 'people.csv', size: 10, type: 'text/csv' }), null);
+    assert.match(importFileProblem({ name: 'people.xlsx', size: 10, type: 'application/vnd.ms-excel' }) ?? '', /Choose a CSV file/);
+    assert.match(importFileProblem({ name: 'people.csv', size: 0, type: 'text/csv' }) ?? '', /empty/);
+    assert.match(importFileProblem({ name: 'people.csv', size: 9_000_000, type: 'text/csv' }) ?? '', /too large/);
   });
 });

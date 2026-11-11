@@ -159,6 +159,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'contacts', view: 'contacts', mock: contacts, ready: '.ctRow' },
   { hash: 'contacts?person=ct_sara', view: 'contacts', mock: contacts, ready: '.ctChannel' },
   { hash: 'contacts-duplicates', view: 'contacts', mock: contacts, ready: '.ctProposal, .ctList .emptyState' },
+  { hash: 'contacts-import', view: 'contacts', mock: contacts, ready: '.ctImport input[type="file"]' },
   { hash: 'developer', view: 'developer', mock: mockDeveloper, ready: '.devLayout' },
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },

@@ -93,3 +93,25 @@
   .ctRow { border-top: 1px solid var(--d-line); padding: var(--d-s3) 0; }
   .ctMore { flex-direction: column; align-items: stretch; }
 }
+
+/* Import from a CSV file (docs/contacts.md#import-from-a-csv-file). */
+.ctImport { display: grid; gap: var(--d-s3); }
+.ctImport > h3 { margin: 0; }
+.ctImport > p { margin: 0; }
+.ctImportFile { max-width: 28rem; }
+.ctImportFileName { align-items: center; flex-wrap: wrap; }
+.ctImportFileName span { align-items: center; display: inline-flex; gap: var(--d-s2); min-width: 0; overflow-wrap: anywhere; }
+.ctImportFileName svg { flex: none; height: 18px; width: 18px; }
+.ctImportMapping { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin: 0; min-width: 0; padding: var(--d-s3) var(--d-s4); }
+.ctImportMapping legend { font-weight: 600; padding: 0 var(--d-s1); }
+.ctImportMapping p { margin: 0; }
+.ctImportSlots { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); }
+.ctImportSlots .field { min-width: 0; }
+.ctImportSlots select { max-width: 100%; width: 100%; }
+.ctImportCounts { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.ctImportTable td { vertical-align: top; }
+.ctImportTable td small, .ctImportMatch { display: block; overflow-wrap: anywhere; }
+.ctImportTable .ctImportProblem { color: var(--d-error-text); }
+.ctImportChoice select { max-width: 100%; min-width: 10rem; }
+.ctImportApply { align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.ctImportDone { display: grid; gap: var(--d-s2); }
