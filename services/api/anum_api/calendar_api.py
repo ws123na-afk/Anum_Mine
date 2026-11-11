@@ -845,9 +845,10 @@ def _apply_update(
     # scope "following": the series ends before this occurrence and a new one starts here.
     if occurrence == event.starts_at:
         return _apply_update(store, context, event, payload.model_copy(update={"scope": "all"}), changes, None)
-    assert event.recurrence is not None
-    before = occurrence_count_before(event.recurrence, event.starts_at, event.timezone, occurrence)
     rule = event.recurrence
+    if rule is None:  # the scope checks above leave only a series here
+        raise HTTPException(status_code=422, detail="This event does not repeat")
+    before = occurrence_count_before(rule, event.starts_at, event.timezone, occurrence)
     if rule.count is not None:
         shortened = rule.model_copy(update={"count": before})
         remaining = rule.count - before
@@ -968,7 +969,8 @@ def _delete_occurrences(store: CalendarStoreProtocol, context: TenantContext, ev
             parent.updated_by, parent.updated_at = context.user_id, now
             store.save(parent)
         return
-    assert event.recurrence is not None and occurrence is not None
+    if event.recurrence is None or occurrence is None:
+        raise HTTPException(status_code=422, detail="This event does not repeat")
     if occurrence in event.skipped or not _is_occurrence(event, occurrence):
         raise HTTPException(status_code=404, detail=NO_OCCURRENCE)
     overrides = store.overrides(event.id)

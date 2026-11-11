@@ -44,10 +44,6 @@ PREDICATE = (
 TENANT = "nullif(current_setting('anum.tenant_id', true), '')"
 PURGER = "anum_tenant_purger"
 JOBS = "tenant_lifecycle_jobs"
-MAINTENANCE_EVENT_COLUMNS = (
-    "tenant_id, workspace_id, id, status, starts_at, ends_at, all_day, timezone, recurrence, recurrence_until, skipped, reminders, "
-    "series_id, recurrence_start"
-)
 
 
 def _enable_rls(table: str) -> None:
@@ -118,7 +114,10 @@ def upgrade() -> None:
     _purge_policy(TABLE)
 
     # Discovery of due reminders: ids, times and the rule only, scheduled events with reminders.
-    op.execute(f"grant select ({MAINTENANCE_EVENT_COLUMNS}) on calendar_events to anum_maintenance")
+    op.execute(
+        "grant select (tenant_id, workspace_id, id, status, starts_at, ends_at, all_day, timezone, recurrence, recurrence_until, "
+        "skipped, reminders, series_id, recurrence_start) on calendar_events to anum_maintenance"
+    )
     op.execute(
         """
         create policy maintenance_calendar_reminders_due on calendar_events
@@ -126,10 +125,10 @@ def upgrade() -> None:
         using (status = 'scheduled' and jsonb_array_length(reminders) > 0)
         """
     )
-    op.execute(f"grant select (tenant_id, workspace_id, event_id, occurrence_start, minutes_before, user_id) on {TABLE} to anum_maintenance")
+    op.execute("grant select (tenant_id, workspace_id, event_id, occurrence_start, minutes_before, user_id) on calendar_reminder_sends to anum_maintenance")
     op.execute(
-        f"""
-        create policy maintenance_{TABLE} on {TABLE}
+        """
+        create policy maintenance_calendar_reminder_sends on calendar_reminder_sends
         for select to anum_maintenance
         using (true)
         """
@@ -137,14 +136,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(f"drop policy if exists maintenance_{TABLE} on {TABLE}")
+    op.execute("drop policy if exists maintenance_calendar_reminder_sends on calendar_reminder_sends")
     op.execute("drop policy if exists maintenance_calendar_reminders_due on calendar_events")
     op.execute(
-        f"""
+        """
         do $$
         begin
           if exists (select 1 from pg_roles where rolname = 'anum_maintenance') then
-            revoke select ({MAINTENANCE_EVENT_COLUMNS}) on calendar_events from anum_maintenance;
+            revoke select (tenant_id, workspace_id, id, status, starts_at, ends_at, all_day, timezone, recurrence, recurrence_until,
+              skipped, reminders, series_id, recurrence_start) on calendar_events from anum_maintenance;
           end if;
         end
         $$

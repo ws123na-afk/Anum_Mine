@@ -4,6 +4,10 @@ Update 10 November 2026: `main` is at `bb27936f` with CI green. Merged that day:
 
 Earlier state (4 November): `main` was at `6643fc1` (#359, the action browser) plus the audit fixes in this change. PRs #326 to #359 were merged with `[skip ci]` in their head commit, so no CI job ran on them; the last full CI run on `main` was on 27 October and it failed. The Dependabot runs of 3 November showed `main` red: browser e2e (about 11 specs, mostly HQ), the Flutter help assets test, bandit B608 and Trivy (the `zip` crate in the temporalio bridge). The audit fixes address the last three (Trivy through temporalio 1.35.0, whose bridge ships `zip` 9.1.2, past every fixed version Trivy named; the image was not re-scanned locally); the e2e failures are open (below). Migration chain on `main` ends `0129_setup_plan_gaps`, `0130_action_browser`. Older dependency PRs (#280 to #285, #351 to #355) fail their checks and #10, #126, #200 and #215 are stale: refresh or close them.
 
+## Calendar: repeating events, all-day events and reminders (November 2026 depth batch)
+
+Done in [Calendar](calendar.md#recurrence): series with the RFC 5545 subset, exceptions (skipped and changed occurrences, this and following), all-day events, reminders through the team sweep with their own push kind, web and Flutter forms and views. Left open, said in the doc's "Not done yet": ANUM's series and all-day events are not sent to a synced Google or Microsoft calendar (the provider would need the rule and the exceptions); a provider's recurring events still arrive flattened; an attendee's reply on a series applies to every occurrence; no email reminders and no reminder for a teammate who is not the creator or an invited profile email.
+
 ## Owner steps (only the owner can do these)
 
 1. **Update the Oracle VM** to get everything above live, once CI is green again: `cd ~/anum && sudo bash infra/oracle/update.sh`.
