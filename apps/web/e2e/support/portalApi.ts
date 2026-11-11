@@ -29,6 +29,12 @@ export interface PortalOptions {
   credited?: boolean;
   /** The business made a Moyasar payment link for the first invoice's balance. */
   paymentUrl?: string;
+  /** The bearer token the portal accepts (default: the access link). A code session uses its own. */
+  token?: string;
+  /** How the customer got in: an emailed code session offers Sign out. */
+  signedInWith?: 'link' | 'code';
+  /** The second invoice had 200 refunded by card in the provider's dashboard. */
+  refunded?: boolean;
 }
 export interface PortalMock {
   requests: { method: string; path: string; headers: Record<string, string>; body: unknown }[];
@@ -81,7 +87,8 @@ export async function mockPortal(page: Page, options: PortalOptions = {}): Promi
         credit_notes: credited ? [{ number: 'INV-0001-CN1', issue_date: day(-5), amount: 100, reason: 'Agreed discount', status: 'issued' }] : [], payment_notices: reports.map((item) => ({ ...item })),
         can_report_payment: canDecide && !options.archived && balance > 0, payment_url: balance > 0 ? options.paymentUrl ?? null : null };
     }
-    if (n === 2) return { ...base, id: 'binv_2', number: 'INV-0002', status: 'paid', total: 1150, amount_paid: 1150, balance: 0, issue_date: day(-60), due_date: day(-46), overdue: false, days_overdue: 0, payment_state: 'paid', payments: [{ paid_on: day(-50), amount: 1150, method: 'cash', reference: '' }] };
+    if (n === 2) return { ...base, id: 'binv_2', number: 'INV-0002', status: 'paid', total: 1150, amount_paid: 1150, balance: 0, issue_date: day(-60), due_date: day(-46), overdue: false, days_overdue: 0, payment_state: 'paid', payments: [{ paid_on: day(-50), amount: 1150, method: 'cash', reference: '' }],
+      ...(options.refunded ? { status: 'sent', amount_paid: 950, balance: 200, payment_state: 'partially_paid', refunds: [{ refunded_on: day(-3), amount: 200 }] } : {}) };
     return { ...base, id: 'binv_3', number: 'INV-0003', status: 'void', total: 1150, amount_paid: 0, balance: 1150, issue_date: day(-30), due_date: day(-16), overdue: false, days_overdue: 0, payment_state: 'unpaid', payments: [], void_reason: 'Issued twice' };
   };
   const summary = (item: Json) => { const { lines, subtotal, tax, notes, payment_terms, bill_to_name, bill_to_address, bill_to_tax_number, seller, payments, void_reason, credit_notes, payment_notices, can_report_payment, ...rest } = item; void [lines, subtotal, tax, notes, payment_terms, bill_to_name, bill_to_address, bill_to_tax_number, seller, payments, void_reason, credit_notes, payment_notices, can_report_payment]; return rest; };
@@ -104,13 +111,13 @@ export async function mockPortal(page: Page, options: PortalOptions = {}): Promi
     if (options.link === 'unknown') return json({ detail: INVALID }, 401);
     if (options.link === 'expired') return json({ detail: 'This link has expired. Ask the business that sent it for a new one.' }, 401);
     if (options.link === 'revoked') return json({ detail: 'This link was turned off. Ask the business that sent it for a new one.' }, 401);
-    if (request.headers().authorization !== `Bearer ${PORTAL_LINK}`) return json({ detail: 'Open the link you were sent.' }, 401);
+    if (request.headers().authorization !== `Bearer ${options.token ?? PORTAL_LINK}`) return json({ detail: 'Open the link you were sent.' }, 401);
     const parts = path.split('/').filter(Boolean);
 
     if (path === '/me') {
       const offers = options.empty ? [] : [offer()].filter((item) => !item.decision), changes = options.empty ? [] : [change()].filter((item) => !item.decision);
       return json({
-        business_name: 'Najd Digital Co.', account_name: 'Acme Trading', contact_name: 'Sara Khan', expires_at: new Date(Date.now() + (options.expiresInDays ?? 60) * 86_400_000).toISOString(), can_decide: canDecide,
+        business_name: 'Najd Digital Co.', account_name: 'Acme Trading', contact_name: 'Sara Khan', expires_at: new Date(Date.now() + (options.expiresInDays ?? 60) * 86_400_000).toISOString(), can_decide: canDecide, signed_in_with: options.signedInWith ?? 'link',
         counts: { offers_waiting: offers.length, change_orders_waiting: changes.length, invoices_open: options.empty ? 0 : 1, invoices_overdue: options.empty ? 0 : (options.overdueInvoices ?? 1), tickets_open: tickets.filter((item) => item.status !== 'resolved' && item.status !== 'closed').length },
         projects: [{ id: 'bprj_1', name: 'Website rebuild' }],
       });

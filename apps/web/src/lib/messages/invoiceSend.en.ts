@@ -56,4 +56,10 @@ export const invoiceSendEn = {
   'inv.credit.pdf': 'Credit note PDF',
   'inv.pay.viaMoyasar': 'Paid by card through Moyasar',
   'inv.pay.viaStripe': 'Paid by card through Stripe',
+  'inv.refund.title': 'Refunds made in {provider}',
+  'inv.refund.line': '{amount} refunded on {date}',
+  'inv.refund.surplus': '{amount} of it was money the card took above the balance, so it is not taken off the invoice.',
+  'inv.refund.reversed': '{provider} reported this refund failed, so it no longer counts.',
+  'inv.refund.owed': 'A refunded amount is owed again. Issue a credit note if the customer no longer owes it.',
+  'inv.refund.keep': 'This card payment has refunds, so it stays as their history.',
 } satisfies Record<string, Message>;

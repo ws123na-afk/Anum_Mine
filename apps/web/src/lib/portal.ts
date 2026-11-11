@@ -31,6 +31,38 @@ export function parseAccessFragment(hash: string): string | null {
   return null;
 }
 
+/** Where the business's sign-in address is kept for this tab, so the sign-in form comes back after signing out. */
+export const PORTAL_SIGN_IN_KEY = 'anum.portal.signin';
+const WORKSPACE_KEY = /^[A-Za-z0-9_-]{1,80}\.[A-Za-z0-9_-]{1,80}$/;
+
+/** The workspace in a `#signin=<tenant>.<workspace>` fragment (the business's sign-in address), or null. */
+export function parseSignInFragment(hash: string): string | null {
+  for (const part of hash.replace(/^#/, '').split('&')) {
+    if (!part.startsWith('signin=')) continue;
+    let value = part.slice('signin='.length);
+    try { value = decodeURIComponent(value); } catch { return null; }
+    return WORKSPACE_KEY.test(value.trim()) ? value.trim() : null;
+  }
+  return null;
+}
+
+export function readSignIn(store: TokenStore | null): string | null {
+  try { const value = store?.getItem(PORTAL_SIGN_IN_KEY) ?? null; return value && WORKSPACE_KEY.test(value) ? value : null; } catch { return null; }
+}
+
+export function storeSignIn(store: TokenStore | null, workspace: string): void {
+  try { store?.setItem(PORTAL_SIGN_IN_KEY, workspace); } catch { /* the form then lasts until the page is closed */ }
+}
+
+/** A six-digit code as typed: spaces and dashes dropped, digits only. Null until it is six digits. */
+export function cleanCode(input: string): string | null {
+  const digits = input.replace(/[\s-]/g, '');
+  return /^\d{6}$/.test(digits) ? digits : null;
+}
+
+/** An email address shaped well enough to send (the server checks it again). */
+export const looksLikeEmail = (value: string) => /^[^@\s<>"']{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/.test(value.trim());
+
 /** The address with the fragment removed, so the credential is not left in the bar, history or a screenshot. */
 export function withoutFragment(location: { pathname: string; search: string }): string {
   return `${location.pathname}${location.search}`;
@@ -59,7 +91,7 @@ export function resolveToken(hash: string, store: TokenStore | null): { token: s
   return { token: readStoredToken(store), fromFragment: hash.replace(/^#/, '').split('&').some((part) => part.startsWith('access=')) };
 }
 
-/** The owner's shareable address from the API's `portal_path` (`/portal#access=<token>`). */
+/** The owner's shareable sign-in address from the API's `sign_in_path` (`/portal#signin=<tenant>.<workspace>`), or any `portal_path`. */
 export function buildPortalLink(origin: string, portalPath: string): string {
   return `${origin.replace(/\/+$/, '')}${portalPath.startsWith('/') ? portalPath : `/${portalPath}`}`;
 }

@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, CircleAlert, Coins, Download, Lock, PackageO
 import type { PurchaseOverview, PurchasePage, PurchasePreferences, PurchaseReturn } from '@anum/contracts';
 import * as api from './lib/purchasesApi';
 import {
-  FILTERS, NO_FILTERS, PAGE_SIZE, PURCHASE_TABS, chipTone, hashForTab, moneyList, reasonLabel, refundMatch, returnStatusLabel, statusLabel, statusTone, tabFromHash,
+  FILTERS, NO_FILTERS, PAGE_SIZE, PURCHASE_TABS, chipTone, hashForTab, moneyList, openFromHash, reasonLabel, refundMatch, returnStatusLabel, statusLabel, statusTone, tabFromHash,
   type PurchaseTab, type TrackerFilters,
 } from './lib/purchases';
 import { formatAmount, monthLabel } from './lib/finance';
@@ -48,7 +48,7 @@ export function StatusChip({ status, kind = 'purchase' }: { status: string; kind
 export function PurchasesView() {
   const [tab, pick] = usePurchaseTab();
   const [openId, setOpenId] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => openFromHash(typeof location === 'undefined' ? '' : location.hash));
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [tick, setTick] = useState(0);

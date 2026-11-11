@@ -4,7 +4,7 @@
 // read from the URL fragment, removed from the address bar at once and sent only as a bearer token to
 // /api/v1/portal. This file imports nothing of the signed-in app.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, CircleDot, Download, FileText, Inbox, Lock, Printer, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, CircleDot, Download, FileText, Inbox, LogOut, Lock, Mail, Printer, ShieldAlert } from 'lucide-react';
 import type {
   PortalChange, PortalChangeSummary, PortalInvoice, PortalInvoiceSummary, PortalMe, PortalOffer, PortalOfferSummary, PortalTicket, PortalTicketSummary,
 } from '@anum/contracts';
@@ -12,8 +12,9 @@ import { ApiError, describeError } from './lib/errors';
 import { LOCALES, LOCALE_NAMES, chooseLocale, formatDateTime, getLocale, t, type Locale } from './lib/i18n';
 import { formatMoney, formatPct } from './lib/business';
 import {
-  REPORT_METHODS, REQUEST_SEVERITIES, changeStatusLabel, checkSigner, confirmText, emptyReport, expiryState, localToday, invoiceStatusText, invoiceStatusTone, methodLabel,
-  newReportKey, offerStatusLabel, problemKind, reportBody, reportStatusLabel, reportTone, resolveToken, severityLabel, storeToken, ticketStatusLabel, ticketTone, withoutFragment,
+  REPORT_METHODS, REQUEST_SEVERITIES, changeStatusLabel, checkSigner, cleanCode, confirmText, emptyReport, expiryState, localToday, invoiceStatusText, invoiceStatusTone,
+  looksLikeEmail, methodLabel, newReportKey, offerStatusLabel, parseSignInFragment, problemKind, readSignIn, reportBody, reportStatusLabel, reportTone, resolveToken,
+  severityLabel, storeSignIn, storeToken, ticketStatusLabel, ticketTone, withoutFragment,
 } from './lib/portal';
 import * as p from './lib/portalApi';
 import { printHtml } from './lib/printWindow';
@@ -93,7 +94,13 @@ function useFocus<T extends HTMLElement>(ready = true) {
 // ---- the page ----------------------------------------------------------------------------------
 
 export function PortalApp() {
-  const [link] = useState<{ token: string | null }>(() => {
+  const [signIn] = useState<string | null>(() => {
+    // The business's sign-in address (`#signin=<tenant>.<workspace>`) is not a credential; it is kept for this tab.
+    const found = parseSignInFragment(window.location.hash);
+    if (found) storeSignIn(sessionStore, found);
+    return found ?? readSignIn(sessionStore);
+  });
+  const [link, setLink] = useState<{ token: string | null }>(() => {
     const found = resolveToken(window.location.hash, sessionStore);
     if (found.fromFragment) {
       // The credential leaves the address bar before anything else happens (and so history and screenshots).
@@ -102,6 +109,13 @@ export function PortalApp() {
     if (found.token) { storeToken(sessionStore, found.token); p.setPortalToken(found.token); }
     return { token: found.token };
   });
+  const signedIn = useCallback((token: string) => {
+    storeToken(sessionStore, token); p.setPortalToken(token); setRevoked(null); setLink({ token });
+  }, []);
+  const signOut = useCallback(async () => {
+    try { await p.endSession(); } catch { /* the session is forgotten here either way */ }
+    storeToken(sessionStore, null); p.setPortalToken(null); setLink({ token: null });
+  }, []);
   const [section, setSection] = useState<Section>('overview');
   const [revoked, setRevoked] = useState<string | null>(null);
   const me = useLoad(() => p.getMe(), [link.token]);
@@ -112,17 +126,18 @@ export function PortalApp() {
   const onLinkLost = useCallback((message: string | null) => { storeToken(sessionStore, null); setRevoked(message ?? ''); }, []);
 
   let body: ReactNode;
-  if (!link.token) body = <LinkProblem message={t('pt.link.missing')} />;
-  else if (revoked !== null) body = <LinkProblem message={revoked || null} />;
+  if (!link.token) body = signIn ? <CodeSignIn workspace={signIn} onSignedIn={signedIn} /> : <LinkProblem message={t('pt.link.missing')} />;
+  else if (revoked !== null) body = signIn ? <CodeSignIn workspace={signIn} notice={revoked || null} onSignedIn={signedIn} /> : <LinkProblem message={revoked || null} />;
   else if (me.state.kind === 'loading') body = <Waiting what={t('pt.what.page')} />;
   else if (me.state.kind === 'error') {
-    if (problemKind(statusOf(me.state.error), detailOf(me.state.error)) === 'link') storeToken(sessionStore, null);
-    body = <Problem error={me.state.error} onRetry={me.reload} />;
+    const lost = problemKind(statusOf(me.state.error), detailOf(me.state.error)) === 'link';
+    if (lost) storeToken(sessionStore, null);
+    body = lost && signIn ? <CodeSignIn workspace={signIn} notice={detailOf(me.state.error)} onSignedIn={signedIn} /> : <Problem error={me.state.error} onRetry={me.reload} />;
   } else {
     const info = me.state.value;
     body = <>
       {!info.can_decide && <Notice live>{t('pt.readOnly')}</Notice>}
-      <ExpiryNotice expiresAt={info.expires_at} />
+      {info.signed_in_with !== 'code' && <ExpiryNotice expiresAt={info.expires_at} />}
       <nav className="settingsTabs ptTabs" aria-label={t('pt.sections')}>{SECTIONS.map((item) => <button key={item} type="button" aria-current={section === item ? 'page' : undefined} onClick={() => go(item)}>
         {t(`pt.tab.${item}`)}{badgeCount(item, info) > 0 && <span className="ptCount" aria-label={t('pt.waitingCount', { count: badgeCount(item, info) })}>{badgeCount(item, info)}</span>}</button>)}</nav>
       <main id="portal-main" ref={mainRef} tabIndex={-1} aria-label={t(`pt.tab.${section}`)}>
@@ -143,11 +158,74 @@ export function PortalApp() {
         <h1>{t('pt.title')}</h1>
         {info && <p className="muted" dir="auto">{t('pt.forWho', { contact: info.contact_name, account: info.account_name })}</p>}
       </div>
-      <LanguageSwitch />
+      <div className="ptHeaderEnd">
+        <LanguageSwitch />
+        {info?.signed_in_with === 'code' && link.token && <button type="button" className="secondary" onClick={() => void signOut()}><LogOut aria-hidden="true" />{t('pt.signin.signOut')}</button>}
+      </div>
     </header>
     {body}
     <footer className="ptFooter muted">{t('pt.footer')}</footer>
   </div>;
+}
+
+// ---- signing in with an emailed code (docs/business-portal.md#signing-in-with-an-emailed-code) ------------------
+
+/** The business's sign-in page: an email address, then the six-digit code sent to it. */
+function CodeSignIn({ workspace, notice, onSignedIn }: { workspace: string; notice?: string | null; onSignedIn: (token: string) => void }) {
+  const [email, setEmail] = useState(''), [code, setCode] = useState(''), [challenge, setChallenge] = useState<{ id: string; message: string } | null>(null);
+  const [busy, setBusy] = useState(false), [problem, setProblem] = useState<string | null>(null);
+  const emailId = useId(), codeId = useId(), hintId = useId();
+  const heading = useFocus<HTMLHeadingElement>(true);
+  const codeRef = useRef<HTMLInputElement>(null);
+  // The code field takes focus once the code step shows (and again after a new code is sent).
+  useEffect(() => { if (challenge) codeRef.current?.focus(); }, [challenge]);
+  const say = (error: unknown) => {
+    const status = statusOf(error);
+    setProblem(status === 0 || status === null ? t('pt.err.network') : status === 429 ? (detailOf(error) ?? t('pt.signin.limit'))
+      : status === 401 ? t('pt.signin.wrong') : detailOf(error) ?? t('pt.err.generic'));
+  };
+  async function ask(event?: FormEvent) {
+    event?.preventDefault();
+    if (!looksLikeEmail(email)) { setProblem(t('pt.signin.emailInvalid')); return; }
+    setBusy(true); setProblem(null);
+    try {
+      const answer = await p.requestCode(workspace, email.trim());
+      setChallenge({ id: answer.challenge_id, message: answer.message }); setCode('');
+    } catch (error) { say(error); } finally { setBusy(false); }
+  }
+  async function verify(event: FormEvent) {
+    event.preventDefault();
+    const clean = cleanCode(code);
+    if (!clean || !challenge) { setProblem(t('pt.signin.codeInvalid')); return; }
+    setBusy(true); setProblem(null);
+    try { onSignedIn((await p.verifyCode(workspace, challenge.id, clean)).token); } catch (error) { say(error); setBusy(false); }
+  }
+  return <section className="surface ptCard ptSignIn" aria-labelledby="pt-signin-h">
+    <Mail aria-hidden="true" />
+    <h1 id="pt-signin-h" ref={heading} tabIndex={-1}>{t('pt.signin.title')}</h1>
+    {notice && <Notice>{notice}</Notice>}
+    {!challenge ? <form onSubmit={(event) => void ask(event)} noValidate aria-describedby={hintId}>
+      <p id={hintId} className="muted">{t('pt.signin.help')}</p>
+      <label htmlFor={emailId}>{t('pt.signin.email')}</label>
+      <input id={emailId} type="email" autoComplete="email" inputMode="email" dir="ltr" value={email} maxLength={254} required
+        aria-invalid={problem === t('pt.signin.emailInvalid') || undefined} onChange={(event) => setEmail(event.target.value)} />
+      {problem && <Notice error>{problem}</Notice>}
+      <div className="actions"><button type="submit" disabled={busy}>{busy ? t('pt.signin.sending') : t('pt.signin.send')}</button></div>
+      <p className="muted">{t('pt.signin.linkInstead')}</p>
+    </form> : <form onSubmit={(event) => void verify(event)} noValidate>
+      <Notice live>{challenge.message}</Notice>
+      <label htmlFor={codeId}>{t('pt.signin.code')}</label>
+      <input id={codeId} ref={codeRef} className="ptCode" type="text" inputMode="numeric" autoComplete="one-time-code" dir="ltr" maxLength={9} value={code} required
+        aria-describedby={hintId} onChange={(event) => setCode(event.target.value)} />
+      <p id={hintId} className="muted">{t('pt.signin.codeHelp')}</p>
+      {problem && <Notice error>{problem}</Notice>}
+      <div className="actions">
+        <button type="submit" disabled={busy}>{busy ? t('pt.signin.checking') : t('pt.signin.signIn')}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => void ask()}>{t('pt.signin.again')}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => { setChallenge(null); setProblem(null); }}>{t('pt.signin.other')}</button>
+      </div>
+    </form>}
+  </section>;
 }
 
 function badgeCount(section: Section, me: PortalMe): number {
@@ -490,6 +568,8 @@ function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => v
     </section>
     {invoice.payments.length > 0 && <section className="ptBlock"><h3>{t('pt.invoices.payments')}</h3>
       <ul className="ptPlain">{invoice.payments.map((payment, index) => <li key={index}><strong>{money(payment.amount, c)}</strong> {date(payment.paid_on)} / {methodLabel(payment.method)}{payment.reference ? ` / ${payment.reference}` : ''}</li>)}</ul></section>}
+    {(invoice.refunds ?? []).length > 0 && <section className="ptBlock"><h3>{t('pt.invoices.refunds')}</h3>
+      <ul className="ptPlain">{(invoice.refunds ?? []).map((item, index) => <li key={index}><strong>{money(item.amount, c)}</strong> {t('pt.invoices.refundLine', { date: date(item.refunded_on) })}</li>)}</ul></section>}
     {invoice.credit_notes.length > 0 && <section className="ptBlock"><h3>{t('pt.invoices.creditNotes')}</h3>
       <ul className="ptPlain">{invoice.credit_notes.map((item) => <li key={item.number}><strong>{money(item.amount, c)}</strong> <span dir="auto">{t('pt.invoices.creditNoteLine', { number: item.number, date: date(item.issue_date) })}</span>{item.status === 'void' && <> <Badge tone="dangerTone">{t('pt.invoices.creditVoid')}</Badge></>}
         <small className="muted" dir="auto"> {item.reason}</small></li>)}</ul></section>}

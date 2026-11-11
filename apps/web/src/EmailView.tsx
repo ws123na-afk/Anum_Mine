@@ -36,6 +36,7 @@ import { publishMailUnread } from './lib/mailUnread';
 import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
 import { MailAssist } from './MailAssist';
+import { SaveAsPurchaseButton } from './MailSaveAsPurchase';
 import { MailListTools, RowLabels, useMailLabels } from './MailListAi';
 import { DeleteApproval, MailBulkBar, MailSearchBar, StarButton, SyncStatus, actionDone, actionLabel, useMailShortcuts, useMailSync } from './MailActions';
 import { ForwardingRulesPanel, RetentionPanel, RulesOwnerOnly } from './MailAutomation';
@@ -530,6 +531,7 @@ export function Reader({ account, folder, uid, message, canAct, busy, moves, onB
       ? <iframe className="mailFrame" title={t('mail.reader.frameTitle')} sandbox="allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" srcDoc={doc} />
       : <div className="mailText" dir="auto">{detail.text}</div>}
     {detail.text_truncated && <p className="muted mailSmall">{t('mail.reader.truncated')}</p>}
+    <SaveAsPurchaseButton accountId={account.id} folder={folder.id} uid={uid} attachments={detail.attachments} />
     {detail.attachments.length > 0 && <section className="mailFiles" aria-label={t('mail.reader.attachments')}><h3>{t('mail.reader.attachments')}</h3><ul>{detail.attachments.map((a) => <li key={a.index}>
       {a.downloadable
         ? <button type="button" className="secondary" onClick={() => { setFileNote(null); downloadMailAttachment(account.id, folder.id, uid, a.index, a.filename).catch((e) => setFileNote({ text: mailError(e), error: true })); }}><Download aria-hidden="true" /><span dir="auto">{a.filename}</span> <small>{formatBytes(a.size)}</small></button>

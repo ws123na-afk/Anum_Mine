@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import type { PurchaseDueItem, PurchaseMoneyLink } from '@anum/contracts';
 import {
   decimal, dueText, filterLabel, hashForTab, linesTotal, linkState, linkText, moneyList, newKey, purchaseName, refundLeft, returnStatusLabel, shipmentLabel,
-  statusLabel, statusTone, tabFromHash,
+  openFromHash, purchaseHref, receiptChoices, statusLabel, statusTone, tabFromHash,
 } from '../src/lib/purchases.ts';
 import { guideFor } from '../src/lib/iphoneIntegrations.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -110,5 +110,30 @@ describe('purchase helpers', () => {
     }
     for (const text of [...Object.values(purchasesEn), ...Object.values(purchasesAr)]) assert.ok(!/[–—]/.test(JSON.stringify(text)));
     assert.match(purchasesEn['pur.noPosting'], /never income/);
+  });
+});
+
+describe('save as purchase from the Email Center', () => {
+  test('a link opens one purchase and keeps the tab', () => {
+    assert.equal(purchaseHref('pur_1'), '#purchases?open=pur_1');
+    assert.equal(openFromHash(purchaseHref('pur_1')), 'pur_1');
+    assert.equal(tabFromHash(purchaseHref('pur_1')), 'overview');
+    assert.equal(openFromHash('#purchases'), null);
+    assert.equal(openFromHash('#purchases?open=<script>'), null);
+  });
+  test('receipt choices: downloadable files only, PDFs then images first', () => {
+    const files = [
+      { index: 0, filename: 'logo.gif', size: 10, downloadable: true },
+      { index: 1, filename: 'photo.JPG', size: 10, downloadable: true },
+      { index: 2, filename: 'invoice.pdf', size: 10, downloadable: true },
+      { index: 3, filename: 'huge.pdf', size: 10, downloadable: false },
+    ];
+    assert.deepEqual(receiptChoices(files).map((item) => item.index), [2, 1, 0]);
+    assert.deepEqual(receiptChoices([]), []);
+  });
+  test('every Save as purchase message is in English and Arabic', () => {
+    const keys = Object.keys(purchasesEn).filter((key) => key.startsWith('mailp.'));
+    assert.ok(keys.length >= 10);
+    for (const key of keys) assert.ok((purchasesAr as Record<string, string>)[key], key);
   });
 });

@@ -48,6 +48,7 @@ interface Options {
 
 export async function mockInvoices(page: Page, options: Options = {}): Promise<InvoicesMock> {
   const role = options.role ?? 'owner';
+  const signIn = { enabled: false, email_configured: true, sign_in_path: '/portal#signin=tenant_local.workspace_foundation', codes_last_30_days: 0, sign_ins_last_30_days: 0 };
   await mockBusiness(page, { role });
   const invoices: Json[] = [];
   const profile: Json = { ...PROFILE };
@@ -212,6 +213,11 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
         return json(found);
       }
       if (parts[1] === 'decisions') return json(decisions);
+      if (parts[1] === 'sign-in') {
+        // The workspace's emailed code sign-in switch (docs/business-portal.md#signing-in-with-an-emailed-code).
+        if (method === 'PUT') { if (role !== 'owner') return denied(); signIn.enabled = Boolean(body.enabled); }
+        return json(signIn);
+      }
     }
 
     if (options.listStatus === 403 && parts[0] === 'invoices') return denied("Business is for workspace owners and members: it holds contacts' personal data. Ask an owner to make you a member.");

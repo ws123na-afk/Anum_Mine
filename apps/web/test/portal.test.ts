@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import {
   accessLabel, accessState, buildPortalLink, checkSigner, confirmText, decisionLine, expiryState, invoiceStatusText, invoiceStatusTone, isPortalPath, parseAccessFragment,
   problemKind, readStoredToken, resolveToken, storeToken, ticketStatusLabel, waitingTotal, withoutFragment, PORTAL_STORAGE_KEY,
+  cleanCode, looksLikeEmail, parseSignInFragment, readSignIn, storeSignIn,
 } from '../src/lib/portal.ts';
 import { setLocale } from '../src/lib/i18n.ts';
 
@@ -137,5 +138,33 @@ describe('owner view of the portal', () => {
     assert.equal(accessState({ status: 'active', expired: true }), 'expired');
     assert.equal(accessState({ status: 'revoked', expired: false }), 'revoked');
     assert.equal(accessLabel('revoked'), 'Turned off');
+  });
+});
+
+describe('signing in with an emailed code', () => {
+  test('the sign-in address names the workspace, never a credential', () => {
+    assert.equal(parseSignInFragment('#signin=tenant_a.ws_b'), 'tenant_a.ws_b');
+    assert.equal(parseSignInFragment('#signin=tenant_a'), null);
+    assert.equal(parseSignInFragment('#signin=a.b.c'), null);
+    assert.equal(parseSignInFragment('#access=anum_portal.a.b.c.' + 'x'.repeat(30)), null);
+    assert.equal(resolveToken('#signin=tenant_a.ws_b', null).fromFragment, false);
+  });
+  test('the sign-in address is kept for the tab', () => {
+    const held = new Map<string, string>();
+    const store = { getItem: (key: string) => held.get(key) ?? null, setItem: (key: string, value: string) => { held.set(key, value); }, removeItem: (key: string) => { held.delete(key); } };
+    assert.equal(readSignIn(store), null);
+    storeSignIn(store, 'tenant_a.ws_b');
+    assert.equal(readSignIn(store), 'tenant_a.ws_b');
+    held.set('anum.portal.signin', 'not valid');
+    assert.equal(readSignIn(store), null);
+  });
+  test('codes and addresses as typed', () => {
+    assert.equal(cleanCode(' 123 456 '), '123456');
+    assert.equal(cleanCode('123-456'), '123456');
+    assert.equal(cleanCode('12345'), null);
+    assert.equal(cleanCode('12345a'), null);
+    assert.ok(looksLikeEmail(' sara@client.example '));
+    assert.ok(!looksLikeEmail('sara@client'));
+    assert.ok(!looksLikeEmail('sara client@x.com'));
   });
 });

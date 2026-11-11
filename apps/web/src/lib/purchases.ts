@@ -21,6 +21,24 @@ export function tabFromHash(hash: string): PurchaseTab {
   return (PURCHASE_TABS as readonly string[]).includes(tab) ? (tab as PurchaseTab) : 'overview';
 }
 
+/** The purchase a link asks to open (`#purchases?open=<id>`, from Save as purchase in the Email Center), or null. */
+export function openFromHash(hash: string): string | null {
+  const query = hash.replace(/^#/, '').split('?')[1] ?? '';
+  const value = new URLSearchParams(query).get('open');
+  return value && /^[A-Za-z0-9_.:-]{1,80}$/.test(value) ? value : null;
+}
+
+export interface MailAttachmentChoice { index: number; filename: string; size: number; downloadable: boolean }
+
+/** A message's attachments worth offering as a purchase's receipt: ones ANUM can download, PDFs then images first. */
+export function receiptChoices(attachments: readonly MailAttachmentChoice[]): MailAttachmentChoice[] {
+  const rank = (name: string) => (/\.pdf$/i.test(name) ? 0 : /\.(png|jpe?g|webp|heic)$/i.test(name) ? 1 : 2);
+  return attachments.filter((item) => item.downloadable).sort((a, b) => rank(a.filename) - rank(b.filename) || a.index - b.index);
+}
+
+/** The address of one purchase, opened in the Purchases drawer. */
+export const purchaseHref = (purchaseId: string) => `#purchases?open=${encodeURIComponent(purchaseId)}`;
+
 export function hashForTab(tab: PurchaseTab): string {
   return tab === 'overview' ? '#purchases' : `#purchases-${tab}`;
 }

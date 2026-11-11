@@ -3,7 +3,7 @@
 import type {
   FinanceAccount, PurchaseCashInput, PurchaseDetail, PurchaseEvent, PurchaseFilter, PurchaseInput, PurchaseLinkInput, PurchaseMoveInput,
   PurchaseListFilters, PurchaseOverview, PurchasePage, PurchasePatch, PurchaseShareResult, PurchasePaymentCandidate, PurchasePaymentResult, PurchasePreferences, PurchaseRefundResult,
-  PurchaseReturn, PurchaseReturnInput, PurchaseReturnPatch, PurchaseShipment, PurchaseShipmentInput, Purchase,
+  PurchaseReturn, PurchaseReturnInput, PurchaseReturnPatch, PurchaseShipment, PurchaseShipmentInput, Purchase, PurchaseFromMailInput, PurchaseFromMailResult,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -34,6 +34,8 @@ export const merchants = () => get<{ items: string[] }>('/merchants');
 /** Import order: the pasted order or delivery message, read by the same fixed patterns as the iPhone Shortcut (never a model). */
 export const importOrder = (text: string, key: string, ownership: 'personal' | 'business' = 'personal') =>
   send<PurchaseShareResult>('POST', '/device/share', { action: 'save', text, idempotency_key: key, ownership });
+/** Save an Email Center message as a purchase draft, with one attachment kept as its receipt (docs/purchases.md#save-as-purchase-from-the-email-center). */
+export const saveMailAsPurchase = (body: PurchaseFromMailInput) => send<PurchaseFromMailResult>('POST', '/from-mail', body);
 export const getPurchase = (purchaseId: string) => get<PurchaseDetail>(`/${id(purchaseId)}`);
 export const createPurchase = (body: PurchaseInput, key: string) => send<PurchaseDetail & { replayed: boolean }>('POST', '', body, key);
 export const updatePurchase = (purchaseId: string, body: PurchasePatch) => send<PurchaseDetail>('PATCH', `/${id(purchaseId)}`, body);
