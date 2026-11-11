@@ -16,6 +16,7 @@ import 'journeys/calls.dart';
 import 'journeys/chat.dart';
 import 'journeys/email.dart';
 import 'journeys/files.dart';
+import 'journeys/notifications_favorites.dart';
 import 'journeys/session.dart';
 import 'journeys/settings_language.dart';
 import 'journeys/task_approval.dart';
@@ -30,4 +31,5 @@ void main() {
   settingsLanguageJourneys();
   sessionJourneys();
   filesJourneys();
+  notificationsFavoritesJourneys();
 }
