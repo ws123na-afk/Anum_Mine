@@ -111,6 +111,8 @@ STEPS: tuple[tuple[str, str, str, bool], ...] = (
     ("documents", ".vault.jobs", "run", False),
     ("vehicles", ".vehicles.jobs", "run", False),  # docs/vehicles.md#reminders
     ("purchases", ".purchases.jobs", "run", False),  # docs/purchases.md#reminders
+    # The Contacts directory: link new Phone calls, Business and WhatsApp contacts (docs/contacts.md#the-directory-build).
+    ("contacts", ".contacts.jobs", "run", True),
     # Business books: automatic ECB rates and recurring bills (docs/business-books.md#daily-job).
     ("business_books", ".business.books_jobs", "run", False),
     # The weekly Money advisor note (docs/finance.md#money-advisor): in-app notice and phone push, never email.

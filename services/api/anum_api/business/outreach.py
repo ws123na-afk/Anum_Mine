@@ -166,6 +166,14 @@ def gate(context: TenantContext, store: BusinessStore, draft: Draft, lead: Lead,
     block = contact_block(context, contact, bool(account and account.do_not_contact))
     if block:
         issues.append(block)
+    if expected is not None:
+        # The Contacts directory's do-not-contact mark for the draft's channel (docs/contacts.md#enforcement).
+        from ..contacts.models import Channel as ContactChannel
+        from ..contacts.service import do_not_contact_block
+
+        directory = do_not_contact_block(context, ContactChannel(channel), expected)
+        if directory:
+            issues.append(directory)
     if lead.state in STOP_STATES:
         issues.append(f"The lead is {lead.state.value}: outreach to it has stopped.")
     elif lead.state not in SENDABLE_STATES:

@@ -1134,6 +1134,12 @@ def send_draft(
         check_ready_to_send(draft)
     except MailError as exc:
         raise _http(exc) from None
+    # The Contacts directory's do-not-contact mark for e-mail (docs/contacts.md#enforcement): 409 with the reason.
+    from ..contacts.models import Channel as ContactChannel
+    from ..contacts.service import refuse_if_blocked
+
+    for address in [*draft.to, *draft.cc, *draft.bcc]:
+        refuse_if_blocked(context, ContactChannel.EMAIL, address)
     # A scheduled message is counted when it goes (the scheduler checks the limit then).
     with open_mail_store(context) as store:
         if send_at is None and store.count_sends_since(account.id, utc_now() - timedelta(hours=1)) >= mail_settings.send_per_hour:

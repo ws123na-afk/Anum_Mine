@@ -229,6 +229,13 @@ def check_ai_call(store: CallsStore, context: TenantContext, contact: CallContac
         return f"{contact.name} has no recorded consent to calls from the AI assistant. ANUM never makes AI cold calls."
     if opted_out(store, context, contact.phone_normalized) is not None:
         return f"{contact.name} asked not to be called by the AI assistant; the opt-out is honoured."
+    # The Contacts directory's workspace-wide do-not-contact mark (docs/contacts.md#enforcement).
+    from ..contacts.models import Channel
+    from ..contacts.service import do_not_contact_block
+
+    blocked = do_not_contact_block(context, Channel.PHONE, contact.phone_normalized)
+    if blocked:
+        return blocked
     longest, dearest = ai_caps(account)
     if max_seconds > longest:
         return f"An AI call may last at most {longest} seconds in this workspace."

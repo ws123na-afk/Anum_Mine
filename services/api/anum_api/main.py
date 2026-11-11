@@ -250,6 +250,7 @@ from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .suppression import router as suppression_router
 from .contact_consent import router as contact_consent_router
+from .contacts.api import router as contacts_router
 from .approval_reminders import router as approval_reminders_router
 from .agent_loop_limits import router as agent_loop_limits_router
 from .action_browser.api import router as action_browser_router
@@ -519,6 +520,7 @@ app.include_router(phase5_router)
 app.include_router(governance_router)
 app.include_router(suppression_router)
 app.include_router(contact_consent_router)
+app.include_router(contacts_router)
 app.include_router(approval_reminders_router)
 app.include_router(automation_router)
 # Folders, tags and bulk actions first: their fixed paths must never be read as a file id.

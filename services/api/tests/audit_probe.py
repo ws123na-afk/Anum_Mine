@@ -49,6 +49,7 @@ MODULE_PREFIXES = {
     "mail_ai": "/api/v1/mail/ai",
     "whatsapp": "/api/v1/whatsapp",
     "contact_consents": "/api/v1/contact-consents",
+    "contacts": "/api/v1/contacts",
     "approval_reminders": "/api/v1/approval-reminders",
 }
 _CALL_WEBHOOK = (

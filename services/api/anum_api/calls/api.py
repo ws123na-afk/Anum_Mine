@@ -1015,6 +1015,11 @@ def prepare_browser_call(payload: BrowserCallCreate, context: TenantContext = De
         number = international(raw or "")
         if number is None:
             raise HTTPException(status_code=422, detail="Provider calls need a full international number, for example +971501234567.")
+        from ..contacts.models import Channel as ContactChannel
+        from ..contacts.service import refuse_if_blocked
+
+        # The Contacts directory's do-not-contact mark for phone (docs/contacts.md#enforcement): 409 with the reason.
+        refuse_if_blocked(context, ContactChannel.PHONE, number)
         consent = None
         if payload.record:
             consent = RecordingConsent(
