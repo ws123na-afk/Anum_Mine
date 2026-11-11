@@ -17,6 +17,9 @@ abstract interface class GovernanceRepository {
   Future<void> installPackage(String id);
   Future<void> uninstallPackage(String id);
   Future<RoutingTarget> updateTarget(RoutingTarget target);
+
+  /// Measures the target with this workspace's model configuration (POST .../probe).
+  Future<RoutingTarget> probeTarget(String id);
   Future<void> exportAudit(String format);
 }
 

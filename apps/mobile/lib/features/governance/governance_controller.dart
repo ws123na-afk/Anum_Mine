@@ -49,6 +49,7 @@ class GovernanceController extends ChangeNotifier {
       _act(() => repository.uninstallPackage(id));
   Future<void> updateTarget(RoutingTarget value) =>
       _act(() => repository.updateTarget(value));
+  Future<void> probeTarget(String id) => _act(() => repository.probeTarget(id));
   Future<void> exportAudit(String format) =>
       _act(() => repository.exportAudit(format), reload: false);
   Future<void> _act(Future<Object?> Function() action,
