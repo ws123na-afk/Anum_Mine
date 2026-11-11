@@ -33,9 +33,9 @@ AnumTone _severityTone(String severity) => switch (severity) {
 String _issueLine(BuildContext context, ReconIssue issue, String currency) {
   final m = FinanceMoreStrings.of(context);
   return [
-    if (issue.postedOn != null) issue.postedOn!,
+    if (issue.postedOn != null) ltrValue(context, issue.postedOn!),
     if (issue.postedOn == null && issue.month != null)
-      m.t('recon.missingMonth', {'month': issue.month!}),
+      m.t('recon.missingMonth', {'month': ltrValue(context, issue.month!)}),
     if (issue.amount != null && currency.isNotEmpty)
       formatAmount(issue.amount!, currency),
     if (issue.description != null && issue.description!.isNotEmpty)
@@ -169,8 +169,10 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
               subtitle: [
                 item.accountName,
                 if (item.periodStart != null && item.periodEnd != null)
-                  m.t('recon.period',
-                      {'start': item.periodStart!, 'end': item.periodEnd!}),
+                  m.t('recon.period', {
+                    'start': ltrValue(context, item.periodStart!),
+                    'end': ltrValue(context, item.periodEnd!)
+                  }),
               ].join(' · '),
               detail: [
                 m.t('recon.severity.${item.issue.severity}'),
@@ -218,8 +220,10 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                   : Icons.account_balance_outlined,
               tone: reconTone(s),
               title: s.accountName,
-              subtitle: m.t(
-                  'recon.period', {'start': s.periodStart, 'end': s.periodEnd}),
+              subtitle: m.t('recon.period', {
+                'start': ltrValue(context, s.periodStart),
+                'end': ltrValue(context, s.periodEnd)
+              }),
               detail: [
                 m.t('recon.status.${s.label}'),
                 if (!s.canComplete && s.open)
@@ -374,8 +378,8 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
         title: m.t('recon.delete.title'),
         message: m.t('recon.delete.text', {
           'account': d.row.accountName,
-          'start': d.row.periodStart,
-          'end': d.row.periodEnd,
+          'start': ltrValue(context, d.row.periodStart),
+          'end': ltrValue(context, d.row.periodEnd),
         }),
         action: m.t('recon.delete'));
     if (!ok || !mounted) return;
@@ -416,8 +420,10 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
     String money(String? v) => v == null ? '-' : formatAmount(v, c);
     return [
       AnumHeader(
-        title: m.t('recon.period',
-            {'start': d.row.periodStart, 'end': d.row.periodEnd}),
+        title: m.t('recon.period', {
+          'start': ltrValue(context, d.row.periodStart),
+          'end': ltrValue(context, d.row.periodEnd),
+        }),
         subtitle: d.row.accountName,
       ),
       Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xxs, children: [

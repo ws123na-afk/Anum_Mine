@@ -331,15 +331,16 @@ class _SalaryProfileScreenState extends State<SalaryProfileScreen> {
                       ? m.t('sal.rule.advance', {
                           'total': money(rule.total ?? '0'),
                           'amount': money(rule.amount),
-                          'starts': rule.starts,
+                          'starts': ltrValue(context, rule.starts),
                         })
                       : m.t('sal.rule.deduction', {
                             'amount': money(rule.amount),
-                            'starts': rule.starts,
+                            'starts': ltrValue(context, rule.starts),
                           }) +
                           (rule.ends == null
                               ? ''
-                              : m.t('sal.rule.until', {'ends': rule.ends!})),
+                              : m.t('sal.rule.until',
+                                  {'ends': ltrValue(context, rule.ends!)})),
                   detail: rule.advance && p.advancesLeft[rule.id] != null
                       ? m.t('sal.rule.left',
                           {'amount': money(p.advancesLeft[rule.id]!)})

@@ -170,7 +170,7 @@ class _FixedAssetsScreenState extends State<FixedAssetsScreen> {
                 title: a.name,
                 subtitle: [
                   x.t('asset.acquired',
-                      {'date': recordsDate(context, a.acquiredOn)}),
+                      {'date': recordsYearDate(context, a.acquiredOn)}),
                   x.t('asset.method.${a.method}'),
                   if (a.disposed) x.t('asset.disposed'),
                   if (!a.sourceLive) x.t('asset.sourceVoided'),
@@ -191,8 +191,8 @@ class _FixedAssetsScreenState extends State<FixedAssetsScreen> {
                 RecordsSection(
                   key: Key('assets-roll-${roll['currency']}'),
                   title: '${x.t('asset.roll', {
-                        'from': register.from,
-                        'to': register.to
+                        'from': ltrValue(context, register.from),
+                        'to': ltrValue(context, register.to)
                       })} · ${roll['currency']}',
                   children: [
                     for (final key in const [
@@ -462,21 +462,21 @@ class _AssetScreenState extends State<AssetScreen> {
       RecordsSection(title: a.name, children: [
         RecordsField(x.t('asset.f.cost'), m(a.cost)),
         RecordsField(
-            x.t('asset.f.acquired'), recordsDate(context, a.acquiredOn)),
+            x.t('asset.f.acquired'), recordsYearDate(context, a.acquiredOn)),
         RecordsField(x.t('asset.f.method'), x.t('asset.method.${a.method}')),
         if (a.ratePct != null) RecordsField(x.t('asset.f.rate'), a.ratePct),
         RecordsField(x.t('asset.life'),
             a.usefulLifeMonths?.toString() ?? x.t('asset.noLife')),
         RecordsField(x.t('asset.f.residual'), m(a.residualValue)),
-        RecordsField(
-            x.t('asset.f.start'), recordsDate(context, a.depreciationStart)),
+        RecordsField(x.t('asset.f.start'),
+            recordsYearDate(context, a.depreciationStart)),
         RecordsField(x.t('asset.f.accumulated'), m(a.accumulated)),
         RecordsField(x.t('asset.f.impairment'), m(a.impairment)),
         RecordsField(x.t('asset.f.nbv'), m(a.netBookValue)),
         Text(x.t('asset.f.source.${a.sourceKind}'), style: muted),
         if (a.disposed) ...[
           RecordsField(x.t('asset.f.disposedOn'),
-              '${recordsDate(context, a.disposedOn)} · ${x.t('asset.kind.${a.disposalKind ?? 'sale'}')}'),
+              '${recordsYearDate(context, a.disposedOn)} · ${x.t('asset.kind.${a.disposalKind ?? 'sale'}')}'),
           if (a.proceeds != null)
             RecordsField(x.t('asset.f.proceeds'), m(a.proceeds!)),
           if (a.gainOrLoss != null)
@@ -504,7 +504,7 @@ class _AssetScreenState extends State<AssetScreen> {
                           ? AnumTone.ok
                           : AnumTone.neutral,
                   title:
-                      '${recordsDate(context, imp.entryDate)} · ${m(imp.amount)}',
+                      '${recordsYearDate(context, imp.entryDate)} · ${m(imp.amount)}',
                   subtitle: x.t('asset.impStatus.${imp.status}'),
                   detail: [
                     imp.reason,
@@ -543,8 +543,10 @@ class _AssetScreenState extends State<AssetScreen> {
               AnumRow(
                 icon: Icons.event_outlined,
                 tone: row.state == 'scheduled' ? null : AnumTone.ok,
-                title: x.t('asset.month',
-                    {'month': row.month, 'amount': m(row.amount)}),
+                title: x.t('asset.month', {
+                  'month': ltrValue(context, row.month),
+                  'amount': m(row.amount)
+                }),
                 subtitle: x.t('asset.state.${row.state}'),
                 detail:
                     x.t('asset.accumulated', {'amount': m(row.accumulated)}),
@@ -739,7 +741,7 @@ class _BookLoansScreenState extends State<BookLoansScreen> {
                       if (l.nextDue != null && l.nextPayment != null)
                         x.t('loan.next', {
                           'amount': _money(context, l.nextPayment!, l.currency),
-                          'date': recordsDate(context, l.nextDue),
+                          'date': recordsYearDate(context, l.nextDue),
                         }),
                     ].join(' · '),
               trailing: const Icon(Icons.chevron_right),
@@ -892,7 +894,7 @@ class _BookLoanScreenState extends State<BookLoanScreen> {
       RecordsSection(title: x.t('loan.terms'), children: [
         RecordsField(x.t('loan.principal'), m(l.principal)),
         RecordsField(x.t('loan.rate'), '${l.annualRate}%'),
-        RecordsField(x.t('loan.start'), recordsDate(context, l.startDate)),
+        RecordsField(x.t('loan.start'), recordsYearDate(context, l.startDate)),
         RecordsField(x.t('loan.term'), '${l.termMonths}'),
         RecordsField(
             x.t('loan.frequency'), x.t('loan.frequency.${l.frequency}')),
@@ -900,7 +902,8 @@ class _BookLoanScreenState extends State<BookLoanScreen> {
         RecordsField(x.t('loan.early'), x.t('loan.early.${l.earlyRepayment}')),
         if (l.payment != null) RecordsField(x.t('loan.payment'), m(l.payment!)),
         RecordsField(x.t('loan.periods'), '${l.periods}'),
-        RecordsField(x.t('loan.maturity'), recordsDate(context, l.maturity)),
+        RecordsField(
+            x.t('loan.maturity'), recordsYearDate(context, l.maturity)),
         if (!l.voided) ...[
           RecordsField(
               x.t('loan.left', {'amount': ''}).trim(), m(l.outstanding)),
@@ -922,7 +925,8 @@ class _BookLoanScreenState extends State<BookLoanScreen> {
                   key: Key('brepay-${r.id}'),
                   icon: Icons.payments_outlined,
                   tone: r.active ? AnumTone.ok : AnumTone.neutral,
-                  title: '${recordsDate(context, r.paidOn)} · ${m(r.amount)}',
+                  title:
+                      '${recordsYearDate(context, r.paidOn)} · ${m(r.amount)}',
                   subtitle: r.active
                       ? x.t('loan.repaymentSplit', {
                           'interest': m(r.interest),
@@ -957,7 +961,7 @@ class _BookLoanScreenState extends State<BookLoanScreen> {
                 },
                 title: x.t('loan.row', {
                   'n': row.number,
-                  'date': recordsDate(context, row.due),
+                  'date': recordsYearDate(context, row.due),
                   'amount': m(row.payment),
                 }),
                 subtitle: x.t('loan.state.${row.state}'),
@@ -1170,65 +1174,70 @@ class _ManualEntryFormScreenState extends State<ManualEntryFormScreen> {
             decoration: InputDecoration(labelText: x.t('je.description')),
           ),
           for (final (i, line) in _lines.indexed)
-            AnumSurface(
-              key: Key('je-line-$i'),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(children: [
-                    Expanded(
-                      child: Text(x.t('je.line', {'n': i + 1}),
-                          style: Theme.of(context).textTheme.titleSmall),
-                    ),
-                    if (_lines.length > 2)
-                      IconButton(
-                        key: Key('je-remove-$i'),
-                        tooltip: x.t('je.removeLine', {'n': i + 1}),
-                        icon: const Icon(Icons.close),
-                        onPressed: () => setState(() {
-                          _lines.removeAt(i).dispose();
-                        }),
+            KeyedSubtree(
+              // Each line keeps its own field state when another is removed.
+              key: ObjectKey(line),
+              child: AnumSurface(
+                key: Key('je-line-$i'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(children: [
+                      Expanded(
+                        child: Text(x.t('je.line', {'n': i + 1}),
+                            style: Theme.of(context).textTheme.titleSmall),
                       ),
-                  ]),
-                  DropdownButtonFormField<String>(
-                    key: Key('je-account-$i'),
-                    initialValue: line.account,
-                    isExpanded: true,
-                    decoration: InputDecoration(labelText: x.t('je.account')),
-                    items: [
-                      for (final a in _accounts)
-                        DropdownMenuItem(
-                            value: a.id,
-                            child:
-                                Text(a.label, overflow: TextOverflow.ellipsis)),
-                    ],
-                    onChanged: (id) => setState(() => line.account = id),
-                  ),
-                  Wrap(
-                    spacing: AnumSpacing.sm,
-                    runSpacing: AnumSpacing.xs,
-                    children: [
-                      for (final (name, controller) in [
-                        ('debit', line.debit),
-                        ('credit', line.credit)
-                      ])
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(
-                              minWidth: 120, maxWidth: 220),
-                          child: TextField(
-                            key: Key('je-$name-$i'),
-                            controller: controller,
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                            onChanged: (_) => setState(() {}),
-                            decoration: InputDecoration(
-                                labelText:
-                                    '${x.t('je.$name')} (${widget.currency})'),
-                          ),
+                      if (_lines.length > 2)
+                        IconButton(
+                          key: Key('je-remove-$i'),
+                          tooltip: x.t('je.removeLine', {'n': i + 1}),
+                          icon: const Icon(Icons.close),
+                          onPressed: () => setState(() {
+                            _lines.removeAt(i).dispose();
+                          }),
                         ),
-                    ],
-                  ),
-                ],
+                    ]),
+                    DropdownButtonFormField<String>(
+                      key: Key('je-account-$i'),
+                      initialValue: line.account,
+                      isExpanded: true,
+                      decoration: InputDecoration(labelText: x.t('je.account')),
+                      items: [
+                        for (final a in _accounts)
+                          DropdownMenuItem(
+                              value: a.id,
+                              child: Text(a.label,
+                                  overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (id) => setState(() => line.account = id),
+                    ),
+                    Wrap(
+                      spacing: AnumSpacing.sm,
+                      runSpacing: AnumSpacing.xs,
+                      children: [
+                        for (final (name, controller) in [
+                          ('debit', line.debit),
+                          ('credit', line.credit)
+                        ])
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(
+                                minWidth: 120, maxWidth: 220),
+                            child: TextField(
+                              key: Key('je-$name-$i'),
+                              controller: controller,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                  labelText:
+                                      '${x.t('je.$name')} (${widget.currency})'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           Align(

@@ -155,7 +155,8 @@ class _AdvisorScreenState extends State<AdvisorScreen> {
                 key: Key('adv-past-${row.id}'),
                 icon: Icons.event_note_outlined,
                 tone: row.urgent > 0 ? AnumTone.warn : null,
-                title: m.t('adv.weekOf', {'date': row.weekStart}),
+                title: m.t(
+                    'adv.weekOf', {'date': ltrValue(context, row.weekStart)}),
                 subtitle: [
                   m.t('adv.past.row',
                       {'actions': row.actions, 'urgent': row.urgent}),
@@ -213,7 +214,7 @@ class _AdvisorScreenState extends State<AdvisorScreen> {
         const SizedBox(height: AnumSpacing.xs),
         Text(
             o.settings.enabled && o.nextNoteOn != null
-                ? m.t('adv.next', {'date': o.nextNoteOn!})
+                ? m.t('adv.next', {'date': ltrValue(context, o.nextNoteOn!)})
                 : m.t('adv.off'),
             style: muted),
         const SizedBox(height: AnumSpacing.xs),
@@ -240,7 +241,7 @@ class AdvisorNoteView {
     final muted = TextStyle(color: p.muted);
     return [
       AnumHeader(
-          title: m.t('adv.weekOf', {'date': note.weekStart}),
+          title: m.t('adv.weekOf', {'date': ltrValue(context, note.weekStart)}),
           subtitle: note.notice(arabic).isEmpty ? null : note.notice(arabic)),
       AnumHeader(title: m.t('adv.actions')),
       if (note.actions.isEmpty)
@@ -297,8 +298,10 @@ class AdvisorNoteView {
                   ? m.t('adv.scenario.never')
                   : s.runsOutOn == null
                       ? m.t('adv.scenario.daysOnly', {'days': m.days(s.days!)})
-                      : m.t('adv.scenario.days',
-                          {'days': m.days(s.days!), 'date': s.runsOutOn!}),
+                      : m.t('adv.scenario.days', {
+                          'days': m.days(s.days!),
+                          'date': ltrValue(context, s.runsOutOn!)
+                        }),
               detail:
                   m.t('adv.scenario.perMonth', {'amount': money(s.monthly)}),
             ),
@@ -358,8 +361,10 @@ class AdvisorNoteView {
         if (card.available != null)
           Text(m.t('adv.card.available', {'amount': money(card.available!)})),
         if (card.minimum != null)
-          Text(m.t('adv.card.minimum',
-              {'amount': money(card.minimum!), 'date': card.dueOn ?? '-'})),
+          Text(m.t('adv.card.minimum', {
+            'amount': money(card.minimum!),
+            'date': ltrValue(context, card.dueOn ?? '-')
+          })),
         if (card.interestIfMinimum != null)
           Text(m.t(
               'adv.card.interest', {'amount': money(card.interestIfMinimum!)})),

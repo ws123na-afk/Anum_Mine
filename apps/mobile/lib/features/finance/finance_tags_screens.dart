@@ -125,7 +125,7 @@ class _FxBalancesScreenState extends State<FxBalancesScreen> {
                   Text(
                       m.t('fx.rate', {
                         'rate': row.rate!,
-                        'date': row.rateAsOf ?? '-',
+                        'date': ltrValue(context, row.rateAsOf ?? '-'),
                         'source': row.rateSource ?? '-',
                       }),
                       style: muted),
@@ -134,14 +134,19 @@ class _FxBalancesScreenState extends State<FxBalancesScreen> {
                       m.t('fx.st.${row.status}', {
                         'currency': row.currency,
                         'base': base,
-                        'dates': row.missingRateDates.take(5).join(', '),
+                        'dates': ltrValue(
+                            context, row.missingRateDates.take(5).join(', ')),
                       }),
                       style: TextStyle(color: p.warn)),
               ],
             ),
           ),
       ],
-      Text(m.t('fx.asOf', {'date': page.asOf, 'days': page.rateMaxAgeDays}),
+      Text(
+          m.t('fx.asOf', {
+            'date': ltrValue(context, page.asOf),
+            'days': page.rateMaxAgeDays
+          }),
           style: muted),
     ];
   }
@@ -264,8 +269,10 @@ class _TagsScreenState extends State<TagsScreen> {
               subtitle: [
                 m.t('tag.kind1.${t.kind}'),
                 if (t.startsOn != null || t.endsOn != null)
-                  m.t('tag.dates',
-                      {'start': t.startsOn ?? '-', 'end': t.endsOn ?? '-'}),
+                  m.t('tag.dates', {
+                    'start': ltrValue(context, t.startsOn ?? '-'),
+                    'end': ltrValue(context, t.endsOn ?? '-')
+                  }),
                 if (t.archived) m.t('tag.f.archived'),
               ].join(' · '),
               detail:
@@ -421,7 +428,7 @@ class _PaymentPickerState extends State<_PaymentPicker> {
               contentPadding: EdgeInsets.zero,
               title: Text(c.merchant.isEmpty ? c.postedOn : c.merchant),
               subtitle: Text([
-                c.postedOn,
+                ltrValue(context, c.postedOn),
                 formatAmount(c.amount, c.currency),
                 m.t('split.left',
                     {'amount': formatAmount(c.remaining, c.currency)}),
@@ -608,7 +615,7 @@ class _TagScreenState extends State<TagScreen> {
                 title: link.description ?? link.postedOn ?? '-',
                 subtitle: [
                   m.t(link.role == 'refund' ? 'tag.refund' : 'tag.payment'),
-                  if (link.postedOn != null) link.postedOn!,
+                  if (link.postedOn != null) ltrValue(context, link.postedOn!),
                   if (link.amount != null && link.currency != null)
                     formatAmount(link.amount!, link.currency!),
                 ].join(' · '),

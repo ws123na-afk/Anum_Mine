@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
@@ -425,6 +426,20 @@ class RecordsDateField extends StatelessWidget {
   }
 }
 
+/// A date with its year (`Dec 1, 2028`) for a `YYYY-MM-DD` value in the
+/// app's language: for schedules that run over several years.
+String recordsYearDate(BuildContext context, String? value) {
+  if (value == null || value.isEmpty) return '-';
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return value;
+  final locale = Localizations.localeOf(context).toLanguageTag();
+  try {
+    return DateFormat.yMMMd(locale).format(parsed);
+  } on Object {
+    return DateFormat.yMMMd().format(parsed);
+  }
+}
+
 /// A short date for a `YYYY-MM-DD` or ISO value in the app's language.
 String recordsDate(BuildContext context, String? value) {
   if (value == null || value.isEmpty) return '-';
@@ -565,3 +580,12 @@ class RecordsRowAction extends StatelessWidget {
           ],
         );
 }
+
+/// [value] kept left to right inside right-to-left text: an ISO date or
+/// month (`2026-09-30`, `2026-09`), a rate or a code is wrapped in Unicode
+/// isolates in Arabic, so its digits and hyphens are not reordered. Left
+/// as it is in English.
+String ltrValue(BuildContext context, String value) =>
+    Directionality.maybeOf(context) == TextDirection.rtl && value.isNotEmpty
+        ? '\u2066$value\u2069'
+        : value;

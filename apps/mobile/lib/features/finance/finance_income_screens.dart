@@ -106,7 +106,7 @@ class _PayslipsScreenState extends State<PayslipsScreen> {
               key: Key('slip-${s.id}'),
               icon: Icons.receipt_outlined,
               tone: _slipTone(s.status),
-              title: '${s.month} · ${s.employer}',
+              title: '${ltrValue(context, s.month)} · ${s.employer}',
               subtitle:
                   m.t('slip.net', {'amount': formatAmount(s.net, s.currency)}),
               detail: _slipStatus(m, s),
@@ -263,7 +263,7 @@ abstract class _LinkedRecordState<T extends StatefulWidget, R>
           icon: Icons.link,
           title: link.description ?? link.postedOn ?? '-',
           subtitle: [
-            if (link.postedOn != null) link.postedOn!,
+            if (link.postedOn != null) ltrValue(context, link.postedOn!),
             if (link.amount != null && link.currency != null)
               formatAmount(link.amount!, link.currency!),
           ].join(' · '),
@@ -346,7 +346,8 @@ class _PayslipScreenState extends _LinkedRecordState<PayslipScreen, Payslip> {
             OutlinedButton.icon(
               key: const Key('slip-delete'),
               onPressed: () => remove(
-                  title: m.t('slip.delete.title', {'month': s.month}),
+                  title: m.t('slip.delete.title',
+                      {'month': ltrValue(context, s.month)}),
                   text: m.t('slip.delete.text'),
                   action: m.t('slip.delete'),
                   done: m.t('slip.deleted'),
@@ -480,7 +481,7 @@ class _SendHomeScreenState extends State<SendHomeScreen> {
                 'amount': formatAmount(r.amount, r.currency),
                 'recipient': r.recipient,
               }),
-              subtitle: '${r.sentOn} · ${r.provider}',
+              subtitle: '${ltrValue(context, r.sentOn)} · ${r.provider}',
               detail: [
                 m.t('home.detail', {
                   'fee': formatAmount(r.fee, r.currency),
@@ -646,7 +647,7 @@ class _RemittanceScreenState
                 'amount': formatAmount(r.amount, r.currency),
                 'recipient': r.recipient,
               }),
-              subtitle: '${r.sentOn} · ${r.provider}'),
+              subtitle: '${ltrValue(context, r.sentOn)} · ${r.provider}'),
           if (r.regular)
             Wrap(children: [AnumPill(label: m.t('home.regularPill'))]),
           Wrap(spacing: AnumSpacing.sm, runSpacing: AnumSpacing.sm, children: [

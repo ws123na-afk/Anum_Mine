@@ -250,7 +250,7 @@ class _SplitPaymentScreenState extends State<SplitPaymentScreen> {
               key: const Key('split-payment'),
               icon: Icons.receipt_long_outlined,
               title: m.t('split.payment', {
-                'date': payment.postedOn,
+                'date': ltrValue(context, payment.postedOn),
                 'merchant': payment.merchant,
                 'amount': formatAmount(payment.amount, payment.currency),
               }),

@@ -176,7 +176,7 @@ class _BankLoansScreenState extends State<BankLoansScreen> {
                     if (l.totals.status == 'open' && l.totals.nextDueOn != null)
                       m.t('loan.next', {
                         'amount': formatAmount(l.totals.nextAmount, l.currency),
-                        'date': l.totals.nextDueOn!,
+                        'date': ltrValue(context, l.totals.nextDueOn!),
                       }),
                     if (l.totals.status == 'open') _pace(m, l.totals),
                     if (l.totals.found > 0)
@@ -417,7 +417,7 @@ class _BankLoanScreenState extends State<BankLoanScreen> {
               contentPadding: EdgeInsets.zero,
               title: Text(fit.merchant.isEmpty ? fit.postedOn : fit.merchant),
               subtitle: Text(
-                  '${fit.postedOn} · ${formatAmount(fit.amount, fit.currency)}'),
+                  '${ltrValue(sheet, fit.postedOn)} · ${formatAmount(fit.amount, fit.currency)}'),
               onTap: () => Navigator.pop(sheet, fit),
             ),
         ],
@@ -533,7 +533,8 @@ class _BankLoanScreenState extends State<BankLoanScreen> {
                 key: Key('loan-row-${row.number}'),
                 icon: Icons.event_outlined,
                 tone: _rowTone(row.status),
-                title: m.t('loan.row', {'n': row.number, 'date': row.dueOn}),
+                title: m.t('loan.row',
+                    {'n': row.number, 'date': ltrValue(context, row.dueOn)}),
                 subtitle: [
                   formatAmount(row.payment, c),
                   m.t('loan.st.${row.status}'),
