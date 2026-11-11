@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import '../../src/localization/anum_localizations.dart';
+import '../governance/governance_models.dart' show RoleTemplate;
 import 'admin_models.dart';
 import 'admin_repository.dart';
 import 'approval_policy.dart';
@@ -66,6 +67,14 @@ class MembersController extends ChangeNotifier {
       final values =
           await Future.wait([repository.members(), repository.invitations()]);
       members = sortMembers(values[0] as List<WorkspaceMember>);
+      // Role templates load on their own: a failure leaves the list usable.
+      try {
+        templates = await repository.roleTemplates();
+        templatesError = null;
+      } on Object catch (error) {
+        templates = null;
+        templatesError = describeAdminError(error);
+      }
       invitations = [
         ...(values[1] as List<WorkspaceInvitation>).where((x) => x.pending),
         ...(values[1] as List<WorkspaceInvitation>).where((x) => !x.pending),
@@ -81,6 +90,22 @@ class MembersController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  /// The organization's role templates; null until loaded or when they
+  /// could not be read ([templatesError] says why).
+  List<RoleTemplate>? templates;
+  String? templatesError;
+
+  /// Gives [member] [template], or takes it away (null).
+  Future<bool> setTemplate(WorkspaceMember member, RoleTemplate? template,
+          AnumLocalizations l) =>
+      _act(() async {
+        await repository.setRoleTemplate(member.userId, template?.id);
+        return template == null
+            ? l.f('ad.tpl.removed', {'user': member.userId})
+            : l.f('ad.tpl.changed',
+                {'user': member.userId, 'template': template.name});
+      });
 
   Future<bool> changeRole(WorkspaceMember member, String role) =>
       _act(() async {

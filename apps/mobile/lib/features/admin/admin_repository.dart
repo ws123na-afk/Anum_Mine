@@ -1,5 +1,6 @@
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
+import '../governance/governance_models.dart' show RoleTemplate;
 import 'admin_models.dart';
 import 'approval_policy.dart';
 import 'approval_settings.dart';
@@ -11,6 +12,12 @@ abstract interface class AdminRepository {
   Future<List<WorkspaceMember>> members();
   Future<WorkspaceMember> changeRole(String userId, String role);
   Future<WorkspaceMember> setActive(String userId, {required bool active});
+
+  /// The organization's role templates (any member reads them).
+  Future<List<RoleTemplate>> roleTemplates();
+
+  /// Gives a member or viewer [templateId], or none (null). Owners only.
+  Future<WorkspaceMember> setRoleTemplate(String userId, String? templateId);
   Future<List<WorkspaceInvitation>> invitations();
   Future<CreatedInvitation> createInvitation(InvitationDraft draft);
 
@@ -79,6 +86,22 @@ class ApiAdminRepository implements AdminRepository {
           {required bool active}) async =>
       WorkspaceMember.fromJson(await api.request('POST',
           '/api/v1/workspace-members/${_id(userId)}/${active ? 'reactivate' : 'deactivate'}'));
+
+  @override
+  Future<List<RoleTemplate>> roleTemplates() async =>
+      JsonReader(await api.request('GET', '/api/v1/role-templates')).optObjects(
+          'data',
+          (j) => RoleTemplate(
+              id: j.string('id'),
+              name: j.string('name'),
+              permissions: j.optStrings('permissions') ?? const []));
+
+  @override
+  Future<WorkspaceMember> setRoleTemplate(
+          String userId, String? templateId) async =>
+      WorkspaceMember.fromJson(await api.request(
+          'PUT', '/api/v1/workspace-members/${_id(userId)}/role-template',
+          body: {'role_template_id': templateId}));
 
   @override
   Future<List<WorkspaceInvitation>> invitations() =>

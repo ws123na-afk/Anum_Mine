@@ -33,6 +33,9 @@ class WorkspaceMember {
     required this.createdAt,
     required this.updatedAt,
     this.email,
+    this.roleTemplateId,
+    this.roleTemplateName,
+    this.effectivePermissions,
   });
 
   factory WorkspaceMember.fromJson(JsonMap json, [String path = '']) {
@@ -45,10 +48,19 @@ class WorkspaceMember {
       createdAt: r.date('created_at'),
       updatedAt: r.date('updated_at'),
       email: r.optString('email'),
+      roleTemplateId: r.optString('role_template_id'),
+      roleTemplateName: r.optString('role_template_name'),
+      effectivePermissions: r.optStrings('effective_permissions'),
     );
   }
 
   final String userId, workspaceId, role;
+
+  /// The role template that narrows this member's role, its name (null when
+  /// the template no longer exists) and the permissions that apply
+  /// (docs/governance-and-scale.md#role-templates). All null without one.
+  final String? roleTemplateId, roleTemplateName;
+  final List<String>? effectivePermissions;
 
   /// Verified email of the invitation the member accepted, when there was one.
   final String? email;
