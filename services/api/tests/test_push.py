@@ -714,3 +714,24 @@ def test_the_weekly_money_note_pushes_its_own_text_and_only_to_someone_who_reads
     announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_advice_2",
              {"recipient": "viewer_v", "kind": "finance_weekly_advice", "work_item_id": None})
     assert deliver().sent == 0 and sender.messages == []
+
+
+def test_a_calendar_reminder_pushes_its_own_text_to_the_person_reminded(sender: FakeSender) -> None:
+    # docs/calendar.md#reminders: fixed text (no title, place or person), Arabic on an Arabic phone, opens Calendar.
+    member("owner_a", "owner")
+    register("owner_a", "owner", PHONE_A)
+    arabic = client.post("/api/v1/me/devices", headers=headers("owner_a", "owner"),
+                         json={"platform": "android", "token": PHONE_B, "label": "Phone", "language": "ar"})
+    assert arabic.status_code == 201
+    announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_cal",
+             {"recipient": "owner_a", "kind": "calendar_reminder", "work_item_id": None, "calendar_event_id": "event_1"})
+    assert deliver().sent == 2
+    by_token = {m.token: m for m in sender.messages}
+    assert (by_token[PHONE_A].title, by_token[PHONE_A].body) == push.TEXT[push.PushKind.CALENDAR_REMINDER]
+    assert (by_token[PHONE_B].title, by_token[PHONE_B].body) == push.TEXT_AR[push.PushKind.CALENDAR_REMINDER]
+    assert by_token[PHONE_A].data["anum_kind"] == "calendar_reminder" and "event_1" not in json.dumps(by_token[PHONE_A].data)
+    # Someone who is not a member of the workspace gets nothing.
+    sender.messages.clear()
+    announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_cal_2",
+             {"recipient": "stranger", "kind": "calendar_reminder", "work_item_id": None})
+    assert deliver().sent == 0 and sender.messages == []

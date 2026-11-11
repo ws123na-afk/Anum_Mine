@@ -1207,6 +1207,14 @@ def run_reminder_pass(batch: int | None = None, now: datetime | None = None) -> 
     except Exception:
         logger.exception("Approval reminder pass failed")
         counts["approvals_reminded"] = 0
+    # Calendar reminders before an event or an occurrence starts (docs/calendar.md#reminders).
+    from .calendar_reminders import run_calendar_reminder_pass
+
+    try:
+        counts["calendar_reminded"] = run_calendar_reminder_pass(batch, now)
+    except Exception:
+        logger.exception("Calendar reminder pass failed")
+        counts["calendar_reminded"] = 0
     return counts
 
 
