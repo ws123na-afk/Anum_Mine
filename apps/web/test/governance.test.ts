@@ -196,7 +196,12 @@ describe('routing target health', () => {
   test('a typed status counts for nothing until a probe ran', () => {
     const typed = { ...target('a', 'eu', 'healthy'), last_checked_at: null };
     assert.equal(targetHealth(typed).label, 'Not yet probed');
+    assert.match(targetHealth(typed).detail, /^Never probed\. The scheduled check probes it once a workspace has a model configuration for p;/);
     assert.equal(deleteBlocker(typed), null);
+    // Checked, but no configuration reached the provider: says so, never "not yet probed".
+    const unverified = { ...typed, status: 'unverified' as const, last_checked_at: '2026-11-10T10:00:00Z', last_error: 'Not probed: this workspace has no model configuration.' };
+    assert.equal(targetHealth(unverified).label, 'Not verified');
+    assert.match(targetHealth(unverified).detail, /no model configuration/);
   });
   test('a probed healthy target in routing is in use; out of routing it can go', () => {
     const probed = { ...target('a', 'eu', 'healthy'), last_checked_at: '2026-11-10T10:00:00Z', measured_latency_ms: 240 };

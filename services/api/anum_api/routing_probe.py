@@ -2,18 +2,22 @@
 
 A routing target names a provider and a model, not credentials, so a probe borrows the model
 configuration of a workspace (Settings, Model): on demand the caller's workspace
-(``POST /routing/targets/{id}/probe``), on the schedule the workspace that probed the target
-last (``probe_workspace_id``). The probe sends the same tiny prompt as the model connection
+(``POST /routing/targets/{id}/probe``), on the schedule a workspace of the same organisation
+whose configuration is for the target's provider (the one that probed it last while it still
+is, otherwise the first such workspace by id). The probe sends the same tiny prompt as the model connection
 test and stores what it measured: ``healthy`` (answered), ``degraded`` (the provider answered
 with an error or took longer than ``ANUM_ROUTING_PROBE_DEGRADED_MS``), ``offline`` (not
 reachable), or ``unverified`` with ``last_error`` when the workspace has no configuration
 for the target's provider. Nothing is typed by hand.
 
-The scheduled pass (``routing_probe``, registered with the automation scheduler) re-probes
-enabled, already probed targets older than ``ANUM_ROUTING_PROBE_INTERVAL_SECONDS``. With
-PostgreSQL the due targets are discovered as ``anum_maintenance`` (ids, workspace and time
-only, migration 0166) and each probe runs as the application role inside that tenant and
-workspace. The model call never runs inside a transaction (docs/realtime.md#event-loop).
+The scheduled pass (``routing_probe``, registered with the automation scheduler) probes every
+enabled target that has a reachable configuration: never probed ones first, then those whose
+last probe is older than ``ANUM_ROUTING_PROBE_INTERVAL_SECONDS``. A target no workspace of its
+organisation is configured for is left alone (it stays "not yet probed", or keeps its last
+result) until one is. With PostgreSQL the due targets and the workspace to probe from are
+discovered as ``anum_maintenance`` (ids, workspace, provider name and time only, migrations
+0166 and 0176) and each probe runs as the application role inside that tenant and workspace.
+The model call never runs inside a transaction (docs/realtime.md#event-loop).
 """
 
 from __future__ import annotations
@@ -147,20 +151,58 @@ async def probe_and_store(context: TenantContext, target: RoutingTarget, *, sche
 # ------------------------------------------------------------------------ the scheduler pass
 
 
+# Mirrors model_gateway.normalize_provider in SQL: trimmed, lower case, openai_compatible spelled
+# openai-compatible. A target of the ``mock`` provider is reached through any configuration.
+_DUE = text(
+    """
+    select t.tenant_id, c.workspace_id, t.id
+    from routing_targets t
+    join lateral (
+      select c.workspace_id from workspace_model_configs c
+      where c.tenant_id = t.tenant_id
+        and (
+          lower(trim(t.provider)) = 'mock'
+          or (case when lower(trim(c.provider)) = 'openai_compatible' then 'openai-compatible' else lower(trim(c.provider)) end)
+           = (case when lower(trim(t.provider)) = 'openai_compatible' then 'openai-compatible' else lower(trim(t.provider)) end)
+        )
+      order by (c.workspace_id = t.probe_workspace_id) desc nulls last, c.workspace_id
+      limit 1
+    ) c on true
+    where t.enabled and (t.last_checked_at is null or t.last_checked_at <= :before)
+    order by t.last_checked_at asc nulls first, t.tenant_id, t.id
+    limit :limit
+    """
+)
+
+
+def pick_workspace(target: RoutingTarget, providers: dict[str, str]) -> str | None:
+    """The workspace to probe ``target`` from: one configured for its provider, preferring the
+    workspace that probed it last, else the first by id; ``None`` when none is."""
+    wanted = normalize_provider(target.provider)
+    reachable = sorted(
+        workspace for workspace, provider in providers.items() if wanted == "mock" or normalize_provider(provider) == wanted
+    )
+    if not reachable:
+        return None
+    return target.probe_workspace_id if target.probe_workspace_id in reachable else reachable[0]
+
+
 def _due_scopes(before) -> list[tuple[str, str, str]]:  # type: ignore[no-untyped-def]
+    """(tenant, workspace to probe from, target) of the targets due a scheduled probe."""
     if settings.repository_backend == "memory":
-        return memory_scale_store.due_probes(before)
+        from .model_config_store import memory_model_config_store
+
+        scopes: list[tuple[str, str, str]] = []
+        for tenant_id, target in memory_scale_store.due_probes(before):
+            workspace = pick_workspace(target, memory_model_config_store.providers_by_workspace(tenant_id))
+            if workspace is not None:
+                scopes.append((tenant_id, workspace, target.id))
+            if len(scopes) >= settings.routing_probe_batch_size:
+                break
+        return scopes
     from .maintenance import default_session_factory, discover
 
-    rows = discover(
-        default_session_factory,
-        text(
-            "select tenant_id, probe_workspace_id, id from routing_targets "
-            "where enabled and probe_workspace_id is not null and last_checked_at <= :before "
-            "order by last_checked_at limit :limit"
-        ),
-        {"before": before, "limit": settings.routing_probe_batch_size},
-    )
+    rows = discover(default_session_factory, _DUE, {"before": before, "limit": settings.routing_probe_batch_size})
     return [(row[0], row[1], row[2]) for row in rows]
 
 
@@ -183,7 +225,8 @@ async def _probe_all(scopes: list[tuple[str, str, str]]) -> int:
 
 
 def run_due_routing_probes() -> int:
-    """One scheduler pass: re-probe every enabled, already probed target older than the interval."""
+    """One scheduler pass: probe every enabled target with a reachable configuration that was
+    never probed or was probed longer ago than the interval."""
     before = utc_now() - timedelta(seconds=settings.routing_probe_interval_seconds)
     scopes = _due_scopes(before)
     if not scopes:

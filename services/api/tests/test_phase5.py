@@ -237,31 +237,53 @@ def test_delete_refuses_a_target_in_use_and_the_built_in_model(monkeypatch: pyte
     assert client.delete("/api/v1/routing/targets/us-a", headers=headers).status_code == 204
 
 
-def test_scheduler_pass_reprobes_only_due_targets_that_were_probed_before(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scheduler_pass_probes_every_target_with_a_reachable_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     from datetime import timedelta
 
     from anum_api import routing_probe
+    from anum_api.model_config_store import memory_model_config_store
     from anum_api.schemas import TenantContext as Context
     from anum_api.settings import settings
 
+    # The pass covers every tenant in the memory store: start from an empty one.
+    store.clear()
+    memory_model_config_store.clear()
     client = TestClient(app)
     headers = _fresh("probe_sched")
+    other = {**headers, "x-workspace-id": "workspace_probe_sched_b"}
     for target_id in ("eu-a", "us-a"):
         client.put(f"/api/v1/routing/targets/{target_id}", headers=headers, json=_target(target_id, "eu-west", 0.01))
-    client.put("/api/v1/model-config", headers=headers, json=OPENAI_CONFIG)
+    # A provider no workspace of the organisation is configured for: never probed by the schedule.
+    client.put("/api/v1/routing/targets/an-a", headers=headers, json={**_target("an-a", "eu-west", 0.01), "provider": "anthropic"})
     seen = _answering_provider(monkeypatch)
+    # No configuration anywhere yet: nothing is reachable, nothing is probed.
+    assert routing_probe.run_due_routing_probes() == 0 and seen == []
+    client.put("/api/v1/model-config", headers=headers, json=OPENAI_CONFIG)
     client.post("/api/v1/routing/targets/eu-a/probe", headers=headers)
     assert len(seen) == 1
-    # Nothing is due yet: eu-a was probed just now and us-a never (the scheduler never probes first).
-    assert routing_probe.run_due_routing_probes() == 0
+    # us-a was never probed and its provider is configured in this workspace: the schedule probes it.
+    assert routing_probe.run_due_routing_probes() == 1
+    assert len(seen) == 2
     context = Context(tenant_id=headers["x-tenant-id"], workspace_id=headers["x-workspace-id"], user_id="x", roles=["owner"])
-    probed = next(t for t in store.targets(context) if t.id == "eu-a")
-    assert probed.last_checked_at is not None
+    targets = {t.id: t for t in store.targets(context)}
+    assert targets["us-a"].last_checked_at is not None and targets["us-a"].probe_workspace_id == headers["x-workspace-id"]
+    assert targets["an-a"].last_checked_at is None, "a target nobody can reach stays not yet probed"
+    # Nothing is due again until the interval passes.
+    assert routing_probe.run_due_routing_probes() == 0
+    probed = targets["eu-a"]
     aged = probed.model_copy(update={"last_checked_at": probed.last_checked_at - timedelta(seconds=settings.routing_probe_interval_seconds + 5)})
     store.upsert_target(aged, context)
     assert routing_probe.run_due_routing_probes() == 1
-    assert len(seen) == 2
+    assert len(seen) == 3
     reprobed = next(t for t in store.targets(context) if t.id == "eu-a")
     assert reprobed.last_checked_at > aged.last_checked_at and reprobed.status.value == "healthy"
+    # The probing workspace moved to another provider: the next due probe uses a workspace that still reaches it.
+    assert client.put("/api/v1/model-config", headers=other, json=OPENAI_CONFIG).status_code == 200
+    switched = client.put("/api/v1/model-config", headers=headers, json={"provider": "mock", "model": "mock", "base_url": "http://localhost:9"})
+    assert switched.status_code == 200, switched.text
+    store.upsert_target(reprobed.model_copy(update={"last_checked_at": aged.last_checked_at}), context)
+    assert routing_probe.run_due_routing_probes() == 1
+    moved = next(t for t in store.targets(context) if t.id == "eu-a")
+    assert moved.probe_workspace_id == "workspace_probe_sched_b" and moved.status.value == "healthy"
     # A scheduled probe with the same outcome writes no audit row; only changes do.
     assert [r for r in _audit(headers) if r.action == "routing_target.probed" and r.metadata.get("scheduled")] == []

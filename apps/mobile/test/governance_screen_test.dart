@@ -179,6 +179,10 @@ void main() {
     // A typed status counts for nothing until a probe ran.
     expect(find.text('Not yet probed'), findsOneWidget);
     expect(
+        find.textContaining(
+            'Never probed. The scheduled check probes it once a workspace has a model configuration for ollama'),
+        findsOneWidget);
+    expect(
         find.text(
             'Health is measured by a probe, never typed. Organization administrators probe targets and take them out of routing.'),
         findsOneWidget);

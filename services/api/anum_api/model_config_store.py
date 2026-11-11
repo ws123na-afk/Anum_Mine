@@ -175,6 +175,11 @@ class InMemoryModelConfigStore:
             self._items[(context.tenant_id, context.workspace_id)] = config
         return config
 
+    def providers_by_workspace(self, tenant_id: str) -> dict[str, str]:
+        """The provider each workspace of ``tenant_id`` is configured for (the scheduled routing probe)."""
+        with self._lock:
+            return {workspace: config.provider for (tenant, workspace), config in self._items.items() if tenant == tenant_id}
+
     def clear(self) -> None:
         with self._lock:
             self._items.clear()

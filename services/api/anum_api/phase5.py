@@ -379,15 +379,16 @@ class Phase5Store:
         with self._lock:
             return self._targets.pop((context.tenant_id, target_id), None) is not None
 
-    def due_probes(self, before: datetime) -> list[tuple[str, str, str]]:
-        """(tenant, workspace, target) of enabled targets probed before ``before`` (the scheduler pass)."""
+    def due_probes(self, before: datetime) -> list[tuple[str, RoutingTarget]]:
+        """(tenant, target) of enabled targets never probed or probed before ``before`` (the
+        scheduler pass), never probed first, then the oldest probe first."""
         with self._lock:
-            return [
-                (tenant_id, target.probe_workspace_id, target.id)
+            due = [
+                (tenant_id, target)
                 for (tenant_id, _), target in self._targets.items()
-                if target.enabled and target.probe_workspace_id and target.last_checked_at is not None
-                and target.last_checked_at <= before
+                if target.enabled and (target.last_checked_at is None or target.last_checked_at <= before)
             ]
+        return sorted(due, key=lambda item: (item[1].last_checked_at is not None, item[1].last_checked_at or before, item[0], item[1].id))
 
     def record_audit(self, record: AuditRecord) -> AuditRecord:
         # The same in-memory recorder the audit export reads.

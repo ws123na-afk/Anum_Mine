@@ -324,7 +324,10 @@ class _RoutingTab extends StatelessWidget {
   /// What the probe measured, never a typed status.
   String _detail(RoutingTarget x) {
     if (!x.enabled) return 'Taken out of routing; decisions skip it.';
-    if (!x.probed) return 'Run a probe to measure this target.';
+    if (!x.probed) {
+      return 'Never probed. The scheduled check probes it once a workspace has '
+          'a model configuration for ${x.provider}; Probe now measures it at once.';
+    }
     final when = x.lastCheckedAt!.toLocal();
     final stamp =
         '${when.year}-${when.month.toString().padLeft(2, '0')}-${when.day.toString().padLeft(2, '0')} '
