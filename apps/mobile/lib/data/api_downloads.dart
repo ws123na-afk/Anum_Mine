@@ -64,7 +64,10 @@ class HttpApiDownloads implements ApiDownloads {
     final (bytes, named) = await guardTransfer(() async {
       final request = http.Request(
           method, baseUri.resolve(path.replaceFirst(RegExp(r'^/'), '')))
-        ..headers.addAll(sessionHeaders(session));
+        ..headers.addAll(sessionHeaders(session))
+        // The bearer token goes to the configured API only: a redirect is
+        // refused as an answer, never followed with the header.
+        ..followRedirects = false;
       if (body != null) {
         request.headers['content-type'] = 'application/json';
         request.body = jsonEncode(body);

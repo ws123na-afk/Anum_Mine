@@ -66,6 +66,7 @@ void main() {
         dialogTitle: 'Save');
     expect(ok, isTrue);
     expect(sent.single.headers['authorization'], 'Bearer token');
+    expect(sent.single.followRedirects, isFalse);
     expect(sent.single.headers['x-workspace-id'], 'w');
     expect(sent.single.url.path, '/api/v1/files/bulk/download');
     expect(jsonDecode((sent.single as http.Request).body), {
@@ -100,6 +101,24 @@ void main() {
             .having((e) => e.statusCode, 'status', 409)
             .having(
                 (e) => e.message, 'message', 'report.pdf is quarantined.')));
+    expect(saves, 0);
+  });
+
+  test('a redirect is an answer, never followed with the token', () async {
+    var saves = 0;
+    final downloads = HttpApiDownloads(
+      baseUri: Uri.parse('http://localhost:8000'),
+      sessions: await _sessions(),
+      client: MockClient((_) async => http.Response('', 302,
+          headers: {'location': 'https://elsewhere.example/x.csv'})),
+      saveBytes: (_, __, ___) async {
+        saves++;
+        return true;
+      },
+    );
+    await expectLater(
+        downloads.save('GET', '/x', fileName: 'x', dialogTitle: 't'),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 's', 302)));
     expect(saves, 0);
   });
 
