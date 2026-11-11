@@ -249,7 +249,8 @@ test('enterprise: health is measured by a probe, never typed, and the figures sa
   // The form has no status field; the built-in target is shown as not yet probed and the figures count only probed targets.
   const configured = page.getByRole('row', { name: /configured-model/ });
   await expect(configured.getByText('Not yet probed')).toBeVisible();
-  await expect(configured.getByText('Cost and latency not measured yet')).toBeVisible();
+  // Below 1100 px the cost and latency column is folded away (the health cell still says it is unprobed).
+  if ((page.viewportSize()?.width ?? 1440) > 1100) await expect(configured.getByText('Cost and latency not measured yet')).toBeVisible();
   await expect(page.getByText('1 not yet probed')).toBeVisible();
   await page.getByRole('button', { name: 'Edit configured-model' }).click();
   await expect(page.getByRole('form', { name: 'Routing target' }).getByLabel('Status')).toHaveCount(0);

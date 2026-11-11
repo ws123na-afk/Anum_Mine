@@ -143,11 +143,13 @@ export function ApprovalSettingsView({ workspaceId, onOpenGovernance }: { worksp
           {changed && <button type="button" className="secondary" disabled={busy} onClick={() => setDraft(policyDraft(policy))}><RotateCcw aria-hidden="true" />{t('policy.undo')}</button>}
         </div>}
       </section>
-      <RulesSection state={rules} onRetry={() => void loadRules()} onOpenGovernance={onOpenGovernance} />
-      {/* The routing reads the switches as drafted, so an owner sees the effect before saving. */}
-      <RoutingSection rules={rules.kind === 'ready' ? rules.rules : null} policy={{ ...policy, ...draft }} />
-      <div id="approval-reminders" tabIndex={-1}><ApprovalReminderCard readOnly={readOnly} /></div>
     </>}
+    {/* Each section loads on its own: a policy that cannot be read hides only the policy and the
+        routing worked out from it, never the rules or the reminders. */}
+    <RulesSection state={rules} onRetry={() => void loadRules()} onOpenGovernance={onOpenGovernance} />
+    {/* The routing reads the switches as drafted, so an owner sees the effect before saving. */}
+    {load.kind === 'ready' && policy && <RoutingSection rules={rules.kind === 'ready' ? rules.rules : null} policy={{ ...policy, ...draft }} />}
+    <div id="approval-reminders" tabIndex={-1}><ApprovalReminderCard readOnly={readOnly} /></div>
   </>;
 }
 

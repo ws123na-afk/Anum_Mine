@@ -174,8 +174,9 @@ test('the Approvals page opens the approval rules', async ({ page }) => {
   await page.goto('/#approvals');
   await expect(page.getByText('Who approves what, by AED amount, is set in the approval rules.')).toBeVisible();
   await page.getByRole('button', { name: 'Open approval rules' }).click();
-  await expect(page).toHaveURL(/#governance$/);
-  await expect(page.getByRole('region', { name: 'Approval rules' }).getByText('Refunds up to AED 250')).toBeVisible();
+  // The rules are read on Approvals settings (edited in Governance, linked from there).
+  await expect(page).toHaveURL(/#approvalSettings/);
+  await expect(page.locator('#approval-rules').getByText('Refunds up to AED 250')).toBeVisible();
 });
 
 test('an organization administrator edits, turns off and deletes a rule', async ({ page }) => {

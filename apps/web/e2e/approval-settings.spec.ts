@@ -132,3 +132,20 @@ for (const locale of ['en', 'ar'] as const) {
     });
   }
 }
+
+test('a policy that cannot be read leaves the rules and reminders usable', async ({ page }) => {
+  await page.route('http://localhost:8000/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
+    if (path === '/api/v1/events/stream') return route.fulfill({ status: 204 });
+    if (path === '/api/v1/auth/local/session') return json({}, 404);
+    if (path === '/api/v1/tasks' || path === '/api/v1/approvals') return json([]);
+    if (path === '/api/v1/organization/approval-rules') return json([]);
+    if (path.includes('approval-policy') || path.includes('approval_policy')) return json({ error: { code: 'internal_error', message: 'The database is not reachable' } }, 500);
+    return json({}, 404);
+  });
+  await page.goto('/#approvalSettings');
+  await expect(page.getByText(/The approval policy could not be loaded/)).toBeVisible();
+  await expect(page.locator('#approval-rules')).toBeVisible();
+  await expect(page.locator('#approval-reminders')).toBeVisible();
+});
