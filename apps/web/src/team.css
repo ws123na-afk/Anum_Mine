@@ -257,6 +257,8 @@
 .mailAliasName { align-items: center; display: flex; gap: var(--d-s1); min-width: 0; }
 .mailAliasName input { flex: 1 1 auto; min-width: 0; }
 .mailAliasName span { overflow-wrap: anywhere; }
+.mailDomainMailboxes li > span.muted { flex: 0 0 auto; }
+.mailQuotaInput { max-width: 10em; }
 @media (max-width: 560px) { .mailDnsChecks li { grid-template-columns: auto minmax(0, 1fr); } .mailDnsMessage { grid-column: 1 / -1; } }
 
 /* ---- Team page tabs from the owner's mockups (TeamPeople.tsx, docs/team-work.md#team-page) ---- */

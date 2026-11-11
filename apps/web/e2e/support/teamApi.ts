@@ -21,13 +21,14 @@ export function createTeamMock(options: TeamMockOptions = {}) {
   const assistants: Record<string, unknown>[] = [{ id: 'asst_sales', department: 'sales', name: 'Sales assistant', instructions: 'Draft quotes.', allowed_tools: ['anum.respond', 'team.assign_task'], routing_keywords: ['price', 'quote'], inbound_channels: ['whatsapp'], autonomy: 'suggest', enabled: true, created_by: 'user_local', created_at: now(), updated_at: now() }];
   const templates = ['sales', 'support', 'operations', 'finance', 'tyre_engineering'].map((department) => ({ department, name: `${department} assistant`, instructions: 'Help.', allowed_tools: ['anum.respond'], routing_keywords: [department], autonomy: department === 'tyre_engineering' ? 'observe' : 'suggest' }));
   const name = (type: string | null, id: string | null) => !type || !id ? null : type === 'anum' ? 'ANUM' : type === 'assistant' ? String(assistants.find((a) => a.id === id)?.name ?? id) : people.find((p) => p.user_id === id)?.display_name ?? id;
-  type MockDomain = { domain: string; in_mailcow: boolean; active: boolean; allowed: boolean; mailboxes: number; max_mailboxes: number | null; quota_used_percent: number | null; aliases: { id: string; address: string; goto: string[]; active: boolean }[] };
+  type MockDomain = { domain: string; in_mailcow: boolean; active: boolean; allowed: boolean; mailboxes: number; max_mailboxes: number | null; quota_used_percent: number | null; aliases: { id: string; address: string; goto: string[]; active: boolean }[]; mailbox_list: { address: string; name: string; active: boolean; quota_mb: number | null; used_percent: number | null }[] };
   const mailDomains: MockDomain[] = [
-    { domain: 'anum360os.com', in_mailcow: true, active: true, allowed: true, mailboxes: 3, max_mailboxes: 10, quota_used_percent: 12.5, aliases: [{ id: 'alias_1', address: 'sales@anum360os.com', goto: ['omar@anum360os.com'], active: true }] },
-    { domain: 'easyvoicequote.com', in_mailcow: false, active: false, allowed: true, mailboxes: 0, max_mailboxes: null, quota_used_percent: null, aliases: [] },
-    { domain: 'legacy-shop.example', in_mailcow: true, active: true, allowed: false, mailboxes: 1, max_mailboxes: 5, quota_used_percent: null, aliases: [] },
+    { domain: 'anum360os.com', in_mailcow: true, active: true, allowed: true, mailboxes: 3, max_mailboxes: 10, quota_used_percent: 12.5, aliases: [{ id: 'alias_1', address: 'sales@anum360os.com', goto: ['omar@anum360os.com'], active: true }],
+      mailbox_list: [{ address: 'info@anum360os.com', name: 'Front desk', active: true, quota_mb: 3072, used_percent: 4.2 }, { address: 'omar@anum360os.com', name: 'Omar', active: true, quota_mb: 10240, used_percent: 31 }, { address: 'old@anum360os.com', name: 'Old box', active: false, quota_mb: 1024, used_percent: null }] },
+    { domain: 'easyvoicequote.com', in_mailcow: false, active: false, allowed: true, mailboxes: 0, max_mailboxes: null, quota_used_percent: null, aliases: [], mailbox_list: [] },
+    { domain: 'legacy-shop.example', in_mailcow: true, active: true, allowed: false, mailboxes: 1, max_mailboxes: 5, quota_used_percent: null, aliases: [], mailbox_list: [{ address: 'shop@legacy-shop.example', name: 'Shop', active: true, quota_mb: 2048, used_percent: 9 }] },
   ];
-  const domainChanges: { approval: Record<string, unknown> & { id: string; task_id: string }; operation: string; domain: string; address: string | null; goto: string[] }[] = [];
+  const domainChanges: { approval: Record<string, unknown> & { id: string; task_id: string }; operation: string; domain: string; address: string | null; goto: string[]; name?: string | null; quota_mb?: number | null }[] = [];
   let seq = 0;
   const item =(patch: Partial<Item> & { title: string }): Item => {
     seq += 1;
@@ -173,11 +174,11 @@ export function createTeamMock(options: TeamMockOptions = {}) {
       if (options.mailDomains === 'fails') return json({ error: { code: 'service_unavailable', message: 'The database did not answer.' } }, 503);
       if (!options.mailDomains) {
         return json({ mailcow_state: 'off', message: null, can_change: false, change_note: 'The Mailcow API is off. Set ANUM_MAILCOW_API_ENABLED=true on the API.', mail_host: 'mail.anum360os.com', allowed_domains: ['anum360os.com'],
-          domains: [{ domain: 'anum360os.com', in_mailcow: false, active: false, allowed: true, mailboxes: 0, max_mailboxes: null, quota_used_percent: null, aliases: [] }], pending: [] });
+          domains: [{ domain: 'anum360os.com', in_mailcow: false, active: false, allowed: true, mailboxes: 0, max_mailboxes: null, quota_used_percent: null, aliases: [], mailbox_list: [] }], pending: [], mailboxes_read: false });
       }
       const writable = options.mailDomains === 'ok';
       return json({ mailcow_state: 'ok', message: null, can_change: writable, change_note: writable ? null : 'Changes are off. Set ANUM_MAILCOW_WRITE_ENABLED=true and ANUM_MAILCOW_API_WRITE_KEY (a read-write key) on the API.',
-        mail_host: 'mail.anum360os.com', allowed_domains: mailDomains.filter((d) => d.allowed).map((d) => d.domain), domains: mailDomains, pending: domainChanges });
+        mail_host: 'mail.anum360os.com', allowed_domains: mailDomains.filter((d) => d.allowed).map((d) => d.domain), domains: mailDomains, pending: domainChanges, mailboxes_read: true });
     }
     const dnsMatch = /^\/api\/v1\/platform\/mail\/domains\/([^/]+)\/dns$/.exec(path);
     if (dnsMatch && method === 'GET') {
@@ -199,15 +200,19 @@ export function createTeamMock(options: TeamMockOptions = {}) {
       });
     }
     if (path === '/api/v1/platform/mail/domains/changes' && method === 'POST') {
-      const b = body() as { operation: string; domain?: string; address?: string; goto?: string[]; alias_id?: string };
+      const b = body() as { operation: string; domain?: string; address?: string; goto?: string[]; alias_id?: string; name?: string; password?: string; quota_mb?: number };
       const domain = b.domain ?? String(b.address ?? '').split('@')[1] ?? '';
-      const args = { operation: b.operation, domain, ...(b.address ? { address: b.address } : {}), ...(b.goto ? { goto: b.goto } : {}), ...(b.alias_id ? { alias_id: b.alias_id } : {}), requested_by: 'user_local' };
+      if (b.operation === 'add_mailbox' && mailDomains.some((d) => d.mailbox_list.some((m) => m.address === b.address))) {
+        return json({ error: { code: 'conflict', message: `${b.address} is already a mailbox.` } }, 409);
+      }
+      const mailbox = b.operation === 'add_mailbox' ? { name: b.name, quota_mb: b.quota_mb ?? 3072, password_sealed: '[REDACTED]' } : {};
+      const args = { operation: b.operation, domain, ...(b.address ? { address: b.address } : {}), ...(b.goto ? { goto: b.goto } : {}), ...(b.alias_id ? { alias_id: b.alias_id } : {}), ...mailbox, requested_by: 'user_local' };
       const approval = {
         id: `approval_dom_${domainChanges.length + 1}`, task_id: `task_dom_${domainChanges.length + 1}`, action: 'change_mail_domains', risk_level: 'high', status: 'pending',
         reason: 'High risk: always asked.', created_at: now(), run_id: 'run_dom', step_id: 'step_dom', arguments: args, payload_hash: 'cd'.repeat(32), expires_at: later,
         decided_at: null, decided_by: null, required_approvals: 1, approvers: [],
       };
-      domainChanges.push({ approval, operation: b.operation, domain, address: b.address ?? null, goto: b.goto ?? [] });
+      domainChanges.push({ approval, operation: b.operation, domain, address: b.address ?? null, goto: b.goto ?? [], ...(b.operation === 'add_mailbox' ? { name: b.name ?? null, quota_mb: b.quota_mb ?? 3072 } : {}) });
       return json({ status: 'waiting_approval', summary: 'Waiting for approval.', approval });
     }
     const withdrawMatch = /^\/api\/v1\/platform\/mail\/domains\/changes\/([^/]+)$/.exec(path);
@@ -227,6 +232,10 @@ export function createTeamMock(options: TeamMockOptions = {}) {
       if (change.operation === 'add_domain' && target) target.in_mailcow = true;
       if (change.operation === 'add_alias' && target) target.aliases.push({ id: `alias_${target.aliases.length + 10}`, address: String(change.address), goto: change.goto, active: true });
       if (change.operation === 'remove_alias' && target) target.aliases = target.aliases.filter((a) => a.address !== change.address);
+      if (change.operation === 'add_mailbox' && target) {
+        target.mailbox_list.push({ address: String(change.address), name: String(change.name ?? ''), active: true, quota_mb: change.quota_mb ?? 3072, used_percent: null });
+        target.mailboxes += 1;
+      }
       const task = { id: change.approval.task_id, title: 'Mail domain change', prompt: '', status: 'completed', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', created_at: now(), updated_at: now() };
       return json({ task, run: { id: 'run_dom', task_id: task.id, status: 'completed', result: 'Done.', created_at: now(), updated_at: now(), steps: [] }, approval: { ...change.approval, status: 'approved', decided_at: now(), decided_by: 'user_local' } });
     }

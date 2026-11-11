@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import { mailDomainsAr } from '../src/lib/messages/mailDomains.ar.ts';
 import { mailDomainsEn } from '../src/lib/messages/mailDomains.en.ts';
 import {
-  cleanAlias, cleanDomain, dnsCodeKey, dnsTone, domainMatches, parseGoto, pendingFor, recordLine, worstStatus,
+  cleanAlias, cleanDomain, dnsCodeKey, dnsTone, domainMatches, mailboxPasswordProblem, parseGoto, parseQuota, pendingFor, recordLine, worstStatus,
   type DnsCheck, type DnsReport, type MailDomain, type PendingDomainChange,
 } from '../src/lib/mailDomains.ts';
 
@@ -16,6 +16,7 @@ const report = (mx: DnsCheck['status'], spf: DnsCheck['status'], dkim: DnsCheck[
 const domain: MailDomain = {
   domain: 'example.com', in_mailcow: true, active: true, allowed: true, mailboxes: 2, max_mailboxes: 10, quota_used_percent: 4,
   aliases: [{ id: '7', address: 'sales@example.com', goto: ['owner@client.example'], active: true }],
+  mailbox_list: [{ address: 'front@example.com', name: 'Front Desk', active: true, quota_mb: 3072, used_percent: 2 }],
 };
 
 describe('mail domains helpers', () => {
@@ -50,6 +51,25 @@ describe('mail domains helpers', () => {
     assert.equal(domainMatches(domain, 'client.example'), true);
     assert.equal(domainMatches(domain, 'other'), false);
     assert.equal(domainMatches(domain, ' '), true);
+    assert.equal(domainMatches(domain, 'front@'), true);
+    assert.equal(domainMatches(domain, 'front desk'), true);
+  });
+  test('a first mailbox password follows the same rules as the API', () => {
+    assert.equal(mailboxPasswordProblem('short1', 'team'), 'length');
+    assert.equal(mailboxPasswordProblem('x1'.repeat(65), 'team'), 'length');
+    assert.equal(mailboxPasswordProblem(' example-pass-42', 'team'), 'spaces');
+    assert.equal(mailboxPasswordProblem('onlyletterspassword', 'team'), 'mix');
+    assert.equal(mailboxPasswordProblem('123456789012345', 'team'), 'mix');
+    assert.equal(mailboxPasswordProblem('my-TEAM-pass-42', 'team'), 'name');
+    assert.equal(mailboxPasswordProblem('example-first-42', 'team'), null);
+    assert.equal(mailboxPasswordProblem('كلمة-مرور-آمنة-42', 'team'), null);
+  });
+  test('a quota is a whole number of MiB inside the API range', () => {
+    assert.equal(parseQuota(' 3072 '), 3072);
+    assert.equal(parseQuota('255'), null);
+    assert.equal(parseQuota('102401'), null);
+    assert.equal(parseQuota('2.5'), null);
+    assert.equal(parseQuota(''), null);
   });
   test('a waiting change is found for its domain or alias only', () => {
     const base = { approval: { id: 'a1' } } as unknown as PendingDomainChange;

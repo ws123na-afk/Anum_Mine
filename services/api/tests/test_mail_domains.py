@@ -32,6 +32,11 @@ class FakeMailcow:
     def __init__(self) -> None:
         self.domains: dict[str, dict[str, Any]] = {"example.test": {"mboxes_in_domain": 2}, "legacy.test": {"mboxes_in_domain": 0}}
         self.aliases: list[dict[str, Any]] = [{"id": 7, "address": "sales@example.test", "goto": "owner@example.test", "active": "1"}]
+        self.mailboxes: list[dict[str, Any]] = [
+            {"username": "owner@example.test", "name": "Owner", "active": "1", "quota": 3221225472, "percent_in_use": "12"},
+            {"username": "info@example.test", "name": "Front  desk", "active": "0", "quota": 0, "percent_in_use": "-"},
+        ]
+        self.mailbox_read_status = 200
         self.posts: list[tuple[str, Any, str]] = []
         self.refuse_writes = False
 
@@ -44,6 +49,8 @@ class FakeMailcow:
                 return httpx.Response(200, json=[{"domain_name": d, "active": "1", **v} for d, v in self.domains.items()])
             if path == "/api/v1/get/alias/all":
                 return httpx.Response(200, json=self.aliases)
+            if path == "/api/v1/get/mailbox/all":
+                return httpx.Response(self.mailbox_read_status, json=self.mailboxes)
             if path.startswith("/api/v1/get/dkim/"):
                 return httpx.Response(200, json={"dkim_txt": "v=DKIM1;k=rsa;t=s;s=email;p=EXAMPLEKEY", "dkim_selector": "dkim", "pubkey": "EXAMPLEKEY", "privkey": "example-private"})
             return httpx.Response(404, json={})
@@ -60,6 +67,10 @@ class FakeMailcow:
             self.aliases.append({"id": 100 + len(self.aliases), "address": body["address"], "goto": body["goto"], "active": "1"})
         elif path == "/api/v1/delete/alias":
             self.aliases = [a for a in self.aliases if str(a["id"]) not in body]
+        elif path == "/api/v1/add/mailbox":
+            address = f"{body['local_part']}@{body['domain']}"
+            self.mailboxes.append({"username": address, "name": body["name"], "active": "1", "quota": int(body["quota"]) * 1048576})
+            self.domains[body["domain"]]["mboxes_in_domain"] = self.domains[body["domain"]].get("mboxes_in_domain", 0) + 1
         return httpx.Response(200, json=[{"type": "success", "msg": ["ok"]}])
 
 
@@ -365,3 +376,133 @@ def test_a_platform_operator_who_is_a_plain_member_may_ask_and_run(cow: FakeMail
     done = asyncio.run(domains_api.change_mail_domains(call, _context(MEMBER_OPERATOR)))
     assert done.status == "succeeded", done.summary
     assert [path for path, _, _ in cow.posts] == ["/api/v1/add/domain"]
+
+
+# -- mailboxes ------------------------------------------------------------------------------------
+
+FIRST_PASSWORD = "example-first-pass-42"
+
+
+def _everything_stored() -> str:
+    """Every audit record, event, approval and task the memory store holds, as one text."""
+    parts: list[str] = []
+    for name in ("audit_records", "events", "approvals", "tasks"):
+        value = getattr(store, name)
+        items = value.values() if isinstance(value, dict) else value
+        parts.extend(item.model_dump_json() if hasattr(item, "model_dump_json") else json.dumps(item, default=str) for item in items)
+    return "\n".join(parts)
+
+
+def test_mailboxes_are_listed_per_domain(cow: FakeMailcow) -> None:
+    body = client.get(BASE, headers=OPERATOR).json()
+    assert body["mailboxes_read"] is True
+    rows = {d["domain"]: d for d in body["domains"]}
+    assert rows["example.test"]["mailbox_list"] == [
+        {"address": "info@example.test", "name": "Front desk", "active": False, "quota_mb": None, "used_percent": None},
+        {"address": "owner@example.test", "name": "Owner", "active": True, "quota_mb": 3072, "used_percent": 12.0},
+    ]
+    assert rows["new.test"]["mailbox_list"] == []
+
+
+def test_adding_a_mailbox_waits_for_approval_and_never_shows_the_password(cow: FakeMailcow) -> None:
+    waiting = ask(operation="add_mailbox", address="Team@Example.test", name="  Sales   team ", password=FIRST_PASSWORD, quota_mb=2048)
+    assert waiting.status_code == 200, waiting.text
+    assert FIRST_PASSWORD not in waiting.text
+    approval = waiting.json()["approval"]
+    args = approval["arguments"]
+    assert args["operation"] == "add_mailbox" and args["address"] == "team@example.test" and args["name"] == "Sales team"
+    assert args["quota_mb"] == 2048 and args["password_sealed"] == "[REDACTED]"
+    assert cow.posts == []
+    listed = client.get(BASE, headers=OPERATOR)
+    assert FIRST_PASSWORD not in listed.text
+    assert [(p["operation"], p["address"], p["name"], p["quota_mb"]) for p in listed.json()["pending"]] == [
+        ("add_mailbox", "team@example.test", "Sales team", 2048)
+    ]
+    # The same mailbox again waits already, whatever password is typed.
+    again = ask(operation="add_mailbox", address="team@example.test", name="Sales team", password="another-pass-77", quota_mb=2048)
+    assert again.status_code == 409
+    decided = approve(approval)
+    assert decided.status_code == 200, decided.text
+    assert FIRST_PASSWORD not in decided.text
+    path, body, key = cow.posts[-1]
+    assert (path, key) == ("/api/v1/add/mailbox", "example-write-key")
+    assert body == {
+        "local_part": "team", "domain": "example.test", "name": "Sales team", "password": FIRST_PASSWORD, "password2": FIRST_PASSWORD,
+        "quota": "2048", "active": "1", "force_pw_update": "1", "tls_enforce_in": "1", "tls_enforce_out": "1",
+    }
+    after = client.get(BASE, headers=OPERATOR).json()
+    rows = {d["domain"]: d for d in after["domains"]}
+    assert "team@example.test" in [m["address"] for m in rows["example.test"]["mailbox_list"]] and after["pending"] == []
+    # Nothing ANUM keeps holds the password in clear: audit, events, approvals, tasks.
+    assert FIRST_PASSWORD not in _everything_stored()
+    actions = [r.action for r in (store.audit_records.values() if isinstance(store.audit_records, dict) else store.audit_records)]
+    assert "mail.domains.requested" in actions
+
+
+def test_mailbox_input_is_checked_and_errors_never_echo_the_password(cow: FakeMailcow) -> None:
+    long_secret = "x1" * 80
+    cases = [
+        ({"address": "team@example.test", "name": "Team", "password": "short1"}, "12 to 128"),
+        ({"address": "team@example.test", "name": "Team", "password": long_secret}, "12 to 128"),
+        ({"address": "team@example.test", "name": "Team", "password": "onlyletterspassword"}, "letters and digits"),
+        ({"address": "team@example.test", "name": "Team", "password": "team-is-my-pass-1"}, "mailbox name"),
+        ({"address": "team@example.test", "name": "   ", "password": FIRST_PASSWORD}, "name of the person"),
+        ({"address": "team@example.test", "name": "Team", "password": FIRST_PASSWORD, "quota_mb": 10}, "256 to 102400"),
+        ({"address": "no-at-sign", "name": "Team", "password": FIRST_PASSWORD}, "mailbox as name@domain"),
+    ]
+    for body, text in cases:
+        response = ask(operation="add_mailbox", **body)
+        assert response.status_code == 422, (body, response.text)
+        assert text in response.text and body["password"] not in response.text
+    # A password of the wrong type is refused without echoing the value either.
+    typed = ask(operation="add_mailbox", address="team@example.test", name="Team", password=["example-in-a-list-9"])
+    assert typed.status_code == 422 and "example-in-a-list-9" not in typed.text
+    assert ask(operation="add_mailbox", address="owner@example.test", name="Owner", password=FIRST_PASSWORD).status_code == 409
+    assert ask(operation="add_mailbox", address="sales@example.test", name="Sales", password=FIRST_PASSWORD).status_code == 409
+    assert ask(operation="add_mailbox", address="team@new.test", name="Team", password=FIRST_PASSWORD).status_code == 409  # not in Mailcow
+    assert ask(operation="add_mailbox", address="team@legacy.test", name="Team", password=FIRST_PASSWORD).status_code == 409  # not allowed
+    cow.domains["example.test"]["max_num_mboxes_for_domain"] = 2
+    full = ask(operation="add_mailbox", address="team@example.test", name="Team", password=FIRST_PASSWORD)
+    assert full.status_code == 409 and "Raise the limit" in full.json()["error"]["message"]
+    assert cow.posts == [] and len(store.approvals) == 0
+
+
+def test_no_mailbox_is_added_while_the_mailbox_list_cannot_be_read(cow: FakeMailcow) -> None:
+    cow.mailbox_read_status = 500
+    body = client.get(BASE, headers=OPERATOR).json()
+    assert body["mailcow_state"] == "ok" and body["mailboxes_read"] is False  # domains and aliases still show
+    refused = ask(operation="add_mailbox", address="team@example.test", name="Team", password=FIRST_PASSWORD)
+    assert refused.status_code == 409 and "mailbox list could not be read" in refused.json()["error"]["message"]
+
+
+def test_an_approved_mailbox_is_checked_again_and_a_bad_seal_refuses(cow: FakeMailcow) -> None:
+    import asyncio
+
+    from anum_api.agent_tools import ToolCall
+
+    waiting = ask(operation="add_mailbox", address="team@example.test", name="Team", password=FIRST_PASSWORD).json()["approval"]
+    cow.mailboxes.append({"username": "team@example.test", "name": "Team", "active": "1"})  # made in Mailcow meanwhile
+    approve(waiting)
+    assert cow.posts == []
+    call = ToolCall(name=domains_api.DOMAIN_TOOL, arguments={
+        "operation": "add_mailbox", "domain": "example.test", "address": "desk@example.test", "name": "Desk", "quota_mb": 3072,
+        "password_sealed": "not-a-sealed-value", "requested_by": "operator_dom",
+    })
+    refused = asyncio.run(domains_api.change_mail_domains(call, _context(OPERATOR)))
+    assert refused.status == "failed" and refused.output["kind"] == "stale" and "Ask for the mailbox again" in refused.summary
+    assert cow.posts == []
+
+
+def test_mailcow_message_never_carries_the_password() -> None:
+    def refusing(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"type": "danger", "msg": ["password_complexity", FIRST_PASSWORD]}])
+
+    cfg = mailcow.MailcowSettings(api_enabled=True, api_url="https://mail.example.test", write_enabled=True,
+                                  api_write_key=mailcow.SecretStr("example-write-key"))
+    original = mailcow.mailcow_transport
+    mailcow.mailcow_transport = httpx.MockTransport(refusing)
+    try:
+        result = mailcow.add_mailbox("team@example.test", "Team", FIRST_PASSWORD, 3072, cfg)
+    finally:
+        mailcow.mailcow_transport = original
+    assert result.ok is False and "password_complexity" in result.message and FIRST_PASSWORD not in result.message

@@ -1,16 +1,17 @@
-// Mail domains and aliases on the Mailcow server (docs/email.md#mail-domains), shown to the platform
-// operator in the platform console: each domain's Mailcow state, its aliases and a live DNS check
+// Mail domains, aliases and mailboxes on the Mailcow server (docs/email.md#mail-domains), shown to the
+// platform operator in the platform console: each domain's Mailcow state, its aliases and mailboxes, a live DNS check
 // of MX, SPF, DKIM and DMARC with the exact records to set. Every change is only asked here and
 // runs after an approval bound to its payload hash; changes stay inside ANUM_MAILSERVER_ALLOWED_DOMAINS.
+// A new mailbox's first password is sent once with the request and cleared from the form at once.
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { AtSign, Copy, Globe, Plus, RefreshCw, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
+import { AtSign, Copy, Globe, Inbox, Plus, RefreshCw, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
 import * as api from './lib/api';
 import { mapApproval } from './lib/api';
 import { expiryLabel, shortHash } from './lib/approvals';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { CATALOGS, formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
-  DNS_KINDS, cleanAlias, dnsCodeKey, dnsTone, domainMatches, parseGoto, pendingFor, recordLine,
+  DNS_KINDS, QUOTA_DEFAULT_MB, cleanAlias, dnsCodeKey, dnsTone, domainMatches, mailboxPasswordProblem, parseGoto, parseQuota, pendingFor, recordLine,
   type DnsReport, type DomainChangeBody, type MailDomain, type MailDomainsView, type PendingDomainChange,
 } from './lib/mailDomains';
 import { askDomainChange, getDomainDns, getMailDomains, withdrawDomainChange } from './lib/mailDomainsApi';
@@ -33,8 +34,8 @@ function codeText(code: string | null | undefined, params: Record<string, string
   return t(key as MessageKey, Object.fromEntries(Object.entries(params).map(([name, value]) => [name, iso(value)])));
 }
 
-function changeSummary(change: Pick<PendingDomainChange, 'operation' | 'domain' | 'address' | 'goto'>): string {
-  return t(`maildom.op.${change.operation}` as MessageKey, { domain: iso(change.domain), address: iso(change.address ?? ''), goto: iso(change.goto.join(', ')) });
+function changeSummary(change: Pick<PendingDomainChange, 'operation' | 'domain' | 'address' | 'goto' | 'name'>): string {
+  return t(`maildom.op.${change.operation}` as MessageKey, { domain: iso(change.domain), address: iso(change.address ?? ''), goto: iso(change.goto.join(', ')), name: iso(change.name ?? '') });
 }
 
 export function MailDomains() {
@@ -80,7 +81,7 @@ export function MailDomains() {
   const ask = (key: string, body: DomainChangeBody) => run(key, async () => {
     await askDomainChange(body);
     const domain = body.domain ?? (body.address ?? '').split('@')[1] ?? '';
-    return { text: t('maildom.asked', { summary: changeSummary({ operation: body.operation, domain, address: body.address ?? null, goto: body.goto ?? [] }) }) };
+    return { text: t('maildom.asked', { summary: changeSummary({ operation: body.operation, domain, address: body.address ?? null, goto: body.goto ?? [], name: body.name ?? null }) }) };
   });
   const approve = (change: PendingDomainChange) => run(`approve:${change.approval.id}`, async () => {
     const decided = await api.approveTask(mapApproval(change.approval));
@@ -111,6 +112,7 @@ export function MailDomains() {
       {view && view.mailcow_state === 'off' && <p className="notice">{t('maildom.mailcow.off')}</p>}
       {view && view.mailcow_state !== 'off' && view.mailcow_state !== 'ok' && <p className="notice errorNotice" role="alert">{t('maildom.mailcow.problem', { message: view.message ?? '' })}</p>}
       {view && !view.can_change && view.change_note && view.mailcow_state === 'ok' && <p className="notice">{t('maildom.changesOff', { message: view.change_note })}</p>}
+      {view && view.mailcow_state === 'ok' && !view.mailboxes_read && <p className="notice">{t('maildom.mailboxesUnread')}</p>}
       {view && view.pending.length > 0 && <div className="mailDomainsPending" role="group" aria-label={t('maildom.pendingTitle')}>
         <h3>{t('maildom.pendingTitle')}</h3>
         <ul>{view.pending.map((change) => {
@@ -181,7 +183,81 @@ function DomainCard({ domain, view, dns, busy, onCheck, onAsk }: {
       {domain.aliases.length > ALIAS_PAGE && !allAliases && <button type="button" className="secondary" onClick={() => setAllAliases(true)}>{t('maildom.showAllAliases', { count: domain.aliases.length })}</button>}
       {canChange && <AliasForm domain={domain.domain} busy={busy !== null} onAsk={onAsk} />}
     </div>}
+    {domain.in_mailcow && view.mailboxes_read && <MailboxSection domain={domain} view={view} canChange={canChange} busy={busy} onAsk={onAsk} />}
   </li>;
+}
+
+function MailboxSection({ domain, view, canChange, busy, onAsk }: {
+  domain: MailDomain; view: MailDomainsView; canChange: boolean; busy: string | null; onAsk(key: string, body: DomainChangeBody): void;
+}) {
+  const [all, setAll] = useState(false);
+  const boxes = domain.mailbox_list ?? [];
+  const shown = all ? boxes : boxes.slice(0, ALIAS_PAGE);
+  const full = domain.max_mailboxes !== null && domain.mailboxes >= domain.max_mailboxes;
+  return <div className="mailDomainAliases mailDomainMailboxes">
+    <h4><Inbox aria-hidden="true" />{t('maildom.mailboxTitle')}</h4>
+    {!boxes.length && <p className="muted">{t('maildom.noMailboxes')}</p>}
+    {boxes.length > 0 && <ul>{shown.map((box) => {
+      const waiting = pendingFor(view.pending, domain.domain, box.address);
+      return <li key={box.address}>
+        <span dir="auto"><strong>{iso(box.address)}</strong>{box.name && <> · {box.name}</>}{!box.active && <> ({t('maildom.aliasOff')})</>}</span>
+        <span className="muted">{box.quota_mb === null ? t('maildom.quotaNone')
+          : box.used_percent === null ? t('maildom.quotaOnly', { quota: iso(box.quota_mb) })
+            : t('maildom.quotaUsed', { quota: iso(box.quota_mb), percent: iso(`${box.used_percent}%`) })}</span>
+        {waiting && <span className="statusBadge warning">{t('maildom.waiting')}</span>}
+      </li>;
+    })}</ul>}
+    {view.pending.filter((p) => p.domain === domain.domain && p.operation === 'add_mailbox').map((p) =>
+      <p key={p.approval.id} className="muted">{t('maildom.mailboxWaiting', { address: iso(p.address ?? '') })}</p>)}
+    {boxes.length > ALIAS_PAGE && !all && <button type="button" className="secondary" onClick={() => setAll(true)}>{t('maildom.showAllMailboxes', { count: boxes.length })}</button>}
+    {canChange && full && <p className="muted">{t('maildom.mailboxFull', { count: domain.max_mailboxes ?? 0 })}</p>}
+    {canChange && !full && <MailboxForm domain={domain.domain} busy={busy !== null} onAsk={onAsk} />}
+  </div>;
+}
+
+type MailboxError = 'address' | 'name' | 'password' | 'quota';
+
+function MailboxForm({ domain, busy, onAsk }: { domain: string; busy: boolean; onAsk(key: string, body: DomainChangeBody): void }) {
+  const [local, setLocal] = useState('');
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [quota, setQuota] = useState(String(QUOTA_DEFAULT_MB));
+  const [error, setError] = useState<{ field: MailboxError; text: string } | null>(null);
+  const id = domain.replace(/[^a-z0-9]/g, '-');
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const address = cleanAlias(local, domain);
+    const owner = name.trim().replace(/\s+/g, ' ');
+    const passwordProblem = mailboxPasswordProblem(password, local.trim().toLowerCase());
+    const quotaMb = parseQuota(quota);
+    if (!address) { setError({ field: 'address', text: t('maildom.badMailbox') }); return; }
+    if (!owner || owner.length > 120) { setError({ field: 'name', text: t('maildom.badOwner') }); return; }
+    if (passwordProblem) { setError({ field: 'password', text: t(`maildom.badPassword.${passwordProblem}` as MessageKey) }); return; }
+    if (quotaMb === null) { setError({ field: 'quota', text: t('maildom.badQuota') }); return; }
+    setError(null);
+    onAsk(`mailbox:new:${domain}`, { operation: 'add_mailbox', address, name: owner, password, quota_mb: quotaMb });
+    // The password leaves the page with the request and is not kept.
+    setPassword('');
+    setLocal('');
+    setName('');
+  };
+  const invalid = (field: MailboxError) => error?.field === field || undefined;
+  return <form className="mailAliasForm" onSubmit={submit} aria-label={t('maildom.addMailbox')} noValidate autoComplete="off">
+    <h4>{t('maildom.addMailbox')}</h4>
+    <label htmlFor={`mailbox-name-${id}`}>{t('maildom.mailboxAddress')}</label>
+    <div className="mailAliasName" dir="ltr"><input id={`mailbox-name-${id}`} value={local} onChange={(e) => setLocal(e.target.value)} autoComplete="off" spellCheck={false} aria-invalid={invalid('address')} /><span>@{domain}</span></div>
+    <label htmlFor={`mailbox-owner-${id}`}>{t('maildom.mailboxOwner')}</label>
+    <input id={`mailbox-owner-${id}`} dir="auto" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} autoComplete="off" aria-invalid={invalid('name')} />
+    <label htmlFor={`mailbox-password-${id}`}>{t('maildom.mailboxPassword')}</label>
+    <input id={`mailbox-password-${id}`} type="password" dir="ltr" value={password} maxLength={128} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password"
+      aria-describedby={`mailbox-password-help-${id}`} aria-invalid={invalid('password')} />
+    <small id={`mailbox-password-help-${id}`} className="muted">{t('maildom.mailboxPasswordHelp')}</small>
+    <label htmlFor={`mailbox-quota-${id}`}>{t('maildom.mailboxQuota')}</label>
+    <input id={`mailbox-quota-${id}`} className="mailQuotaInput" dir="ltr" inputMode="numeric" value={quota} onChange={(e) => setQuota(e.target.value)} aria-describedby={`mailbox-quota-help-${id}`} aria-invalid={invalid('quota')} />
+    <small id={`mailbox-quota-help-${id}`} className="muted">{t('maildom.mailboxQuotaHelp')}</small>
+    {error && <p className="notice errorNotice" role="alert">{error.text}</p>}
+    <div><button type="submit" disabled={busy}><Plus aria-hidden="true" />{t('maildom.askMailbox')}</button></div>
+  </form>;
 }
 
 function AliasForm({ domain, busy, onAsk }: { domain: string; busy: boolean; onAsk(key: string, body: DomainChangeBody): void }) {

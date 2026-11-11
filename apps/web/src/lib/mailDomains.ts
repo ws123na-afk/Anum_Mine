@@ -3,9 +3,10 @@
 import type { ApiApproval } from './api';
 
 export type DnsStatus = 'ok' | 'warning' | 'danger' | 'missing' | 'error';
-export type DomainOperation = 'add_domain' | 'remove_domain' | 'add_alias' | 'remove_alias';
+export type DomainOperation = 'add_domain' | 'remove_domain' | 'add_alias' | 'remove_alias' | 'add_mailbox';
 
 export interface MailAlias { id: string; address: string; goto: string[]; active: boolean }
+export interface MailMailbox { address: string; name: string; active: boolean; quota_mb: number | null; used_percent: number | null }
 
 export interface MailDomain {
   domain: string;
@@ -16,6 +17,7 @@ export interface MailDomain {
   max_mailboxes: number | null;
   quota_used_percent: number | null;
   aliases: MailAlias[];
+  mailbox_list: MailMailbox[];
 }
 
 export interface PendingDomainChange {
@@ -24,6 +26,8 @@ export interface PendingDomainChange {
   domain: string;
   address: string | null;
   goto: string[];
+  name?: string | null;
+  quota_mb?: number | null;
 }
 
 export interface MailDomainsView {
@@ -35,6 +39,8 @@ export interface MailDomainsView {
   allowed_domains: string[];
   domains: MailDomain[];
   pending: PendingDomainChange[];
+  // False when Mailcow's mailbox list could not be read: no mailbox can be added then.
+  mailboxes_read: boolean;
 }
 
 export interface DnsCheck { status: DnsStatus; code: string; params: Record<string, string>; found: string[]; message: string }
@@ -51,7 +57,17 @@ export interface DnsReport {
   records: ExpectedRecord[];
 }
 
-export interface DomainChangeBody { operation: DomainOperation; domain?: string; address?: string; goto?: string[]; alias_id?: string }
+export interface DomainChangeBody {
+  operation: DomainOperation; domain?: string; address?: string; goto?: string[]; alias_id?: string;
+  // add_mailbox: the display name, the first password (sent once, never kept by the page) and the quota in MiB.
+  name?: string; password?: string; quota_mb?: number;
+}
+
+export const PASSWORD_MIN = 12;
+export const PASSWORD_MAX = 128;
+export const QUOTA_MIN_MB = 256;
+export const QUOTA_MAX_MB = 102400;
+export const QUOTA_DEFAULT_MB = 3072;
 
 export const DNS_KINDS = ['mx', 'spf', 'dkim', 'dmarc'] as const;
 
@@ -100,7 +116,24 @@ export function parseGoto(text: string): string[] | null {
 /** Domains whose name or an alias contains the search text (case-insensitive). */
 export function domainMatches(domain: MailDomain, query: string): boolean {
   const q = query.trim().toLowerCase();
-  return !q || domain.domain.includes(q) || domain.aliases.some((a) => a.address.includes(q) || a.goto.some((g) => g.includes(q)));
+  return !q || domain.domain.includes(q) || domain.aliases.some((a) => a.address.includes(q) || a.goto.some((g) => g.includes(q)))
+    || (domain.mailbox_list ?? []).some((m) => m.address.includes(q) || m.name.toLowerCase().includes(q));
+}
+
+/** Why a first mailbox password cannot be used (the same rules as the API), as a problem code, or null. */
+export function mailboxPasswordProblem(password: string, localPart: string): 'length' | 'spaces' | 'mix' | 'name' | null {
+  if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) return 'length';
+  if (password !== password.trim() || [...password].some((ch) => ch.charCodeAt(0) < 32)) return 'spaces';
+  if (!/\p{L}/u.test(password) || !/\d/.test(password)) return 'mix';
+  if (localPart && password.toLowerCase().includes(localPart.toLowerCase())) return 'name';
+  return null;
+}
+
+/** A quota in MiB from the form, or null when it is outside what the API accepts. */
+export function parseQuota(text: string): number | null {
+  if (!/^\d{1,6}$/.test(text.trim())) return null;
+  const value = Number(text.trim());
+  return value >= QUOTA_MIN_MB && value <= QUOTA_MAX_MB ? value : null;
 }
 
 /** The change waiting for a domain or alias, if any (one at a time per target). */
