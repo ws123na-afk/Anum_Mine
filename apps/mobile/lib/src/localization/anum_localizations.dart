@@ -7,6 +7,7 @@ import 'agent_controls_strings.dart';
 import 'app_lock_strings.dart';
 import 'approvals_strings.dart';
 import 'calls_strings.dart';
+import 'contacts_strings.dart';
 import 'billing_strings.dart';
 import 'brevo_strings.dart';
 import 'calendar_sync_strings.dart';
@@ -35,6 +36,7 @@ class AnumLocalizations {
       (isArabic ? marketingAr : marketingEn)[key] ??
       (isArabic ? mailCenterAr : mailCenterEn)[key] ??
       (isArabic ? callsAr : callsEn)[key] ??
+      (isArabic ? contactsAr : contactsEn)[key] ??
       (isArabic ? businessAr : businessEn)[key] ??
       (isArabic ? businessPipelineAr : businessPipelineEn)[key] ??
       (isArabic ? brevoAr : brevoEn)[key] ??
@@ -54,6 +56,7 @@ class AnumLocalizations {
       marketingEn[key] ??
       mailCenterEn[key] ??
       callsEn[key] ??
+      contactsEn[key] ??
       businessEn[key] ??
       businessPipelineEn[key] ??
       brevoEn[key] ??
