@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  Archive, ArchiveRestore, ArrowLeft, CircleDot, Download, Pencil, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Square, X,
+  Archive, ArchiveRestore, ArrowLeft, CircleDot, Download, Lock, Pencil, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Square, X,
 } from 'lucide-react';
 import type { AgentRun, Approval, DomainEvent, Task, TaskBulkAction, TaskSummary } from '@anum/contracts';
 import * as api from './lib/api';
@@ -260,7 +260,7 @@ function AgentTasks(p: TasksViewProps & { head: ReactNode }) {
               <input type="checkbox" checked={checked.has(x.id)} onChange={() => toggle(x.id)} aria-label={t('tasks.bulk.selectOne', { title: x.title })} />
               <button className={`recordButton ${currentId === x.id ? 'selected' : ''}`} aria-pressed={currentId === x.id} onClick={() => { select(x); setPicked(true); }}>
                 <span><strong dir="auto">{x.title}</strong><small className="taskPromptPreview" dir="auto">{x.prompt}</small><small>{x.createdBy ? t('tasks.row.createdBy', { when: date(x.createdAt), who: x.createdBy === userId ? t('tasks.you') : x.createdBy }) : date(x.createdAt)}</small></span>
-                <Status value={x.status} />
+                <span className="taskRowBadges">{x.privateTo && <PrivateBadge />}<Status value={x.status} /></span>
               </button>
             </div>)}
             {!listLoading && !showListError && !rangeError && !all.length && (filterCount
@@ -374,9 +374,10 @@ function TaskDetail({ taskId, listed, recentRun, approvals: pendingForTask, puls
     <div className="paneHead taskDetailHead">
       <button type="button" className="secondary paneBack" onClick={onBack}><ArrowLeft className="flipRtl" aria-hidden="true" />{t('page.back')}</button>
       <div className="taskDetailTitle"><p className="eyebrow">{t('tasks.detail.eyebrow')}</p><h2 id="task-detail-heading" dir="auto">{task.title}</h2></div>
-      <span className="taskBadges">{task.privateTo && <span className="statusBadge neutral" title={t('tasks.detail.privateHint')}>{t('tasks.detail.privateBadge')}</span>}{task.archivedAt && <span className="statusBadge neutral">{t('tasks.detail.archivedBadge')}</span>}<Status value={task.status} /></span>
+      <span className="taskBadges">{task.privateTo && <PrivateBadge />}{task.archivedAt && <span className="statusBadge neutral">{t('tasks.detail.archivedBadge')}</span>}<Status value={task.status} /></span>
     </div>
     <div className="paneBody">
+      {task.privateTo && <p className="taskPrivateNote"><Lock aria-hidden="true" /><span>{privateNote(task.privateKind)}</span></p>}
       <div className="taskToolbar" role="toolbar" aria-label={t('tasks.actions.label')}>
         {can.run && <button disabled={Boolean(busy) || !allow.run} onClick={() => void act('run', permissionHint('run'), async () => runOutcome(await tasksApi.runTask(task.id)))}><Play aria-hidden="true" />{busy === 'run' ? t('tasks.action.starting') : t('tasks.action.run')}</button>}
         {can.retry && <button disabled={Boolean(busy) || !allow.run} onClick={() => void act('retry', permissionHint('run'), async () => runOutcome(await tasksApi.retryTask(task.id)))}><RotateCcw aria-hidden="true" />{busy === 'retry' ? t('tasks.action.retrying') : t('tasks.action.retry')}</button>}
@@ -500,6 +501,14 @@ function Expandable({ text, limit, className }: { text: string; limit: number; c
     {long && <button type="button" className="linkButton" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t('tasks.text.less') : t('tasks.text.all', { count: text.length })}</button>}</div>;
 }
 
+/** "Private to you" on a task only its person can see (docs/tasks.md#private-tasks); its text is part of the row's name. */
+function PrivateBadge() { return <span className="statusBadge neutral taskPrivateBadge" title={t('tasks.detail.privateHint')}><Lock aria-hidden="true" />{t('tasks.detail.privateBadge')}</span>; }
+/** Why a private task is private: the hint plus what its kind means. */
+function privateNote(kind: Task['privateKind']): string {
+  if (kind === 'data') return `${t('tasks.detail.privateOnly')} ${t('tasks.detail.privateWhy.data')}`;
+  if (kind === 'chat') return `${t('tasks.detail.privateOnly')} ${t('tasks.detail.privateWhy.chat')}`;
+  return t('tasks.detail.privateHint');
+}
 function Status({ value }: { value: string }) { return <span className={`statusBadge ${value === 'completed' || value === 'approved' ? 'success' : ['failed', 'cancelled', 'rejected', 'expired'].includes(value) ? 'dangerTone' : 'warning'}`}>{statusLabel(value)}</span>; }
 function Notice({ children, error }: { children: ReactNode; error?: boolean }) { return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>; }
 function Empty({ title, text, children }: { title: string; text: string; children?: ReactNode }) { return <div className="emptyState"><Search aria-hidden="true" /><h3>{title}</h3><p>{text}</p>{children}</div>; }

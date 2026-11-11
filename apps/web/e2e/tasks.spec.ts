@@ -167,6 +167,31 @@ test('the task history, actions and run history read in Arabic, right to left', 
   expect(overflow).toBe(false);
 });
 
+test('a private task says so on its row and why on its detail, in English and Arabic', async ({ page }) => {
+  await mockApi(page, { tasks: [
+    makeTask(1, { title: 'My bank summary', prompt: 'Summarise my bank account', private_to: 'user_local', private_kind: 'data' }),
+    makeTask(2, { title: 'Team plan', prompt: 'Plan the week' }),
+  ] });
+  await page.goto('/#tasks');
+  const list = history(page);
+  // The badge is inside the row's button, so its name carries it to screen readers.
+  await expect(list.getByRole('button', { name: /My bank summary.*Private to you/ })).toBeVisible();
+  await expect(list.getByRole('button', { name: /Team plan/ })).not.toHaveAccessibleName(/Private to you/);
+  await list.getByRole('button', { name: /My bank summary/ }).click();
+  await expect(detail(page).getByText('Private to you', { exact: true })).toBeVisible();
+  await expect(detail(page).getByText(/It read your own data \(Finance or your own mailbox\)/)).toBeVisible();
+
+  await useSavedLocale(page, 'ar');
+  await page.goto('/#tasks');
+  await page.reload();
+  const arabicList = page.getByRole('region', { name: 'سجل المهام' });
+  await expect(arabicList.getByRole('button', { name: /My bank summary.*خاصة بك/ })).toBeVisible();
+  await arabicList.getByRole('button', { name: /My bank summary/ }).click();
+  await expect(detail(page).getByText(/قرأت بياناتك أنت/)).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  expect(overflow).toBe(false);
+});
+
 test('an empty workspace points at the composer', async ({ page }) => {
   await mockApi(page, { tasks: [] });
   await page.goto('/#tasks');

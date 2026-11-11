@@ -44,6 +44,7 @@ export interface ApiTask {
   archived_by?: string | null;
   agent_id?: string | null;
   private_to?: string | null;
+  private_kind?: 'chat' | 'data' | null;
 }
 
 interface ApiAgentRunStep {
@@ -700,6 +701,7 @@ export function mapTask(task: ApiTask): Task {
     agentId: task.agent_id ?? null,
     archivedBy: task.archived_by ?? null,
     privateTo: task.private_to ?? null,
+    privateKind: task.private_kind ?? null,
   };
 }
 
