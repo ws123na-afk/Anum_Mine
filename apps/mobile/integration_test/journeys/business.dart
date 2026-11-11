@@ -256,4 +256,61 @@ void businessJourneys() => group('Business', () {
         expect(business.decision?.body['payload_hash'], BusinessState.hash);
         expect(api.unmatched.where((r) => r.contains('/business/')), isEmpty);
       });
+
+      testWidgets(
+          'business: the account list sorts on the server, page by page',
+          (tester) async {
+        final api = FakeAnumApi();
+        seedBaseline(api);
+        BusinessState().install(api);
+        Map<String, Object?> account(int n) => {
+              'id': 'bacct_$n',
+              ...BusinessState.scope,
+              'name': 'Example account $n',
+              'website': null,
+              'domain': null,
+              'industry': 'Construction',
+              'country': 'United Arab Emirates',
+              'city': 'Dubai',
+              'notes': '',
+              'do_not_contact': false,
+              'dnc_reason': '',
+              'contacts': 1,
+              'open_leads': 0,
+            };
+        api.get('/api/v1/business/accounts', (r) {
+          final offset = int.parse(r.query['offset'] ?? '0');
+          final desc = r.query['desc'] == 'true';
+          final all = [for (var n = 1; n <= 25; n++) account(n)];
+          final ordered = desc ? all.reversed.toList() : all;
+          return FakeResponse.json({
+            'items': ordered.skip(offset).take(20).toList(),
+            'total': all.length,
+            'limit': 20,
+            'offset': offset,
+          });
+        });
+        await launchApp(tester, api);
+        await signIn(tester, api);
+
+        await openFromMenu(tester, api, 'Business');
+        await waitFor(tester, find.byKey(const Key('biz-tab-accounts')),
+            api: api);
+        await tapOn(tester, find.byKey(const Key('biz-tab-accounts')));
+        await waitFor(tester, find.text('Example account 1'), api: api);
+
+        await tapOn(tester, find.byKey(const Key('acct-sort')));
+        await tapOn(tester, find.text('Last updated').last);
+        await tapOn(tester, find.byKey(const Key('acct-sort-direction')));
+        await waitFor(tester, find.text('Example account 25'), api: api);
+        final sorted = api.sent('GET', '/api/v1/business/accounts').last;
+        expect(sorted.query['sort'], 'updated');
+        expect(sorted.query['desc'], 'true');
+        await tapOn(tester, find.byKey(const Key('desk-more')));
+        await waitFor(tester, find.text('Example account 1'), api: api);
+        final more = api.sent('GET', '/api/v1/business/accounts').last;
+        expect(more.query['offset'], '20');
+        expect(more.query['sort'], 'updated');
+        expect(api.unmatched.where((r) => r.contains('/business/')), isEmpty);
+      });
     });
