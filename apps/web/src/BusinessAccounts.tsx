@@ -8,7 +8,7 @@ import { ArrowDownUp, Download, Pencil, Plus, Search, Trash2 } from 'lucide-reac
 import type { BusinessAccountDetail, BusinessContact, BusinessSetup } from '@anum/contracts';
 import { t, type MessageKey } from './lib/i18n';
 import {
-  DEFAULT_ORDER, accountBody, accountDraftOf, accountPlace, ariaSort, contactBody, contactDraftOf, emptyAccountDraft, emptyContactDraft, nextOrder,
+  ACCOUNT_SORTS, DEFAULT_ORDER, accountBody, accountDraftOf, accountPlace, ariaSort, contactBody, contactDraftOf, emptyAccountDraft, emptyContactDraft, nextOrder,
   type AccountDraft, type AccountOrder, type AccountSort, type ContactDraft,
 } from './lib/accounts';
 import { CONSENT_BASES, PAGE_SIZE, consentLabel } from './lib/business';
@@ -25,7 +25,7 @@ export function AccountsTab({ setup, openId, onOpen }: { setup: BusinessSetup; o
   const [order, setOrder] = useState<AccountOrder>(DEFAULT_ORDER);
   const [creating, setCreating] = useState(false), [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null), [exporting, setExporting] = useState(false);
   const list = usePaged((offset) => b.listAccounts({ q: search || undefined, sort: order.sort, desc: order.desc, limit: PAGE_SIZE, offset }), [search, order, tick]);
-  const searchId = useId();
+  const searchId = useId(), sortId = useId();
   const filtered = search !== '';
   const write = setup.permissions.write;
   const empty = list.load.kind === 'ready' && list.items.length === 0;
@@ -48,6 +48,15 @@ export function AccountsTab({ setup, openId, onOpen }: { setup: BusinessSetup; o
         <input id={searchId} type="search" value={typed} placeholder={t('acc.search')} dir="auto" onChange={(event) => { setTyped(event.target.value); if (!event.target.value) setSearch(''); }} />
         <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
       </form>
+      {/* Below 1024 px the Place column (and its sort button) is hidden, so narrow screens sort here. */}
+      <div className="bzSortSelect bzShowMd">
+        <label htmlFor={sortId}>{t('acc.sortLabel')}</label>
+        <select id={sortId} value={order.sort} onChange={(event) => setOrder({ sort: event.target.value as AccountSort, desc: false })}>
+          {ACCOUNT_SORTS.map((sort) => <option key={sort} value={sort}>{t(SORT_COLUMN[sort])}</option>)}
+        </select>
+        <button type="button" className="secondary" aria-pressed={order.desc} onClick={() => setOrder((current) => ({ ...current, desc: !current.desc }))}>
+          <ArrowDownUp aria-hidden="true" />{t('acc.reverse')}</button>
+      </div>
       <div className="bzToolbarEnd">
         {list.load.kind === 'ready' && list.total > 0 && <button type="button" className="secondary" disabled={exporting} title={t('acc.exportHelp')} onClick={() => void exportCsv()}>
           <Download aria-hidden="true" />{exporting ? t('acc.exporting') : t('acc.export')}</button>}

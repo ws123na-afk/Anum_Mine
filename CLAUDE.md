@@ -28,6 +28,7 @@ The owner wants finished features, not placeholders. Before calling any page or 
 ## Working with the owner
 - Keep working until every module is enterprise-grade and complete (definition of done above, in depth); do not stop to ask whether to continue.
 - Messages to the owner are short: only what the owner must do (with exact steps), blockers, and decisions only the owner can make. Do not narrate progress, agent reports or test counts unless asked.
+- Owner, 11 Nov 2026: "dont explain all, keep only things that need my attention, just work." Status updates, merges, CI fixes and agent results are not reported at all; a message goes out only for an owner step, a blocker or a decision.
 - Merge PRs once CI is green; keep the next batch of work going.
 
 ## Owner's Oracle setup (as of 19 Oct 2026)

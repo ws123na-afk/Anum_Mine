@@ -32,7 +32,9 @@
 .bzSortButton svg { height: 14px; opacity: .6; width: 14px; }
 .bzSortButton:hover, .bzSortButton:focus-visible { background: none; color: var(--d-text); text-decoration: underline; }
 .bzTable th[aria-sort="ascending"] .bzSortButton svg, .bzTable th[aria-sort="descending"] .bzSortButton svg { opacity: 1; }
-@media (max-width: 1023px) { .bzHideMd { display: none; } }
+.bzSortSelect { align-items: center; display: none; flex-wrap: wrap; gap: var(--d-s2); }
+.bzSortSelect label { color: var(--d-muted); font-size: var(--text-sm); }
+@media (max-width: 1023px) { .bzHideMd { display: none; } .bzSortSelect.bzShowMd { display: flex; } }
 @media (max-width: 599px) { .bzHideSm { display: none; } .bzTable th[scope="row"] { min-width: 0; } }
 .bzMore { display: grid; gap: var(--d-s2); justify-items: center; }
 

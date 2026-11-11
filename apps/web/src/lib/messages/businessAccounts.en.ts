@@ -27,6 +27,8 @@ export const businessAccountsEn = {
   'acc.dncWhy': 'Say why (the reason is kept with the account).',
   'acc.sortBy': 'Sort by {column}',
   'acc.sortedBy': 'Sorted by {column}, {direction}',
+  'acc.sortLabel': 'Sort by',
+  'acc.reverse': 'Reverse order',
   'acc.ascending': 'ascending',
   'acc.descending': 'descending',
   'acc.contact.add': 'Add contact',

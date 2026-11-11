@@ -25,6 +25,8 @@ export const businessAccountsAr = {
   'acc.dncWhy': 'اذكر السبب (يُحفظ السبب مع الحساب).',
   'acc.sortBy': 'ترتيب حسب {column}',
   'acc.sortedBy': 'مرتب حسب {column}، {direction}',
+  'acc.sortLabel': 'ترتيب حسب',
+  'acc.reverse': 'عكس الترتيب',
   'acc.ascending': 'تصاعديًا',
   'acc.descending': 'تنازليًا',
   'acc.contact.add': 'إضافة جهة اتصال',

@@ -89,13 +89,19 @@ test('an owner creates, edits, marks and deletes an account and its contacts, so
   await expect(page.getByText('2 accounts. Sorted by Account, ascending')).toBeVisible();
   const rows = page.getByRole('table', { name: 'Client accounts' }).locator('tbody tr');
   await expect(rows.first()).toContainText('Acme Trading');
-  await page.getByRole('button', { name: 'Sort by Place' }).click();
+  // Wide screens sort from the column header; below 1024 px the Place column is hidden and
+  // the toolbar's Sort by control does it.
+  const narrow = (page.viewportSize()?.width ?? 1440) < 1024;
+  if (narrow) await page.getByLabel('Sort by', { exact: true }).selectOption('place');
+  else await page.getByRole('button', { name: 'Sort by Place' }).click();
   await expect(page.getByText('Sorted by Place, ascending')).toBeVisible();
   await expect(rows.first()).toContainText('Zed Logistics');
-  await expect(page.getByRole('columnheader', { name: /Place/ })).toHaveAttribute('aria-sort', 'ascending');
-  await page.getByRole('button', { name: 'Sort by Place' }).click();
+  if (!narrow) await expect(page.getByRole('columnheader', { name: /Place/ })).toHaveAttribute('aria-sort', 'ascending');
+  if (narrow) await page.getByRole('button', { name: 'Reverse order' }).click();
+  else await page.getByRole('button', { name: 'Sort by Place' }).click();
+  await expect(page.getByText('Sorted by Place, descending')).toBeVisible();
   await expect(rows.first()).toContainText('Acme Trading');
-  await expect(page.getByRole('columnheader', { name: /Place/ })).toHaveAttribute('aria-sort', 'descending');
+  if (!narrow) await expect(page.getByRole('columnheader', { name: /Place/ })).toHaveAttribute('aria-sort', 'descending');
   expect(mock.calls.some((call) => call.path === '/accounts' && call.query?.includes('sort=place') && call.query?.includes('desc=true'))).toBe(true);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export CSV' }).click();
