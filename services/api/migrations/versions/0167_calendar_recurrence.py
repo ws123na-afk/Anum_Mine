@@ -21,17 +21,17 @@ reminder is then sent as the application role inside the event's tenant and work
 
 Expand only: nullable or defaulted columns and one new table; the previous release ignores
 them and keeps inserting events (``all_day`` false, no rule, no reminders). Rollback:
-``alembic downgrade 0165_autonomy_undo_claim`` drops them (series rows become one-off events).
+``alembic downgrade 0166_governance_depth`` drops them (series rows become one-off events).
 
-Chained after ``0165_autonomy_undo_claim``; renumber at merge if another migration lands first.
+Chained after ``0166_governance_depth``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0166_calendar_recurrence"
-down_revision = "0165_autonomy_undo_claim"
+revision = "0167_calendar_recurrence"
+down_revision = "0166_governance_depth"
 branch_labels = None
 depends_on = None
 

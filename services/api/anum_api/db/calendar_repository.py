@@ -3,7 +3,7 @@
 ``calendar_events`` rows are scoped to a tenant and workspace under forced RLS; the session
 already carries that context (``open_scoped_store``) and every query filters on it as well.
 Attendees are a JSONB list on the event, validated by the API models. Migration
-``0166_calendar_recurrence`` adds the series columns (``recurrence``, ``recurrence_until``,
+``0167_calendar_recurrence`` adds the series columns (``recurrence``, ``recurrence_until``,
 ``skipped``, ``series_id``, ``recurrence_start``), ``all_day``, ``timezone`` and ``reminders``;
 a child row (one occurrence changed on its own) goes with its series (``on delete cascade``).
 """

@@ -228,7 +228,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             **{name: "0155_books_assets_fx" for name in (
                 "business_book_assets", "business_book_asset_impairments", "business_book_loans", "business_book_loan_repayments")},
             "finance_notice_claims": "0157_finance_evidence",
-            "calendar_reminder_sends": "0166_calendar_recurrence",
+            "calendar_reminder_sends": "0167_calendar_recurrence",
             "finance_expected_income": "0158_finance_depth",
             "business_book_receipt_dismissals": "0159_finance_last_gaps",
             "finance_personal_tags": "0160_finance_depth_2",

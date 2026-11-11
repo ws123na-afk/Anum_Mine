@@ -63,7 +63,7 @@ The job (`anum_api/calendar_reminders.py`) runs with the team reminder sweep (`t
 
 ## Storage
 
-Migration `0045_reports_calendar` adds `calendar_events` (attendees as a JSONB list) under forced RLS on `tenant_id` and `workspace_id`, with checks on kind, status and `ends_at > starts_at`. Migration `0166_calendar_recurrence` (expand only) adds `all_day`, `timezone`, `recurrence`, `recurrence_until`, `skipped`, `reminders`, `series_id` (a child row's series, `on delete cascade`) and `recurrence_start`, the table `calendar_reminder_sends` (forced RLS, the lifecycle purge policy) and the `anum_maintenance` discovery grants above. No other role is granted anything. With `ANUM_REPOSITORY_BACKEND=memory` events are lost on restart.
+Migration `0045_reports_calendar` adds `calendar_events` (attendees as a JSONB list) under forced RLS on `tenant_id` and `workspace_id`, with checks on kind, status and `ends_at > starts_at`. Migration `0167_calendar_recurrence` (expand only) adds `all_day`, `timezone`, `recurrence`, `recurrence_until`, `skipped`, `reminders`, `series_id` (a child row's series, `on delete cascade`) and `recurrence_start`, the table `calendar_reminder_sends` (forced RLS, the lifecycle purge policy) and the `anum_maintenance` discovery grants above. No other role is granted anything. With `ANUM_REPOSITORY_BACKEND=memory` events are lost on restart.
 
 ## Sync
 

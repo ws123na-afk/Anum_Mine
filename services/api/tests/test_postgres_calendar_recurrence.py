@@ -1,4 +1,4 @@
-"""Repeating events and reminders in PostgreSQL (migration 0166_calendar_recurrence,
+"""Repeating events and reminders in PostgreSQL (migration 0167_calendar_recurrence,
 docs/calendar.md#recurrence): series columns round-trip under forced RLS as the non-owner app
 role, a changed occurrence is a child row deleted with its series, and reminders are discovered
 as ``anum_maintenance`` (never a title) and sent once."""

@@ -12,7 +12,7 @@ is not. Skipped occurrences, cancelled events and cancelled occurrences get none
 
 The pass runs with the team reminder sweep (``team_work.run_reminder_pass``). With PostgreSQL
 candidate events are discovered as ``anum_maintenance`` (ids, times, the rule and the reminder
-minutes, migration ``0166_calendar_recurrence``: never a title or a person) and each is handled
+minutes, migration ``0167_calendar_recurrence``: never a title or a person) and each is handled
 in its own transaction inside its tenant's RLS context. Nothing here changes an event.
 """
 
