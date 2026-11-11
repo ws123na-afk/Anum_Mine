@@ -31,7 +31,9 @@ class FakeGovernance implements GovernanceRepository {
               name: 'Organization baseline',
               version: 1,
               active: active,
-              rules: const ['integration.write: require_approval'],
+              rules: const [
+                'integration.write: require_approval'
+              ],
               ruleItems: const [
                 PackRule(
                     action: 'integration.write',
@@ -189,7 +191,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('organization-read-only')), findsNothing);
-    await tester.tap(find.byKey(const Key('pack-versions-Organization baseline')));
+    await tester
+        .tap(find.byKey(const Key('pack-versions-Organization baseline')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('pack-toggle-policy_1')));
     await tester.pumpAndSettle();
@@ -204,7 +207,8 @@ void main() {
     await tester.pumpWidget(_app(GovernanceController(repo)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('pack-versions-Organization baseline')));
+    await tester
+        .tap(find.byKey(const Key('pack-versions-Organization baseline')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('pack-toggle-policy_1')));
     await tester.pumpAndSettle();
