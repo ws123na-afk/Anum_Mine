@@ -15,18 +15,18 @@ docs/model-gateway.md#spend-breakdown, docs/model-gateway.md#budget-alerts.
 * ``model_budgets`` gains ``alert_percent`` (integer, null): an owner's own alert threshold, told to
   the workspace owners in the app like the fixed 50, 75, 90 and 100 percent notices.
 
-Chained after ``0165_autonomy_undo_claim``.
+Chained after ``0169_contacts_directory``.
 
 Expand only. The previous release ignores the new table and column: it reads and writes the monthly
 table as before, so a rollback to it only stops the daily breakdown from growing. Rollback:
-``alembic downgrade 0165_autonomy_undo_claim`` drops the table and the column.
+``alembic downgrade 0169_contacts_directory`` drops the table and the column.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0166_model_usage_daily"
-down_revision = "0165_autonomy_undo_claim"
+revision = "0170_model_usage_daily"
+down_revision = "0169_contacts_directory"
 branch_labels = None
 depends_on = None
 
