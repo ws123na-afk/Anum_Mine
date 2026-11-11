@@ -356,3 +356,80 @@ def test_next_steps_see_the_coming_occurrence_of_a_series() -> None:
     create(**weekly(starts_at=start.isoformat(), ends_at=(start + timedelta(hours=1)).isoformat(), recurrence={"freq": "weekly", "count": 10}))
     steps = client.get("/api/v1/calendar/next-steps", headers=OWNER).json()["items"]
     assert any(step["id"].startswith("agenda:") and "PMV Team Meeting" in step["title"] for step in steps)
+
+
+def _occurrence(series: dict[str, Any], start: datetime) -> dict[str, Any]:
+    opened = client.get(f"/api/v1/calendar/events/{series['id']}", headers=VIEWER, params={"occurrence_start": start.isoformat()})
+    assert opened.status_code == 200, opened.text
+    return opened.json()
+
+
+def test_a_reply_to_one_occurrence_overrides_the_series_reply_for_that_occurrence_only() -> None:
+    series = create(**weekly())
+    first = datetime.fromisoformat(series["starts_at"].replace("Z", "+00:00"))
+    second, third = first + timedelta(weeks=1), first + timedelta(weeks=2)
+    sajid = series["attendees"][0]["id"]
+    url = f"/api/v1/calendar/events/{series['id']}/attendees/{sajid}/response"
+    replied = client.put(url, headers=MEMBER, json={"response": "declined", "scope": "this", "occurrence_start": second.isoformat()})
+    assert replied.status_code == 200, replied.text
+    assert replied.json()["attendees"][0]["response"] == "declined" and replied.json()["occurrence_replies"] == [sajid]
+    assert replied.json()["occurrence_start"] == z(second)
+    # The series default holds for every other occurrence; the list shows each occurrence's own reply.
+    assert _occurrence(series, first)["attendees"][0]["response"] == "invited" and _occurrence(series, first)["occurrence_replies"] == []
+    listed = client.get("/api/v1/calendar/events", headers=VIEWER, params={"start": series["starts_at"], "end": (third + timedelta(hours=2)).isoformat()}).json()["items"]
+    assert [i["attendees"][0]["response"] for i in listed] == ["invited", "declined", "invited"]
+    # A changed occurrence carries the reply onto its own row, and a reply there stays its own.
+    moved = client.patch(f"/api/v1/calendar/events/{series['id']}", headers=MEMBER, json={"scope": "this", "occurrence_start": second.isoformat(), "location": "Depot 2"})
+    assert moved.status_code == 200 and moved.json()["attendees"][0]["response"] == "declined" and moved.json()["occurrence_replies"] == [sajid]
+    tentative = client.put(url, headers=MEMBER, json={"response": "tentative", "scope": "this", "occurrence_start": third.isoformat()})
+    assert tentative.json()["attendees"][0]["response"] == "tentative"
+    # A reply for the whole series replaces the single-occurrence replies of that attendee.
+    everyone = client.put(url, headers=MEMBER, json={"response": "accepted", "scope": "all"})
+    assert everyone.status_code == 200 and everyone.json()["attendees"][0]["response"] == "accepted"
+    assert _occurrence(series, third)["attendees"][0]["response"] == "accepted"
+    assert _occurrence(series, first)["attendees"][0]["response"] == "accepted"
+    # The changed occurrence keeps its own row's reply until it is answered there.
+    assert _occurrence(series, second)["attendees"][0]["response"] == "declined"
+    audits = [a for a in store.audit_records if a.action == "calendar.attendee.response"]
+    assert [a.metadata["scope"] for a in audits] == ["this", "this", "all"] and audits[0].metadata["occurrence_start"] == second.isoformat()
+
+
+def test_occurrence_replies_are_checked_and_only_the_organiser_records_them() -> None:
+    series = create(**weekly())
+    first = datetime.fromisoformat(series["starts_at"].replace("Z", "+00:00"))
+    sajid = series["attendees"][0]["id"]
+    url = f"/api/v1/calendar/events/{series['id']}/attendees/{sajid}/response"
+    assert client.put(url, headers=MEMBER, json={"response": "accepted", "scope": "this"}).status_code == 422
+    missing = client.put(url, headers=MEMBER, json={"response": "accepted", "scope": "this", "occurrence_start": (first + timedelta(hours=3)).isoformat()})
+    assert missing.status_code == 404 and missing.json()["error"]["message"] == "That occurrence does not exist in this series"
+    denied = client.put(url, headers=VIEWER, json={"response": "accepted", "scope": "this", "occurrence_start": first.isoformat()})
+    assert denied.status_code == 403 and "created this event" in denied.json()["error"]["message"]
+    assert client.put(url, headers=OTHER_MEMBER, json={"response": "accepted", "scope": "this", "occurrence_start": first.isoformat()}).status_code == 403
+    assert client.put(url, headers=ELSEWHERE, json={"response": "accepted"}).status_code == 404
+    # Removing the occurrence or the attendee removes their reply to it.
+    assert client.put(url, headers=MEMBER, json={"response": "declined", "scope": "this", "occurrence_start": first.isoformat()}).status_code == 200
+    second = first + timedelta(weeks=1)
+    assert client.put(url, headers=MEMBER, json={"response": "declined", "scope": "this", "occurrence_start": second.isoformat()}).status_code == 200
+    from anum_api.calendar_api import calendar_backend as backend
+
+    assert len(backend.events[series["id"]].occurrence_responses) == 2
+    assert client.delete(f"/api/v1/calendar/events/{series['id']}", headers=MEMBER, params={"scope": "this", "occurrence_start": second.isoformat()}).status_code == 204
+    assert len(backend.events[series["id"]].occurrence_responses) == 1
+    kept = [{"id": a["id"], "name": a["name"], "email": a.get("email")} for a in series["attendees"][1:]]
+    assert client.patch(f"/api/v1/calendar/events/{series['id']}", headers=MEMBER, json={"attendees": kept}).status_code == 200
+    assert backend.events[series["id"]].occurrence_responses == []
+    # A one-off event ignores the scope: the reply is the event's.
+    single = create()
+    one = client.put(f"/api/v1/calendar/events/{single['id']}/attendees/{single['attendees'][0]['id']}/response", headers=MEMBER,
+                     json={"response": "tentative", "scope": "this", "occurrence_start": single["starts_at"]})
+    assert one.status_code == 200 and one.json()["attendees"][0]["response"] == "tentative"
+
+
+def test_email_reminders_are_a_subset_of_the_reminders() -> None:
+    event = create(reminders=[10, 60], email_reminders=[60, 5])
+    assert event["reminders"] == [10, 60] and event["email_reminders"] == [60]
+    changed = client.patch(f"/api/v1/calendar/events/{event['id']}", headers=MEMBER, json={"reminders": [10]}).json()
+    assert changed["email_reminders"] == []
+    again = client.patch(f"/api/v1/calendar/events/{event['id']}", headers=MEMBER, json={"reminders": [10, 30], "email_reminders": [10, 30]}).json()
+    assert again["email_reminders"] == [10, 30]
+    assert client.post("/api/v1/calendar/events", headers=MEMBER, json=meeting(reminders=[10], email_reminders=[-1])).status_code == 422

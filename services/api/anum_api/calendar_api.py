@@ -56,6 +56,9 @@ MAX_REMINDERS = 5
 MAX_REMINDER_MINUTES = 40320  # four weeks
 MAX_SKIPPED = 1000
 MAX_OCCURRENCES_PER_SERIES = 1000
+MAX_OCCURRENCE_RESPONSES = 2000
+# A send to the provider that failed this many times in a row is not retried on its own.
+MAX_PUSH_ATTEMPTS = 5
 SYNCED_SHAPE = "An event synced with Google or Microsoft cannot be made repeating or all-day. Add a new event in ANUM only, or disconnect the calendar first."
 NO_OCCURRENCE = "That occurrence does not exist in this series"
 EditScope = Literal["all", "this", "following"]
@@ -132,6 +135,10 @@ class EventFields(BaseModel):
     timezone: str | None = Field(default=None, max_length=64, description="IANA zone of the series and of an all-day event (the workspace's when empty)")
     recurrence: Recurrence | None = Field(default=None, description="The repeat rule; null for a one-off event")
     reminders: list[int] = Field(default_factory=list, max_length=MAX_REMINDERS, description="Minutes before the start a reminder is sent (0 = at the start)")
+    email_reminders: list[int] = Field(
+        default_factory=list, max_length=MAX_REMINDERS,
+        description="Which of the reminders also go out by email (docs/calendar.md#reminders); minutes that are not in reminders are dropped",
+    )
 
     @field_validator("title")
     @classmethod
@@ -151,7 +158,7 @@ class EventFields(BaseModel):
             raise ValueError(f"{value} is not a known time zone (use an IANA name such as Asia/Dubai)")
         return value
 
-    @field_validator("reminders")
+    @field_validator("reminders", "email_reminders")
     @classmethod
     def _reminders(cls, value: list[int]) -> list[int]:
         for minutes in value:
@@ -186,6 +193,8 @@ class EventFields(BaseModel):
 
     @model_validator(mode="after")
     def _times(self) -> EventFields:
+        # An email reminder is one of the event's reminders that is also emailed.
+        self.email_reminders = [m for m in self.email_reminders if m in self.reminders]
         if self.all_day:
             # Whole local days: the stored instants are the local midnights around them.
             first, last = all_day_days(self.starts_at, max(self.ends_at, self.starts_at + timedelta(seconds=1)), self.timezone)
@@ -250,11 +259,25 @@ class EventUpdate(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     recurrence: Recurrence | None = None
     reminders: list[int] | None = Field(default=None, max_length=MAX_REMINDERS)
+    email_reminders: list[int] | None = Field(default=None, max_length=MAX_REMINDERS)
     start_date: date | None = None
     end_date: date | None = None
     # Which occurrences of a series the change applies to (docs/calendar.md#recurrence).
     scope: EditScope = Field(default="all", description="all: the whole series; this: one occurrence; following: this and later ones")
     occurrence_start: datetime | None = Field(default=None, description="The occurrence (its original start) for scope this or following")
+
+
+class OccurrenceResponse(BaseModel):
+    """An attendee's reply to one occurrence of a series (docs/calendar.md#replies)."""
+
+    attendee_id: str = Field(max_length=80)
+    occurrence_start: datetime
+    response: AttendeeResponse
+
+    @field_validator("occurrence_start")
+    @classmethod
+    def _aware(cls, value: datetime) -> datetime:
+        return _utc(value)
 
 
 class CalendarEvent(EventFields):
@@ -283,10 +306,23 @@ class CalendarEvent(EventFields):
     synced_at: datetime | None = None
     sync_state: Literal["synced", "pending_push", "local"] | None = None
     invites_hash: str | None = None
+    # The last failed send to the provider and how many failed in a row (docs/calendar.md#how-events-sync).
+    sync_error: str | None = Field(default=None, max_length=500)
+    sync_attempts: int = Field(default=0, ge=0, le=100)
+    # Replies to single occurrences of a series; the attendee's own reply is the default.
+    occurrence_responses: list[OccurrenceResponse] = Field(default_factory=list, max_length=MAX_OCCURRENCE_RESPONSES)
 
     @model_validator(mode="after")
     def _series(self) -> CalendarEvent:
         self.skipped = sorted({_utc(s) for s in self.skipped})
+        # A reply to an occurrence goes with its attendee, and with the occurrence when it is removed.
+        ids = {a.id for a in self.attendees}
+        gone = set(self.skipped)
+        kept: dict[tuple[str, datetime], OccurrenceResponse] = {}
+        for reply in self.occurrence_responses if self.recurrence is not None else []:
+            if reply.attendee_id in ids and reply.occurrence_start not in gone:
+                kept[(reply.attendee_id, reply.occurrence_start)] = reply
+        self.occurrence_responses = sorted(kept.values(), key=lambda r: (r.occurrence_start, r.attendee_id))
         if self.recurrence_start is not None:
             self.recurrence_start = _utc(self.recurrence_start)
         self.recurrence_until = (
@@ -316,6 +352,10 @@ class EventView(CalendarEvent):
     start_date: date | None = None
     end_date: date | None = None
     rrule: str | None = Field(default=None, description="The repeat rule as RFC 5545 text")
+    # Sync: the last send failed this many times in a row and ANUM stopped retrying on its own (Retry).
+    sync_failed: bool = False
+    # Attendees whose reply shown for this occurrence is their reply to it alone (not the series default).
+    occurrence_replies: list[str] = Field(default_factory=list)
 
 
 class EventPage(BaseModel):
@@ -329,6 +369,10 @@ class EventPage(BaseModel):
 
 class ResponseUpdate(BaseModel):
     response: AttendeeResponse
+    # For a series: ``this`` records the reply for one occurrence (``occurrence_start``), ``all``
+    # (the default) for the whole series, replacing the attendee's replies to single occurrences.
+    scope: Literal["all", "this"] = "all"
+    occurrence_start: datetime | None = None
 
 
 class NextStepAction(BaseModel):
@@ -368,7 +412,12 @@ class CalendarStoreProtocol(Protocol):
         """The child rows of a series (occurrences changed on their own), earliest first."""
         ...
     def by_external(self, connection_id: str, external_id: str) -> CalendarEvent | None: ...
-    def pending_push(self, connection_id: str, limit: int) -> list[CalendarEvent]: ...
+    def by_external_prefix(self, connection_id: str, prefix: str) -> list[CalendarEvent]:
+        """Linked events whose provider id starts with ``prefix`` (Google instances of a series)."""
+        ...
+    def pending_push(self, connection_id: str, limit: int) -> list[CalendarEvent]:
+        """Events waiting to be sent, without those that failed ``MAX_PUSH_ATTEMPTS`` times in a row."""
+        ...
     def count_linked(self, connection_id: str) -> int: ...
     def unlink(self, connection_id: str) -> int: ...
 
@@ -449,9 +498,21 @@ class MemoryCalendarStore:
                     return e.model_copy(deep=True)
         return None
 
+    def by_external_prefix(self, connection_id: str, prefix: str) -> list[CalendarEvent]:
+        with self.b.lock:
+            items = [
+                e for e in self.b.events.values()
+                if self._mine(e) and e.connection_id == connection_id and (e.external_id or "").startswith(prefix)
+            ]
+        items.sort(key=_order)
+        return [e.model_copy(deep=True) for e in items[:2000]]
+
     def pending_push(self, connection_id: str, limit: int) -> list[CalendarEvent]:
         with self.b.lock:
-            items = [e for e in self.b.events.values() if self._mine(e) and e.connection_id == connection_id and e.sync_state == "pending_push"]
+            items = [
+                e for e in self.b.events.values()
+                if self._mine(e) and e.connection_id == connection_id and e.sync_state == "pending_push" and e.sync_attempts < MAX_PUSH_ATTEMPTS
+            ]
         items.sort(key=_order)
         return [e.model_copy(deep=True) for e in items[:limit]]
 
@@ -464,8 +525,9 @@ class MemoryCalendarStore:
         with self.b.lock:
             for e in self.b.events.values():
                 if self._mine(e) and e.connection_id == connection_id:
-                    e.connection_id = e.external_id = e.external_etag = e.synced_at = e.invites_hash = None
+                    e.connection_id = e.external_id = e.external_etag = e.synced_at = e.invites_hash = e.sync_error = None
                     e.sync_state = None
+                    e.sync_attempts = 0
                     count += 1
         return count
 
@@ -547,13 +609,23 @@ def _view(context: TenantContext, event: CalendarEvent, *, occurrence_start: dat
     shown = override or event
     emails = any(a.email for a in shown.attendees)
     pending = emails and shown.invites_hash != invitation_hash(shown)
-    data = shown.model_dump(exclude={"external_etag", "invites_hash"})
+    data = shown.model_dump(exclude={"external_etag", "invites_hash", "occurrence_responses"})
     recurring = event.recurrence is not None or event.series_id is not None
+    own_replies: list[str] = []
     if override is not None:
         data.update(id=event.id, series_id=event.id, recurrence=event.recurrence, recurrence_until=event.recurrence_until, skipped=event.skipped)
+        # A changed occurrence holds its own people: a reply that differs from the series is its own.
+        series_replies = {a.id: a.response for a in event.attendees}
+        own_replies = [a.id for a in override.attendees if a.id in series_replies and a.response != series_replies[a.id]]
     elif event.series_id is not None:
         # A child row opened by its own id: it stands for one occurrence of its series.
         occurrence_start = occurrence_start or event.recurrence_start
+    elif event.recurrence is not None and occurrence_start is not None and event.occurrence_responses:
+        # Replies to this occurrence alone replace the attendee's reply on the series.
+        replies = {r.attendee_id: r.response for r in event.occurrence_responses if r.occurrence_start == occurrence_start}
+        if replies:
+            data["attendees"] = [{**a, "response": replies.get(a["id"], a["response"])} for a in data["attendees"]]
+            own_replies = [a.id for a in event.attendees if a.id in replies]
     start_day, end_day = all_day_days(shown.starts_at, shown.ends_at, shown.timezone) if shown.all_day else (None, None)
     return EventView(
         **data,
@@ -567,6 +639,8 @@ def _view(context: TenantContext, event: CalendarEvent, *, occurrence_start: dat
         start_date=start_day,
         end_date=end_day,
         rrule=event.recurrence.rrule() if event.recurrence else None,
+        sync_failed=shown.sync_attempts >= MAX_PUSH_ATTEMPTS,
+        occurrence_replies=own_replies,
     )
 
 
@@ -616,6 +690,12 @@ def _is_occurrence(event: CalendarEvent, occurrence_start: datetime) -> bool:
         return occurrence_start == event.starts_at
     found = occurrences(event.recurrence, event.starts_at, event.timezone, occurrence_start - timedelta(seconds=1), occurrence_start + timedelta(seconds=1), limit=2)
     return occurrence_start in found
+
+
+def _pushable(event: CalendarEvent) -> bool:
+    """Whether changes to ``event`` go to its connected calendar: linked, and organised in ANUM
+    (an event organised by someone else follows the provider; ``calendar_sync.GUEST_REF``)."""
+    return bool(event.connection_id) and event.source_ref != "attendee"
 
 
 def _workspace_zone(context: TenantContext) -> str:
@@ -721,9 +801,9 @@ async def create_event(
     # Saved and audited in a short unit of work in a worker thread; the provider push below
     # runs with no transaction open (docs/realtime.md#event-loop).
     event = await run_in_unit(units, context, create)
-    # A series or an all-day event stays in ANUM: providers get single timed events only
-    # (docs/calendar.md#recurrence, "Synced calendars").
-    if payload.sync and event.recurrence is None and not event.all_day:
+    if payload.sync:
+        # Single events, series (with the provider's own repeat rule) and all-day events all go to
+        # the connected calendar (docs/calendar.md#how-events-sync).
         from .calendar_sync import attach_and_push
 
         event = await attach_and_push(context, event.id, create=True) or event
@@ -768,7 +848,9 @@ async def update_event(
             event = _load(store, event_id)
             if not _can_manage(context, event):
                 raise HTTPException(status_code=403, detail=MANAGE_DENIED)
-            if event.connection_id and (changes.get("recurrence") is not None or changes.get("all_day")):
+            becomes_series = changes.get("recurrence") is not None and event.recurrence is None
+            becomes_all_day = bool(changes.get("all_day")) and not event.all_day
+            if event.connection_id and event.series_id is None and (becomes_series or becomes_all_day):
                 raise HTTPException(status_code=422, detail=SYNCED_SHAPE)
             result = _apply_update(store, context, event, payload, changes, occurrence)
         _audit(repository, context, "calendar.event.updated", event_id, {"fields": sorted(changes), "scope": payload.scope, "series": result[0].id})
@@ -777,9 +859,15 @@ async def update_event(
     # The store and the audit run in a short unit of work in a worker thread; the provider
     # push below runs with no transaction open (docs/realtime.md#event-loop).
     updated, override, start = await run_in_unit(units, context, save)
-    if updated.connection_id and updated.recurrence is None and not updated.all_day and override is None:
-        from .calendar_sync import attach_and_push
+    from .calendar_sync import attach_and_push
 
+    if override is not None:
+        # One occurrence changed: it goes to the provider as that instance of the series.
+        override = await attach_and_push(context, override.id, create=False) or override
+    else:
+        if updated.id != event_id:
+            # This and following: the old series was shortened and a new one starts here.
+            await attach_and_push(context, event_id, create=False)
         updated = await attach_and_push(context, updated.id, create=False) or updated
     return _view(context, updated, occurrence_start=start, override=override)
 
@@ -823,6 +911,7 @@ def _apply_update(
         if event.recurrence is not None and (updated.starts_at != event.starts_at or updated.recurrence != event.recurrence):
             # The series itself moved or changed its rule: exceptions no longer line up with it.
             updated.skipped = []
+            updated.occurrence_responses = []
             for child in store.overrides(event.id):
                 store.delete(child.id)
         store.save(updated)
@@ -831,10 +920,14 @@ def _apply_update(
         raise HTTPException(status_code=404, detail=NO_OCCURRENCE)
     if payload.scope == "this":
         existing = next((o for o in store.overrides(event.id) if o.recurrence_start == occurrence), None)
+        # The occurrence's own replies become its people's replies on the changed occurrence.
+        replies = {r.attendee_id: r.response for r in event.occurrence_responses if r.occurrence_start == occurrence}
         base = existing or event.model_copy(update={
             "id": new_id("event"), "series_id": event.id, "recurrence_start": occurrence, "recurrence": None, "recurrence_until": None, "skipped": [],
             "starts_at": occurrence, "ends_at": occurrence + event.duration, "connection_id": None, "external_id": None, "external_etag": None,
-            "synced_at": None, "sync_state": None, "invites_hash": None, "created_at": utc_now(),
+            "synced_at": None, "sync_state": None, "invites_hash": None, "created_at": utc_now(), "occurrence_responses": [],
+            "sync_error": None, "sync_attempts": 0,
+            "attendees": [a.model_copy(update={"response": replies.get(a.id, a.response)}) for a in event.attendees],
         })
         updated = _merge(base, payload, changes, **by)
         if existing is None:
@@ -855,7 +948,10 @@ def _apply_update(
     else:
         shortened = rule.model_copy(update={"until": (occurrence.astimezone(zone_of(event.timezone)) - timedelta(days=1)).date()})
         remaining = None
-    old = event.model_copy(update={"recurrence": shortened, "skipped": [s for s in event.skipped if s < occurrence], "updated_by": context.user_id, "updated_at": utc_now()})
+    old = event.model_copy(update={
+        "recurrence": shortened, "skipped": [s for s in event.skipped if s < occurrence], "updated_by": context.user_id, "updated_at": utc_now(),
+        "occurrence_responses": [r for r in event.occurrence_responses if r.occurrence_start < occurrence],
+    })
     old = CalendarEvent.model_validate(old.model_dump())
     new_rule = changes.get("recurrence")
     if new_rule is None:
@@ -864,20 +960,30 @@ def _apply_update(
     duration = (_utc(changes["ends_at"]) - new_start) if "ends_at" in changes else event.duration
     fresh = event.model_copy(update={
         "id": new_id("event"), "starts_at": new_start, "ends_at": new_start + duration, "skipped": [s for s in event.skipped if s >= occurrence],
-        "connection_id": None, "external_id": None, "external_etag": None, "synced_at": None, "sync_state": None, "invites_hash": None, "created_at": utc_now(),
+        "external_id": None, "external_etag": None, "synced_at": None, "invites_hash": None, "created_at": utc_now(),
+        "occurrence_responses": [r for r in event.occurrence_responses if r.occurrence_start >= occurrence], "sync_error": None, "sync_attempts": 0,
+        # The new series goes to the same calendar as the old one (sent as a new series there).
+        "connection_id": event.connection_id if _pushable(event) else None,
+        "sync_state": "pending_push" if _pushable(event) else None,
     })
     fresh = _merge(fresh, payload, {k: v for k, v in changes.items() if k not in ("starts_at", "ends_at")}, recurrence=new_rule, **by)
     moved = fresh.starts_at != occurrence or fresh.recurrence != rule.model_copy(update={"count": remaining} if remaining is not None else {})
     later = [o for o in store.overrides(event.id) if o.recurrence_start is not None and o.recurrence_start >= occurrence]
     if moved:
         fresh.skipped = []
+        fresh.occurrence_responses = []
     store.save(old)
     store.add(fresh)
     for child in later:
         if moved:
             store.delete(child.id)
         else:
+            # The occurrence is now one of the new series': it is sent again as an instance of it.
             child.series_id = fresh.id
+            child.connection_id = fresh.connection_id
+            child.external_id = child.external_etag = child.synced_at = None
+            child.sync_state = "pending_push" if fresh.connection_id else None
+            child.sync_error, child.sync_attempts = None, 0
             store.save(child)
     return fresh, None, None
 
@@ -890,20 +996,59 @@ def record_response(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> EventView:
-    """The organiser records an attendee's reply (accepted, tentative, declined)."""
+    """The organiser records an attendee's reply (accepted, tentative, declined). On a series,
+    ``scope: this`` with ``occurrence_start`` records it for that occurrence only; ``all`` sets the
+    reply for the whole series and clears the attendee's replies to single occurrences."""
     _require(context, Permission.CALENDAR_READ, READ_DENIED)
+    if payload.scope == "this" and payload.occurrence_start is None:
+        raise HTTPException(status_code=422, detail="occurrence_start names the occurrence for scope this")
+    occurrence = _utc(payload.occurrence_start) if payload.occurrence_start else None
     with open_calendar_store(context) as store:
         event = _load(store, event_id)
         if not _can_manage(context, event):
             raise HTTPException(status_code=403, detail=MANAGE_DENIED)
         if not any(a.id == attendee_id for a in event.attendees):
             raise HTTPException(status_code=404, detail="Attendee not found")
-        event.attendees = [
-            a.model_copy(update={"response": payload.response}) if a.id == attendee_id else a for a in event.attendees
-        ]
-        event.updated_by, event.updated_at = context.user_id, utc_now()
-        store.save(event)
-    _audit(repository, context, "calendar.attendee.response", event_id, {"attendee": attendee_id, "response": payload.response.value})
+        now = utc_now()
+        shown_override: CalendarEvent | None = None
+        if event.recurrence is not None and payload.scope == "this" and occurrence is not None:
+            if occurrence in event.skipped or not _is_occurrence(event, occurrence):
+                raise HTTPException(status_code=404, detail=NO_OCCURRENCE)
+            override = next((o for o in store.overrides(event.id) if o.recurrence_start == occurrence), None)
+            if override is not None:
+                # A changed occurrence keeps its own people: the reply goes on its row.
+                target = next((a for a in override.attendees if a.id == attendee_id), None)
+                if target is None:
+                    raise HTTPException(status_code=404, detail="That attendee is not on this occurrence")
+                override.attendees = [a.model_copy(update={"response": payload.response}) if a.id == attendee_id else a for a in override.attendees]
+                override.updated_by, override.updated_at = context.user_id, now
+                store.save(override)
+                shown_override = override
+            else:
+                replies = [r for r in event.occurrence_responses if not (r.attendee_id == attendee_id and r.occurrence_start == occurrence)]
+                if len(replies) >= MAX_OCCURRENCE_RESPONSES:
+                    raise HTTPException(status_code=422, detail="This series holds too many replies to single occurrences; record the reply for the whole series instead")
+                replies.append(OccurrenceResponse(attendee_id=attendee_id, occurrence_start=occurrence, response=payload.response))
+                event.occurrence_responses = replies
+                event.updated_by, event.updated_at = context.user_id, now
+                store.save(event)
+        else:
+            event.attendees = [
+                a.model_copy(update={"response": payload.response}) if a.id == attendee_id else a for a in event.attendees
+            ]
+            # The series reply now applies to every occurrence.
+            event.occurrence_responses = [r for r in event.occurrence_responses if r.attendee_id != attendee_id]
+            event.updated_by, event.updated_at = context.user_id, now
+            store.save(event)
+    scope = payload.scope if event.recurrence is not None else "all"
+    metadata: dict[str, Any] = {"attendee": attendee_id, "response": payload.response.value, "scope": scope}
+    if scope == "this" and occurrence is not None:
+        metadata["occurrence_start"] = occurrence.isoformat()
+    _audit(repository, context, "calendar.attendee.response", event_id, metadata)
+    if scope == "this" and occurrence is not None:
+        if shown_override is not None:
+            return _view(context, event, occurrence_start=occurrence, override=shown_override)
+        return _view(context, event.model_copy(update={"starts_at": occurrence, "ends_at": occurrence + event.duration}), occurrence_start=occurrence)
     return _view(context, event)
 
 
@@ -928,7 +1073,8 @@ async def delete_event(
         return event
 
     event = await run_in_unit(units, context, load)
-    if event.series_id is not None or (event.recurrence is not None and scope != "all"):
+    from_first = event.recurrence is not None and scope == "following" and occurrence == event.starts_at
+    if event.series_id is not None or (event.recurrence is not None and scope != "all" and not from_first):
         def trim(repository: AnumRepository) -> None:
             with open_calendar_store(context) as store:
                 current = _load(store, event_id)
@@ -936,13 +1082,17 @@ async def delete_event(
             _audit(repository, context, "calendar.event.deleted", event_id, {"scope": scope if event.series_id is None else "this"})
 
         await run_in_unit(units, context, trim)
+        # The series' removed occurrences (or its shorter run) go to the connected calendar.
+        from .calendar_sync import attach_and_push
+
+        await attach_and_push(context, event.series_id or event_id, create=False)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     if event.connection_id and event.external_id:
         from .calendar_sync import CalendarSyncError, remove_at_provider
 
         try:
             await remove_at_provider(context, event)
-        except CalendarSyncError as exc:
+        except CalendarSyncError as exc:  # nothing is deleted while the provider still has it
             raise HTTPException(
                 status_code=502,
                 detail=f"The event was not deleted because the connected calendar could not remove it: {exc.message} Try again, or disconnect the calendar first.",
@@ -951,7 +1101,7 @@ async def delete_event(
     def delete(repository: AnumRepository) -> None:
         with open_calendar_store(context) as store:
             store.delete(event_id)
-        _audit(repository, context, "calendar.event.deleted", event_id, {"scope": "all"})
+        _audit(repository, context, "calendar.event.deleted", event_id, {"scope": "all" if not from_first else "following"})
 
     await run_in_unit(units, context, delete)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -966,6 +1116,7 @@ def _delete_occurrences(store: CalendarStoreProtocol, context: TenantContext, ev
         store.delete(event.id)
         if parent is not None and event.recurrence_start is not None and event.recurrence_start not in parent.skipped:
             parent.skipped = [*parent.skipped, event.recurrence_start]
+            parent.occurrence_responses = [r for r in parent.occurrence_responses if r.occurrence_start != event.recurrence_start]
             parent.updated_by, parent.updated_at = context.user_id, now
             store.save(parent)
         return
@@ -981,6 +1132,7 @@ def _delete_occurrences(store: CalendarStoreProtocol, context: TenantContext, ev
         if len(event.skipped) >= MAX_SKIPPED:
             raise HTTPException(status_code=422, detail="This series has too many removed occurrences; shorten it or delete it instead")
         event.skipped = [*event.skipped, occurrence]
+        event.occurrence_responses = [r for r in event.occurrence_responses if r.occurrence_start != occurrence]
         event.updated_by, event.updated_at = context.user_id, now
         store.save(event)
         return

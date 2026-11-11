@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from .audit import AuditRecord
 from .authorization import Permission
 from .calendar_api import MANAGE_DENIED as EVENT_MANAGE_DENIED
-from .calendar_api import _can_manage, open_calendar_store
+from .calendar_api import CalendarEvent, EventView, _can_manage, open_calendar_store
 from .calendar_providers import PROVIDER_NAMES, CalendarProvider
 from .calendar_sync import (
     SEND_INVITATIONS_TOOL,
@@ -40,6 +40,7 @@ from .calendar_sync import (
     provider_problems,
     provider_scopes,
     redirect_uri,
+    retry_push,
     sync_connection,
     web_url,
 )
@@ -489,3 +490,58 @@ def request_invitations(
     return InvitationResult(
         summary="Waiting for an owner's approval. Nothing has been sent.", approval=approval, attendees=arguments["attendees"]
     )
+
+
+# -- a failed send ------------------------------------------------------------------------------------
+
+
+@invitations_router.post("/{event_id}/sync/retry", response_model=EventView)
+async def retry_event_sync(
+    event_id: str,
+    context: TenantContext = Depends(tenant_context),
+    units: UnitsOfWork = Depends(units_of_work),
+) -> EventView:
+    """Send an event to its connected calendar again after sends failed (docs/calendar.md#how-events-sync).
+    The failure count starts again; the answer says whether it went through this time."""
+    _require(context, Permission.CALENDAR_READ, READ_DENIED)
+
+    def check(repository: AnumRepository) -> CalendarEvent:
+        with open_calendar_store(context) as events:
+            event = events.get(event_id)
+            if event is None:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if not _can_manage(context, event):
+                raise HTTPException(status_code=403, detail=EVENT_MANAGE_DENIED)
+            if not event.connection_id or event.sync_state != "pending_push":
+                raise HTTPException(status_code=409, detail="This event is not waiting to be sent to a connected calendar.")
+        _audit(repository, context, "calendar.event.sync_retried", event_id, metadata={"attempts": event.sync_attempts})
+        return event
+
+    await run_in_unit(units, context, check)
+    connection = await asyncio.to_thread(_linked_connection, context, event_id)
+    if connection is not None and connection.status == ConnectionStatus.REAUTH_REQUIRED:
+        raise HTTPException(status_code=409, detail=f"{PROVIDER_NAMES[connection.provider]} needs to be connected again under Calendar > Sync before the event can be sent.")
+    updated = await retry_push(context, event_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return await asyncio.to_thread(_event_view, context, updated)
+
+
+def _linked_connection(context: TenantContext, event_id: str) -> CalendarConnection | None:
+    with open_calendar_store(context) as events:
+        event = events.get(event_id)
+    if event is None or not event.connection_id:
+        return None
+    with open_sync_store(context) as store:
+        return store.get_connection(event.connection_id)
+
+
+def _event_view(context: TenantContext, event: CalendarEvent) -> EventView:
+    from .calendar_api import _view
+
+    if event.series_id is not None:
+        with open_calendar_store(context) as events:
+            series = events.get(event.series_id)
+        if series is not None:
+            return _view(context, series, occurrence_start=event.recurrence_start, override=event)
+    return _view(context, event)

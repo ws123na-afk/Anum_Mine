@@ -126,3 +126,92 @@ def test_all_day_reminders_name_the_day_and_the_sweep_runs_the_pass() -> None:
     assert sent.title.startswith("PMV Team Meeting:") and sent.body.startswith("All day")
     assert client.get("/api/v1/notifications", headers=MEMBER).json()["items"][0]["kind"] == NOTICE_KIND
     assert client.get("/api/v1/calendar/events", headers=VIEWER).status_code == 200 and OWNER
+
+
+# -- email reminders --------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mail(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[tuple[str, str, str]]]:
+    from anum_api import notifications
+    from anum_api.calendar_reminders import memory_email_store
+    from anum_api.contacts.store import memory_data
+    from anum_api.onboarding import _notifications
+    from anum_api.settings import settings
+
+    sent: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_from", "anum@example.com")
+    monkeypatch.setattr(notifications, "send_email", lambda to, subject, text: sent.append((to, subject, text)))
+    for cleared in (memory_email_store, memory_data):
+        cleared.clear()
+    _notifications._items.clear()
+    yield sent
+    for cleared in (memory_email_store, memory_data):
+        cleared.clear()
+    _notifications._items.clear()
+
+
+def _email_on(user: str, on: bool = True) -> None:
+    from anum_api.onboarding import NotificationPreferences, _notifications
+
+    _notifications.save(ctx(user), NotificationPreferences(email_enabled=on))
+
+
+def test_an_email_reminder_goes_once_in_english_and_arabic_to_people_who_want_email(mail: list[tuple[str, str, str]]) -> None:
+    now = utc_now().replace(microsecond=0)
+    start = now + timedelta(minutes=50)
+    memory_team_store.save_profile(ctx("member_c"), MemberProfile(user_id="member_c", display_name="Mona", email="mona@example.com"))
+    memory_team_store.save_profile(ctx("owner_c"), MemberProfile(user_id="owner_c", display_name="Sajid", email="sajid@example.com"))
+    _email_on("member_c")
+    _email_on("owner_c", False)
+    event = create(starts_at=start.isoformat(), ends_at=(start + timedelta(hours=1)).isoformat(), reminders=[10, 60], email_reminders=[60],
+                   timezone="Asia/Dubai")
+    assert event["email_reminders"] == [60]
+    # The hour reminder is due: in app for both, by email only for the person with email on.
+    assert run_calendar_reminder_pass(now=now) == 2
+    assert [m[0] for m in mail] == ["mona@example.com"]
+    to, subject, body = mail[0]
+    assert subject == "ANUM: PMV Team Meeting starts in 50 minutes"
+    assert "Asia/Dubai" in body and "At Microsoft Teams" in body and "teams.example.com" not in body
+    assert "تذكير: PMV Team Meeting" in body and "بعد 50 دقيقة" in body and "المكان: Microsoft Teams" in body
+    assert "—" not in body and "–" not in body
+    # A second pass (a restart, a second process) emails nobody again.
+    assert run_calendar_reminder_pass(now=now) == 0 and len(mail) == 1
+    # The ten-minute reminder is in app only.
+    assert run_calendar_reminder_pass(now=start - timedelta(minutes=9)) == 2 and len(mail) == 1
+    audits = [a for a in store.audit_records if a.action == "calendar.reminder_emailed"]
+    assert sorted(a.metadata["status"] for a in audits) == ["sent", "skipped"]
+    skipped = next(a for a in audits if a.metadata["status"] == "skipped")
+    assert skipped.metadata["recipient"] == "owner_c" and "Email notifications are off" in skipped.metadata["detail"]
+    assert all("mona@" not in str(a.metadata) and "PMV" not in str(a.metadata) for a in audits)
+
+
+def test_an_email_reminder_honours_do_not_contact_and_needs_an_address(mail: list[tuple[str, str, str]]) -> None:
+    now = utc_now().replace(microsecond=0)
+    start = now + timedelta(minutes=20)
+    memory_team_store.save_profile(ctx("member_c"), MemberProfile(user_id="member_c", display_name="Mona", email="mona@example.com"))
+    memory_team_store.save_profile(ctx("owner_c"), MemberProfile(user_id="owner_c", display_name="Sajid", email="sajid@example.com"))
+    _email_on("member_c")
+    _email_on("owner_c")
+    person = client.post("/api/v1/contacts", headers=MEMBER, json={"name": "Mona", "emails": ["mona@example.com"]})
+    assert person.status_code == 201, person.text
+    blocked = client.put(f"/api/v1/contacts/{person.json()['person']['id']}/do-not-contact", headers=MEMBER, json={"channel": "email", "reason": "Asked by email"})
+    assert blocked.status_code == 201, blocked.text
+    create(starts_at=start.isoformat(), ends_at=(start + timedelta(hours=1)).isoformat(), reminders=[30], email_reminders=[30])
+    assert run_calendar_reminder_pass(now=now) == 2
+    assert [m[0] for m in mail] == ["sajid@example.com"]
+    details = {a.metadata["recipient"]: a.metadata for a in store.audit_records if a.action == "calendar.reminder_emailed"}
+    assert details["member_c"]["status"] == "skipped" and "do not contact" in details["member_c"]["detail"]
+    assert details["owner_c"]["status"] == "sent"
+
+
+def test_no_mail_server_means_no_email_claims(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.calendar_reminders import memory_email_store
+
+    memory_email_store.clear()
+    now = utc_now().replace(microsecond=0)
+    start = now + timedelta(minutes=20)
+    create(starts_at=start.isoformat(), ends_at=(start + timedelta(hours=1)).isoformat(), reminders=[30], email_reminders=[30])
+    assert run_calendar_reminder_pass(now=now) == 1
+    assert memory_email_store.rows == {}
