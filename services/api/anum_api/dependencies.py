@@ -1,3 +1,4 @@
+import logging
 import asyncio
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
@@ -337,8 +338,19 @@ def _membership_context(identity: TenantContext, membership: WorkspaceMembership
 
 def _with_persisted_limit(context: TenantContext) -> TenantContext:
     """Header authentication (local and test): the membership, when one is stored, lends its
-    role template limit, so a template is enforced the same way as in ``oidc`` mode."""
-    membership = lookup_membership(context)
+    role template limit, so a template is enforced the same way as in ``oidc`` mode.
+
+    Header mode never runs outside local and test, so a database that cannot be reached
+    (unit tests that point ``repository_backend`` at PostgreSQL without one) means "no
+    stored membership" here; in ``oidc`` mode the lookup's failure still fails the request.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        membership = lookup_membership(context)
+    except OperationalError:
+        logging.getLogger(__name__).warning("role template lookup skipped: the database is unreachable (header authentication)")
+        return context
     if membership is None or not membership.active or membership.permission_limit is None:
         return context
     return context.model_copy(update={"permission_limit": list(membership.permission_limit)})
