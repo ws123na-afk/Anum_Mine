@@ -115,6 +115,7 @@ import 'theme/anum_theme.dart';
 import 'theme/theme_controller.dart';
 import 'localization/anum_localizations.dart';
 import '../features/agent_controls/agent_controls_data.dart';
+import '../features/owner_desk/owner_desk_routes.dart';
 
 abstract final class AnumRoutes {
   static const splash = '/splash';
@@ -274,6 +275,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
 
   /// Document vault, attendance, vehicles, purchases and the business books.
   late final RecordModuleRoutes records;
+  late final OwnerDeskRoutes ownerDesk;
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -568,6 +570,15 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
             baseUri: Uri.parse(configuredUrl),
             sessions: sessions,
             client: newClient?.call()));
+    // The owner desk screens (docs/mobile-features.md#owner-desk). The
+    // Executive desk switches workspace the way Settings does.
+    ownerDesk = OwnerDeskRoutes(
+        api: api,
+        sessions: sessions,
+        switchWorkspace: (id) async {
+          await authRepository.switchWorkspace(id);
+          await Future.wait([settings.load(), workspace.load()]);
+        });
     locale = LocaleController()..restore();
     // Pushes use the app's language (docs/notifications.md#phone-push).
     push.languageOf = () => (locale.locale?.languageCode ??
@@ -627,6 +638,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
     'agentChat': 'builder; each chat page has its own controller',
     'agentCall': 'builder; each call page has its own controller',
     'records': 'routes; each page has its own controller',
+    'ownerDesk': 'routes; each page has its own controller',
   };
 
   /// The catalog for sentences said outside any widget (the system prompt's
@@ -664,7 +676,9 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
   }
 
   static AppLockArea _areaOfRoute(String route) =>
-      route == AnumRoutes.finance || route == AnumRoutes.financeIntel
+      route == AnumRoutes.finance ||
+              route == AnumRoutes.financeIntel ||
+              route == OwnerDeskRoutes.ibkr
           ? AppLockArea.finance
           : route == RecordModuleRoutes.books
               ? AppLockArea.books
@@ -1083,6 +1097,11 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
       (child) => _AuthenticatedDestination(auth: auth, child: child),
     );
     if (record != null) return record;
+    final desk = ownerDesk.route(
+      settings,
+      (child) => _AuthenticatedDestination(auth: auth, child: child),
+    );
+    if (desk != null) return desk;
     if (name == AnumRoutes.billing) {
       return MaterialPageRoute<void>(
         settings: settings,

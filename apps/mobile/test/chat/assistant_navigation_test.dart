@@ -210,11 +210,14 @@ void main() {
         scrollable: find.descendant(
             of: find.byType(Drawer), matching: find.byType(Scrollable)));
     expect(find.text('Free plan'), findsOneWidget);
-    // The Menu is long (record modules too): scroll back to Automations.
+    // The Menu is long (record modules and the owner desk too): scroll back
+    // to Automations and bring the whole entry into view before tapping.
     await tester.scrollUntilVisible(
         find.byKey(const Key('menu-shellAutomations')), -200,
         scrollable: find.descendant(
             of: find.byType(Drawer), matching: find.byType(Scrollable)));
+    await tester.ensureVisible(find.byKey(const Key('menu-shellAutomations')));
+    await settleByTime(tester);
     await tester.tap(find.byKey(const Key('menu-shellAutomations')));
     await settleByTime(tester);
     expect(find.byType(Drawer), findsNothing);
