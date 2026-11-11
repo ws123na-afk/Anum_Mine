@@ -277,6 +277,8 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     }
     if (path === '/api/v1/privacy') return json(privacy);
     if (path === '/api/v1/files/usage') return json(fileUsage);
+    if (path === '/api/v1/files/folders' && method === 'GET') return json({ items: [{ id: 'folder_contracts', name: 'Contracts', parent_id: null, path: 'Contracts', depth: 1, file_count: 3, can_manage: true, created_by: 'user_local', created_at: now }], limit: 1000, max_depth: 10 });
+    if (path === '/api/v1/files/tags' && method === 'GET') return json({ items: [{ id: 'tag_urgent', name: 'Urgent', file_count: 1, can_manage: true, created_by: 'user_local', created_at: now }], limit: 500 });
     if (path === '/api/v1/files' && method === 'GET') return json(files);
     if (path === '/api/v1/files/file_notes') return json(files[0]);
     if (path === '/api/v1/files/file_notes/links' && method === 'POST') return json({ url: '/api/v1/files/links/example-token', expires_at: later }, 201);

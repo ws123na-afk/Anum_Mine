@@ -17,6 +17,127 @@ export interface ApiFile {
   scan_status?: 'clean' | 'infected' | null; scan_signature?: string | null; scanned_at?: string | null;
   /** The current version number (docs/files.md#versions); 1 until a new version is uploaded. */
   version?: number;
+  /** The folder the file is in (docs/files.md#folders); null or absent at the root. */
+  folder_id?: string | null;
+  /** The folder's names from the root joined with ' / '; null at the root. */
+  folder_path?: string | null;
+  /** The file's tags, A to Z (docs/files.md#tags). */
+  tags?: ApiFileTag[];
+}
+
+export interface ApiFileTag { id: string; name: string }
+
+/** `GET /api/v1/files/folders` row (docs/files.md#folders). */
+export interface ApiFolder {
+  id: string; name: string; parent_id: string | null; path: string; depth: number; file_count: number; can_manage: boolean;
+  created_by: string; created_at: string; updated_by?: string | null; updated_at?: string | null;
+}
+export interface ApiFolderTree { items: ApiFolder[]; limit: number; max_depth: number }
+/** `GET /api/v1/files/tags` row (docs/files.md#tags). */
+export interface ApiTag { id: string; name: string; file_count: number; can_manage: boolean; created_by: string; created_at: string }
+export interface ApiTagList { items: ApiTag[]; limit: number }
+export interface ApiBulkResult { count: number }
+/** What happens to a folder's contents when it is deleted (docs/files.md#folders). */
+export type FolderContents = 'refuse' | 'move_up' | 'delete';
+/** The folder the list shows: null for the root (files in no folder), or a folder id. */
+export type FolderScope = string | null;
+export const ROOT: FolderScope = null;
+export const MAX_TAG_NAME = 64;
+export const BULK_MAX_FILES = 500;
+
+/** The folders directly under `parentId` (null: the root), A to Z. */
+export function folderChildren(folders: readonly ApiFolder[], parentId: FolderScope): ApiFolder[] {
+  return folders.filter((f) => f.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+/** The folders from the root down to `folderId` (empty at the root); a missing folder gives what is known. */
+export function folderTrail(folders: readonly ApiFolder[], folderId: FolderScope): ApiFolder[] {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const trail: ApiFolder[] = [];
+  const seen = new Set<string>();
+  let current = folderId;
+  while (current && byId.has(current) && !seen.has(current)) {
+    seen.add(current);
+    const folder = byId.get(current)!;
+    trail.unshift(folder);
+    current = folder.parent_id;
+  }
+  return trail;
+}
+
+/** Every folder below `folderId`, parents before children. */
+export function folderDescendants(folders: readonly ApiFolder[], folderId: string): string[] {
+  const found: string[] = [];
+  const frontier = [folderId];
+  while (frontier.length) {
+    const current = frontier.shift()!;
+    for (const child of folders.filter((f) => f.parent_id === current)) { found.push(child.id); frontier.push(child.id); }
+  }
+  return found;
+}
+
+/** The folders a file or folder may be moved into: everything but `exclude` and what lies below it, as a depth-first list. */
+export function folderChoices(folders: readonly ApiFolder[], exclude?: string | null): ApiFolder[] {
+  const banned = new Set(exclude ? [exclude, ...folderDescendants(folders, exclude)] : []);
+  const out: ApiFolder[] = [];
+  const walk = (parentId: FolderScope) => {
+    for (const child of folderChildren(folders, parentId)) {
+      if (banned.has(child.id)) continue;
+      out.push(child);
+      walk(child.id);
+    }
+  };
+  walk(null);
+  return out;
+}
+
+/** Why a folder name would be refused, or null. The same rules as a file name (docs/files.md#limits). */
+export function folderNameProblem(value: string, siblings: readonly ApiFolder[], exceptId?: string): string | null {
+  const name = value.trim();
+  if (!name) return t('files.folder.nameEmpty');
+  if (name.length > 255) return t('files.folder.nameLong');
+  if (/[\\/\x00-\x1f\x7f]/.test(name) || name === '.' || name === '..') return t('files.folder.nameChars');
+  if (siblings.some((f) => f.id !== exceptId && f.name.toLowerCase() === name.toLowerCase())) return t('files.folder.nameTaken', { name });
+  return null;
+}
+
+/** Why a tag name would be refused, or null. */
+export function tagNameProblem(value: string, tags: readonly ApiTag[], exceptId?: string): string | null {
+  const name = value.replace(/\s+/g, ' ').trim();
+  if (!name) return t('files.tag.nameEmpty');
+  if (name.length > MAX_TAG_NAME) return t('files.tag.nameLong', { max: MAX_TAG_NAME });
+  if (/[\x00-\x1f\x7f]/.test(name)) return t('files.tag.nameChars');
+  if (tags.some((x) => x.id !== exceptId && x.name.toLowerCase() === name.toLowerCase())) return t('files.tag.nameTaken', { name });
+  return null;
+}
+
+/**
+ * The next selection after a click on `target`: with `range` (Shift) every id between the anchor and the
+ * target in `order` is added; otherwise the target toggles. Ids no longer listed are dropped.
+ */
+export function toggleSelection(selected: ReadonlySet<string>, order: readonly string[], target: string, anchor: string | null, range: boolean): Set<string> {
+  const listed = new Set(order);
+  const next = new Set([...selected].filter((id) => listed.has(id)));
+  if (range && anchor && listed.has(anchor)) {
+    const [from, to] = [order.indexOf(anchor), order.indexOf(target)].sort((a, b) => a - b);
+    for (const id of order.slice(from, to + 1)) next.add(id);
+    return next;
+  }
+  if (next.has(target)) next.delete(target); else next.add(target);
+  return next;
+}
+
+/** The tags shared by every selected file, and those on some of them, for the tag dialog. */
+export function tagState(files: readonly Pick<ApiFile, 'tags'>[], tagId: string): 'all' | 'some' | 'none' {
+  const on = files.filter((f) => (f.tags ?? []).some((x) => x.id === tagId)).length;
+  return on === 0 ? 'none' : on === files.length ? 'all' : 'some';
+}
+
+/** A zip name for a bulk download, from the folder shown and the moment. */
+export function bundleName(folder: ApiFolder | null, when: Date): string {
+  const stamp = `${when.getFullYear()}${String(when.getMonth() + 1).padStart(2, '0')}${String(when.getDate()).padStart(2, '0')}`;
+  const base = folder ? folder.name.replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '') : '';
+  return `${base || 'files'}-${stamp}.zip`;
 }
 
 /** An earlier version of a file: `GET /api/v1/files/{id}/versions`. */
@@ -60,12 +181,16 @@ export function sortOptions(): { value: SortValue; label: string }[] {
 }
 
 /** `GET /api/v1/files` for one page: search, sort and the keyset cursor (the last id shown). */
-export function filesListPath(options: { query?: string; sort?: SortValue; cursor?: string | null; limit?: number } = {}): string {
+export interface FilesListOptions { query?: string; sort?: SortValue; cursor?: string | null; limit?: number; folder?: FolderScope | 'all'; tag?: string | null }
+export function filesListPath(options: FilesListOptions = {}): string {
   const [sort, order] = (options.sort ?? 'created_at:desc').split(':');
   const params = new URLSearchParams({ limit: String(options.limit ?? PAGE_SIZE), sort, order });
   const query = options.query?.trim();
   if (query) params.set('q', query);
   if (options.cursor) params.set('cursor', options.cursor);
+  // `folder`: undefined or 'all' lists every file; null the root; an id one folder (docs/files.md#folders).
+  if (options.folder !== undefined && options.folder !== 'all') params.set('folder', options.folder ?? 'root');
+  if (options.tag) params.set('tag', options.tag);
   return `/api/v1/files?${params.toString()}`;
 }
 

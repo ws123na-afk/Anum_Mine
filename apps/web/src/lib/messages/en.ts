@@ -68,6 +68,7 @@ import { businessEn } from './business.en.ts';
 import { businessPipelineEn } from './businessPipeline.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
 import { filesVersionsEn } from './filesVersions.en.ts';
+import { filesOrganizeEn } from './filesOrganize.en.ts';
 import { invoiceMoneyEn } from './invoiceMoney.en.ts';
 import { businessAccountsEn } from './businessAccounts.en.ts';
 import { invoiceSendEn } from './invoiceSend.en.ts';
@@ -171,6 +172,7 @@ export const en = {
   ...businessPipelineEn,
   ...businessSupportEn,
   ...filesVersionsEn,
+  ...filesOrganizeEn,
   ...invoicesEn,
   ...invoiceMoneyEn,
   ...businessAccountsEn,

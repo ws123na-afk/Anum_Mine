@@ -391,7 +391,7 @@ export function CommandPalette({ views, recentTasks, onClose, onPick }: {
   const sections = useMemo(() => {
     const viewItems = matchViews(q, views).slice(0, q ? 6 : views.length);
     const taskItems: PaletteItem[] = (q ? tasks.items : [...recentTasks].slice(0, 5)).map((task) => ({ kind: 'task', id: task.id, label: task.title, detail: statusLabel(task.status) }));
-    const fileItems: PaletteItem[] = files.items.map((file) => ({ kind: 'file', id: file.id, label: file.name, detail: file.content_type }));
+    const fileItems: PaletteItem[] = files.items.map((file) => ({ kind: 'file', id: file.id, label: file.name, detail: file.folder_path ? `${file.folder_path} · ${file.content_type}` : file.content_type }));
     const emailItems: PaletteItem[] = emails.items.map((message) => ({ kind: 'email', id: message.id, label: message.subject || t('search.noSubject'), detail: message.from_name ?? message.from_address }));
     return [
       { key: 'views', title: t('search.views'), items: viewItems, state: 'ready' as const },
