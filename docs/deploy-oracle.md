@@ -547,8 +547,19 @@ Commands (on the VM, from `~/anum/infra/oracle`):
 | `sudo ./backup.sh promote anum_restore_<UTC>` | Make a verified restore the live database (asks you to type its name): stops the API, renames `anum` to `anum_replaced_<UTC>` and the restore to `anum`, re-runs `db-init`, starts everything. Data written after that backup is lost (it stays in `anum_replaced_*`). |
 | `sudo ./backup.sh restore-keycloak <dump>` | Replace Keycloak's database with a dump (asks first; the old one is kept as `keycloak_replaced_<UTC>`). |
 | `sudo ./backup.sh drop-database <name>` | Drop a scratch or replaced database once you are sure. |
+| `sudo ./backup.sh reconcile` | List off-site objects that no backup manifest references (dry run, changes nothing). With `--delete` it removes those older than 35 days ([Reconciling the off-site bucket](#reconciling-the-off-site-bucket)). |
 
 **Losing the whole VM** (terminated, disk lost, account problem): create a new VM as above, run `install.sh`, then put the old values into the new `.env` from your password manager **before** the first start (at least `ANUM_SECRETS_KEY`, `ANUM_BACKUP_ENCRYPTION_PASSPHRASE` and the backup bucket keys), `sudo ./backup.sh fetch <date>`, `restore`, `promote`, `restore-keycloak`. Practise this once on a second VM if you can; the A1 allowance fits two 2-OCPU VMs.
+
+### Reconciling the off-site bucket
+
+A one-off check, for a bucket that ran without its lifecycle rule for a while or after failed nights: `sudo ./backup.sh reconcile` (`infra/oracle/backup_reconcile.py`, through the `backup-upload` container, which holds the bucket keys and the passphrase) lists everything under `anum-backups/` and reads each ANUM manifest (decrypted) for the dump it names. An object is kept when it is an ANUM manifest whose dump is in the bucket, that dump, or a Keycloak dump from a UTC day with such a complete ANUM backup. Everything else is reported as an orphan with its size, age and reason: a dump no manifest names (a night that failed half way), a manifest whose dump is missing or that cannot be read, a Keycloak dump from a night with no complete ANUM backup, a stray or partial upload.
+
+1. Run `sudo ./backup.sh reconcile` and read the list. It is a dry run: nothing is deleted, and the last line says how many objects `--delete` would remove.
+2. If the list is what you expect, run `sudo ./backup.sh reconcile --delete`. Only orphans older than the retention window are deleted: 35 days (the lifecycle rule), counted from the later of the stored time and the date in the file name, so a recent run's files are never touched. `--retention-days 60` keeps more; a value under 35 is refused.
+3. A backup key created without delete rights (recommended above) cannot delete: each refusal is listed as `Not deleted ...` and the command ends with an error. Delete those files in the Backblaze console (the bucket, Browse Files, `anum-backups/`; the names are readable, the contents encrypted), or run the reconcile once with a temporary key that may delete, then remove that key.
+
+Nothing secret is printed. Tests: `services/api/tests/test_backup_reconcile.py` (a fake bucket: complete nights kept, every kind of orphan found, dry run by default, nothing younger than the window deleted, the window floor, refused deletes reported, the exact `rclone` commands). It has not been run against a real bucket from the build environment.
 
 RPO is 24 hours (nightly dumps) and there is no point-in-time recovery on this path. For tighter objectives, use a managed database (Render or a cloud provider) instead.
 
