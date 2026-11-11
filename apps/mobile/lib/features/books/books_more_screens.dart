@@ -8,6 +8,8 @@ import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'books_controller.dart';
 import 'books_data.dart';
+import 'books_extra_screens.dart';
+import 'books_extra_strings.dart';
 import 'books_more_data.dart';
 import 'books_more_strings.dart';
 import 'books_review.dart';
@@ -26,7 +28,7 @@ String _money(BuildContext context, String amount, String currency) =>
         : formatMoneyText(amount, currency,
             locale: Localizations.localeOf(context));
 
-enum BooksMorePage { adjustments, journal, tax, dismissed }
+enum BooksMorePage { adjustments, journal, assets, loans, tax, dismissed }
 
 /// The Books app bar menu: the pages the person may open.
 class BooksMoreMenu extends StatelessWidget {
@@ -48,7 +50,9 @@ class BooksMoreMenu extends StatelessWidget {
             PopupMenuItem(
               key: Key('books-more-${page.name}'),
               value: page,
-              child: Text(m.t('menu.${page.name}')),
+              child: Text(
+                  BooksExtraStrings.of(context).maybe('menu.${page.name}') ??
+                      m.t('menu.${page.name}')),
             ),
       ],
     );
@@ -68,6 +72,10 @@ Future<void> openBooksMore(
       BooksMorePage.tax =>
         TaxSettingsScreen(controller: controller, more: more),
       BooksMorePage.dismissed => DismissedReceiptsScreen(more: more),
+      BooksMorePage.assets =>
+        FixedAssetsScreen(controller: controller, more: more),
+      BooksMorePage.loans =>
+        BookLoansScreen(controller: controller, more: more),
     },
   ));
 }
@@ -440,12 +448,26 @@ class ManualEntriesScreen extends StatefulWidget {
 
 class _ManualEntriesScreenState extends State<ManualEntriesScreen> {
   String _base = '';
+  bool _canAccount = false;
   late final RecordsList<ManualEntry> _list =
       RecordsList<ManualEntry>((_, __, token) async {
     final chunk = await widget.more.manualEntries(token: token);
     if (chunk.baseCurrency.isNotEmpty) _base = chunk.baseCurrency;
+    if (token == null && mounted) {
+      setState(() => _canAccount = chunk.canAccount);
+    }
     return chunk;
   });
+
+  Future<void> _new() async {
+    final posted = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => ManualEntryFormScreen(
+            more: widget.more,
+            currency: _base.isNotEmpty
+                ? _base
+                : widget.controller.setup?.baseCurrency ?? '')));
+    if (posted == true && mounted) await _list.load();
+  }
 
   @override
   void initState() {
@@ -475,6 +497,16 @@ class _ManualEntriesScreenState extends State<ManualEntriesScreen> {
         listenable: _list,
         builder: (context, _) => AnumPage(onRefresh: _list.load, children: [
           Text(m.t('je.intro'), style: TextStyle(color: context.palette.muted)),
+          if (_canAccount)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: FilledButton.icon(
+                key: const Key('journal-new'),
+                onPressed: _new,
+                icon: const Icon(Icons.add),
+                label: Text(BooksExtraStrings.of(context).t('je.new')),
+              ),
+            ),
           ..._listBody<ManualEntry>(
             context,
             _list,

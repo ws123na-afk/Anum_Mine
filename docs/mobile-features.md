@@ -330,7 +330,8 @@ What waits for the owner in Finance, on the phone ([Transaction types](finance.m
 | **Reconciliation** (More in Finance, or Open reconciliation on Connections): every open exception across accounts sorted by the server, paged and exported as CSV through the save dialog; the sessions by state; a session's equation, card check and exceptions with **Edit figures** and **Delete** while it is open | Done (owners) |
 | **Statement keyword rules** (Finance settings, or More in Finance): add, edit and delete | Done (owners) |
 | Owner rules, merchant spellings, subcategories, automation, Apply to similar, the import itself, finishing the rows not in the ledger, matching and correcting rows, starting, completing or reopening a reconciliation | Web only (Finish on the web links when the build has `ANUM_WEB_APP_URL`) |
-| Business Books (the journal, ledger, statements and period close) | Web only: nothing of it on the phone |
+| Business books on the phone: the P&L, bills and payments, the Accountant review (with Attach or Dismiss on a proposed receipt), adjustments, manual entries (with New manual entry), the fixed asset register and loans, the VAT filing settings ([Business books](business-books.md#mobile)) | Done (owners and accountants change) |
+| Business books: the ledger and statements, the period close, rates, budgets, vendors and allocations | Web only |
 
 Every part loads and fails on its own, with loading, empty with a next action, error with Retry, permission denied, Arabic right to left and 200 percent text. Code: `apps/mobile/lib/features/finance/finance_review_*.dart`; tests: `test/finance_review_test.dart` (models and catalogs, the routes and bodies against answers shaped like the API's, filing, accept and dismiss, every state, Arabic right to left, and 360x640, 390x844 and 768x1024 at 200 percent text in English and Arabic).
 
