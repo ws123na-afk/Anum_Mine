@@ -238,3 +238,8 @@
   .invTile { border-inline-start: 0; padding-inline: 0; }
 }
 .invLineCode { margin: 0 0 var(--d-s2); max-inline-size: 22rem; }
+
+/* What customers decided in their portals (BusinessPortalAdmin.tsx PortalDecisions). */
+.invDecisions { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-top: var(--d-s2); padding-top: var(--d-s3); }
+.invDecisions h4 { font-size: var(--text-md); font-weight: 600; }
+.invDecisions .pagePager { padding: 0; }

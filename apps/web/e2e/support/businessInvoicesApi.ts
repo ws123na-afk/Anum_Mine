@@ -32,6 +32,8 @@ export interface InvoicesMock {
   /** An owner approves the waiting invoice email or reminder in Approvals: the message is sent. */
   approveMessage: (invoiceId: string) => void;
   accessLinks: Json[];
+  /** What customers decided in their portals (`GET /portal/decisions`), newest first. */
+  decisions: Json[];
 }
 
 interface Options {
@@ -53,7 +55,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
   const decisions: Json[] = [];
   let counter = 0, sequence = 0;
   const id = (prefix: string) => `${prefix}_${++counter}`;
-  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', seedNotice: () => '', approveMessage: () => undefined, accessLinks: access };
+  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', seedNotice: () => '', approveMessage: () => undefined, accessLinks: access, decisions };
   const project = {
     id: 'bprj_1', ...scope, proposal_id: 'bprop_1', proposal_version: 1, opportunity_id: 'bopp_1', account_id: 'bacc_1', name: 'Website rebuild', status: 'active', currency: 'SAR',
     contract_total: 5750, owner_id: 'user_local', start_on: null, contract_limits: '', created_by: 'user_local', created_at: now(), updated_at: now(), account_name: 'Acme Trading',

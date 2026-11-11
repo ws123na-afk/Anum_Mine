@@ -7,7 +7,7 @@ export type View =
   | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'vault' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'approvalSettings' | 'suppressions' | 'developer' | 'organisations'
-  | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles' | 'purchases' | 'contacts';
+  | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles' | 'purchases' | 'contacts' | 'notificationCenter';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -26,7 +26,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
   { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'contacts', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'vehicles', 'vault', 'attendance', 'purchases', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive'] },
-  { group: 'more', views: ['favorites', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
+  { group: 'more', views: ['favorites', 'notificationCenter', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'approvalSettings', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
 
@@ -47,7 +47,7 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platf
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
   'home', 'command', 'voice', 'assistant', 'files', 'vault', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
-  'tasks', 'approvals', 'commerce', 'finance', 'team', 'assistants', 'agents', 'automation', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance', 'vehicles', 'purchases', 'integrations', 'contacts',
+  'tasks', 'approvals', 'commerce', 'finance', 'team', 'assistants', 'agents', 'automation', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance', 'vehicles', 'purchases', 'integrations', 'contacts', 'notificationCenter',
 ]);
 
 export function isView(value: string): value is View {
@@ -61,6 +61,12 @@ export function viewFromHash(hash: string): View {
   const id = hash.replace(/^#/, '');
   if (id.startsWith('invitation=')) return 'members';
   if (id.startsWith('meetings?')) return 'meetings';
+  // A calendar event opened by link (#calendar?event=<id>, docs/calendar.md#web-page).
+  if (id.startsWith('calendar?')) return 'calendar';
+  // A vehicle opened by link (#vehicles?vehicle=<id>, docs/vehicles.md#web).
+  if (id.startsWith('vehicles?')) return 'vehicles';
+  // An audit record opened by link (#audit?record=<id>, docs/governance-and-scale.md#audit-log).
+  if (id.startsWith('audit?')) return 'audit';
   if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
   // Approvals settings: the former #policy page and its sections (#approvalSettings/rules, docs/approvals-and-risk.md#approvals-settings).
   if (id === 'policy' || id.startsWith('approvalSettings/')) return 'approvalSettings';
@@ -113,8 +119,26 @@ export function visibleViews(owner: boolean | null, operator = false): View[] {
 
 // ---------------------------------------------------------------- command palette
 
-export type PaletteKind = 'view' | 'task' | 'file' | 'email' | 'contact';
+/** Records the palette finds through their module's list route (lib/paletteSearch.ts), opened by link. */
+export const PALETTE_RECORD_KINDS = ['customer', 'invoice', 'document', 'vehicle', 'meeting'] as const;
+export type PaletteRecordKind = (typeof PALETTE_RECORD_KINDS)[number];
+export type PaletteKind = 'view' | 'task' | 'file' | 'email' | 'contact' | PaletteRecordKind;
 export interface PaletteItem { kind: PaletteKind; id: string; label: string; detail?: string }
+
+/** The URL hash that opens a record the palette found (each view reads it, also when opened in a new tab). */
+export function paletteHash(kind: PaletteRecordKind, id: string): string {
+  const ref = encodeURIComponent(id);
+  switch (kind) {
+    case 'customer': return `#business-accounts/${ref}`;
+    case 'invoice': return `#business-invoices/${ref}`;
+    case 'document': return `#vault-documents?doc=${ref}`;
+    case 'vehicle': return `#vehicles?vehicle=${ref}`;
+    case 'meeting': return `#meetings?meeting=${ref}`;
+  }
+}
+
+/** Record searches start from this many characters: one letter would match most of a module. */
+export const PALETTE_RECORD_MIN_CHARS = 2;
 
 const fold = (text: string) => text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim();
 

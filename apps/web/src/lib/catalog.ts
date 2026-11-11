@@ -263,3 +263,20 @@ export function skillCounts(groups: readonly Pick<SkillGroup, 'state' | 'upgrade
     available: groups.filter((g) => g.state === 'available').length, upgrades: groups.filter((g) => g.upgrade !== null).length,
   };
 }
+
+/** The API's page size for skill lists, and how many pages the Skills view reads before it says the rest is not shown. */
+export const SKILL_PAGE = 500;
+export const SKILL_MAX_PAGES = 20;
+/**
+ * Every page of a skill list, read until a page comes back short (docs/skills.md):
+ * the API answers at most 500 rows a request. Stops after `SKILL_MAX_PAGES` pages and says so.
+ */
+export async function readAllSkillPages<T>(load: (page: { limit: number; offset: number }) => Promise<T[]>): Promise<{ items: T[]; truncated: boolean }> {
+  const items: T[] = [];
+  for (let index = 0; index < SKILL_MAX_PAGES; index += 1) {
+    const page = await load({ limit: SKILL_PAGE, offset: index * SKILL_PAGE });
+    items.push(...page);
+    if (page.length < SKILL_PAGE) return { items, truncated: false };
+  }
+  return { items, truncated: true };
+}

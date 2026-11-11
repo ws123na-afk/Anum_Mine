@@ -39,21 +39,17 @@ export interface SalesOverview {
   revenue_estimate: string | null;
 }
 
+// One lead list (docs/business.md#whatsapp-leads): WhatsApp leads are listed, and their stage is moved,
+// in Business, Leads. This desk reads one lead and its quotes, follow-ups and consent.
 const BASE = '/api/v1/sales';
 const json = (method: string, body: unknown): RequestInit => ({method, body: JSON.stringify(body)});
 const id = (value: string) => encodeURIComponent(value);
-
-export const listSalesLeads = (status?: SalesStage): Promise<{items: SalesLead[]; count: number}> =>
-  apiRequest(`${BASE}/leads?limit=100${status ? `&status=${encodeURIComponent(status)}` : ''}`, {method: 'GET'});
 
 export const getSalesLead = (leadId: string): Promise<SalesLead> => apiRequest(`${BASE}/leads/${encodeURIComponent(leadId)}`, {method: 'GET'});
 export const getSalesOverview = (): Promise<SalesOverview> => apiRequest(`${BASE}/overview`, {method: 'GET'});
 
 export const updateSalesLead = (lead: SalesLead, fields: Record<string, unknown>): Promise<SalesLead> =>
   apiRequest(`${BASE}/leads/${id(lead.id)}`, json('PATCH', {expected_revision: lead.revision, ...fields}));
-
-export const transitionSalesLead = (lead: SalesLead, status: SalesStage): Promise<SalesLead> =>
-  apiRequest(`${BASE}/leads/${id(lead.id)}/transition`, json('POST', {expected_revision: lead.revision, status}));
 
 export const createSalesQuote = (
   leadId: string, items: {description: string; amount: string}[], currency: string, terms: string

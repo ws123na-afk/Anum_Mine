@@ -1,8 +1,8 @@
 // Invoices and the customer portal's owner routes over the live API (/api/v1/business, docs/business.md#invoices,
 // docs/business-portal.md). Every route checks the caller's role on the server; a 403 carries the API's own sentence.
 import type {
-  Billable, BillingProfile, BusinessInvoice, BusinessPage, BusinessPaymentProvider, CreditNote, CreditNoteInput, InvoiceCreate, InvoiceEmailInput, InvoiceEmailResult,
-  InvoiceListItem, InvoiceMessage, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput, PaymentNotice, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
+  Billable, BillingProfile, BusinessInvoice, BusinessPage, BusinessPaymentProvider, CreditNoteInput, InvoiceCreate, InvoiceEmailInput, InvoiceEmailResult,
+  InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -67,8 +67,8 @@ export const downloadReceipt = (invoiceId: string, paymentId: string) => saveFil
 /** A credit note PDF (English and Arabic). Returns the file name. */
 export const downloadCreditNotePdf = (invoiceId: string, creditNoteId: string) => saveFile(`${BASE}/invoices/${id(invoiceId)}/credit-notes/${id(creditNoteId)}/pdf`, 'credit-note.pdf');
 
-// emailing the invoice and payment reminders: each request waits for an owner's approval (docs/business.md#emailing-an-invoice-and-reminders)
-export const listInvoiceMessages = (invoiceId: string) => apiRequest<InvoiceMessage[]>(`${BASE}/invoices/${id(invoiceId)}/messages`, { method: 'GET' });
+// emailing the invoice and payment reminders: each request waits for an owner's approval (docs/business.md#emailing-an-invoice-and-reminders).
+// The invoice itself carries its messages, credit notes and payment notices (GET /invoices/{id}), so the page lists them from it.
 export const emailInvoice = (invoiceId: string, body: InvoiceEmailInput) => apiRequest<InvoiceEmailResult>(`${BASE}/invoices/${id(invoiceId)}/email`, json('POST', body));
 export const remindInvoice = (invoiceId: string, body: InvoiceEmailInput) => apiRequest<InvoiceEmailResult>(`${BASE}/invoices/${id(invoiceId)}/reminders`, json('POST', body));
 
@@ -77,11 +77,9 @@ export const getPaymentProvider = () => apiRequest<BusinessPaymentProvider>(`${B
 export const makePaymentLink = (invoiceId: string) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payment-link`, json('POST'));
 
 // credit notes (owners issue and void) and customers' payment reports (members and owners decide)
-export const listCreditNotes = (invoiceId: string) => apiRequest<CreditNote[]>(`${BASE}/invoices/${id(invoiceId)}/credit-notes`, { method: 'GET' });
 export const issueCreditNote = (invoiceId: string, body: CreditNoteInput) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/credit-notes`, json('POST', body));
 export const voidCreditNote = (invoiceId: string, creditNoteId: string, reason: string) =>
   apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/credit-notes/${id(creditNoteId)}/void`, json('POST', { reason }));
-export const listPaymentNotices = (invoiceId: string) => apiRequest<PaymentNotice[]>(`${BASE}/invoices/${id(invoiceId)}/payment-notices`, { method: 'GET' });
 export const confirmPaymentNotice = (invoiceId: string, noticeId: string, note: string) =>
   apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payment-notices/${id(noticeId)}/confirm`, json('POST', { note }));
 export const rejectPaymentNotice = (invoiceId: string, noticeId: string, reason: string) =>

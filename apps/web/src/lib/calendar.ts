@@ -34,6 +34,14 @@ export interface CalendarEventView {
 }
 
 /** What tells one shown item from another: the occurrence key of a series item, else the event id. */
+/** The event a link opens (`#calendar?event=<id>`, docs/calendar.md#web-page); null for any other hash. */
+export function eventFromHash(hash: string): string | null {
+  const [path, search] = hash.replace(/^#/, '').split('?');
+  if (path !== 'calendar' || !search) return null;
+  const value = new URLSearchParams(search).get('event');
+  return value && /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : null;
+}
+
 export function keyOf(event: Pick<CalendarEventView, 'id' | 'occurrence_key'>): string {
   return event.occurrence_key || event.id;
 }

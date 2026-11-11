@@ -210,3 +210,17 @@ test('scan document saves a photo privately and reads it now, waiting for review
   expect(post?.query).toContain('access_class=private');
   expect(post?.query).toContain('category=receipt');
 });
+
+test('an older version can be deleted after a confirmation that names it', async ({ page }) => {
+  const mock = await open(page, 'vault-documents?doc=vdoc_passport');
+  const versions = page.getByRole('region', { name: 'Versions', exact: true });
+  await expect(versions.getByText(/^Version 1 ·/)).toBeVisible();
+  await versions.getByRole('button', { name: 'Delete version 1' }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Delete version 1?' });
+  await expect(confirm.getByText(/The current version \(2\) stays as it is/)).toBeVisible();
+  await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await confirm.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('Version 1 deleted.')).toBeVisible();
+  expect(mock.calls.some((c) => c.method === 'DELETE' && c.path === '/vdoc_passport/versions/filever_1')).toBe(true);
+  await expect(versions.getByText(/^Version 1 ·/)).toHaveCount(0);
+});

@@ -50,6 +50,11 @@ async function mockApi(page: Page, options: Options = {}) {
       const next = rows.length > limit ? String(start + limit) : null;
       return json({ items: rows.slice(0, limit), next_cursor: next, retention: 'Audit records are kept for as long as the workspace exists, including after it is archived. They are append-only: nobody can edit or delete them, owners included.' });
     }
+    const recordPath = /^\/api\/v1\/audit-records\/([^/]+)$/.exec(path);
+    if (recordPath) {
+      const found = records.find((row) => row.id === recordPath[1]);
+      return found ? json(found) : json(envelope('not_found', 'Audit record not found'), 404);
+    }
     if (path === '/api/v1/audit/export') {
       return route.fulfill({ status: 200, contentType: 'text/csv', body: 'id,created_at\naudit_000,2026-09-30\n', headers: { 'content-disposition': 'attachment; filename="audit-workspace_foundation-20261011T120000Z.csv"', 'access-control-allow-origin': '*', 'access-control-expose-headers': 'Content-Disposition' } });
     }
@@ -239,3 +244,23 @@ for (const [width, height] of sizes) {
     expect(box && box.x >= 0 && box.x + box.width <= width + 1).toBe(true);
   });
 }
+
+test('an audit record opens by link, its link can be copied, and a missing one says so', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const calls = await mockApi(page, { total: 80 });
+  // audit_075 is past the first page of 50, so it is read on its own.
+  await page.goto('/#audit?record=audit_075');
+  const drawer = page.getByRole('dialog', { name: 'Audit record' });
+  await expect(drawer.getByText('audit_075', { exact: true })).toBeVisible();
+  expect(calls.some((c) => c.path === '/api/v1/audit-records/audit_075')).toBe(true);
+  await drawer.getByRole('button', { name: 'Copy link to this record' }).click();
+  await expect(drawer.getByRole('status').filter({ hasText: 'Link copied.' })).toBeVisible();
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await expect(page).toHaveURL(/#audit$/);
+  // Opening a row puts its record in the address.
+  await page.locator('.auditWhen button').first().click();
+  await expect(page).toHaveURL(/#audit\?record=audit_000$/);
+  await page.getByRole('dialog', { name: 'Audit record' }).getByRole('button', { name: 'Close' }).click();
+  await page.evaluate(() => { location.hash = '#audit?record=audit_missing'; });
+  await expect(page.getByRole('alert').filter({ hasText: "Couldn't open that audit record" })).toBeVisible();
+});

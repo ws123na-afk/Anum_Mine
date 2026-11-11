@@ -13,7 +13,7 @@ import * as calendarApi from './lib/calendarApi';
 import * as meetingsApi from './lib/meetingsApi';
 import {
   ATTENDEE_RESPONSES, CALENDAR_MODES, conflictIds, dayKey, durationMinutes, emptyForm, EVENT_KINDS, eventBody, eventTiming, findConflicts, formFromEvent, formProblem, groupByDay,
-  CALENDAR_CONNECT_KEY, eventSyncKind, hourWindow, inRange, wallHour, invitees, layoutDay, matchesEvent, monthDays, nextEvent, rangeStats, replyCounts, shiftAnchor, startOfDay, syncTarget, visibleRange,
+  CALENDAR_CONNECT_KEY, eventFromHash, eventSyncKind, hourWindow, inRange, wallHour, invitees, layoutDay, matchesEvent, monthDays, nextEvent, rangeStats, replyCounts, shiftAnchor, startOfDay, syncTarget, visibleRange,
   allDayLength, allDayOn, keyOf, MAX_REMINDERS, moveEmailReminder, recurrenceFrom, recurrenceSummary, reminderLabel, REMINDER_PRESETS, WEEKDAYS, zoneChoices,
   type AttendeeResponse, type CalendarEventView, type CalendarMode, type EditScope, type EventForm, type EventKind, type EventPage, type NextStep, type RepeatChoice, type ReplyScope, type SyncConnection, type SyncSetup, type Weekday,
 } from './lib/calendar';
@@ -106,6 +106,21 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
   }, []);
   useEffect(loadEvents, [loadEvents]);
   useEffect(loadSteps, [loadSteps]);
+  // An event opened by link (#calendar?event=<id>: Meetings' Schedule meeting, a shared address):
+  // read it, move the calendar to its day and open its detail. A missing or hidden one says so.
+  useEffect(() => {
+    const openLinked = () => {
+      const id = eventFromHash(location.hash);
+      if (!id) return;
+      calendarApi.getEvent(id).then(
+        (event) => { setTab('calendar'); setAnchor(startOfDay(new Date(event.starts_at))); setSelected(keyOf(event)); },
+        (e: unknown) => setNote(t('calendar.link.failed', { message: describeError(e) })),
+      );
+    };
+    openLinked();
+    window.addEventListener('hashchange', openLinked);
+    return () => window.removeEventListener('hashchange', openLinked);
+  }, []);
   useEffect(loadSync, [loadSync]);
   // The provider sent the browser back (main.tsx kept the connection id): finish it as this person.
   useEffect(() => {
@@ -679,7 +694,7 @@ function EventDetail({ event, now, connections, conflicted, onOpenApprovals, onB
 
 const REPEAT_CHOICES: readonly RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
-function EventFormDialog({ event, day, scope, target, onClose, onSaved }: { event: CalendarEventView | null; day: Date; scope?: EditScope; target: SyncConnection | null; onClose: () => void; onSaved: (event: CalendarEventView, created: boolean) => void }) {
+export function EventFormDialog({ event, day, scope, target, onClose, onSaved }: { event: CalendarEventView | null; day: Date; scope?: EditScope; target: SyncConnection | null; onClose: () => void; onSaved: (event: CalendarEventView, created: boolean) => void }) {
   const [form, setForm] = useState<EventForm>(() => (event ? formFromEvent(event) : emptyForm(day, new Date())));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -1,8 +1,8 @@
 // The workspace audit log (docs/governance-and-scale.md, Audit log): filters, keyset paging,
 // a detail drawer and CSV/JSON export of the filtered range. Owners and organization
 // administrators may read it; everyone else gets the API's 403, explained in place.
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { CircleDot, Download, Filter, Lock, RefreshCw, RotateCcw, ScrollText, Search } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Download, Filter, Link2, Lock, RefreshCw, RotateCcw, ScrollText, Search } from 'lucide-react';
 import type { AuditFilters, AuditRecord } from '@anum/contracts';
 import * as admin from './lib/adminApi';
 import {
@@ -14,11 +14,14 @@ import {
   hasFilters,
   metadataRows,
   outcomeTone,
+  recordFromHash,
   type AuditFilterDraft,
 } from './lib/audit';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
 import { Drawer } from './Dialog';
+import { Notice } from './PageParts';
+import { copyText } from './lib/clipboard';
 import './admin.css';
 import './audit.css';
 
@@ -26,10 +29,6 @@ type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detai
 
 const when = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'medium' });
 const outcomeText = (outcome: string) => outcome === 'success' ? t('audit.outcome.success') : outcome === 'refused_too_large' ? t('audit.outcome.refused') : outcome.replaceAll('_', ' ');
-
-function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
-  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
-}
 
 export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) {
   const [draft, setDraft] = useState<AuditFilterDraft>(EMPTY_FILTER_DRAFT);
@@ -44,6 +43,7 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
   const [selected, setSelected] = useState<AuditRecord | null>(null);
   const [exporting, setExporting] = useState<'csv' | 'json' | null>(null);
   const [flash, setFlash] = useState<{ text: string; error?: boolean } | null>(null);
+  const [copied, setCopied] = useState<'idle' | 'yes' | 'no'>('idle');
   const request = useRef(0);
 
   const fetchFirst = useCallback(async (next: AuditFilters) => {
@@ -64,6 +64,27 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
   }, []);
 
   useEffect(() => { void fetchFirst({}); }, [fetchFirst]);
+  // A record opened by link (#audit?record=<id>, docs/governance-and-scale.md#audit-log): read it on
+  // its own, whatever the filters show. The API answers 404 for another workspace's record.
+  useEffect(() => {
+    const openLinked = () => {
+      const id = recordFromHash(location.hash);
+      if (!id) return;
+      admin.getAuditRecord(id).then(setSelected, (error: unknown) => setFlash({ text: t('audit.link.failed', { message: describeError(error) }), error: true }));
+    };
+    openLinked();
+    window.addEventListener('hashchange', openLinked);
+    return () => window.removeEventListener('hashchange', openLinked);
+  }, []);
+  const show = (record: AuditRecord | null) => {
+    setSelected(record);
+    setCopied('idle');
+    history.replaceState(null, '', record ? `#audit?record=${encodeURIComponent(record.id)}` : '#audit');
+  };
+  async function copyLink(record: AuditRecord) {
+    const ok = await copyText(`${location.origin}${location.pathname}#audit?record=${encodeURIComponent(record.id)}`);
+    setCopied(ok ? 'yes' : 'no');
+  }
   useEffect(() => { admin.getAuditActions().then(setActions).catch(() => setActions([])); }, []);
 
   const apply = (next: AuditFilters) => { setFilters(next); void fetchFirst(next); };
@@ -80,7 +101,7 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
     const result = auditFilters(nextDraft);
     if (!result.ok) return;
     setDraft(nextDraft);
-    setSelected(null);
+    show(null);
     apply(result.value);
   };
 
@@ -177,7 +198,7 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
           <span role="columnheader">{t('audit.when')}</span><span role="columnheader">{t('audit.actor')}</span><span role="columnheader">{t('audit.action')}</span><span role="columnheader">{t('audit.target')}</span><span role="columnheader">{t('audit.outcome')}</span>
         </div>
         {records.map((record) => <div className="auditRow" role="row" key={record.id}>
-          <span role="cell" className="auditWhen"><button type="button" className="linkButton" aria-label={t('audit.detailsOf', { action: record.action, actor: record.actor, when: when(record.createdAt) }, { isolate: false })} onClick={() => setSelected(record)}>{when(record.createdAt)}</button></span>
+          <span role="cell" className="auditWhen"><button type="button" className="linkButton" aria-label={t('audit.detailsOf', { action: record.action, actor: record.actor, when: when(record.createdAt) }, { isolate: false })} onClick={() => show(record)}>{when(record.createdAt)}</button></span>
           <span role="cell" className="auditActor" data-label={t('audit.actor')} dir="ltr">{record.actor}</span>
           <span role="cell" data-label={t('audit.action')}><strong>{actionLabel(record.action)}</strong><small dir="ltr">{record.action}</small></span>
           <span role="cell" className="auditTarget" data-label={t('audit.target')} dir="ltr">{record.target}</span>
@@ -191,7 +212,7 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
       <p className="muted auditRetention"><strong>{t('audit.retentionLabel')}</strong> {retention || t('audit.defaultRetention')}</p>
     </section>}
 
-    {selected && <Drawer title={t('audit.recordTitle')} onClose={() => setSelected(null)}>
+    {selected && <Drawer title={t('audit.recordTitle')} onClose={() => show(null)}>
       <dl className="auditDetail">
         <div><dt>{t('audit.when')}</dt><dd>{when(selected.createdAt)}<small dir="ltr">{selected.createdAt}</small></dd></div>
         <div><dt>{t('audit.actor')}</dt><dd><code>{selected.actor}</code></dd></div>
@@ -210,7 +231,9 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
         <button type="button" className="secondary" onClick={() => narrow({ actor: selected.actor })}>{t('audit.onlyActor')}</button>
         <button type="button" className="secondary" onClick={() => narrow({ target: selected.target })}>{t('audit.onlyTarget')}</button>
         <button type="button" className="secondary" onClick={() => narrow({ correlationId: selected.correlationId })}>{t('audit.sameCorrelation')}</button>
+        <button type="button" className="secondary" onClick={() => void copyLink(selected)}><Link2 aria-hidden="true" />{t('audit.link.copy')}</button>
       </div>
+      <p className="muted" role="status">{copied === 'yes' ? t('audit.link.copied') : copied === 'no' ? t('audit.link.copyFailed') : ''}</p>
     </Drawer>}
   </>;
 }

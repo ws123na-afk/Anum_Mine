@@ -16,6 +16,12 @@ Code: `services/api/anum_api/meetings.py` (API and processing), `meeting_transcr
 
 The web page (`MeetingsView.tsx`, [communication pages](web-design-system.md#communication-pages)) has four tabs. **Meeting records**: the figures (records, processed today (ready meetings whose notes the model wrote today, from `provenance.generated_at`), needing attention: failed or waiting for a model, and open action items with how many are overdue, counted over the newest 500 meetings), the list with search and status next to the open meeting, and from 1360px the integration status of Zoom and Teams, the processing counts by state and the privacy notes. **Live meetings**: the live agent meeting rooms. **Connectors**: Zoom and Teams, to connect and import. **Processing queue**: the counts by state and every meeting that is not ready (the figures and counts refresh every few seconds while a meeting is being processed), with its error and a way to open it (Retry is on the meeting).
 
+## Scheduling a meeting
+
+**Schedule meeting** in the page head (members and owners, the same people who import) opens the Calendar's own event form as a meeting (`MeetingSchedule.tsx` wraps `CalendarView.tsx`'s `EventFormDialog`): title, day and time or all day, **Repeat** (daily, weekly on chosen days, monthly, yearly, with an end), the time zone, up to five **Reminders**, place, join link, phone and attendees. It saves through `POST /api/v1/calendar/events` with `kind: meeting`, so the calendar's own permission check (`calendar:write`), recurrence, reminders and sync apply: with Google or Microsoft connected the event goes to that calendar unless the person keeps it in ANUM. The page then says when it is and links to it in the Calendar (`#calendar?event=<id>`, which reads the event with `GET /calendar/events/{id}` and opens its day and detail).
+
+Why the calendar and not an in-app meeting: this module turns meetings that happened into notes; ANUM never joins a meeting (above), and the live meeting rooms on the Live meetings tab are agent sessions, not meetings with people. A meeting with people is a calendar event; after it happens its transcript or recording comes here by upload, Zoom or Teams. Tests: `apps/web/e2e/meetings.spec.ts` (schedule, the link into the Calendar).
+
 ## Importing
 
 | Way in | Endpoint | Notes |

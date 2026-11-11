@@ -55,6 +55,8 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
   const settings = { reminder_days: 30, trash_days: 30, ocr_receipts: true, ocr_identity_dates: false, updated_by: null, updated_at: null };
   const devices: Json[] = [];
   const shared: Json[] = [];
+  // Older versions (Files versions under the vault, docs/documents.md#versions-trash-and-retention): one by default.
+  const versions: Json[] = [{ id: 'filever_1', version: 1, content_type: 'image/png', size_bytes: 1900, created_by: 'user_local', created_at: now, replaced_by: 'user_local', replaced_at: now, downloadable: true }];
   const calls: VaultMock['calls'] = [];
   const meta = () => ({
     summary: { active: docs.length, private: docs.filter((d) => d.access_class === 'private').length, expiring: docs.filter((d) => d.expiry_state === 'soon').length,
@@ -133,7 +135,8 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
       }
       if (rest === 'restore') { trash.splice(trash.indexOf(doc), 1); Object.assign(doc, { status: 'active', deleted_at: null, purge_after: null }); docs.push(doc); return json(doc); }
       if (rest === 'number') return json({ number: 'A1234567' });
-      if (rest === 'versions' && method === 'GET') return json({ current_version: 2, current_size_bytes: 2048, total: 1, items: [{ id: 'filever_1', version: 1, content_type: 'image/png', size_bytes: 1900, created_by: 'user_local', created_at: now, replaced_by: 'user_local', replaced_at: now, downloadable: true }] });
+      if (rest === 'versions' && method === 'GET') return json({ current_version: 2, current_size_bytes: 2048, total: versions.length, items: versions });
+      if (rest?.startsWith('versions/') && method === 'DELETE') { const index = versions.findIndex((v) => v.id === rest.split('/')[1]); if (index < 0) return error(404, 'not_found', 'Version not found'); versions.splice(index, 1); return route.fulfill({ status: 204 }); }
       if (rest === 'link') return json({ url: `/api/v1/documents/links/token_${id}`, expires_at: now }, 201);
       if (rest === 'access' && method === 'POST') { shared.push({ document_id: id, user_id: (body as Json).user_id, granted_by: 'user_local', granted_at: now }); return json(shared, 201); }
       if (rest === 'links' && method === 'POST') return json({ id: 'vlnk_1', document_id: id, ...(body as Json), status: 'confirmed', created_by: 'user_local', created_at: now }, 201);

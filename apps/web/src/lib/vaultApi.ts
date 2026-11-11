@@ -18,7 +18,7 @@ export const trashDocument = (documentId: string) => apiRequest<VaultDocument>(`
 export const deleteForever = (documentId: string) => apiRequestVoid(`${BASE}/${id(documentId)}?permanent=true`, { method: 'DELETE' });
 export const restoreDocument = (documentId: string) => apiRequest<VaultDocument>(`${BASE}/${id(documentId)}/restore`, { method: 'POST' });
 export const revealNumber = (documentId: string) => apiRequest<{ number: string }>(`${BASE}/${id(documentId)}/number`, { method: 'POST' });
-export const getVersions = (documentId: string) => apiRequest<VaultVersionPage>(`${BASE}/${id(documentId)}/versions`, { method: 'GET' });
+export const getVersions = (documentId: string, offset = 0, limit = 20) => apiRequest<VaultVersionPage>(`${BASE}/${id(documentId)}/versions?offset=${offset}&limit=${limit}`, { method: 'GET' });
 export const restoreVersion = (documentId: string, versionId: string) => apiRequest<VaultDocument>(`${BASE}/${id(documentId)}/versions/${id(versionId)}/restore`, { method: 'POST' });
 export const deleteVersion = (documentId: string, versionId: string) => apiRequestVoid(`${BASE}/${id(documentId)}/versions/${id(versionId)}`, { method: 'DELETE' });
 export const share = (documentId: string, userId: string) => apiRequest<DocumentAccessGrant[]>(`${BASE}/${id(documentId)}/access`, { method: 'POST', ...json({ user_id: userId }) });

@@ -67,7 +67,7 @@ Owners: Business, **Accounts** tab: pick a client account and use its "Customer 
 | `GET /api/v1/business/portal/access?account_id=` | owner, member | The account's links (no token, no hash) |
 | `POST /api/v1/business/portal/access` | owner | Creates a link; the response carries `token` and `portal_path` once |
 | `POST /api/v1/business/portal/access/{id}/revoke` | owner | Turns a link off (idempotent) |
-| `GET /api/v1/business/portal/decisions?account_id=&subject_id=` | owner, member | What customers decided, newest first |
+| `GET /api/v1/business/portal/decisions?account_id=&subject_id=` | owner, member | What customers decided, newest first (the newest 100). The account's "Customer portal" block lists them under **What this customer decided** (approved or declined, proposal or change order and its version, who signed, when, and the note), ten a page with the shared Pager, with a line when the 100 limit is reached. |
 
 | Customer route (`/api/v1/portal`) | Does |
 |---|---|

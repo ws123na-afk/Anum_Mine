@@ -18,6 +18,14 @@ export function tabFromHash(hash: string): VehicleTab {
   return (VEHICLE_TABS as readonly string[]).includes(tab) ? (tab as VehicleTab) : 'overview';
 }
 
+/** The vehicle a link opens (`#vehicles?vehicle=<id>`, the search palette); null for any other hash. */
+export function vehicleFromHash(hash: string): string | null {
+  const [path, search] = hash.replace(/^#/, '').split('?');
+  if (path !== 'vehicles' || !search) return null;
+  const value = new URLSearchParams(search).get('vehicle');
+  return value && /^[A-Za-z0-9_.:-]{1,120}$/.test(value) ? value : null;
+}
+
 export function hashForTab(tab: VehicleTab): string {
   return tab === 'overview' ? '#vehicles' : `#vehicles-${tab}`;
 }
