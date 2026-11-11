@@ -642,7 +642,8 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
     'theme': 'device preference',
     'intro': 'device preference',
     '_portalSessions': 'factory; the portal token lives with its page',
-    '_portalCodes': 'stateless client; codes and sessions live with the portal page',
+    '_portalCodes':
+        'stateless client; codes and sessions live with the portal page',
     'agentChat': 'builder; each chat page has its own controller',
     'agentCall': 'builder; each call page has its own controller',
     'records': 'routes; each page has its own controller',
