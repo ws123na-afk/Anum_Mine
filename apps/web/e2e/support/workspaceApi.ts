@@ -254,7 +254,26 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     }
     if (path === '/api/v1/memories' && method === 'GET') {
       const onlyChats = url.searchParams.get('source_type') === 'conversation';
-      return json(memories.filter((m) => !onlyChats || m.provenance.source_type === 'conversation'));
+      const matching = memories.filter((m) => !onlyChats || m.provenance.source_type === 'conversation');
+      // Paged like the API: the newest `limit` after skipping `offset`, oldest first, the total in X-Total-Count.
+      const limit = Number(url.searchParams.get('limit') ?? 200), offset = Number(url.searchParams.get('offset') ?? 0);
+      const page = matching.slice(Math.max(0, matching.length - offset - limit), Math.max(0, matching.length - offset));
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'X-Total-Count': String(matching.length), 'Access-Control-Expose-Headers': 'X-Total-Count' }, body: JSON.stringify(page) });
+    }
+    if (path.startsWith('/api/v1/memories/') && method === 'PATCH') {
+      const found = memories.find((m) => m.id === path.split('/').pop());
+      if (!found) return json({ error: { code: 'not_found', message: 'Memory not found', correlation_id: 'corr_e2e', details: [] } }, 404);
+      return json({ ...found, content: (request.postDataJSON() as { content: string }).content, updated_at: now, provenance: { ...found.provenance, metadata: { ...(found.provenance.metadata ?? {}), last_edited_by: 'user_local' } } });
+    }
+    if (path === '/api/v1/model-budgets/usage') {
+      const group = url.searchParams.get('group_by') ?? 'day', from = url.searchParams.get('from') ?? '2026-10-01', to = url.searchParams.get('to') ?? '2026-10-31';
+      const rows = group === 'day' ? [{ key: '2026-10-03', label: null, calls: 2, input_tokens: 700, output_tokens: 300, total_tokens: 1000, estimated_cost_usd: 0.9, unpriced_calls: 0 }, { key: '2026-10-04', label: null, calls: 2, input_tokens: 500, output_tokens: 500, total_tokens: 1000, estimated_cost_usd: 0.6, unpriced_calls: 0 }]
+        : group === 'month' ? [{ key: '2026-10-01', label: null, calls: 4, input_tokens: 1200, output_tokens: 800, total_tokens: 2000, estimated_cost_usd: 1.5, unpriced_calls: 0 }]
+        : group === 'agent' ? [{ key: 'assistant', label: 'ANUM assistant', calls: 3, input_tokens: 900, output_tokens: 600, total_tokens: 1500, estimated_cost_usd: 1.1, unpriced_calls: 0 }, { key: 'agent_fleet', label: 'Fleet planner', calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.4, unpriced_calls: 0 }]
+        : group === 'user' ? [{ key: 'user_local', label: null, calls: 4, input_tokens: 1200, output_tokens: 800, total_tokens: 2000, estimated_cost_usd: 1.5, unpriced_calls: 0 }]
+        : [{ key: 'tasks', label: null, calls: 3, input_tokens: 900, output_tokens: 600, total_tokens: 1500, estimated_cost_usd: 1.1, unpriced_calls: 0 }, { key: 'voice', label: null, calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.4, unpriced_calls: 0 }];
+      if (url.searchParams.get('format') === 'csv') return route.fulfill({ status: 200, contentType: 'text/csv; charset=utf-8', headers: { 'Content-Disposition': 'attachment; filename="usage.csv"' }, body: `${group},label,calls\n` });
+      return json({ scope: url.searchParams.get('scope') ?? 'workspace', group_by: group, from_day: from, to_day: to, rows, total: { input_tokens: 1200, output_tokens: 800, estimated_cost_usd: 1.5, calls: 4, unpriced_calls: 0 }, count: rows.length, limit: 50, offset: 0, truncated: false, recorded_since: null });
     }
     if (path === '/api/v1/retrieval/status') {
       return json({ embedding_model: 'anum-local-hash-v1', indexed: 3, failed: 0, skipped: 1, stale: 0, chunks: 5, sources: [
@@ -344,6 +363,7 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
       workspace: { budget: { scope: 'workspace', monthly_cost_limit_usd: 2, monthly_token_limit: 4000, updated_at: now, updated_by: 'user_local' }, usage: { input_tokens: 1200, output_tokens: 800, estimated_cost_usd: 1.5, calls: 4, unpriced_calls: 0 }, total_tokens: 2000, exceeded: false },
     });
     if (path === '/api/v1/approval-policy') return json({ two_person_rule: true, medium_risk_requires_approval: false, updated_by: 'user_local', updated_at: now });
+    if (path === '/api/v1/approval-reminders/settings') return json({ reminder_hours: 4, updated_by: 'user_local', updated_at: now });
     if (path === '/api/v1/policy-packs') return json([{ id: 'pack_1', name: 'Organization baseline', description: 'Approval-first enterprise defaults', version: 1, active: true, rules: [{ action: 'integration.write', effect: 'require_approval' }, { action: 'payment.send', effect: 'deny' }, { action: 'email.send', effect: 'require_approval' }], created_by: 'user_local', created_at: now }]);
     if (path === '/api/v1/role-templates') return json([{ id: 'role_1', name: 'Analyst', permissions: ['task:read', 'memory:read'], created_at: now }]);
     if (path === '/api/v1/organization/approval-rules') return json([

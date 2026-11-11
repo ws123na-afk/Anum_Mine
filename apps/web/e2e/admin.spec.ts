@@ -143,6 +143,22 @@ async function mockApi(page: Page, options: MockOptions = {}) {
       const used = meetingBudget.used_usd as number, limit = meetingBudget.limit_usd as number;
       return json({ ...meetingBudget, remaining_usd: Math.max(0, limit - used), percent: limit > 0 ? Math.min(100, Math.floor((used / limit) * 1000) / 10) : 100, exceeded: used >= limit });
     }
+    if (path === '/api/v1/model-budgets/usage') {
+      const url = new URL(request.url());
+      const group = url.searchParams.get('group_by') ?? 'day';
+      if (url.searchParams.get('format') === 'csv') return route.fulfill({ status: 200, contentType: 'text/csv; charset=utf-8', headers: { 'Content-Disposition': 'attachment; filename="usage.csv"' }, body: `${group},label,calls\n2026-10-03,,2\n` });
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      const rows = group === 'day'
+        ? [{ key: '2026-10-03', label: null, calls: 2, input_tokens: 700, output_tokens: 300, total_tokens: 1000, estimated_cost_usd: 0.9, unpriced_calls: 0 }, { key: '2026-10-04', label: null, calls: 2, input_tokens: 500, output_tokens: 500, total_tokens: 1000, estimated_cost_usd: 0.6, unpriced_calls: 1 }]
+        : group === 'agent'
+          ? [{ key: 'assistant', label: 'ANUM assistant', calls: 3, input_tokens: 900, output_tokens: 600, total_tokens: 1500, estimated_cost_usd: 1.1, unpriced_calls: 0 }, { key: 'agent_fleet', label: 'Fleet planner', calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.4, unpriced_calls: 1 }]
+          : group === 'feature'
+            // Three groups, one per page, so Load more has work to do (limit comes from the page: 50; the mock pages by one).
+            ? [[{ key: 'tasks', label: null, calls: 2, input_tokens: 600, output_tokens: 400, total_tokens: 1000, estimated_cost_usd: 0.8, unpriced_calls: 0 }], [{ key: 'voice', label: null, calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.4, unpriced_calls: 0 }], [{ key: 'email', label: null, calls: 1, input_tokens: 300, output_tokens: 200, total_tokens: 500, estimated_cost_usd: 0.3, unpriced_calls: 1 }]][Math.min(2, offset)] ?? []
+            : [];
+      const count = group === 'feature' ? 3 : rows.length;
+      return json({ scope: url.searchParams.get('scope') ?? 'workspace', group_by: group, from_day: url.searchParams.get('from') ?? '2026-10-01', to_day: url.searchParams.get('to') ?? '2026-10-31', rows, total: { input_tokens: 1200, output_tokens: 800, estimated_cost_usd: 1.5, calls: 4, unpriced_calls: 1 }, count, limit: 50, offset, truncated: offset + rows.length < count, recorded_since: group === 'day' ? '2026-10-02' : null });
+    }
     if (path === '/api/v1/model-budgets' && method === 'GET') {
       return options.forbidden ? json(envelope('forbidden', 'permission_denied: organization:manage'), 403) : json(budgets);
     }
@@ -362,7 +378,7 @@ test('budgets show usage against limits, the reset date, and save new limits', a
   await workspace.getByRole('button', { name: 'Save limits' }).click();
   await expect(workspace.getByText('Budget saved.')).toBeVisible();
   await expect(workspace.getByText('limited', { exact: true })).toBeVisible();
-  expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ monthly_cost_limit_usd: 25, monthly_token_limit: 5_000_000 });
+  expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ monthly_cost_limit_usd: 25, monthly_token_limit: 5_000_000, alert_percent: null });
 });
 
 test('a workspace owner who is not an organization administrator reads the organization budget', async ({ page }) => {
@@ -395,7 +411,7 @@ test('an organization administrator sets the organization budget', async ({ page
   await tenant.getByRole('button', { name: 'Save limits' }).click();
   await expect(tenant.getByText('Budget saved.')).toBeVisible();
   await expect(tenant.getByText('limited', { exact: true })).toBeVisible();
-  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/model-budgets/tenant')?.body).toEqual({ monthly_cost_limit_usd: null, monthly_token_limit: 9000 });
+  expect(calls.find((c) => c.method === 'PUT' && c.path === '/api/v1/model-budgets/tenant')?.body).toEqual({ monthly_cost_limit_usd: null, monthly_token_limit: 9000, alert_percent: null });
 });
 
 test('budgets are owner-only: a 403 shows the API answer instead of numbers', async ({ page }) => {

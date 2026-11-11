@@ -1,12 +1,12 @@
-// Owner screens: workspace members and invitations, monthly model budgets, and the approval policy.
+// Owner screens: workspace members and invitations and the monthly model budgets (the approval settings
+// page is ApprovalSettingsView.tsx).
 // Everything shown comes from the API. Who may manage is decided by the API (its 403, or the
 // caller's persisted membership role), never guessed from the token here.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowRightLeft, Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Scale, Search, Send, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
-import type { CreatedInvitation, InvitationEmailSetup, MembersSummary, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceApprovalPolicy, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ArrowRightLeft, Ban, CircleDot, Copy, Gauge, KeyRound, Link2, Lock, MailPlus, RefreshCw, RotateCcw, Save, Search, Send, ShieldCheck, Ticket, UserCheck, Users, XCircle } from 'lucide-react';
+import type { CreatedInvitation, InvitationEmailSetup, MembersSummary, ModelBudgetOverview, ModelBudgetScopeView, WorkspaceInvitation, WorkspaceMember, WorkspaceRole, BudgetScope } from '@anum/contracts';
 import * as admin from './lib/adminApi';
-import { currentScope, getCurrentMembership, rememberWorkspace } from './lib/api';
-import { POLICY_SWITCHES, policyChanged, policyDraft, policyUpdatedLabel, twoPersonWarning, type PolicyDraft } from './lib/policy';
+import { currentScope, rememberWorkspace } from './lib/api';
 import {
   DEFAULT_TTL_HOURS,
   ROLES,
@@ -29,7 +29,8 @@ import { ConfirmDialog } from './Dialog';
 import { formatDateTime, joinList, t, type MessageKey } from './lib/i18n';
 import { AccessNotice } from './PageParts';
 import { AgentMeetingBudgetCard } from './AgentMeetingBudgetCard';
-import { ApprovalReminderCard } from './ApprovalReminderCard';
+
+const BudgetUsage = lazy(() => import('./BudgetUsage').then((m) => ({ default: m.BudgetUsage })));
 import type { RoleTemplate, TenantWriteAccess } from './lib/governance';
 import { templateEffect, tenantWriteAccess } from './lib/governance';
 import { getRoleTemplates } from './lib/governanceApi';
@@ -489,6 +490,7 @@ export function BudgetsView() {
         <BudgetCard scope="workspace" title={t('budgets.workspace.title')} subtitle={t('budgets.workspace.subtitle')} view={overview.workspace} onSaved={setOverview} />
         <AgentMeetingBudgetCard />
       </div>
+      <Suspense fallback={<Notice>{t('budgets.usage.loading')}</Notice>}><BudgetUsage /></Suspense>
     </>}
   </>;
 }
@@ -525,116 +527,19 @@ function BudgetCard({ scope, title, subtitle, view, onSaved, access = null }: { 
       <div><dt>{t('budgets.stat.unpriced')}</dt><dd>{formatTokens(view.usage.unpricedCalls)}</dd></div>
     </dl>
     {view.usage.unpricedCalls > 0 && <p className="muted">{t('budgets.unpricedHint')}</p>}
-    {view.budget && <p className="muted">{t('budgets.lastChanged', { when: when(view.budget.updatedAt), user: view.budget.updatedBy })}</p>}
+    {view.budget && <p className="muted">{t('budgets.lastChanged', { when: when(view.budget.updatedAt), user: view.budget.updatedBy })}{view.budget.alertPercent ? ` ${t('budgets.alertAt', { percent: view.budget.alertPercent })}` : ''}</p>}
     {access?.notice ? <AccessNotice notice={access.notice} howTo={access.howTo} /> : <form className="budgetForm" aria-label={t('budgets.editLimits', { title: title.toLowerCase() }, { isolate: false })} onSubmit={(event) => { event.preventDefault(); save(draft); }}>
       <label className="field"><span>{t('budgets.costLimit')}</span><input dir="ltr" inputMode="decimal" value={draft.cost} onChange={(event) => setDraft({ ...draft, cost: event.target.value })} placeholder={t('budgets.noLimit')} /></label>
       <label className="field"><span>{t('budgets.tokenLimit')}</span><input dir="ltr" inputMode="numeric" value={draft.tokens} onChange={(event) => setDraft({ ...draft, tokens: event.target.value })} placeholder={t('budgets.noLimit')} /></label>
+      <label className="field"><span>{t('budgets.alertPercent')}</span><input dir="ltr" inputMode="numeric" value={draft.alert} onChange={(event) => setDraft({ ...draft, alert: event.target.value })} placeholder="-" /></label>
       {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-      <p className="muted">{t('budgets.limitHint')}</p>
+      <p className="muted">{t('budgets.limitHint')} {t('budgets.alertHint')}</p>
       <div className="actions">
         <button type="submit" disabled={busy}><Save aria-hidden="true" />{busy ? t('admin.saving') : t('budgets.save')}</button>
-        {view.budget && <button type="button" className="secondary" disabled={busy} onClick={() => save({ cost: '', tokens: '' })}><XCircle aria-hidden="true" />{t('budgets.remove')}</button>}
+        {view.budget && <button type="button" className="secondary" disabled={busy} onClick={() => save({ cost: '', tokens: '', alert: '' })}><XCircle aria-hidden="true" />{t('budgets.remove')}</button>}
       </div>
     </form>}
   </section>;
-}
-
-// ------------------------------------------------------------------------- approval policy
-
-/**
- * The workspace approval policy (docs/approvals-and-risk.md, Workspace Approval Policy). Any member
- * reads it; only owners change it. The caller's role comes from their persisted membership, and a
- * 403 on saving is shown the same way the other owner screens show it.
- */
-export function ApprovalPolicyView({ workspaceId }: { workspaceId: string }) {
-  const [policy, setPolicy] = useState<WorkspaceApprovalPolicy | null>(null);
-  const [draft, setDraft] = useState<PolicyDraft>({ twoPersonRule: false, mediumRiskRequiresApproval: false });
-  const [load, setLoad] = useState<Load>({ kind: 'loading' });
-  const [role, setRole] = useState<string | null>(null);
-  const [members, setMembers] = useState<WorkspaceMember[] | null>(null);
-  const [denied, setDenied] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [flash, setFlash] = useState<Flash>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const [next, membership] = await Promise.all([admin.getApprovalPolicy(), getCurrentMembership().catch(() => null)]);
-      setPolicy(next);
-      setDraft(policyDraft(next));
-      const ownRole = membership?.active ? membership.role : null;
-      setRole(ownRole);
-      // Owners can list members: used only to warn before the two-person rule locks everyone out.
-      setMembers(ownRole === 'owner' ? await admin.getMembers().catch(() => null) : null);
-      setLoad({ kind: 'ready' });
-    } catch (error) {
-      setLoad(isPermissionDenied(error) ? { kind: 'forbidden', detail: describeError(error) } : { kind: 'error', detail: describeError(error) });
-    }
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  const notOwner = role !== null && role !== 'owner';
-  const readOnly = notOwner || denied !== null;
-  const changed = policy !== null && policyChanged(policy, draft);
-  const warning = twoPersonWarning(draft, members);
-
-  const save = () => {
-    setBusy(true);
-    setFlash(null);
-    void admin.setApprovalPolicy(draft).then((next) => {
-      setPolicy(next);
-      setDraft(policyDraft(next));
-      setFlash({ text: t('policy.saved') });
-    }).catch((error: unknown) => {
-      if (isPermissionDenied(error)) {
-        setDenied(describeError(error));
-        if (policy) setDraft(policyDraft(policy));
-      } else {
-        setFlash({ text: describeError(error), error: true });
-      }
-    }).finally(() => setBusy(false));
-  };
-
-  return <>
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('policy.eyebrow')}</p><h2>{t('policy.title')}</h2><p>{t('policy.intro', { workspace: workspaceId })}</p></div>
-      <button type="button" onClick={() => { setLoad({ kind: 'loading' }); setDenied(null); setFlash(null); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
-    </section>
-    {load.kind === 'loading' && <Notice>{t('policy.loading')}</Notice>}
-    {load.kind === 'error' && <Notice error>{t('policy.error', { message: load.detail })}</Notice>}
-    {load.kind === 'forbidden' && <Forbidden title={t('policy.accessRequired')} detail={load.detail}>
-      {t('policy.forbidden')}
-    </Forbidden>}
-    {load.kind === 'ready' && policy && <>
-      {readOnly && <Forbidden title={t('admin.ownerRequired')} detail={denied}>
-        {role && role !== 'owner' ? t('policy.readOnlyRole', { role: (ROLES as readonly string[]).includes(role) ? t(`members.role.${role as WorkspaceRole}`) : role }) : t('policy.readOnly')}
-      </Forbidden>}
-      <section className="surface adminPanel policyPanel" aria-label={t('policy.region')}>
-        <div className="sectionHeader"><div><p className="eyebrow">{t('policy.inForce')}</p><h2>{t('policy.rules')}</h2></div><Scale className="sectionIcon" aria-hidden="true" /></div>
-        <p className="muted">{t('policy.help')}</p>
-        {POLICY_SWITCHES.map((item) => {
-          const on = draft[item.key];
-          return <div className={`policySwitch ${on ? 'on' : ''}`} key={item.key}>
-            <label>
-              <span className="policySwitchTitle"><strong>{item.title}</strong><span className={`statusBadge ${on ? 'success' : 'neutral'}`}>{on ? t('policy.on') : t('policy.off')}</span></span>
-              <input type="checkbox" role="switch" aria-label={item.title} aria-describedby={`policy-${item.key}`} checked={on} disabled={readOnly || busy} onChange={(event) => setDraft({ ...draft, [item.key]: event.target.checked })} />
-            </label>
-            <ul id={`policy-${item.key}`} className="policyExplain">
-              <li className={on ? 'active' : ''}><span>{t('policy.whenOn')}</span>{item.on}</li>
-              <li className={on ? '' : 'active'}><span>{t('policy.whenOff')}</span>{item.off}</li>
-            </ul>
-          </div>;
-        })}
-        {warning && <Notice error>{warning}</Notice>}
-        <p className="muted">{policyUpdatedLabel(policy, when)}</p>
-        {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-        {!readOnly && <div className="actions">
-          <button type="button" disabled={busy || !changed} onClick={save}><Save aria-hidden="true" />{busy ? t('admin.saving') : t('policy.save')}</button>
-          {changed && <button type="button" className="secondary" disabled={busy} onClick={() => setDraft(policyDraft(policy))}><RotateCcw aria-hidden="true" />{t('policy.undo')}</button>}
-        </div>}
-      </section>
-      <ApprovalReminderCard readOnly={readOnly} />
-    </>}
-  </>;
 }
 
 // ------------------------------------------------------------------------- shared

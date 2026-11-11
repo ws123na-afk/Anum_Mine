@@ -65,8 +65,8 @@ export function filterFiles<T extends FileLike>(items: readonly T[], filters: { 
 
 // ---- Knowledge base: memories by where they came from -----------------------------------------------
 
-export type MemoryGroupId = 'chat' | 'task' | 'other';
-export const MEMORY_GROUPS: readonly MemoryGroupId[] = ['chat', 'task', 'other'];
+export type MemoryGroupId = 'chat' | 'task' | 'workspace' | 'other';
+export const MEMORY_GROUPS: readonly MemoryGroupId[] = ['chat', 'task', 'workspace', 'other'];
 
 /** Memories in their source groups, in a fixed order, leaving out empty groups. */
 export function groupBy<T>(items: readonly T[], groupOf: (item: T) => MemoryGroupId): { group: MemoryGroupId; items: T[] }[] {

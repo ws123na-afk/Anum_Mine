@@ -199,18 +199,23 @@ describe('model budgets', () => {
   });
 
   test('limit drafts: empty means no limit, invalid values are refused', () => {
-    assert.deepEqual(limitDraft(null), { cost: '', tokens: '' });
-    assert.deepEqual(limitDraft({ scope: 'workspace', monthlyCostLimitUsd: 0, monthlyTokenLimit: 5000, updatedAt: '', updatedBy: '' }), { cost: '0', tokens: '5000' });
-    const parsed = parseLimits({ cost: '$1,250.50', tokens: '5,000,000' });
+    assert.deepEqual(limitDraft(null), { cost: '', tokens: '', alert: '' });
+    assert.deepEqual(limitDraft({ scope: 'workspace', monthlyCostLimitUsd: 0, monthlyTokenLimit: 5000, alertPercent: 20, updatedAt: '', updatedBy: '' }), { cost: '0', tokens: '5000', alert: '20' });
+    const parsed = parseLimits({ cost: '$1,250.50', tokens: '5,000,000', alert: '80%' });
     assert.ok(parsed.ok);
-    assert.deepEqual(limitsBody(parsed.value), { monthly_cost_limit_usd: 1250.5, monthly_token_limit: 5_000_000 });
-    const cleared = parseLimits({ cost: ' ', tokens: '' });
+    assert.deepEqual(limitsBody(parsed.value), { monthly_cost_limit_usd: 1250.5, monthly_token_limit: 5_000_000, alert_percent: 80 });
+    const cleared = parseLimits({ cost: ' ', tokens: '', alert: '' });
     assert.ok(cleared.ok);
-    assert.deepEqual(cleared.value, { monthlyCostLimitUsd: null, monthlyTokenLimit: null });
-    assert.equal(parseLimits({ cost: '-1', tokens: '' }).ok, false);
-    assert.equal(parseLimits({ cost: 'ten', tokens: '' }).ok, false);
-    assert.equal(parseLimits({ cost: '', tokens: '1.5' }).ok, false);
-    assert.equal(parseLimits({ cost: '2000000000', tokens: '' }).ok, false);
+    assert.deepEqual(cleared.value, { monthlyCostLimitUsd: null, monthlyTokenLimit: null, alertPercent: null });
+    assert.equal(parseLimits({ cost: '-1', tokens: '', alert: '' }).ok, false);
+    assert.equal(parseLimits({ cost: 'ten', tokens: '', alert: '' }).ok, false);
+    assert.equal(parseLimits({ cost: '', tokens: '1.5', alert: '' }).ok, false);
+    assert.equal(parseLimits({ cost: '2000000000', tokens: '', alert: '' }).ok, false);
+    // The alert percent is 1 to 99 and needs a limit to measure against.
+    assert.equal(parseLimits({ cost: '10', tokens: '', alert: '0' }).ok, false);
+    assert.equal(parseLimits({ cost: '10', tokens: '', alert: '100' }).ok, false);
+    assert.equal(parseLimits({ cost: '10', tokens: '', alert: '2.5' }).ok, false);
+    assert.equal(parseLimits({ cost: '', tokens: '', alert: '20' }).ok, false);
   });
 
   test('formats small costs and UTC reset dates', () => {

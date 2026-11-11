@@ -6,7 +6,7 @@ import { t, type MessageKey } from './i18n.ts';
 export type View =
   | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'vault' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
-  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations'
+  | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'approvalSettings' | 'suppressions' | 'developer' | 'organisations'
   | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles' | 'purchases' | 'contacts';
 
 export type NavGroup = 'main' | 'more' | 'admin';
@@ -27,7 +27,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
   { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'contacts', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'vehicles', 'vault', 'attendance', 'purchases', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive'] },
   { group: 'more', views: ['favorites', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
-  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
+  { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'approvalSettings', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
 
 /** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */
@@ -62,6 +62,8 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('invitation=')) return 'members';
   if (id.startsWith('meetings?')) return 'meetings';
   if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
+  // Approvals settings: the former #policy page and its sections (#approvalSettings/rules, docs/approvals-and-risk.md#approvals-settings).
+  if (id === 'policy' || id.startsWith('approvalSettings/')) return 'approvalSettings';
   // Settings > Billing and its sections (#billing-plans, #billing-contact, docs/billing.md).
   if (id === 'billing' || id.startsWith('billing-')) return 'settings';
   // Settings > Integrations > iPhone (docs/iphone-integrations.md).

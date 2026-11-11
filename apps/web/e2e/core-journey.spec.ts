@@ -85,7 +85,7 @@ test('navigation exposes automations and approvals', async ({ page }) => {
   await page.getByRole('button', { name: 'Automations' }).click();
   await expect(page.getByRole('heading', { name: 'Automations', level: 1, exact: true })).toBeVisible();
   await openNavMenu(page);
-  await page.getByRole('button', { name: 'Approvals' }).click();
+  await page.getByRole('button', { name: 'Approvals', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Queue clear' })).toBeVisible();
 });
 

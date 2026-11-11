@@ -24,6 +24,19 @@ Budgets show the estimated model cost and tokens used this UTC calendar month, a
 3. Click **Save limits**.
 4. If unpriced calls appear, set a token limit too: they add tokens but no cost.
 
+## Be told before the limit
+
+1. On a card, enter **Alert owners at (%)**, a whole number from 1 to 99, and click **Save limits**.
+2. Owners are already told in the app at 50, 75, 90 and 100 percent of a limit; your own threshold is added to those. Leave the field empty for the fixed alerts only.
+
+## See where the spend goes
+
+1. Under **Where the spend goes**, choose **Group by**: **Day**, **Month**, **Person**, **Agent** or **Feature**.
+2. Choose the **Scope** (this workspace or the whole organization), the **Period** (this month, the last 30 days, 3 or 12 months, or custom dates) and the **Measure** (estimated cost or tokens).
+3. The chart shows columns over time or ranked bars; the table below lists every group with calls, tokens and cost. **Load more** fetches further groups when a period holds more than one page.
+4. Click **Export CSV** to download the whole period as a file.
+5. The breakdown by day, person, agent and feature exists from the day it was switched on; earlier spend is in the monthly totals (group by **Month**).
+
 ## Remove a limit
 
 1. On a card that has a budget, click **Remove limits**.

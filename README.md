@@ -258,7 +258,7 @@ x-user-roles: owner,member
   - Help, Members: [English](docs/help/members.md), [Arabic](docs/help/members.ar.md)
   - Help, Organisations: [English](docs/help/organisations.md), [Arabic](docs/help/organisations.ar.md)
   - Help, Billing console: [English](docs/help/billing-console.md), [Arabic](docs/help/billing-console.ar.md)
-  - Help, Approval policy: [English](docs/help/policy.md), [Arabic](docs/help/policy.ar.md)
+  - Help, Approvals settings: [English](docs/help/approval-settings.md), [Arabic](docs/help/approval-settings.ar.md)
   - Help, Reports: [English](docs/help/reports.md), [Arabic](docs/help/reports.ar.md)
   - Help, Office history: [English](docs/help/office-history.md), [Arabic](docs/help/office-history.ar.md)
   - Help, Office builder: [English](docs/help/office-builder.md), [Arabic](docs/help/office-builder.ar.md)

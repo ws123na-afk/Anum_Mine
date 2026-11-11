@@ -152,7 +152,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'members', view: 'members', mock: workspace, ready: '.memberRow' },
   { hash: 'audit', view: 'audit', mock: workspace, ready: '.auditTable' },
   { hash: 'budgets', view: 'budgets', mock: workspace, ready: '.budgetCard' },
-  { hash: 'policy', view: 'policy', mock: workspace, ready: '.policySwitch' },
+  { hash: 'approvalSettings', view: 'approvalSettings', mock: workspace, ready: '.policySwitch' },
   { hash: 'suppressions', view: 'suppressions', mock: workspace, ready: '.suppRow' },
   // The Contacts directory (docs/contacts.md#web): the people list, a person page and the possible duplicates.
   { hash: 'contacts', view: 'contacts', mock: contacts, ready: '.ctRow' },

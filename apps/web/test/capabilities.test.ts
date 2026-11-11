@@ -84,8 +84,9 @@ describe('isActiveOwner', () => {
 });
 
 describe('memorySource', () => {
-  const note = (over: Partial<{ task_id: string | null; source_type: string; source_id: string | null; metadata: Record<string, unknown> }> = {}) => ({
+  const note = (over: Partial<{ task_id: string | null; source_type: string; source_id: string | null; metadata: Record<string, unknown>; owner_user_id: string | null }> = {}) => ({
     task_id: 'task_id' in over ? over.task_id ?? null : null,
+    owner_user_id: over.owner_user_id ?? null,
     provenance: { source_type: over.source_type ?? 'conversation', source_id: 'source_id' in over ? over.source_id ?? null : 'conv_1', metadata: over.metadata },
   });
   test('links a memory from a chat to its conversation, with its title', () => {
@@ -95,9 +96,16 @@ describe('memorySource', () => {
     assert.equal((memorySource(note({ metadata: { conversation_title: 7 } })) as { title: string }).title, 'Untitled chat');
     assert.equal((memorySource(note()) as { title: string }).title, 'Untitled chat');
   });
-  test('task notes name their task and other sources their type', () => {
+  test('task notes name their task, shared notes without a task are workspace memories, the rest keep their type', () => {
     assert.deepEqual(memorySource(note({ task_id: 'task_1', source_type: 'task_message', source_id: 'm1' })), { kind: 'task', label: 'task message', taskId: 'task_1' });
-    assert.deepEqual(memorySource(note({ source_type: 'user', source_id: null })), { kind: 'other', label: 'user' });
-    assert.equal(memorySource(note({ source_id: null })).kind, 'other');
+    assert.deepEqual(memorySource(note({ source_type: 'user', source_id: null })), { kind: 'workspace', label: 'Workspace note' });
+    // A knowledge base note and a private note without a conversation keep the generic label.
+    assert.deepEqual(memorySource(note({ source_type: 'knowledge_base', source_id: 'kbc_1' })), { kind: 'other', label: 'knowledge base' });
+    assert.equal(memorySource(note({ source_id: null, owner_user_id: 'user_a' })).kind, 'other');
+  });
+  test('the search path carries the page', () => {
+    assert.equal(memorySearchPath('', undefined, false, { limit: 50 }), '/api/v1/memories?limit=50');
+    assert.equal(memorySearchPath('tyres', undefined, true, { limit: 50, offset: 100 }), '/api/v1/memories?query=tyres&source_type=conversation&limit=50&offset=100');
+    assert.equal(memorySearchPath('', undefined, false, { offset: 0 }), '/api/v1/memories');
   });
 });

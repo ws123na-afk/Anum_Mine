@@ -80,7 +80,7 @@ Each workspace has an optional approval policy (A5, A6). Both settings default t
 
 ### Policy screens
 
-- Web: **Approval policy** in the navigation (`ApprovalPolicyView` in `apps/web/src/AdminViews.tsx`, helpers and wording in `src/lib/policy.ts`). Flutter: Settings › Workspace administration › Approval policy (`apps/mobile/lib/features/admin/policy_screen.dart`, model in `approval_policy.dart`, `ApprovalPolicyController`).
+- Web: the Policy section of **Approvals settings** ([below](#approvals-settings); `apps/web/src/ApprovalSettingsView.tsx`, helpers and wording in `src/lib/policy.ts`; `#policy` still opens it). Flutter: Settings › Workspace administration › Approval policy (`apps/mobile/lib/features/admin/policy_screen.dart`, model in `approval_policy.dart`, `ApprovalPolicyController`).
 - Both show the policy in force from `GET /api/v1/approval-policy`, explain each switch in plain words ("when on" and "when off", the same sentences on both clients), and show who changed it last and when ("Never changed" while both are at their default).
 - Who may change it comes from the API, never from token claims: the caller's role is read from `GET /api/v1/workspace-memberships/current`. Members and viewers see the switches read-only under "Owner access required". If the role cannot be read, the switches stay editable and the `PUT` decides; a `403` turns the screen read-only, restores the saved values and quotes the API's answer, like the Members and Budgets screens.
 - Owners save both switches together with one explicit `PUT` (no save on toggle). Before saving, an owner who turns the two-person rule on while the workspace has fewer than two active owners (from `GET /api/v1/workspace-members`, which only owners may list) sees a warning that nobody could approve the high-risk actions of tasks they start.
@@ -180,9 +180,22 @@ The setup plan's approval rules (blueprint version 2, [Setup plan](setup-plan.md
 
 Not done yet: the Flutter and Android approval screens do not show the route or the opted-out recipients yet (they offer Approve and Reject as before and show the API's `403` refusal), and there is no per-workspace override of tenant rules.
 
+## Approvals settings
+
+One web page, **Approvals settings** in the navigation under Admin (`#approvalSettings`; `#policy` and `#approvalSettings/<section>` open it too; `apps/web/src/ApprovalSettingsView.tsx`, helpers in `src/lib/approvalSettings.ts`), gathers what used to sit on three pages, in four sections that each load, save and refuse on their own, with an index at the top that jumps to a section:
+
+| Section | What it shows | Who changes it |
+|---|---|---|
+| Policy | The two switches above, in force, with the owner warning and one explicit save | Workspace owners (`policy:manage`); everyone else read only with their role |
+| Rules | The organization's approval rules from `GET /api/v1/organization/approval-rules`: name, on or off, tool pattern, AED band and the approvers of each step, with a count and an empty state ("every action that pauses goes to the workspace owners") | Read only here; **Edit rules in Governance** opens the Governance page, where an organization administrator edits them |
+| Routing | How a pausing action is routed, in the API's order (pause, matching rules and summed amounts, the first band that holds, the owner fallback, who may decide), then **Bands in force** built from the rules that are on, how many rules are off, and what the two policy switches do to it | Nothing to save: it is read from the rules and the policy |
+| Reminders | The [approval-ageing reminder](#approval-ageing-reminder) | Workspace owners |
+
+The Approvals page's "Open approval rules" link opens this page. Help: `docs/help/approval-settings.md`. Tests: `apps/web/test/approvalSettings.test.ts` (the routing summary, the hash alias, the navigation), `apps/web/e2e/policy.spec.ts` and `e2e/approval-settings.spec.ts`.
+
 ## Approval-ageing reminder
 
-A workspace owner chooses after how many hours (1 to 23, since an approval expires after 24) a pending approval reminds the people who can approve it, or leaves it off (the default): Approval policy, **Remind approvers** (`apps/web/src/ApprovalReminderCard.tsx`). `GET /api/v1/approval-reminders/settings` (any member with `approval:read`) and `PUT` `{reminder_hours}` (owners, `policy:manage`; null turns it off; audited as `approval.reminder_settings_updated`).
+A workspace owner chooses after how many hours (1 to 23, since an approval expires after 24) a pending approval reminds the people who can approve it, or leaves it off (the default): Approvals settings, **Remind approvers** (`apps/web/src/ApprovalReminderCard.tsx`). `GET /api/v1/approval-reminders/settings` (any member with `approval:read`) and `PUT` `{reminder_hours}` (owners, `policy:manage`; null turns it off; audited as `approval.reminder_settings_updated`).
 
 The team reminder sweep (`team_work.run_reminder_pass`, which runs with the automation scheduler) calls `approval_reminders.run_approval_reminder_pass`: with PostgreSQL, approvals that are pending, not expired and older than the workspace's hours are discovered as `anum_maintenance` (ids and timestamps only: a column grant and a select policy on pending approvals, the reminder settings and the reminders already sent, migration `0129_setup_plan_gaps`); each is handled in its own transaction in its tenant's RLS context. The approval is read again, `approval_reminders` is claimed with `insert ... on conflict do nothing` so it reminds once, and every active owner of the workspace gets one in-app notification (kind `approval_reminder`, the action, its risk, how long it waited and when it expires). In-app only: no email and no phone push. Audited as `approval.reminder_sent` by the system actor. Nothing here approves, rejects or changes the approval. The setup plan sets 4 hours (its automation #4).
 

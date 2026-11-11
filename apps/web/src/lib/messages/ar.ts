@@ -99,6 +99,7 @@ import { agentsPageAr } from './agentsPage.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
+import { adminDepthAr } from './adminDepth.ar.ts';
 import { governanceAr } from './ar.governance.ts';
 import { setupPlanAr } from './setupPlan.ar.ts';
 import { routingAr } from './routing.ar.ts';
@@ -289,7 +290,6 @@ export const ar: Record<MessageKey, Message> = {
   'nav.enterprise': 'المؤسسة',
   'nav.members': 'الأعضاء',
   'nav.budgets': 'الميزانيات',
-  'nav.policy': 'سياسة الموافقة',
   'nav.whatsapp': 'واتساب',
   'nav.activity': 'النشاط',
   'nav.autonomy': 'الاستقلالية',
@@ -1062,7 +1062,7 @@ export const ar: Record<MessageKey, Message> = {
   'memory.selectTask': 'اختر مهمة',
   'memory.memory': 'الذكرى',
   'memory.addPlaceholder': 'أضف سياقًا دائمًا',
-  'memory.taskOnly': 'تنتمي الذكريات إلى مهمة؛ لا تقبل واجهة البرمجة ملاحظات على مستوى مساحة العمل ولا تعديلات.',
+  'memory.taskOnly': 'الذكرى المرتبطة بمهمة تُحفظ معها وتُعرض ضمن ملاحظاتها.',
   'memory.add': 'إضافة ذكرى',
   'memory.added': 'أُضيفت الذكرى.',
   'memory.deleted': 'حُذفت الذكرى.',
@@ -3965,6 +3965,7 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Owner screens, Governance, Enterprise and Voice (their own files) ----
   ...ownerAr,
+  ...adminDepthAr,
   ...governanceAr,
   ...setupPlanAr,
   ...routingAr,

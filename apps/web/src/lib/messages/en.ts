@@ -98,6 +98,7 @@ import { agentsPageEn } from './agentsPage.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
+import { adminDepthEn } from './adminDepth.en.ts';
 import { governanceEn } from './en.governance.ts';
 import { setupPlanEn } from './setupPlan.en.ts';
 import { routingEn } from './routing.en.ts';
@@ -288,7 +289,6 @@ export const en = {
   'nav.enterprise': 'Enterprise',
   'nav.members': 'Members',
   'nav.budgets': 'Budgets',
-  'nav.policy': 'Approval policy',
   'nav.whatsapp': 'WhatsApp',
   'nav.activity': 'Activity',
   'nav.autonomy': 'Autonomy',
@@ -1061,7 +1061,7 @@ export const en = {
   'memory.selectTask': 'Select task',
   'memory.memory': 'Memory',
   'memory.addPlaceholder': 'Add durable context',
-  'memory.taskOnly': 'Memories belong to a task; the API does not accept workspace-wide notes or edits.',
+  'memory.taskOnly': 'A memory on a task is kept with that task and shown under its notes.',
   'memory.add': 'Add memory',
   'memory.added': 'Memory added.',
   'memory.deleted': 'Memory deleted.',
@@ -3950,6 +3950,7 @@ export const en = {
 
   // ---- Owner screens, Governance, Enterprise and Voice (their own files) ----
   ...ownerEn,
+  ...adminDepthEn,
   ...governanceEn,
   ...setupPlanEn,
   ...routingEn,

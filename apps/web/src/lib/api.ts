@@ -248,7 +248,14 @@ export async function resumeRun(runId: string): Promise<RunTaskResult> {
   return { task: mapTask(result.task), run: mapRun(result.run), approval: result.approval ? mapApproval(result.approval) : null };
 }
 export async function getMemories(): Promise<MemoryNote[]> { return request('/api/v1/memories', { method: 'GET' }); }
-export async function createMemory(taskId: string, content: string): Promise<MemoryNote> { return request('/api/v1/memories', { method: 'POST', body: JSON.stringify({ task_id: taskId, content, source_type: 'user', retention: { kind: 'task' } }) }); }
+/** A note on a task (kept with the task), or a workspace memory when `taskId` is null (docs/memory.md#workspace-memories):
+ * kept until deleted, or until `expiresAt`, under the organization's memory governance. */
+export async function createMemory(taskId: string | null, content: string, expiresAt: string | null = null): Promise<MemoryNote> {
+  const retention = taskId ? { kind: 'task' } : expiresAt ? { kind: 'expires_at', expires_at: expiresAt } : { kind: 'indefinite' };
+  return request('/api/v1/memories', { method: 'POST', body: JSON.stringify({ task_id: taskId, content, source_type: 'user', retention }) });
+}
+/** Changes a memory's text: its author or a workspace owner (403 otherwise). */
+export async function updateMemory(id: string, content: string): Promise<MemoryNote> { return request(`/api/v1/memories/${id}`, { method: 'PATCH', body: JSON.stringify({ content }) }); }
 export async function deleteMemory(id: string): Promise<void> { await requestVoid(`/api/v1/memories/${id}`, { method: 'DELETE' }); }
 /** One page of workspace files (docs/files.md): search, sort and the keyset cursor (last id shown). */
 export async function getFiles(options: FilesListOptions = {}): Promise<FileRecord[]> { return request(filesListPath(options), { method: 'GET' }); }
@@ -357,7 +364,10 @@ export async function getSkillInstallations(): Promise<SkillInstallation[]> { re
 export async function installSkill(skillId: string, version: string, approvedTools: string[]): Promise<SkillInstallation> { return request('/api/v1/skills/installations', { method: 'POST', body: JSON.stringify({ skill_id: skillId, version, approved_tools: approvedTools }) }); }
 export async function setSkillEnabled(skillId: string, enabled: boolean, acknowledgeFlagged = false): Promise<SkillInstallation> { return request(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'PATCH', body: JSON.stringify(acknowledgeFlagged ? { enabled, acknowledge_flagged: true } : { enabled }) }); }
 export async function uninstallSkill(skillId: string): Promise<void> { await requestVoid(`/api/v1/skills/installations/${encodeURIComponent(skillId)}`, { method: 'DELETE' }); }
-export async function searchMemories(query: string, onlyChats = false): Promise<MemoryNote[]> { return request(capabilities.memorySearchPath(query, undefined, onlyChats), { method: 'GET' }); }
+/** One page of memories (the newest `limit` after skipping `offset`) and how many match in all (`X-Total-Count`; null from an older API). */
+export async function searchMemories(query: string, onlyChats = false, page: { limit?: number; offset?: number } = {}): Promise<{ items: MemoryNote[]; total: number | null }> {
+  return requestWithTotal<MemoryNote[]>(capabilities.memorySearchPath(query, undefined, onlyChats, page), { method: 'GET' });
+}
 /** The caller's own preferences, including "Remember things from my chats". */
 export async function getMyPreferences(): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'GET' }); }
 export async function saveMyPreferences(rememberConversations: boolean): Promise<chatMemory.UserPreferences> { return request(chatMemory.PREFERENCES_PATH, { method: 'PUT', body: JSON.stringify({ remember_conversations: rememberConversations } satisfies UserPreferencesUpdate) }); }
@@ -459,6 +469,15 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+/** A JSON list with the total behind the page (`X-Total-Count`), for paged lists such as memories. */
+async function requestWithTotal<T>(path: string, init: RequestInit): Promise<{ items: T; total: number | null }> {
+  const response = await fetch(`${apiBaseUrl}${path}`, { ...init, headers: { ...(await authHeaders()), 'content-type': 'application/json', ...init.headers } });
+  if (!response.ok) throw announceBilling(await apiErrorFromResponse(response));
+  const header = response.headers.get('X-Total-Count');
+  const total = header === null ? null : Number(header);
+  return { items: (await response.json()) as T, total: Number.isFinite(total) ? total : null };
 }
 
 /** The shared JSON request (auth headers, error envelope) for feature modules such as adminApi.ts. */
