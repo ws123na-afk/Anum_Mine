@@ -11,7 +11,7 @@ import * as team from './lib/teamApi';
 import { getNotificationPreferences, currentUserId } from './lib/api';
 import { describeError } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
-import { REPORTS_HASH } from './lib/financeReports';
+import { notificationHash } from './lib/notificationCenter';
 import { shouldNotifyDesktop } from './lib/team';
 import './team.css';
 
@@ -22,6 +22,8 @@ export interface TeamNotifications {
   error: string | null;
   permission: string;
   loadMore(): void;
+  /** Read the first page again (the Notifications page calls it after it changes something). */
+  reload(): void;
   open(n: UserNotification): Promise<void>;
   readAll(): Promise<void>;
   enableDesktop(): void;
@@ -61,16 +63,14 @@ export function useTeamNotifications(signal: { recipient: unknown; at: number } 
   return {
     items, unread, cursor, error, permission,
     loadMore: () => { if (cursor) void load(cursor); },
+    reload: () => { void load(); },
     open: async (n) => {
       if (!n.read_at) { try { await team.readNotification(n.id); } catch { /* still open it */ } }
       void load();
       if (n.work_item_id) openItem.current(n.work_item_id);
-      // The post-close trading report notice opens the reports (docs/finance-trading-intel.md#daily-report).
-      else if (n.kind === 'finance_daily_report') location.hash = REPORTS_HASH;
-      // The weekly money note opens Finance, Money advisor (docs/finance.md#money-advisor).
-      else if (n.kind === 'finance_weekly_advice') location.hash = '#finance-advisor';
-      // A calendar reminder opens the Calendar (docs/calendar.md#reminders).
-      else if (n.kind === 'calendar_reminder') location.hash = '#calendar';
+      // Other notices open the module they are about: the trading report, Money advisor, the
+      // Calendar, Approvals and so on (lib/notificationCenter.ts notificationHash).
+      else { const hash = notificationHash(n); if (hash) location.hash = hash; }
     },
     readAll: async () => { try { await team.readAllNotifications(); await load(); } catch (e) { setError(describeError(e)); } },
     enableDesktop: () => { void Notification.requestPermission().then(setPermission); },
@@ -91,6 +91,7 @@ export function TeamNotificationsSection({ state, pick }: { state: TeamNotificat
       </button>
     </li>)}</ul>
     {cursor && <button type="button" className="secondary loadMore" onClick={state.loadMore}>{t('team.loadMore')}</button>}
+    <button type="button" className="secondary loadMore" onClick={() => pick(() => { location.hash = '#notificationCenter'; })}>{t('ntf.seeAll')}</button>
     {permission === 'default' && <button type="button" className="secondary loadMore" onClick={state.enableDesktop}>{t('bell.enableDesktop')}</button>}
     {permission === 'denied' && <p className="muted">{t('bell.desktopBlocked')}</p>}
   </div>;

@@ -240,6 +240,7 @@ x-user-roles: owner,member
   - Help, Email: [English](docs/help/email.md), [Arabic](docs/help/email.ar.md)
   - Help, Enterprise: [English](docs/help/enterprise.md), [Arabic](docs/help/enterprise.ar.md)
   - Help, Favorites: [English](docs/help/favorites.md), [Arabic](docs/help/favorites.ar.md)
+  - Help, Notifications: [English](docs/help/notification-center.md), [Arabic](docs/help/notification-center.ar.md)
   - Help, Documents: [English](docs/help/files.md), [Arabic](docs/help/files.ar.md)
   - Help, Document vault: [English](docs/help/vault.md), [Arabic](docs/help/vault.ar.md)
   - Help, Finance: [English](docs/help/finance.md), [Arabic](docs/help/finance.ar.md)

@@ -59,8 +59,15 @@ Assignments, re-assignments, comments, completion, "blocked", overdue reminders 
 
 | Route | What |
 |---|---|
-| `GET /api/v1/notifications?unread_only=&limit=&cursor=` | The caller's notifications, newest first, with the unread count. |
+| `GET /api/v1/notifications?unread_only=&state=&kind=&limit=&cursor=` | The caller's notifications, newest first, with the unread count (always of all of them). `state` is `unread` or `read`; `kind` one exact kind (`work_assigned`, `calendar_reminder` and so on). |
+| `GET /api/v1/notifications/kinds` | The caller's kinds with how many of each and how many unread, most first: the page's filter chips. |
 | `POST /api/v1/notifications/{id}/read`, `POST /api/v1/notifications/read-all` | Mark read. |
+| `POST /api/v1/notifications/{id}/unread` | Mark unread again (it counts on the bell). |
+| `DELETE /api/v1/notifications/{id}` | Delete one for good (204); another person's id answers 404. |
+
+### Notifications page
+
+`#notificationCenter` (`apps/web/src/NotificationsPage.tsx`, model in `src/lib/notificationCenter.ts`), linked from the bell's **See all notifications** and under More in the sidebar: every notification with filters by read state (All, Unread, Read) and by kind (chips from `/notifications/kinds`, each with its count, labelled in English and Arabic; a kind the web does not know yet reads as Other), Previous and Next over the cursor (the shared Pager, 20 a page), **Mark all read**, and on each row mark read or unread and delete (with a confirmation). Opening one marks it read and goes where it points: a work item opens in Team, other kinds open their module (calendar reminders the Calendar, document expiry the vault, and so on; the bell does the same). A new notification for the person refreshes the page in place, and each change refreshes the bell. States: loading, empty with a way to the notification settings, empty for a filter with **Show every notification**, errors with Try again. Tests: `apps/web/test/webLeads.test.ts`, `apps/web/e2e/notification-center.spec.ts`, API `tests/test_team_work.py` and `tests/test_postgres_team_work.py`. The phone has its own Notifications screen; filters, mark unread and delete are web only for now ([pending work](pending-work.md)).
 
 Delivery uses the existing channels and the recipient's [notification preferences](notifications.md):
 

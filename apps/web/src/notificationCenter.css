@@ -1,0 +1,20 @@
+/* The Notifications page (NotificationsPage.tsx, docs/team-work.md#notifications-page). Rows from
+   library.css; spacing from the shared tokens; heights follow content. */
+.ntfHead { align-items: flex-start; }
+.ntfFilters { display: grid; gap: var(--d-s2); justify-items: end; min-width: 0; }
+.ntfFilters .libraryChips { justify-content: flex-end; margin-bottom: 0; }
+.ntfList { padding: 0 var(--d-s4); }
+.ntfRow { align-items: flex-start; }
+.ntfRow .libraryMain { flex: 1 1 auto; }
+.ntfMark { color: var(--d-faint); display: inline-flex; flex: none; padding-top: 6px; }
+.ntfMark svg { height: 18px; width: 18px; }
+.ntfRow.unread .ntfMark { color: var(--d-accent); }
+.ntfRow.unread .libraryTitle { color: var(--d-text); }
+.ntfRow:not(.unread) .libraryTitle { font-weight: 550; }
+.ntfBody { color: var(--d-muted); font-size: var(--text-md); margin: 0; overflow-wrap: anywhere; }
+.ntfRow .cellActions { flex: none; }
+@media (max-width: 767px) {
+  .ntfFilters, .ntfFilters .libraryChips { justify-content: flex-start; justify-items: start; }
+  .ntfList { padding: 0 var(--d-s3); }
+  .ntfRow .cellActions .iconButton { height: 44px; width: 44px; }
+}

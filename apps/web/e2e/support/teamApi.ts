@@ -43,7 +43,7 @@ export function createTeamMock(options: TeamMockOptions = {}) {
     item({ title: 'Draft a quote for Al Noor fleet', assignee_type: 'assistant', assignee_id: 'asst_sales', status: 'todo' }),
   ];
   const activity: Record<string, unknown>[] = items.map((i, n) => ({ id: `act_${n}`, work_item_id: i.id, actor_type: 'user', actor_id: 'user_ahmed', actor_name: 'Ahmed Saleh', action: 'work_item.create', summary: `Ahmed Saleh created "${i.title}"`, created_at: now() }));
-  const notifications = [
+  const notifications: { id: string; kind: string; read_at: string | null; [key: string]: unknown }[] = [
     { id: 'ntf_1', user_id: 'user_local', kind: 'work_assigned', title: 'New work: Count winter tyre stock', body: 'Ahmed Saleh assigned you "Count winter tyre stock" (high priority).', work_item_id: 'work_1', read_at: null, email_status: 'not_requested', email_attempts: 0, email_error: null, push_status: 'not_configured', created_at: now() },
   ];
   const orgs: Record<string, unknown>[] = [{ tenant_id: 'gulf_tyres', display_name: 'Gulf Tyres', plan: 'standard', first_workspace_id: 'gulf_tyres_main', created_at: now(), workspaces: 1, active_members: 4, pending_invitations: 0, open_agent_tasks: 2, open_work_items: 7, overdue_work_items: 1, last_activity_at: now(), health: 'attention' }];
@@ -65,7 +65,18 @@ export function createTeamMock(options: TeamMockOptions = {}) {
     const method = request.method();
     const json = async (body: unknown, status = 200) => { await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }); return true; };
     const body = () => (request.postData() ? request.postDataJSON() : {}) as Record<string, unknown>;
-    if (path === '/api/v1/notifications' && method === 'GET') return json({ items: notifications, unread: notifications.filter((n) => !n.read_at).length, next_cursor: null });
+    if (path === '/api/v1/notifications' && method === 'GET') {
+      // The Notifications page's filters (docs/team-work.md#notifications-page): state and kind.
+      const state = url.searchParams.get('state'), kind = url.searchParams.get('kind');
+      const rows = notifications.filter((n) => (!kind || n.kind === kind) && (state !== 'unread' || !n.read_at) && (state !== 'read' || Boolean(n.read_at)));
+      return json({ items: rows, unread: notifications.filter((n) => !n.read_at).length, next_cursor: null });
+    }
+    if (path === '/api/v1/notifications/kinds') {
+      const kinds = [...new Set(notifications.map((n) => n.kind))];
+      return json({ items: kinds.map((kind) => ({ kind, total: notifications.filter((n) => n.kind === kind).length, unread: notifications.filter((n) => n.kind === kind && !n.read_at).length })) });
+    }
+    if (/^\/api\/v1\/notifications\/[^/]+\/unread$/.test(path)) { const n = notifications.find((x) => path.includes(x.id)); if (n) n.read_at = null; return json(n ?? {}); }
+    if (/^\/api\/v1\/notifications\/[^/]+$/.test(path) && method === 'DELETE') { const index = notifications.findIndex((x) => path.endsWith(x.id)); if (index >= 0) notifications.splice(index, 1); await route.fulfill({ status: 204 }); return true; }
     if (/^\/api\/v1\/notifications\/[^/]+\/read$/.test(path)) { const n = notifications.find((x) => path.includes(x.id)); if (n) n.read_at = now(); return json(n ?? {}); }
     if (path === '/api/v1/notifications/read-all') { notifications.forEach((n) => { n.read_at = now(); }); return json({ updated: 1 }); }
     if (path === '/api/v1/organization/branding' && method === 'GET') return json({ tenant_id: 'tenant_local', display_name: 'Tyre House', has_logo: false, logo_content_type: null, updated_at: null });

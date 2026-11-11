@@ -11,6 +11,7 @@ import type {
   InboundMessageBody,
   MemberProfileBody,
   MyOrganisation,
+  NotificationKindCount,
   NotificationPage,
   OrganisationBranding,
   OrganisationCreateBody,
@@ -69,6 +70,17 @@ export function browserTimeZone(): string | null {
 export const getNotifications = (cursor?: string | null, limit = 20) => get<NotificationPage>(`/api/v1/notifications?limit=${limit}${cursor ? `&cursor=${id(cursor)}` : ''}`);
 export const readNotification = (notificationId: string) => send<UserNotification>('POST', `/api/v1/notifications/${id(notificationId)}/read`);
 export const readAllNotifications = () => send<{ updated: number }>('POST', '/api/v1/notifications/read-all');
+/** The Notifications page's list (docs/team-work.md#notifications-page): a kind and a read state narrow it. */
+export const listNotifications = (q: { cursor?: string | null; limit: number; kind?: string | null; state?: 'read' | 'unread' | null }) => {
+  const params = new URLSearchParams({ limit: String(q.limit) });
+  if (q.cursor) params.set('cursor', q.cursor);
+  if (q.kind) params.set('kind', q.kind);
+  if (q.state) params.set('state', q.state);
+  return get<NotificationPage>(`/api/v1/notifications?${params.toString()}`);
+};
+export const getNotificationKinds = () => get<{ items: NotificationKindCount[] }>('/api/v1/notifications/kinds');
+export const unreadNotification = (notificationId: string) => send<UserNotification>('POST', `/api/v1/notifications/${id(notificationId)}/unread`);
+export const deleteNotification = (notificationId: string) => apiRequestVoid(`/api/v1/notifications/${id(notificationId)}`, { method: 'DELETE' });
 
 // assistants
 export const getAssistants = () => get<AssistantProfile[]>('/api/v1/assistants');
