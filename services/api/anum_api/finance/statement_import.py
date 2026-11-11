@@ -94,6 +94,8 @@ class RowMatchView(BaseModel):
     bill: StatementBillView | None
     transfer: TransferView | None
     default_import: bool
+    # Groups of recorded payments that add up to this row exactly (docs/finance.md#one-row-for-several-recorded-payments).
+    splits: list[list[MatchedRecordView]] = Field(default_factory=list)
 
 
 class MatchCounts(BaseModel):
@@ -103,6 +105,7 @@ class MatchCounts(BaseModel):
     possible_duplicate: int = 0
     bills: int = 0
     transfers: int = 0
+    splits: int = 0  # rows that several recorded payments add up to
 
 
 class ReconciliationView(BaseModel):
@@ -135,7 +138,7 @@ def match_view(match: M.Match) -> RowMatchView:
         transfer=TransferView(direction=transfer.direction, account_id=transfer.other_account.id, account_name=transfer.other_account.name,  # type: ignore[arg-type]
                               account_last4=transfer.other_account.last4, strength=transfer.strength, reasons=list(transfer.reasons),  # type: ignore[arg-type]
                               lag_days=transfer.lag_days, other=record_view(transfer.other)) if transfer else None,
-        default_import=match.default_import,
+        default_import=match.default_import, splits=[[record_view(r) for r in group] for group in match.splits],
     )
 
 
@@ -145,6 +148,7 @@ def counts(matches: list[M.Match]) -> MatchCounts:
         setattr(out, match.status, getattr(out, match.status) + 1)
         out.bills += match.bill is not None
         out.transfers += match.transfer is not None
+        out.splits += bool(match.splits)
     return out
 
 

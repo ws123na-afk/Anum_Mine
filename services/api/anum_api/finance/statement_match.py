@@ -36,6 +36,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from itertools import combinations
 from typing import Any
 
 from . import fx_text
@@ -165,6 +166,9 @@ class Match:
     waiting: Waiting | None = None
     bill: BillHit | None = None
     transfer: TransferHit | None = None
+    # Groups of 2 to 4 recorded payments that add up to this row exactly (one bank row for several SMS): offered
+    # only, never applied unless the person picks one (docs/finance.md#one-row-for-several-recorded-payments).
+    splits: list[tuple[Recorded, ...]] = field(default_factory=list)
 
     @property
     def default_import(self) -> bool:
@@ -251,6 +255,11 @@ def match_lines(
     for line in sorted((l for l in lines if l.key not in results), key=lambda l: (l.posted_on, l.key)):
         results[line.key] = _match_one(line, [r for r in pool if r.record_id not in taken], taken, file_hashes or set())
     ordered = [results[line.key] for line in lines]
+    # 3. A row nothing single fits may be several recorded payments the bank booked as one: offer exact groups.
+    free = [r for r in pool if r.record_id not in taken]
+    for match in ordered:
+        if match.status in ("new", "possible_duplicate"):
+            match.splits = split_options(match.line, free)
     if bills:
         _bills(ordered, bills, account)
     if others is not None and account is not None:
@@ -314,6 +323,47 @@ def _match_one(line: Line, pool: list[Recorded], taken: set[str], file_hashes: s
         return Match(line, "possible_duplicate", "two_candidates" if len(weak) > 1 else "amount_date_only", candidates=weak[:5],
                      lag_days=(line.posted_on - weak[0].posted_on).days)
     return Match(line, "new", "no_match")
+
+
+# -- one row for several recorded payments -----------------------------------------------------------------
+
+MAX_SPLIT = 4  # records in one group
+SPLIT_POOL = 12  # nearest records looked at for one row
+MAX_SPLIT_OPTIONS = 3
+
+
+def split_options(line: Line, pool: list[Recorded]) -> list[tuple[Recorded, ...]]:
+    """Groups of 2 to ``MAX_SPLIT`` recorded payments on the account that add up to ``line`` exactly.
+
+    Each record is an SMS, Apple Pay or hand-entered payment with a journal entry, not already confirmed by a statement
+    or paired as a transfer, in the same direction, smaller than the row, recorded 0 to ``LAG_DAYS`` days before it, and
+    with a merchant that does not disagree with the row's. No amount tolerance. Groups are ranked by how many merchants
+    agree, then fewer records, then the nearest days; the answer is the same every time."""
+    eligible = []
+    for record in pool:
+        if record.entry_id is None or "statement" in record.sources or record.reconciled or record.transfer_paired:
+            continue
+        if record.amount == 0 or not _same_sign(line.amount, record.amount) or abs(record.amount) >= abs(line.amount):
+            continue
+        if not 0 <= (line.posted_on - record.posted_on).days <= LAG_DAYS:
+            continue
+        if merchants_agree(line.description, record.description) is False:
+            continue
+        eligible.append(record)
+    if len(eligible) < 2:
+        return []
+    eligible.sort(key=lambda r: ((line.posted_on - r.posted_on).days, -_overlap(line.description, r.description), *_order(r)))
+    eligible = eligible[:SPLIT_POOL]
+    found: list[tuple[tuple[Any, ...], tuple[Recorded, ...]]] = []
+    for size in range(2, MAX_SPLIT + 1):
+        for group in combinations(eligible, size):
+            if sum((r.amount for r in group), Decimal(0)) != line.amount:
+                continue
+            agree = sum(1 for r in group if merchants_agree(line.description, r.description) is True)
+            lag = max((line.posted_on - r.posted_on).days for r in group)
+            found.append(((-agree, size, lag, tuple(sorted(r.record_id for r in group))), tuple(sorted(group, key=_order))))
+    found.sort(key=lambda item: item[0])
+    return [group for _, group in found[:MAX_SPLIT_OPTIONS]]
 
 
 # -- bills -----------------------------------------------------------------------------------------------
@@ -527,6 +577,8 @@ def explain(match: Match) -> str:
 
 
 __all__ = [
+    "MAX_SPLIT",
+    "split_options",
     "AccountInfo",
     "BillDue",
     "BillHit",

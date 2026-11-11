@@ -219,7 +219,7 @@ class SmsStore(Protocol):
     def add_entry(self, entry: JournalEntry) -> JournalEntry: ...
     def get_entry(self, context: TenantContext, entry_id: str) -> JournalEntry | None: ...
     def mark_entry(self, context: TenantContext, entry_id: str, *, status: EntryStatus | None = None, reversed_by_id: str | None = None,
-                   reconciled_at: datetime | None = None, reconciled_ref: str | None = None) -> None: ...
+                   reconciled_at: datetime | None = None, reconciled_ref: str | None = None, clear_reconciled: bool = False) -> None: ...
     def list_entries(self, context: TenantContext, *, start: date | None = None, end: date | None = None, limit: int = 50_000) -> list[JournalEntry]: ...
     def entries_with_fingerprint(self, context: TenantContext, fingerprint: str, *, start: date | None = None,
                                  end: date | None = None) -> list[JournalEntry]: ...
@@ -371,7 +371,7 @@ class InMemorySmsStore:
         return found.model_copy(deep=True) if found and _mine(found, context) else None
 
     def mark_entry(self, context: TenantContext, entry_id: str, *, status: EntryStatus | None = None, reversed_by_id: str | None = None,
-                   reconciled_at: datetime | None = None, reconciled_ref: str | None = None) -> None:
+                   reconciled_at: datetime | None = None, reconciled_ref: str | None = None, clear_reconciled: bool = False) -> None:
         with self._lock:
             found = self.entries.get(entry_id)
             if found is None or not _mine(found, context):
@@ -382,6 +382,8 @@ class InMemorySmsStore:
                 found.reversed_by_id = reversed_by_id
             if reconciled_at is not None:
                 found.reconciled_at, found.reconciled_ref = reconciled_at, reconciled_ref
+            if clear_reconciled:
+                found.reconciled_at, found.reconciled_ref = None, None
 
     def list_entries(self, context: TenantContext, *, start: date | None = None, end: date | None = None, limit: int = 50_000) -> list[JournalEntry]:
         rows = [e for e in self.entries.values() if _mine(e, context) and (start is None or e.posted_on >= start) and (end is None or e.posted_on <= end)]

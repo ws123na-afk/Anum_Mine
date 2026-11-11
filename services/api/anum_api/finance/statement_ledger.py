@@ -206,6 +206,55 @@ def attach(sms: SmsStore, context: TenantContext, account: Account, row: Transac
     sms.add_message(message)
 
 
+def attach_split(sms: SmsStore, context: TenantContext, account: Account, row: Transaction, group: list[M.Recorded], import_id: str, *,
+                 group_id: str, line: int, now: datetime, reference: str | None) -> None:
+    """One statement row that stands for several recorded payments (docs/finance.md#one-row-for-several-recorded-payments):
+    the row is kept as a statement source of each of them (its part's amount on each), and each is marked reconciled.
+    Every part carries the group, the row's line and the row itself, so the match can be undone as a whole."""
+    for part, record in enumerate(group, start=1):
+        message = statement_message(context, account, row, import_id, now=now, reference=reference)
+        message.idem_key = hashlib.sha256(f"statement-split\x1f{import_id}\x1f{row.dedupe_hash}\x1f{record.entry_id}".encode()).hexdigest()
+        message.status, message.reason, message.entry_id = MessageStatus.ATTACHED, "split_match", record.entry_id
+        message.parsed = {**message.parsed, "amount": str(abs(record.amount)), "statement_amount": str(row.amount), "statement_description": row.description[:200],
+                          "split_group": group_id, "split_line": line, "split_part": part, "split_of": len(group)}
+        sms.mark_entry(context, record.entry_id or "", reconciled_at=now, reconciled_ref=f"{import_id}:{row.dedupe_hash[:16]}")
+        sms.add_message(message)
+
+
+def split_parts(sms: SmsStore, context: TenantContext, import_id: str, group_id: str) -> list[SmsMessage]:
+    """The attached parts of one split match of an import (empty once undone)."""
+    items, _ = sms.list_messages(context, status=MessageStatus.ATTACHED.value, limit=MAX_REVIEW_SCAN, offset=0)
+    return [m for m in items if m.source == "statement" and m.parsed.get("import_id") == import_id and m.parsed.get("split_group") == group_id]
+
+
+def undo_split(finance: FinanceStore, sms: SmsStore, context: TenantContext, parts: list[SmsMessage], *, now: datetime) -> Transaction | None:
+    """Detach every part of a split match: each record is no longer confirmed by the statement (unless another statement
+    row confirms it too), and the row waits in Review (``ambiguous_match``) for the person to import or skip it there.
+    Returns the row as it was, or None when there was nothing to undo."""
+    if not parts:
+        return None
+    first = parts[0]
+    account = finance.get_account(context, str(first.parsed.get("account_id") or ""))
+    attached, _ = sms.list_messages(context, status=MessageStatus.ATTACHED.value, limit=MAX_REVIEW_SCAN, offset=0)
+    ids = {m.id for m in parts}
+    for message in parts:
+        message.status, message.reason, message.updated_at = MessageStatus.DISMISSED, "split_undone", now
+        sms.save_message(message)
+        others = [m for m in attached if m.entry_id == message.entry_id and m.id not in ids and m.source == "statement"]
+        if message.entry_id and not others:
+            sms.mark_entry(context, message.entry_id, clear_reconciled=True)
+    row = Transaction(
+        id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+        account_id=str(first.parsed.get("account_id") or ""), posted_on=date.fromisoformat(str(first.parsed["occurred_on"])),
+        amount=Decimal(str(first.parsed["statement_amount"])), currency=str(first.parsed.get("currency") or (account.currency if account else "")),
+        description=str(first.parsed.get("statement_description") or first.parsed.get("merchant") or ""), category=Category.OTHER, category_source=CategorySource.NONE,
+        import_id=str(first.parsed["import_id"]), dedupe_hash=str(first.parsed["dedupe_hash"]), created_at=now, updated_at=now,
+    )
+    if account is not None:
+        hold(sms, context, account, row, str(first.parsed["import_id"]), now=now, reference=first.parsed.get("reference"))
+    return row
+
+
 def hold(sms: SmsStore, context: TenantContext, account: Account, row: Transaction, import_id: str, *, now: datetime, reference: str | None) -> None:
     message = statement_message(context, account, row, import_id, now=now, reference=reference)
     message.reason = "ambiguous_match"
@@ -369,6 +418,7 @@ __all__ = [
     "LinkOutcome",
     "account_info",
     "attach",
+    "attach_split",
     "bill_dues",
     "canonical_for",
     "correct_amount",
@@ -380,5 +430,7 @@ __all__ = [
     "recategorize_transfer",
     "records",
     "run",
+    "split_parts",
+    "undo_split",
     "waiting",
 ]
