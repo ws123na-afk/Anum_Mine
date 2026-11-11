@@ -117,9 +117,11 @@ def test_workspace_notes_edit_count_and_page_in_postgres(
     context = tenant_context()
     other = context.model_copy(update={"user_id": "user_other"})
     with app_session(context, commit=True) as session:
-        service = MemoryService(SqlAlchemyMemoryRepository(session), clock=lambda: FIXED_NOW)
+        repository = SqlAlchemyMemoryRepository(session)
         notes = [
-            service.create(context, MemoryCreate(content=f"Workspace fact {index}", source_type="user"))
+            MemoryService(repository, clock=lambda index=index: FIXED_NOW + timedelta(minutes=index)).create(
+                context, MemoryCreate(content=f"Workspace fact {index}", source_type="user")
+            )
             for index in range(3)
         ]
         assert all(note.task_id is None and note.owner_user_id is None for note in notes)

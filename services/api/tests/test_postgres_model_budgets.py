@@ -238,7 +238,7 @@ def test_api_sets_budgets_audits_changes_and_the_gateway_enforces_them(
         ).one()
     assert audit.actor == "user_test"
     assert audit.target == f"model_budget:tenant:{TENANT_A}"
-    assert audit.metadata["limits"] == "cost_usd=none tokens=150"
+    assert audit.metadata["limits"] == "cost_usd=none tokens=150 alert_percent=none"
 
     refused = client.put(
         "/api/v1/model-budgets/workspace",
@@ -310,7 +310,8 @@ def test_daily_detail_rows_group_by_day_person_agent_and_feature_under_rls(
         assert features == {"tasks": 3, "voice": 1, "email": 1}
         assert "email" not in {row.key for row in store.usage_breakdown(first, BudgetScope.WORKSPACE, UsageGroup.FEATURE, OCTOBER, end)}
         months = store.usage_breakdown(first, BudgetScope.TENANT, UsageGroup.MONTH, date(2026, 1, 1), end)
-        assert [(row.key, row.calls) for row in months] == [("2026-10-01", 3)]
+        # The monthly rows: one call recorded per workspace above (the daily rows are a separate table).
+        assert [(row.key, row.calls) for row in months] == [("2026-10-01", 2)]
         assert store.first_recorded_day(first) == day1
         # The range end is exclusive.
         assert store.usage_breakdown(first, BudgetScope.WORKSPACE, UsageGroup.DAY, OCTOBER, day2) and not store.usage_breakdown(

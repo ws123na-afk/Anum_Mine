@@ -21,6 +21,7 @@ from .dependencies import (
     list_events_for_stream,
     memory_repository,
     memory_repository_context,
+    open_memory_repository,
     repository_context,
     provisioning_repository_context,
     provisioning_tenant_context,
@@ -2078,23 +2079,30 @@ async def update_memory(
     memory_id: str,
     payload: MemoryUpdate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
-    memories: MemoryRepository = Depends(memory_repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> MemoryNote:
     """Change a memory's text: its author, or a workspace owner for a shared note (audited,
-    re-indexed). 404 for a memory the caller cannot see, 403 for one they may not edit."""
+    re-indexed). 404 for a memory the caller cannot see, 403 for one they may not edit.
+
+    The note commits in its own unit in a worker thread, the audit record in another, and the
+    index follows with no transaction held across the embedding (docs/realtime.md#event-loop)."""
     require_permission(context, Permission.MEMORY_CREATE)
     is_owner = "owner" in {role.lower() for role in context.roles}
+    from .retrieval_api import index_committed_note
 
     def update() -> MemoryNote:
-        try:
-            note = MemoryService(memories).update(
-                context, memory_id, payload, MemoryAccess(can_read_all_workspace_tasks=True, can_edit_any=is_owner)
-            )
-        except PermissionError as exc:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        with open_memory_repository(context) as memories:
+            try:
+                note = MemoryService(memories).update(
+                    context, memory_id, payload, MemoryAccess(can_read_all_workspace_tasks=True, can_edit_any=is_owner)
+                )
+            except PermissionError as exc:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         if note is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+        return note
+
+    def audit(repository: AnumRepository, note: MemoryNote) -> None:
         repository.record_audit(
             AuditRecord(
                 id=new_id("audit"),
@@ -2114,71 +2122,11 @@ async def update_memory(
                 },
             )
         )
-        return note
 
-    note = await asyncio.to_thread(update)  # the store work, off the event loop
-    await index_memory_note(context, note, memories)
+    note = await asyncio.to_thread(update)
+    await run_in_unit(units, context, audit, note)
+    await index_committed_note(context, note)
     return note
-
-
-class MemoryBulkDeleteResult(BaseModel):
-    deleted: int
-
-
-@app.delete("/api/v1/memories", response_model=MemoryBulkDeleteResult)
-def delete_my_conversation_memories(
-    source_type: str = Query(description="Only `conversation`: every memory remembered from the caller's own chats"),
-    context: TenantContext = Depends(tenant_context),
-    memories: MemoryRepository = Depends(memory_repository_context),
-) -> MemoryBulkDeleteResult:
-    """Delete all of the caller's memories from chats in this workspace (with their index rows).
-
-    Only the caller's own private memories: nobody else can see them, and shared notes are
-    never touched. Expired ones go too.
-    """
-    require_permission(context, Permission.MEMORY_DELETE)
-    if source_type != CONVERSATION_SOURCE_TYPE:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Only memories from your chats can be deleted together (source_type=conversation)",
-        )
-    deleted = 0
-    # owner_only: shared notes never fill a page, so a page shorter than the limit is the last.
-    filters = MemoryListFilters(
-        source_types={CONVERSATION_SOURCE_TYPE}, include_expired=True, limit=MEMORY_LIST_MAX_LIMIT, owner_only=True
-    )
-    while True:
-        own = [note for note in memories.list(context, filters, utc_now()) if note.owner_user_id == context.user_id]
-        removed = 0
-        for note in own:
-            if memories.delete(note.id, context):
-                forget_memory(context, note.id, memories)
-                removed += 1
-        deleted += removed
-        if removed == 0 or len(own) < MEMORY_LIST_MAX_LIMIT:
-            break
-    return MemoryBulkDeleteResult(deleted=deleted)
-
-
-@app.delete("/api/v1/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_memory(
-    memory_id: str,
-    context: TenantContext = Depends(tenant_context),
-    memories: MemoryRepository = Depends(memory_repository_context),
-) -> Response:
-    require_permission(context, Permission.MEMORY_DELETE)
-    deleted = MemoryService(memories).delete(
-        context,
-        memory_id,
-        MemoryAccess(
-            can_read_all_workspace_tasks=True,
-            can_delete_any="owner" in {role.lower() for role in context.roles},
-        ),
-    )
-    if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
-    forget_memory(context, memory_id, memories)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 _DECISION_ERRORS: dict[int | str, dict[str, object]] = {
