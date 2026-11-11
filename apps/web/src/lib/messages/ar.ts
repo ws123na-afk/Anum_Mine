@@ -84,6 +84,7 @@ import { attendanceAr } from './attendance.ar.ts';
 import { vehiclesAr } from './vehicles.ar.ts';
 import { opsAr } from './ops.ar.ts';
 import { purchasesAr } from './purchases.ar.ts';
+import { contactsAr } from './contacts.ar.ts';
 import { businessBooksAr } from './businessBooks.ar.ts';
 import { businessLedgerAr } from './businessLedger.ar.ts';
 import { businessTaxAr } from './businessTax.ar.ts';
@@ -188,6 +189,7 @@ export const ar: Record<MessageKey, Message> = {
   ...vehiclesAr,
   ...opsAr,
   ...purchasesAr,
+  ...contactsAr,
   ...businessBooksAr,
   ...businessLedgerAr,
   ...businessTaxAr,

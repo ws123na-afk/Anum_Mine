@@ -83,6 +83,7 @@ import { attendanceEn } from './attendance.en.ts';
 import { vehiclesEn } from './vehicles.en.ts';
 import { opsEn } from './ops.en.ts';
 import { purchasesEn } from './purchases.en.ts';
+import { contactsEn } from './contacts.en.ts';
 import { businessBooksEn } from './businessBooks.en.ts';
 import { businessLedgerEn } from './businessLedger.en.ts';
 import { businessTaxEn } from './businessTax.en.ts';
@@ -187,6 +188,7 @@ export const en = {
   ...vehiclesEn,
   ...opsEn,
   ...purchasesEn,
+  ...contactsEn,
   ...businessBooksEn,
   ...businessLedgerEn,
   ...businessTaxEn,
