@@ -666,8 +666,10 @@ def test_every_state_changing_portal_route_is_audited_without_content() -> None:
                 json={"decision": "approved", "content_hash": shown, "signer_name": name, "note": note})
     portal_probe.call("POST", f"{PORTAL}/change-orders/{change['id']}/decision", {**bearer(other_token), **scope}, sent=[note, name],
                 json={"decision": "declined", "content_hash": change["content_hash"], "signer_name": name, "note": note})
-    portal_probe.call("POST", f"{PORTAL}/tickets", {**bearer(fresh), **scope}, sent=["Dashboard is slow", "It takes a minute to load the page."],
-                json={"title": "Dashboard is slow", "description": "It takes a minute to load the page."})
+    asked = portal_probe.call("POST", f"{PORTAL}/tickets", {**bearer(fresh), **scope}, sent=["Dashboard is slow", "It takes a minute to load the page."],
+                json={"title": "Dashboard is slow", "description": "It takes a minute to load the page."}).json()
+    portal_probe.call("POST", f"{PORTAL}/tickets/{asked['id']}/messages", {**bearer(fresh), **scope}, sent=["Still slow on Monday mornings"],
+                      json={"body": "Still slow on Monday mornings", "idempotency_key": "audit-message-0001"})
     admin_probe.assert_covered()
     set_profile()
     billed = send(ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}), 201))

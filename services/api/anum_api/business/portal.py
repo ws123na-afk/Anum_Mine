@@ -53,6 +53,7 @@ from .models import (
     ReplyStatus,
 )
 from .portal_auth import PortalSession, portal_session
+from . import ticket_messages
 from .portal_service import latest_decision
 from .service import audit, http_error, proposal_totals, record_activity
 from .store import BusinessStore, Query, open_business_store
@@ -316,11 +317,30 @@ class PortalTicketSummary(BaseModel):
     opened_here: bool
 
 
+class PortalMessage(BaseModel):
+    """One message of the conversation inside a request: ``you`` (the customer's link) or ``business`` (the team)."""
+
+    id: str
+    author: Literal["you", "business"]
+    author_name: str
+    body: str
+    created_at: datetime
+
+
 class PortalTicket(PortalTicketSummary):
     description: str
     resolution_summary: str
     resolved_at: datetime | None
     replies: list[PortalReply]
+    messages: list[PortalMessage] = Field(default_factory=list)
+    # The customer may write in this request (it is not closed and the workspace is not archived).
+    can_reply: bool = False
+
+
+class MessageInput(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    # Made up by the form for one submit (a UUID); the same key again is the same message.
+    idempotency_key: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class TicketInput(BaseModel):
@@ -677,12 +697,18 @@ def _ticket_summary(store: BusinessStore, ticket) -> PortalTicketSummary:  # typ
     )
 
 
-def _ticket_detail(store: BusinessStore, ticket) -> PortalTicket:  # type: ignore[no-untyped-def]
+def _ticket_detail(store: BusinessStore, ticket, session: PortalSession | None = None) -> PortalTicket:  # type: ignore[no-untyped-def]
     replies, _ = store.find("ticket_replies", Query(where={"ticket_id": ticket.id, "status": ReplyStatus.SENT}, order_by="sent_at", descending=False, limit=100))
     closed = ticket.status in {TicketStatus.RESOLVED, TicketStatus.CLOSED}
+    business = _business_name(store) or "The business"
+    messages = [PortalMessage(id=item.id, author="you" if item.author == "customer" else "business",
+                              author_name=item.author_name if item.author == "customer" else business, body=item.body, created_at=item.created_at)
+                for item in ticket_messages.thread(store, ticket.id)]
+    writable = session is not None and not workspace_archived(session.context)
     return PortalTicket(
         **_ticket_summary(store, ticket).model_dump(), description=ticket.description, resolution_summary=ticket.resolution_summary if closed else "",
-        resolved_at=ticket.resolved_at, replies=[PortalReply(body=item.body, sent_at=item.sent_at) for item in replies],
+        resolved_at=ticket.resolved_at, replies=[PortalReply(body=item.body, sent_at=item.sent_at) for item in replies], messages=messages,
+        can_reply=writable and ticket.status != TicketStatus.CLOSED,
     )
 
 
@@ -703,7 +729,7 @@ def _ticket_of(store: BusinessStore, session: PortalSession, ticket_id: str):  #
 @router.get("/tickets/{ticket_id}", response_model=PortalTicket)
 def get_ticket(ticket_id: str, session: PortalSession = Depends(portal_session)) -> PortalTicket:
     with open_business_store(session.context) as store:
-        return _ticket_detail(store, _ticket_of(store, session, ticket_id))
+        return _ticket_detail(store, _ticket_of(store, session, ticket_id), session)
 
 
 @router.post("/tickets", response_model=PortalTicket, status_code=status.HTTP_201_CREATED)
@@ -729,6 +755,26 @@ def open_ticket(payload: TicketInput, session: PortalSession = Depends(portal_se
         ticket = _new_ticket(session.context, fields, title=fields.title or "", now=now, reported_at=now)
         _create(store, session.context, ticket, fields)
         stored = store.get("tickets", ticket.id)
-        view = _ticket_detail(store, stored)
+        view = _ticket_detail(store, stored, session)
     audit(None, session.context, "business.portal.ticket_opened", ticket.id, metadata={"access_id": session.access.id, "severity": payload.severity})
+    return view
+
+
+@router.post("/tickets/{ticket_id}/messages", response_model=PortalTicket, status_code=status.HTTP_201_CREATED)
+def write_in_ticket(ticket_id: str, payload: MessageInput, response: Response, session: PortalSession = Depends(portal_session)) -> PortalTicket:
+    """Write inside one of your requests. The business reads it in the ticket; a request that waited on you moves on,
+    and a resolved one opens again. A closed request takes no more messages."""
+    _writable(session)
+    now = utc_now()
+    with open_business_store(session.context) as store:
+        ticket = store.get("tickets", ticket_id, for_update=True)
+        if ticket is None or ticket.account_id != session.account.id:
+            raise http_error(404, "Request not found")
+        message, new = ticket_messages.customer_message(store, session.context, ticket, access_id=session.access.id, contact_id=session.contact.id,
+                                                        contact_name=session.contact.name, body=payload.body, client_key=payload.idempotency_key, now=now)
+        view = _ticket_detail(store, store.get("tickets", ticket_id), session)
+    if not new:
+        response.status_code = status.HTTP_200_OK
+        return view
+    audit(None, session.context, "business.portal.ticket_message", ticket_id, metadata={"access_id": session.access.id, "message_id": message.id})
     return view

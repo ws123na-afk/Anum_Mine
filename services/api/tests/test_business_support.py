@@ -443,5 +443,16 @@ def test_every_state_changing_support_route_is_audited_without_content(inbox: Fa
     second = call("POST", f"/tickets/{linked['id']}/replies", json={"body": "Thanks Omar, the export works again."}).json()["replies"][-1]
     call("PATCH", f"/tickets/{linked['id']}/replies/{second['id']}", json={"body": "Thanks Omar, the export works again now."})
     call("POST", f"/tickets/{linked['id']}/replies/{second['id']}/request-approval")
+    # Answering in the customer portal (docs/business-portal.md#replying-inside-a-request) needs a portal link.
+    portal_account = ok(client.post("/api/v1/business/accounts", headers=OWNER, json={"name": "Portal Client Co"}), 201)
+    contact = ok(client.post(f"/api/v1/business/accounts/{portal_account['id']}/contacts", headers=OWNER,
+                             json={"name": "Omar Saleh", "email": "omar@portal.example", "consent_basis": "inbound_inquiry"}), 201)["contacts"][0]
+    token = ok(client.post("/api/v1/business/portal/access", headers=OWNER, json={"account_id": portal_account["id"], "contact_id": contact["id"]}), 201)["token"]
+    PORTAL = "/api/v1/portal"
+    bearer = lambda value: {"authorization": f"Bearer {value}"}  # noqa: E731
+    asked = ok(client.post(f"{PORTAL}/tickets", headers=bearer(token), json={"title": "Report is wrong", "description": "Totals differ."}), 201)
+    call("POST", f"/tickets/{asked['id']}/portal-messages", json={"body": "Thanks Omar, the export works again now."})
+    ok(client.post(f"{PORTAL}/tickets/{asked['id']}/messages", headers=bearer(token), json={"body": "Payroll export issue", "idempotency_key": "audit-walk-0001"}), 201)
+    call("POST", f"/tickets/{asked['id']}/portal-messages/read")
     call("DELETE", f"/tickets/{manual['id']}")
     probe.assert_covered()
