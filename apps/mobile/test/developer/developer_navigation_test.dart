@@ -170,6 +170,9 @@ void main() {
     await tester.scrollUntilVisible(find.text('Developer'), 200,
         scrollable: find.descendant(
             of: find.byType(Drawer), matching: find.byType(Scrollable)));
+    // scrollUntilVisible stops at the first visible pixel: bring the whole entry in before tapping it.
+    await tester.ensureVisible(find.text('Developer'));
+    await _settle(tester);
     await tester.tap(find.text('Developer'));
     await _settle(tester);
     expect(find.text('No developer requests yet'), findsOneWidget);
