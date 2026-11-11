@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   allDayLength, allDayOn, conflictIds, emptyForm, eventBody, eventBounds, eventTiming, findConflicts, formFromEvent, formProblem, groupByDay, hourWindow, keyOf, layoutDay,
-  recurrenceFrom, recurrenceSummary, reminderLabel, repeatFields, type CalendarEventView, type EventForm, type Weekday,
+  moveEmailReminder, recurrenceFrom, recurrenceSummary, reminderLabel, repeatFields, type CalendarEventView, type EventForm, type Weekday,
 } from '../src/lib/calendar.ts';
 
 const at = (y: number, m: number, d: number, h = 0, min = 0) => new Date(y, m - 1, d, h, min);
@@ -55,6 +55,16 @@ describe('the API body', () => {
     const series = event(at(2026, 11, 10), at(2026, 11, 12), { all_day: true, start_date: '2026-11-10', end_date: '2026-11-11', timezone: 'Asia/Dubai', recurrence: { freq: 'weekly', by_weekday: ['TU'] }, reminders: [0] });
     const filled = formFromEvent(series);
     assert.deepEqual([filled.allDay, filled.date, filled.endDate, filled.timezone, filled.repeat, filled.weekdays, filled.reminders], [true, '2026-11-10', '2026-11-11', 'Asia/Dubai', 'weekly', ['TU'], [0]]);
+  });
+  test('email reminders are the reminders also emailed, and follow a changed reminder', () => {
+    const body = eventBody(form({ reminders: [60, 10], emailReminders: [60, 5, 60] }));
+    assert.deepEqual([body.reminders, body.email_reminders], [[10, 60], [60]]);
+    const stored = event(at(2026, 11, 10, 9), at(2026, 11, 10, 10), { reminders: [10, 60], email_reminders: [60, 30] });
+    assert.deepEqual(formFromEvent(stored).emailReminders, [60]);
+    assert.deepEqual(emptyForm(at(2026, 11, 11), at(2026, 11, 11, 8)).emailReminders, []);
+    assert.deepEqual(moveEmailReminder([60], 60, 120), [120]);
+    assert.deepEqual(moveEmailReminder([60], 10, 60), []);
+    assert.deepEqual(moveEmailReminder([60, 10], 30, 15), [60, 10]);
   });
 });
 

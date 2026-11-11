@@ -28,6 +28,9 @@ export interface CalendarEventView {
   all_day?: boolean; timezone?: string | null; recurrence?: Recurrence | null; reminders?: number[]; rrule?: string | null;
   start_date?: string | null; end_date?: string | null; series_id?: string | null;
   occurrence_start?: string | null; occurrence_key?: string; is_recurring?: boolean; overridden?: boolean; override_id?: string | null;
+  // Reminders that also go by email; a send to the connected calendar that failed (and stopped being
+  // retried after five tries); attendees whose shown reply is for this occurrence only (docs/calendar.md).
+  email_reminders?: number[]; sync_error?: string | null; sync_failed?: boolean; occurrence_replies?: string[];
 }
 
 /** What tells one shown item from another: the occurrence key of a series item, else the event id. */
@@ -172,6 +175,8 @@ export interface EventForm {
   allDay: boolean; timezone: string;
   repeat: RepeatChoice; interval: number; weekdays: Weekday[]; monthlyMode: 'day' | 'weekday'; endMode: RepeatEnd; until: string; count: number;
   reminders: number[];
+  // The reminders (minutes) that are also emailed.
+  emailReminders: number[];
 }
 
 /** The browser's IANA zone (UTC when it cannot be read). */
@@ -263,7 +268,7 @@ export function emptyForm(day: Date, now: Date): EventForm {
   return {
     title: '', kind: 'meeting', date: dayKey(day), startTime: `${pad(startHour)}:00`, endDate: dayKey(day), endTime: startHour === 23 ? '23:59' : `${pad(endHour)}:00`,
     location: '', conferenceUrl: '', phone: '', description: '', attendees: '',
-    allDay: false, timezone: browserZone(), ...repeatFields(null), reminders: [],
+    allDay: false, timezone: browserZone(), ...repeatFields(null), reminders: [], emailReminders: [],
   };
 }
 
@@ -277,6 +282,7 @@ export function formFromEvent(event: CalendarEventView): EventForm {
     location: event.location ?? '', conferenceUrl: event.conference_url ?? '', phone: event.phone ?? '', description: event.description ?? '',
     attendees: formatAttendees(event.attendees),
     allDay, timezone: event.timezone || browserZone(), ...repeatFields(event.recurrence), reminders: [...(event.reminders ?? [])],
+    emailReminders: (event.email_reminders ?? []).filter((minutes) => (event.reminders ?? []).includes(minutes)),
   };
 }
 
@@ -345,6 +351,7 @@ export function eventBody(form: EventForm, existing: readonly Attendee[] = [], s
     location: text(form.location), conference_url: text(form.conferenceUrl), phone: text(form.phone), description: text(form.description),
     attendees: parseAttendees(form.attendees, existing).map((row) => ({ ...(row.id ? { id: row.id } : {}), name: row.name, email: row.email, ...(row.id ? { role: row.role ?? null } : {}), ...(row.response ? { response: row.response } : {}) })),
     reminders: [...new Set(form.reminders)].sort((a, b) => a - b),
+    email_reminders: [...new Set(form.emailReminders.filter((minutes) => form.reminders.includes(minutes)))].sort((a, b) => a - b),
   };
   // One occurrence cannot carry a rule of its own; the whole series and "following" can.
   if (scope !== 'this') body.recurrence = recurrenceFrom(form);
@@ -398,12 +405,21 @@ export function minutesSince(value: string | null, now: Date = new Date()): numb
   return value ? Math.max(0, Math.round((now.getTime() - Date.parse(value)) / 60_000)) : null;
 }
 
-/** The sync state an event shows: where it lives, and whether something waits to be sent. */
-export function eventSyncKind(event: Pick<CalendarEventView, 'sync_state' | 'connection_id'>): 'synced' | 'waiting' | 'local' {
+/** The sync state an event shows: where it lives, whether something waits to be sent, or whether sending
+ * failed so often that ANUM stopped trying on its own (the detail then offers Retry). */
+export function eventSyncKind(event: Pick<CalendarEventView, 'sync_state' | 'connection_id' | 'sync_failed'>): 'synced' | 'waiting' | 'failed' | 'local' {
   if (event.connection_id && event.sync_state === 'synced') return 'synced';
-  if (event.connection_id && event.sync_state === 'pending_push') return 'waiting';
+  if (event.connection_id && event.sync_state === 'pending_push') return event.sync_failed ? 'failed' : 'waiting';
   return 'local';
 }
+
+/** A reminder's minutes changed in the form: keep its email choice with it. */
+export function moveEmailReminder(emailReminders: readonly number[], from: number, to: number): number[] {
+  return emailReminders.includes(from) ? [...new Set(emailReminders.filter((minutes) => minutes !== from).concat(to))] : emailReminders.filter((minutes) => minutes !== to);
+}
+
+/** Who a reply on a series occurrence is for: that occurrence only, or the whole series. */
+export type ReplyScope = 'this' | 'all';
 
 /** Attendees with an email address: the people an invitation would reach. */
 export function invitees(event: Pick<CalendarEventView, 'attendees'>): string[] {

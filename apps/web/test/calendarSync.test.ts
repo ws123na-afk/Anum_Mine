@@ -37,6 +37,17 @@ describe('calendar sync helpers', () => {
     assert.equal(eventSyncKind({ connection_id: 'cal_1', sync_state: 'pending_push' }), 'waiting');
     assert.equal(eventSyncKind({ connection_id: null, sync_state: null }), 'local');
     assert.equal(eventSyncKind({ connection_id: null, sync_state: 'local' }), 'local');
+    // Five failed sends in a row: ANUM stopped trying on its own and the detail offers Retry.
+    assert.equal(eventSyncKind({ connection_id: 'cal_1', sync_state: 'pending_push', sync_failed: true }), 'failed');
+    assert.equal(eventSyncKind({ connection_id: 'cal_1', sync_state: 'synced', sync_failed: false }), 'synced');
+  });
+  it('has every new sync, reply and email reminder text in both languages', () => {
+    for (const key of ['calendar.sync.state.failed', 'calendar.sync.failedText', 'calendar.sync.retry', 'calendar.reply.scope.this', 'calendar.reply.thisOnly', 'calendar.form.emailReminder', 'calendar.reminder.withEmail'] as const) {
+      assert.ok(calendarEn[key], key);
+      assert.ok(calendarAr[key], key);
+      assert.notEqual(calendarAr[key], calendarEn[key], key);
+    }
+    assert.equal('calendar.form.syncSeries' in calendarEn, false);
   });
   it('lists only attendees with an email as invitees', () => {
     const attendees = [
