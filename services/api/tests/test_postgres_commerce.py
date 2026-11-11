@@ -236,7 +236,7 @@ def test_notification_preference_for_commerce_alerts_persists(channels: FakeChan
 
 
 def test_amounts_are_stored_and_read_back_as_exact_decimals(channels: FakeChannels, database_engine: Engine) -> None:
-    """0171_commerce_money_numeric: every commerce amount is numeric(18,4), read back as Decimal, summed without float
+    """0172_commerce_money_numeric: every commerce amount is numeric(18,4), read back as Decimal, summed without float
     error, and still a JSON number on the wire."""
     from datetime import UTC, datetime
     from decimal import Decimal

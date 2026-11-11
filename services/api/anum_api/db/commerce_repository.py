@@ -36,7 +36,7 @@ from .models import Base
 from .scope import require_workspace
 
 TS = DateTime(timezone=True)
-# Exact amounts (0171_commerce_money_numeric): read back as Decimal, never float.
+# Exact amounts (0172_commerce_money_numeric): read back as Decimal, never float.
 MONEY = Numeric(18, 4, asdecimal=True)
 
 

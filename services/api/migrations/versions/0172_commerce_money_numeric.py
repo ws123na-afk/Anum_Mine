@@ -5,20 +5,20 @@ float error (``0.1 + 0.2``) and a half cent could round the wrong way. They beco
 places keep three-decimal currencies (KWD, BHD, OMR) exact, and the API reads them as ``Decimal``. Existing
 values are rounded to four places on the way (a stored ``19.990000000000002`` becomes ``19.99``).
 
-Chained after ``0170_model_usage_daily``.
+Chained after ``0171_calendar_sync_depth``.
 
 Compatible with the previous release: it binds floats, which PostgreSQL casts to numeric on write, and its
 ``Double`` columns read numeric values back as numbers, so it keeps running against the new types. The
 change rewrites the six commerce tables once under a short exclusive lock (they hold synced channel data,
 not large histories). No column, policy or grant is added or removed. Rollback:
-``alembic downgrade 0170_model_usage_daily`` turns the columns back into ``double precision``.
+``alembic downgrade 0171_calendar_sync_depth`` turns the columns back into ``double precision``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0171_commerce_money_numeric"
-down_revision = "0170_model_usage_daily"
+revision = "0172_commerce_money_numeric"
+down_revision = "0171_calendar_sync_depth"
 branch_labels = None
 depends_on = None
 

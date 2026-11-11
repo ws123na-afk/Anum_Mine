@@ -2,7 +2,7 @@
 
 Every record belongs to one tenant and workspace. Amounts are exact decimals end to end
 (:data:`Money`: ``Decimal`` in Python, ``numeric(18,4)`` in PostgreSQL, migration
-``0171_commerce_money_numeric``), so sums and rounding never pick up binary float error;
+``0172_commerce_money_numeric``), so sums and rounding never pick up binary float error;
 JSON still carries them as numbers, as before. Currencies are ISO 4217 codes as the channel
 reports them (SAR for Amazon.sa and noon Saudi, AED for Amazon.ae and noon UAE).
 
