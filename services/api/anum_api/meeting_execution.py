@@ -45,6 +45,13 @@ set total_input_tokens=total_input_tokens+:input,
 where tenant_id=:tenant and workspace_id=:workspace and id=:id
 returning *
 """)
+DROPPED_USAGE_SQL = text("""
+update agent_meeting_sessions
+set total_input_tokens=total_input_tokens+:input,
+ total_output_tokens=total_output_tokens+:output,
+ total_cost_usd=total_cost_usd+:cost,updated_at=now()
+where tenant_id=:tenant and workspace_id=:workspace and id=:id
+""")
 TURN_ACTION = "agent_meeting.turn"
 RELEASE_SQL = text("""
 delete from agent_meeting_turn_leases
@@ -124,6 +131,19 @@ def _record_cap_hit(context: TenantContext, meeting_id: str, request_key: str, c
                     used_usd=state.used_usd,period_start=state.period_start.isoformat())
 
 
+def _meter_dropped(store: SqlLiveMeetingStore, context: TenantContext, meeting_id: str,
+                   billed: tuple[int,int,Decimal]|None) -> tuple[int,int,Decimal]|None:
+    """A turn whose model answer was dropped still cost what the provider billed: add exactly that
+    to the meeting's totals and the month's ledger (no turn counted, no reserve, no message).
+    Nothing when the model never answered."""
+    if billed is None:
+        return None
+    input_count,output_count,cost=billed
+    store.session.execute(DROPPED_USAGE_SQL,_request(context,meeting_id,"",input=input_count,output=output_count,cost=cost))
+    meeting_budget.record_usage(store,context,cost,turns=0)
+    return billed
+
+
 async def execute_meeting_turn(
     context: TenantContext, meeting_id: str, request_key: str, gateway: ModelGateway
 ) -> dict[str,Any]:
@@ -157,6 +177,10 @@ async def _execute_meeting_turn(
         raise LiveMeetingStoreError("conflict","The emergency stop is on: agents are paused")
     lease=new_id("meeting_lease")
     claimed_seq=0
+    # What the provider billed for this turn's model call, once it answered. A turn dropped after
+    # that (pause, raised hand, cap, expired lease, invalid text) was still paid for: it is metered
+    # with exactly these figures and nothing more. Before an answer nothing is known, nothing is metered.
+    billed: tuple[int,int,Decimal]|None=None
     with open_scoped_store(context,None,SqlLiveMeetingStore,user_scoped=True) as store:
         session=store.get(context,meeting_id,lock=True)
         if session is None:raise LiveMeetingStoreError("not_found","Meeting not found")
@@ -216,12 +240,13 @@ async def _execute_meeting_turn(
         if isinstance(model,MockModelGateway) or getattr(model,'provider',None)=='mock':
             raise LiveMeetingStoreError('unavailable','Mock models cannot execute meetings')
         response=await asyncio.wait_for(model.generate_text(prompt),timeout=75)
-        body,was_redacted=redact_secrets(response.text.strip())
-        if not body or len(body)>30000:raise LiveMeetingStoreError("conflict","Invalid model response")
         usage=response.usage
         input_count=usage.input_tokens
         output_count=usage.output_tokens
         cost=Decimal(str(usage.estimated_cost_usd if usage.estimated_cost_usd is not None else 0))
+        billed=(max(0,input_count),max(0,output_count),max(Decimal(0),cost))
+        body,was_redacted=redact_secrets(response.text.strip())
+        if not body or len(body)>30000:raise LiveMeetingStoreError("conflict","Invalid model response")
         if usage.estimated_cost_usd is None:
             raise LiveMeetingStoreError("conflict","Model must report a cost estimate")
         if input_count+output_count>remaining_tokens:
@@ -231,7 +256,12 @@ async def _execute_meeting_turn(
             if meeting is None:raise LiveMeetingStoreError("not_found","Meeting was removed")
             params=_request(context,meeting_id,request_key,lease=lease)
             existing=store.session.execute(EXISTING_SQL,params).mappings().first()
-            if existing:return dict(existing)
+            if existing:
+                # Another run committed this request key while the model answered: this answer is
+                # dropped, but its call was paid for.
+                _meter_dropped(store,context,meeting_id,billed)
+                store.session.execute(RELEASE_SQL,params)
+                return dict(existing)
             _check(meeting,context)
             claim=store.session.execute(LOCK_SQL,params).mappings().first()
             if claim is None or claim["id"]!=lease or claim["expires_at"]<=datetime.now(timezone.utc):
@@ -281,8 +311,15 @@ async def _execute_meeting_turn(
         with open_scoped_store(context,None,SqlLiveMeetingStore,user_scoped=True) as store:
             store.session.execute(RELEASE_SQL,_request(context,meeting_id,request_key,lease=lease))
             if claimed_seq and store.get(context,meeting_id,lock=True) is not None:
-                store.emit(context,meeting_id,"turn_failed",{"sequence":claimed_seq,"code":str(code)[:30],
-                    "reason":str(exc)[:200] if code!="error" else "The model call failed"},actor=context.user_id)
+                charged=_meter_dropped(store,context,meeting_id,billed)
+                payload:dict[str,Any]={"sequence":claimed_seq,"code":str(code)[:30],
+                    "reason":str(exc)[:200] if code!="error" else "The model call failed"}
+                usage_fields:dict[str,Any]={}
+                if charged is not None:
+                    payload["cost_usd"]=float(charged[2])
+                    usage_fields={"input_count":charged[0],"output_count":charged[1],"cost_usd":charged[2]}
+                store.emit(context,meeting_id,"turn_failed",payload,actor=context.user_id)
                 audit_event(store.session,context,TURN_ACTION,meeting_id,outcome="failure",correlation_id=correlation,
-                            meeting_id=meeting_id,turn_number=claimed_seq,agent_id=agent,request_key=request_key,code=str(code)[:30])
+                            meeting_id=meeting_id,turn_number=claimed_seq,agent_id=agent,request_key=request_key,code=str(code)[:30],
+                            **usage_fields)
         raise

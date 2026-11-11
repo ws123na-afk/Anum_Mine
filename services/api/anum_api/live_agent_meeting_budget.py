@@ -162,16 +162,20 @@ def gate(store: SqlLiveMeetingStore, context: TenantContext, now: datetime | Non
     return state
 
 
-def record_usage(store: SqlLiveMeetingStore, context: TenantContext, cost: Decimal, now: datetime | None = None) -> BudgetState:
-    """Add a committed turn's cost to the month's ledger (same transaction as the turn) and return the new state."""
+def record_usage(store: SqlLiveMeetingStore, context: TenantContext, cost: Decimal, now: datetime | None = None,
+                 *, turns: int = 1) -> BudgetState:
+    """Add a model call's cost to the month's ledger (same transaction as the turn) and return the new state.
+
+    ``turns`` is 1 for a committed turn and 0 for a dropped one: a turn whose answer was thrown away
+    (paused meeting, raised hand, cap, expired lease) still costs what the provider billed."""
     start, _ = period_bounds(now)
     store.session.execute(text("""
         insert into agent_meeting_usage_monthly (tenant_id, workspace_id, period_start, cost_usd, turns)
-        values (:tenant, :workspace, :day, :cost, 1)
+        values (:tenant, :workspace, :day, :cost, :turns)
         on conflict (tenant_id, workspace_id, period_start)
         do update set cost_usd = agent_meeting_usage_monthly.cost_usd + excluded.cost_usd,
-                      turns = agent_meeting_usage_monthly.turns + 1, updated_at = now()"""),
-        _args(store, context, day=start, cost=cost))
+                      turns = agent_meeting_usage_monthly.turns + excluded.turns, updated_at = now()"""),
+        _args(store, context, day=start, cost=cost, turns=turns))
     return read_state(store, context, now)
 
 
