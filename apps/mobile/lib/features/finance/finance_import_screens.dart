@@ -1022,7 +1022,10 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
       liveCheck(_view?.rows ?? const [], _opening.text, _closing.text);
 
   int get _problems =>
-      _view?.rows.where((r) => r.include && r.problem != null).length ?? 0;
+      _view?.rows
+          .where((r) => r.include && r.problemIn(_view!.currency) != null)
+          .length ??
+      0;
 
   int get _included => _view?.rows.where((r) => r.include).length ?? 0;
 
@@ -1311,7 +1314,7 @@ class _PdfImportScreenState extends State<PdfImportScreen> {
   Widget _pdfRow(BuildContext context, PdfRow r, String c) {
     final t = FinanceToolsStrings.of(context);
     final p = context.palette;
-    final problem = r.problem;
+    final problem = r.problemIn(c);
     final amount = double.tryParse(r.amount) == null
         ? (r.amount.isEmpty ? '-' : r.amount)
         : formatAmount(r.amount, r.currency ?? c);

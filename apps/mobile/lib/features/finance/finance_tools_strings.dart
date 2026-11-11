@@ -482,6 +482,8 @@ class FinanceToolsStrings extends ModuleStrings {
     'problem.description': 'Enter a description.',
     'problem.amount': 'Enter the amount, with a minus for money out.',
     'problem.zero': 'The amount cannot be zero: fix it or untick the row.',
+    'problem.foreign':
+        'This row is in another currency than the account\'s. Leave it out here, or import the statement on the web, where the amount the bank billed is entered.',
     // -- rules ----------------------------------------------------------------------
     'rules.title': 'Rules and merchants',
     'rules.tab.rules': 'Rules',
@@ -1142,6 +1144,8 @@ class FinanceToolsStrings extends ModuleStrings {
     'problem.description': 'أدخل وصفًا.',
     'problem.amount': 'أدخل المبلغ مع علامة سالب للمال الخارج.',
     'problem.zero': 'لا يمكن أن يكون المبلغ صفرًا: صحّحه أو ألغِ تحديد الصف.',
+    'problem.foreign':
+        'هذا الصف بعملة غير عملة الحساب. استبعده هنا، أو استورد الكشف على الويب حيث يُدخل المبلغ الذي خصمه البنك.',
     // -- rules ----------------------------------------------------------------------
     'rules.title': 'القواعد والتجار',
     'rules.tab.rules': 'القواعد',

@@ -129,6 +129,14 @@ void main() {
       parsed.include = true;
       expect(parsed.wire()['action'], 'import');
       expect((RowChoice()..import = false).wire(), {'action': 'skip'});
+      final foreign = PdfRow.fromJson(JsonReader.of({
+        ...(json['rows']! as List).first as Map<String, Object?>,
+        'currency': 'USD',
+        'flags': ['foreign_currency'],
+      }));
+      expect(foreign.include, isFalse);
+      expect(foreign.problemIn('AED'), 'problem.foreign');
+      expect(foreign.problemIn('USD'), isNull);
       expect((RowChoice()..bill = false).wire(), {'bill': false});
     });
   });

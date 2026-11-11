@@ -1012,6 +1012,16 @@ class PdfRow {
           'action': 'import',
       };
 
+  /// [problem], and for a row in another currency than the account's
+  /// ([accountCurrency]) the bank-billed amount the phone does not take.
+  String? problemIn(String accountCurrency) {
+    final other = currency;
+    if (other != null && other.isNotEmpty && other != accountCurrency) {
+      return 'problem.foreign';
+    }
+    return problem;
+  }
+
   /// Why the row cannot be imported as it is, as a message key, or null.
   String? get problem {
     if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(postedOn)) {

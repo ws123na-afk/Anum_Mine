@@ -113,13 +113,19 @@ void financeJourneys() => group('Finance', () {
         await tapOn(tester, find.byKey(const Key('rules-new')));
         await waitFor(tester, find.byKey(const Key('rule-field-merchant')),
             api: api);
-        await tester.enterText(
-            find.descendant(
-                of: find.byKey(const Key('rule-field-merchant')),
-                matching: find.byType(EditableText)),
-            'Example gym');
+        final merchant = find.descendant(
+            of: find.byKey(const Key('rule-field-merchant')),
+            matching: find.byType(EditableText));
+        await tester.ensureVisible(merchant);
         await pumpFor(tester);
+        await tester.tap(merchant);
+        await tester.enterText(merchant, 'Example gym');
+        await pumpFor(tester);
+        expect(find.text('Example gym'), findsOneWidget);
         await tapOn(tester, find.byKey(const Key('rule-save')));
+        await waitUntil(tester, 'the rule is proposed',
+            () => api.sent('POST', '/api/v1/finance/rules').isNotEmpty,
+            api: api);
         await waitFor(tester, find.text('Approve version 1?'), api: api);
         await tapOn(tester, find.byKey(const Key('rule-approve-confirm')));
         await waitFor(tester, find.byKey(const Key('rule-rule_1')), api: api);

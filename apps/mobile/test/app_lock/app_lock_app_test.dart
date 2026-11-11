@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:anum_mobile/features/app_lock/app_lock_controller.dart';
 import 'package:anum_mobile/features/app_lock/device_auth.dart';
+import 'package:anum_mobile/features/finance/finance_advisor_screens.dart';
 import 'package:anum_mobile/features/finance/finance_screen.dart';
 import 'package:anum_mobile/features/push/push_messaging.dart';
 import 'package:anum_mobile/features/workspace/workspace_home.dart';
@@ -225,13 +226,15 @@ void main() {
         tester, find.text('Still locked: the check was cancelled. Try again.'),
         api: phone.api);
     expect(phone.auth.prompts, ['Unlock ANUM']);
-    // Finance was never built, not even hidden.
+    // Neither Finance nor its Money advisor was built, not even hidden.
     expect(find.byType(FinanceScreen, skipOffstage: false), findsNothing);
+    expect(find.byType(AdvisorScreen, skipOffstage: false), findsNothing);
     expect(find.text(home), findsOneWidget);
 
     phone.auth.answer = DeviceAuthResult.success;
     phone.push.opened.add(pushFor('finance_advice'));
-    await waitFor(tester, find.byType(FinanceScreen), api: phone.api);
+    // The weekly money note opens the Money advisor itself.
+    await waitFor(tester, find.byType(AdvisorScreen), api: phone.api);
   });
 
   testWidgets('with the whole app locked a tapped push opens after the unlock',
