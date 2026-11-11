@@ -2,9 +2,11 @@ import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../../src/localization/anum_localizations.dart';
 import 'admin_models.dart';
 import 'admin_repository.dart';
 import 'approval_policy.dart';
+import 'budget_usage.dart';
 
 /// `forbidden` comes from the API's 403: the client never guesses roles.
 enum AdminPhase { initial, loading, ready, forbidden, offline, error }
@@ -186,8 +188,19 @@ class AcceptInvitationController extends ChangeNotifier {
 }
 
 class BudgetsController extends ChangeNotifier {
-  BudgetsController(this.repository);
+  BudgetsController(this.repository)
+      : usage = BudgetUsageController(repository);
   final AdminRepository repository;
+
+  /// "Where the spend goes" under the budgets.
+  final BudgetUsageController usage;
+
+  @override
+  void dispose() {
+    usage.dispose();
+    super.dispose();
+  }
+
   AdminPhase phase = AdminPhase.initial;
   BudgetOverview? overview;
   String? loadMessage;
@@ -215,8 +228,10 @@ class BudgetsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> save(String scope, String cost, String tokens) async {
-    final (limits, error) = parseLimits(cost, tokens);
+  Future<bool> save(String scope, String cost, String tokens,
+      {String alert = '',
+      AnumLocalizations l = AnumLocalizations.english}) async {
+    final (limits, error) = parseLimits(cost, tokens, alert: alert, l: l);
     notices.remove(scope);
     failedScopes.remove(scope);
     if (limits == null) {

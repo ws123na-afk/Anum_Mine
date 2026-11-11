@@ -1,6 +1,7 @@
 import 'dart:ui' show Locale;
 
 import '../../data/api_models.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../../src/localization/money_format.dart';
 
 /// Members, invitations and monthly model budgets, as the API returns them.
@@ -343,11 +344,19 @@ List<WorkspaceMember> sortMembers(List<WorkspaceMember> members) {
 // ----------------------------------------------------------------- budgets
 
 class ModelBudgetLimits {
-  const ModelBudgetLimits({this.costUsd, this.tokens});
+  const ModelBudgetLimits({this.costUsd, this.tokens, this.alertPercent});
   final double? costUsd;
   final int? tokens;
-  JsonMap toJson() =>
-      {'monthly_cost_limit_usd': costUsd, 'monthly_token_limit': tokens};
+
+  /// The budget's own alert threshold, 1 to 99 percent of a limit, told to
+  /// the owners next to the fixed 50/75/90/100 (docs/model-gateway.md#budget-alerts).
+  /// Always sent, so a save from the phone keeps (or clears) what is set.
+  final int? alertPercent;
+  JsonMap toJson() => {
+        'monthly_cost_limit_usd': costUsd,
+        'monthly_token_limit': tokens,
+        'alert_percent': alertPercent,
+      };
 }
 
 class ModelBudget {
@@ -362,6 +371,7 @@ class ModelBudget {
       limits: ModelBudgetLimits(
         costUsd: r.optNumber('monthly_cost_limit_usd'),
         tokens: r.optInt('monthly_token_limit'),
+        alertPercent: r.optInt('alert_percent'),
       ),
       updatedAt: r.date('updated_at'),
       updatedBy: r.optString('updated_by') ?? '',
@@ -543,8 +553,11 @@ String limitText(num? value) {
   return value.toString();
 }
 
-/// Empty means no limit. Returns the limits or an error sentence.
-(ModelBudgetLimits?, String?) parseLimits(String cost, String tokens) {
+/// Empty means no limit. Returns the limits or an error sentence. [alert]
+/// is the optional alert threshold (whole percent, 1 to 99), which needs a
+/// limit to measure against; its errors are in [l]'s language.
+(ModelBudgetLimits?, String?) parseLimits(String cost, String tokens,
+    {String alert = '', AnumLocalizations l = AnumLocalizations.english}) {
   final costText = cost.trim().replaceFirst(r'$', '').replaceAll(',', '');
   final tokenText = tokens.trim().replaceAll(',', '').replaceAll('_', '');
   double? costValue;
@@ -570,7 +583,22 @@ String limitText(num? value) {
       );
     }
   }
-  return (ModelBudgetLimits(costUsd: costValue, tokens: tokenValue), null);
+  final alertText = alert.trim().replaceAll('%', '').trim();
+  int? alertValue;
+  if (alertText.isNotEmpty) {
+    alertValue = int.tryParse(alertText);
+    if (alertValue == null || alertValue < 1 || alertValue > 99) {
+      return (null, l.t('ad.bud.err.alert'));
+    }
+    if (costValue == null && tokenValue == null) {
+      return (null, l.t('ad.bud.err.alertNeedsLimit'));
+    }
+  }
+  return (
+    ModelBudgetLimits(
+        costUsd: costValue, tokens: tokenValue, alertPercent: alertValue),
+    null
+  );
 }
 
 /// Members whose user id or email contains [query] (case-insensitive).

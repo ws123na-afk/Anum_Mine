@@ -2,6 +2,7 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'admin_models.dart';
 import 'approval_policy.dart';
+import 'budget_usage.dart';
 
 /// Owner screens' data: memberships, invitations, model budgets and the
 /// workspace approval policy.
@@ -27,6 +28,14 @@ abstract interface class AdminRepository {
       {String? workspaceId});
   Future<BudgetOverview> budgets();
   Future<BudgetOverview> setBudget(String scope, ModelBudgetLimits limits);
+
+  /// One page of the spend breakdown (docs/model-gateway.md#spend-breakdown).
+  Future<UsageBreakdown> budgetUsage(UsageQuery query, {int offset = 0});
+
+  /// The whole range as CSV through the system save dialog; false when the
+  /// person closed the dialog.
+  Future<bool> exportBudgetUsage(UsageQuery query, String dialogTitle);
+
   Future<ApprovalPolicy> approvalPolicy();
   Future<ApprovalPolicy> setApprovalPolicy(ApprovalPolicy policy);
 
@@ -154,6 +163,17 @@ class ApiAdminRepository implements AdminRepository {
       BudgetOverview.fromJson(await api.request(
           'PUT', '/api/v1/model-budgets/$scope',
           body: limits.toJson()));
+
+  @override
+  Future<UsageBreakdown> budgetUsage(UsageQuery query,
+          {int offset = 0}) async =>
+      UsageBreakdown.fromJson(
+          JsonReader(await api.request('GET', query.path(offset: offset))));
+
+  @override
+  Future<bool> exportBudgetUsage(UsageQuery query, String dialogTitle) =>
+      api.download('GET', query.path(csv: true),
+          fileName: query.csvFileName, dialogTitle: dialogTitle);
 
   @override
   Future<ApprovalPolicy> approvalPolicy() async => ApprovalPolicy.fromJson(

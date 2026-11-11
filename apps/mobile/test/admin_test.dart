@@ -366,9 +366,9 @@ void main() {
       final (limits, error) = parseLimits(r'$1,250.5', '5,000,000');
       expect(error, isNull);
       expect(limits!.toJson(),
-          {'monthly_cost_limit_usd': 1250.5, 'monthly_token_limit': 5000000});
+          {'monthly_cost_limit_usd': 1250.5, 'monthly_token_limit': 5000000, 'alert_percent': null});
       expect(parseLimits('', '').$1!.toJson(),
-          {'monthly_cost_limit_usd': null, 'monthly_token_limit': null});
+          {'monthly_cost_limit_usd': null, 'monthly_token_limit': null, 'alert_percent': null});
       expect(parseLimits('-1', '').$2, isNotNull);
       expect(parseLimits('', '1.5').$2, isNotNull);
       expect(formatUsd(1234567.891), r'$1,234,567.89');
@@ -568,7 +568,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Budget saved.'), findsOneWidget);
       expect(transport.requests.last.body,
-          {'monthly_cost_limit_usd': 25.0, 'monthly_token_limit': 5000000});
+          {'monthly_cost_limit_usd': 25.0, 'monthly_token_limit': 5000000, 'alert_percent': null});
       expect(find.text('Used up'), findsNothing);
     });
   });
@@ -628,7 +628,7 @@ void main() {
       expect(find.text('Budget saved.'), findsOneWidget);
       expect(transport.requests.last.uri.path, '/api/v1/model-budgets/tenant');
       expect(transport.requests.last.body,
-          {'monthly_cost_limit_usd': null, 'monthly_token_limit': 9000});
+          {'monthly_cost_limit_usd': null, 'monthly_token_limit': 9000, 'alert_percent': null});
     });
 
     test('a refused change shows the API answer', () async {
