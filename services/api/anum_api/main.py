@@ -264,6 +264,7 @@ from .public_logos import router as public_logos_router
 from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
+from .files_organize import router as files_organize_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
 from .inline_runs import RunClaimLost, claim_expired, execute_committed, run_inline
 from .skills_api import configure_tool_catalog, router as skills_router
@@ -520,6 +521,8 @@ app.include_router(suppression_router)
 app.include_router(contact_consent_router)
 app.include_router(approval_reminders_router)
 app.include_router(automation_router)
+# Folders, tags and bulk actions first: their fixed paths must never be read as a file id.
+app.include_router(files_organize_router)
 app.include_router(files_router)
 app.include_router(retrieval_router)
 app.include_router(skills_router)

@@ -5,16 +5,22 @@ Each store's session must already carry the tenant and workspace RLS context; qu
 also filter on the scope explicitly.
 """
 
-from sqlalchemy import delete, func, or_, select, text, tuple_, update
+from typing import Any
+
+from sqlalchemy import delete, exists, func, or_, select, text, tuple_, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from anum_api.audit import AuditRecord
 from anum_api.files import (
     FileContent,
     FileContentChanged,
+    FileFolderRecord,
+    FileNameTaken,
     FilePageQuery,
     FileRecord,
     FileSort,
+    FileTagRecord,
     FileUsage,
     FileVersionRecord,
     StorageByType,
@@ -32,7 +38,10 @@ from .models import (
     IntegrationCredentialRecord,
     IntegrationHealthCheckRecord,
     NotificationPreferenceRecord,
+    WorkspaceFileFolderRecord,
     WorkspaceFileRecord,
+    WorkspaceFileTagLinkRecord,
+    WorkspaceFileTagRecord,
     WorkspaceFileVersionRecord,
 )
 from .scope import require_workspace
@@ -162,6 +171,20 @@ class SqlAlchemyFileMetadataStore:
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    def record_audit(self, record: AuditRecord) -> AuditRecord:
+        """An audit row in the same transaction as the change it describes (docs/files.md#bulk-actions)."""
+        from .repository import SqlAlchemyRepository
+
+        return SqlAlchemyRepository(self.session).record_audit(record)
+
+    def folder_file_counts(self, context: TenantContext) -> dict[str, int]:
+        rows = self.session.execute(
+            select(WorkspaceFileRecord.folder_id, func.count()).where(
+                *self._scope(context), WorkspaceFileRecord.vault.is_(None), WorkspaceFileRecord.folder_id.is_not(None)
+            ).group_by(WorkspaceFileRecord.folder_id)
+        ).all()
+        return {str(folder_id): int(count) for folder_id, count in rows}
+
     def _scope(self, context: TenantContext):  # type: ignore[no-untyped-def]
         return (
             WorkspaceFileRecord.tenant_id == context.tenant_id,
@@ -192,6 +215,7 @@ class SqlAlchemyFileMetadataStore:
                 scan_signature=record.scan_signature,
                 scanned_at=record.scanned_at,
                 vault=record.vault,
+                folder_id=record.folder_id,
             )
         )
         self.session.flush()
@@ -228,6 +252,19 @@ class SqlAlchemyFileMetadataStore:
         if query.search:
             escaped = query.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             statement = statement.where(WorkspaceFileRecord.name.ilike(f"%{escaped}%", escape="\\"))
+        if query.folder_id is not None:
+            statement = statement.where(WorkspaceFileRecord.folder_id == query.folder_id)
+        elif query.root_only:
+            statement = statement.where(WorkspaceFileRecord.folder_id.is_(None))
+        if query.tag_id is not None:
+            statement = statement.where(
+                exists().where(
+                    WorkspaceFileTagLinkRecord.tenant_id == WorkspaceFileRecord.tenant_id,
+                    WorkspaceFileTagLinkRecord.workspace_id == WorkspaceFileRecord.workspace_id,
+                    WorkspaceFileTagLinkRecord.file_id == WorkspaceFileRecord.id,
+                    WorkspaceFileTagLinkRecord.tag_id == query.tag_id,
+                )
+            )
         if query.after is not None:
             after = query.after
             boundary = {
@@ -431,6 +468,221 @@ class SqlAlchemyFileMetadataStore:
         files.sort(key=lambda item: (-item.total_bytes, item.record.id))
         return StorageReport(usage=usage, by_type=by_type, largest=files[:largest])
 
+    # ----------------------------------------------------------------- folders and tags
+
+    def get_many(self, context: TenantContext, file_ids: list[str]) -> list[FileRecord]:
+        if not file_ids:
+            return []
+        rows = self.session.scalars(
+            select(WorkspaceFileRecord).where(
+                *self._scope(context), WorkspaceFileRecord.vault.is_(None), WorkspaceFileRecord.id.in_(list(dict.fromkeys(file_ids)))
+            )
+        ).all()
+        return [_file(row) for row in rows]
+
+    def _folder_scope(self, context: TenantContext):  # type: ignore[no-untyped-def]
+        return (
+            WorkspaceFileFolderRecord.tenant_id == context.tenant_id,
+            WorkspaceFileFolderRecord.workspace_id == context.workspace_id,
+        )
+
+    def _taken(self, work: Any) -> None:  # type: ignore[no-untyped-def]
+        """Run ``work`` in a savepoint; a unique-index violation becomes :class:`FileNameTaken`."""
+        try:
+            with self.session.begin_nested():
+                work()
+                self.session.flush()
+        except IntegrityError as exc:
+            raise FileNameTaken(str(exc.orig)) from exc
+
+    def add_folder(self, folder: FileFolderRecord) -> FileFolderRecord:
+        require_workspace(self.session, folder.tenant_id, folder.workspace_id)
+        self._taken(lambda: self.session.add(WorkspaceFileFolderRecord(**folder.model_dump())))
+        return folder
+
+    def _folder_row(self, context: TenantContext, folder_id: str) -> WorkspaceFileFolderRecord | None:
+        return self.session.scalar(
+            select(WorkspaceFileFolderRecord).where(*self._folder_scope(context), WorkspaceFileFolderRecord.id == folder_id)
+        )
+
+    def get_folder(self, context: TenantContext, folder_id: str) -> FileFolderRecord | None:
+        row = self._folder_row(context, folder_id)
+        return None if row is None else _folder(row)
+
+    def list_folders(self, context: TenantContext, limit: int) -> list[FileFolderRecord]:
+        rows = self.session.scalars(
+            select(WorkspaceFileFolderRecord).where(*self._folder_scope(context))
+            .order_by(func.lower(WorkspaceFileFolderRecord.name), WorkspaceFileFolderRecord.id).limit(limit)
+        ).all()
+        return [_folder(row) for row in rows]
+
+    def update_folder(
+        self, context: TenantContext, folder_id: str, *, name: str, parent_id: str | None
+    ) -> FileFolderRecord | None:
+        row = self._folder_row(context, folder_id)
+        if row is None:
+            return None
+
+        def change() -> None:
+            row.name = name
+            row.parent_id = parent_id
+            row.updated_by = context.user_id
+            row.updated_at = utc_now()
+
+        self._taken(change)
+        return _folder(row)
+
+    def delete_folder(self, context: TenantContext, folder_id: str) -> bool:
+        # Files inside go to the root (ON DELETE SET NULL) and subfolders go with it (cascade).
+        result = self.session.execute(
+            delete(WorkspaceFileFolderRecord).where(*self._folder_scope(context), WorkspaceFileFolderRecord.id == folder_id)
+        )
+        return bool(result.rowcount)
+
+    def count_folder_files(self, context: TenantContext, folder_ids: list[str]) -> int:
+        if not folder_ids:
+            return 0
+        return int(self.session.scalar(
+            select(func.count()).select_from(WorkspaceFileRecord).where(
+                *self._scope(context), WorkspaceFileRecord.vault.is_(None), WorkspaceFileRecord.folder_id.in_(folder_ids)
+            )
+        ) or 0)
+
+    def file_ids_in_folders(self, context: TenantContext, folder_ids: list[str], limit: int) -> list[str]:
+        if not folder_ids:
+            return []
+        return list(self.session.scalars(
+            select(WorkspaceFileRecord.id).where(
+                *self._scope(context), WorkspaceFileRecord.vault.is_(None), WorkspaceFileRecord.folder_id.in_(folder_ids)
+            ).order_by(WorkspaceFileRecord.id).limit(limit)
+        ).all())
+
+    def move_files(self, context: TenantContext, file_ids: list[str], folder_id: str | None) -> int:
+        if not file_ids:
+            return 0
+        condition = WorkspaceFileRecord.folder_id.is_not(None) if folder_id is None else or_(
+            WorkspaceFileRecord.folder_id.is_(None), WorkspaceFileRecord.folder_id != folder_id
+        )
+        result = self.session.execute(
+            update(WorkspaceFileRecord)
+            .where(*self._scope(context), WorkspaceFileRecord.vault.is_(None), WorkspaceFileRecord.id.in_(file_ids), condition)
+            .values(folder_id=folder_id)
+        )
+        return int(result.rowcount or 0)
+
+    def delete_files(self, context: TenantContext, file_ids: list[str]) -> int:
+        if not file_ids:
+            return 0
+        result = self.session.execute(
+            delete(WorkspaceFileRecord).where(*self._scope(context), WorkspaceFileRecord.vault.is_(None), WorkspaceFileRecord.id.in_(file_ids))
+        )
+        return int(result.rowcount or 0)
+
+    def _tag_scope(self, context: TenantContext):  # type: ignore[no-untyped-def]
+        return (
+            WorkspaceFileTagRecord.tenant_id == context.tenant_id,
+            WorkspaceFileTagRecord.workspace_id == context.workspace_id,
+        )
+
+    def _link_scope(self, context: TenantContext):  # type: ignore[no-untyped-def]
+        return (
+            WorkspaceFileTagLinkRecord.tenant_id == context.tenant_id,
+            WorkspaceFileTagLinkRecord.workspace_id == context.workspace_id,
+        )
+
+    def add_tag(self, tag: FileTagRecord) -> FileTagRecord:
+        require_workspace(self.session, tag.tenant_id, tag.workspace_id)
+        self._taken(lambda: self.session.add(WorkspaceFileTagRecord(**tag.model_dump())))
+        return tag
+
+    def _tag_row(self, context: TenantContext, tag_id: str) -> WorkspaceFileTagRecord | None:
+        return self.session.scalar(select(WorkspaceFileTagRecord).where(*self._tag_scope(context), WorkspaceFileTagRecord.id == tag_id))
+
+    def get_tag(self, context: TenantContext, tag_id: str) -> FileTagRecord | None:
+        row = self._tag_row(context, tag_id)
+        return None if row is None else _tag(row)
+
+    def list_tags(self, context: TenantContext, limit: int) -> list[tuple[FileTagRecord, int]]:
+        counts = dict(
+            self.session.execute(
+                select(WorkspaceFileTagLinkRecord.tag_id, func.count()).where(*self._link_scope(context))
+                .group_by(WorkspaceFileTagLinkRecord.tag_id)
+            ).all()
+        )
+        rows = self.session.scalars(
+            select(WorkspaceFileTagRecord).where(*self._tag_scope(context))
+            .order_by(func.lower(WorkspaceFileTagRecord.name), WorkspaceFileTagRecord.id).limit(limit)
+        ).all()
+        return [(_tag(row), int(counts.get(row.id, 0))) for row in rows]
+
+    def rename_tag(self, context: TenantContext, tag_id: str, name: str) -> FileTagRecord | None:
+        row = self._tag_row(context, tag_id)
+        if row is None:
+            return None
+
+        def change() -> None:
+            row.name = name
+
+        self._taken(change)
+        return _tag(row)
+
+    def delete_tag(self, context: TenantContext, tag_id: str) -> bool:
+        result = self.session.execute(delete(WorkspaceFileTagRecord).where(*self._tag_scope(context), WorkspaceFileTagRecord.id == tag_id))
+        return bool(result.rowcount)
+
+    def tag_files(self, context: TenantContext, file_ids: list[str], tag_ids: list[str]) -> int:
+        files = [r.id for r in self.get_many(context, file_ids)]
+        tags = [t for t in dict.fromkeys(tag_ids) if self._tag_row(context, t) is not None]
+        if not files or not tags:
+            return 0
+        present = {
+            (file_id, tag_id)
+            for file_id, tag_id in self.session.execute(
+                select(WorkspaceFileTagLinkRecord.file_id, WorkspaceFileTagLinkRecord.tag_id).where(
+                    *self._link_scope(context), WorkspaceFileTagLinkRecord.file_id.in_(files), WorkspaceFileTagLinkRecord.tag_id.in_(tags)
+                )
+            ).all()
+        }
+        now = utc_now()
+        added = 0
+        for file_id in files:
+            for tag_id in tags:
+                if (file_id, tag_id) in present:
+                    continue
+                self.session.add(WorkspaceFileTagLinkRecord(
+                    tenant_id=context.tenant_id, workspace_id=context.workspace_id, file_id=file_id, tag_id=tag_id,
+                    created_by=context.user_id, created_at=now,
+                ))
+                added += 1
+        self.session.flush()
+        return added
+
+    def untag_files(self, context: TenantContext, file_ids: list[str], tag_ids: list[str]) -> int:
+        if not file_ids or not tag_ids:
+            return 0
+        result = self.session.execute(
+            delete(WorkspaceFileTagLinkRecord).where(
+                *self._link_scope(context), WorkspaceFileTagLinkRecord.file_id.in_(file_ids), WorkspaceFileTagLinkRecord.tag_id.in_(tag_ids)
+            )
+        )
+        return int(result.rowcount or 0)
+
+    def tags_of(self, context: TenantContext, file_ids: list[str]) -> dict[str, list[FileTagRecord]]:
+        if not file_ids:
+            return {}
+        rows = self.session.execute(
+            select(WorkspaceFileTagLinkRecord.file_id, WorkspaceFileTagRecord)
+            .join(WorkspaceFileTagRecord, (WorkspaceFileTagRecord.tenant_id == WorkspaceFileTagLinkRecord.tenant_id)
+                  & (WorkspaceFileTagRecord.workspace_id == WorkspaceFileTagLinkRecord.workspace_id)
+                  & (WorkspaceFileTagRecord.id == WorkspaceFileTagLinkRecord.tag_id))
+            .where(*self._link_scope(context), WorkspaceFileTagLinkRecord.file_id.in_(list(dict.fromkeys(file_ids))))
+            .order_by(func.lower(WorkspaceFileTagRecord.name), WorkspaceFileTagRecord.id)
+        ).all()
+        result: dict[str, list[FileTagRecord]] = {}
+        for file_id, tag in rows:
+            result.setdefault(file_id, []).append(_tag(tag))
+        return result
+
     def record_scan(self, context: TenantContext, file_id: str, sha256: str, status: str, signature: str | None) -> bool:
         result = self.session.execute(
             update(WorkspaceFileRecord)
@@ -538,6 +790,21 @@ def _file(row: WorkspaceFileRecord) -> FileRecord:
         scanned_at=row.scanned_at,
         version=row.version,
         vault=row.vault,  # type: ignore[arg-type]
+        folder_id=row.folder_id,
+    )
+
+
+def _folder(row: WorkspaceFileFolderRecord) -> FileFolderRecord:
+    return FileFolderRecord(
+        id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, name=row.name, parent_id=row.parent_id,
+        created_by=row.created_by, created_at=row.created_at, updated_by=row.updated_by, updated_at=row.updated_at,
+    )
+
+
+def _tag(row: WorkspaceFileTagRecord) -> FileTagRecord:
+    return FileTagRecord(
+        id=row.id, tenant_id=row.tenant_id, workspace_id=row.workspace_id, name=row.name,
+        created_by=row.created_by, created_at=row.created_at,
     )
 
 

@@ -184,6 +184,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
         "calendar_connections": "0092_calendar_sync",
         "calendar_oauth_requests": "0092_calendar_sync",
         "workspace_file_versions": "0090_file_versions",
+        **{name: "0166_files_folders_tags" for name in ("workspace_file_folders", "workspace_file_tags", "workspace_file_tag_links")},
         **{name: "0082_business_pipeline" for name in (
             "business_outreach_settings", "business_target_profiles", "business_observations",
             "business_pipeline_runs", "business_outbox", "business_replies")},

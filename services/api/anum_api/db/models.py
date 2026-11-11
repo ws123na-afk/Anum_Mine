@@ -837,9 +837,18 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     # Document vault (migration 0133_document_vault, docs/documents.md#storage-and-isolation): null for
     # an ordinary file; `hidden` rows are invisible unless the unit of work set anum.vault (row policy).
     vault: Mapped[str | None] = mapped_column(String(10))
+    # The folder the file is in (migration 0166_files_folders_tags, docs/files.md#folders); null at the root.
+    folder_id: Mapped[str | None] = mapped_column(String(80))
 
     __table_args__ = (
         _workspace_fk("workspace_files"),
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "folder_id"],
+            ["workspace_file_folders.tenant_id", "workspace_file_folders.workspace_id", "workspace_file_folders.id"],
+            name="fk_workspace_files_folder",
+            ondelete="SET NULL (folder_id)",
+        ),
+        Index("ix_workspace_files_scope_folder", "tenant_id", "workspace_id", "folder_id", "id"),
         CheckConstraint("scan_status is null or scan_status in ('clean', 'infected')", name="ck_workspace_files_scan_status"),
         CheckConstraint("vault is null or vault in ('hidden', 'assistant')", name="ck_workspace_files_vault"),
         Index("ix_workspace_files_scope_created", "tenant_id", "workspace_id", "created_at"),
@@ -889,6 +898,84 @@ class WorkspaceFileVersionRecord(Base, WorkspaceScopedMixin):
             "scan_status is null or scan_status in ('clean', 'infected')", name="ck_workspace_file_versions_scan_status"
         ),
         Index("ix_workspace_file_versions_sha", "tenant_id", "workspace_id", "file_id", "sha256"),
+    )
+
+
+class WorkspaceFileFolderRecord(Base, WorkspaceScopedMixin):
+    """A folder in a workspace's file tree (migration 0166_files_folders_tags, docs/files.md#folders)."""
+
+    __tablename__ = "workspace_file_folders"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(String(80))
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(String(160))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("workspace_file_folders"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_workspace_file_folders_scope_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "parent_id"],
+            ["workspace_file_folders.tenant_id", "workspace_file_folders.workspace_id", "workspace_file_folders.id"],
+            name="fk_workspace_file_folders_parent",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("parent_id is null or parent_id <> id", name="ck_workspace_file_folders_not_own_parent"),
+        Index(
+            "uq_workspace_file_folders_name", "tenant_id", "workspace_id", text("coalesce(parent_id, '')"), text("lower(name)"),
+            unique=True,
+        ),
+        Index("ix_workspace_file_folders_parent", "tenant_id", "workspace_id", "parent_id"),
+    )
+
+
+class WorkspaceFileTagRecord(Base, WorkspaceScopedMixin):
+    """A tag name of a workspace (migration 0166_files_folders_tags, docs/files.md#tags)."""
+
+    __tablename__ = "workspace_file_tags"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("workspace_file_tags"),
+        UniqueConstraint("tenant_id", "workspace_id", "id", name="uq_workspace_file_tags_scope_id"),
+        Index("uq_workspace_file_tags_name", "tenant_id", "workspace_id", text("lower(name)"), unique=True),
+    )
+
+
+class WorkspaceFileTagLinkRecord(Base):
+    """One tag on one file (migration 0166_files_folders_tags); both references are scoped and cascade."""
+
+    __tablename__ = "workspace_file_tag_links"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    file_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tag_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        _workspace_fk("workspace_file_tag_links"),
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "file_id"],
+            ["workspace_files.tenant_id", "workspace_files.workspace_id", "workspace_files.id"],
+            name="fk_workspace_file_tag_links_file",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "workspace_id", "tag_id"],
+            ["workspace_file_tags.tenant_id", "workspace_file_tags.workspace_id", "workspace_file_tags.id"],
+            name="fk_workspace_file_tag_links_tag",
+            ondelete="CASCADE",
+        ),
+        Index("ix_workspace_file_tag_links_tag", "tenant_id", "workspace_id", "tag_id", "file_id"),
     )
 
 
