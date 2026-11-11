@@ -852,6 +852,25 @@ class TicketReply(Scoped):
     created_by: str
 
 
+class TicketMessage(Scoped):
+    """One message in the conversation inside a support request (docs/business-portal.md#replying-inside-a-request):
+    the customer writes from their portal link, the team answers in the ticket. Nothing is delivered anywhere; the
+    customer reads the team's answers in the portal."""
+
+    ticket_id: str
+    account_id: str
+    author: Literal["customer", "staff"]
+    author_name: str = Field(max_length=160)
+    access_id: str | None = None
+    contact_id: str | None = None
+    body: str = Field(min_length=1, max_length=4000)
+    # Chosen by the client for one submit; the same key again is the same message.
+    client_key: str | None = Field(default=None, min_length=8, max_length=80)
+    read_at: datetime | None = None
+    read_by: str | None = Field(default=None, max_length=160)
+    created_by: str
+
+
 class BillingProfile(BaseModel):
     """Who issues the invoices and how they are paid (docs/business.md#invoices). It is
     copied onto each invoice when it is sent, so a later change never rewrites an old one."""

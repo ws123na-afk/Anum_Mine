@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -127,6 +127,9 @@ class Invoice(Scoped):
     marked_milestones: list[str] = Field(default_factory=list, max_length=60)
     decision_note: str = Field(default="", max_length=500)
     created_by: str
+    # A recurring invoice drafted this one for one period (docs/business.md#recurring-invoices); one per schedule and period.
+    schedule_id: str | None = Field(default=None, max_length=80)
+    period_date: date | None = None
 
     def balance_due(self) -> Decimal:
         return money(self.total - self.amount_paid - self.amount_credited)
@@ -178,6 +181,8 @@ class InvoiceMessage(Scoped):
     payload_hash: str | None = Field(default=None, max_length=64)
     detail: str = Field(default="", max_length=500)
     requested_by: str
+    # The reminder step (1 to 4) the daily pass planned (docs/business.md#reminders-planned-by-the-daily-pass); None when a person asked.
+    schedule_step: int | None = Field(default=None, ge=1, le=4)
 
 
 class PaymentLinkStatus(StrEnum):
@@ -322,3 +327,84 @@ class PortalDecisionSummary(BaseModel):
     content_hash: str
     # True when the decision is about the version that is waiting for the owner now.
     current: bool = False
+
+
+# -- recurring invoices and the daily pass (docs/business.md#recurring-invoices) ----------------------
+
+
+class ScheduleFrequency(StrEnum):
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+    YEARLY = "yearly"
+    DAYS = "days"  # every ``interval`` days
+    WEEKS = "weeks"  # every ``interval`` weeks
+    MONTHS = "months"  # every ``interval`` months
+
+
+class ScheduleStatus(StrEnum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ENDED = "ended"
+
+
+class IssueMode(StrEnum):
+    DRAFT = "draft"  # each period's invoice waits as a draft for a person
+    REQUEST_APPROVAL = "request_approval"  # it is also sent for an owner's approval, the path a person's request takes
+
+
+class ScheduleLine(BaseModel):
+    """A line every invoice of the schedule carries (priced by the server on each invoice)."""
+
+    description: str = Field(min_length=1, max_length=300)
+    kind: LineKind = LineKind.SERVICE
+    quantity: Quantity = Decimal("1")
+    unit_price: Money = Decimal("0")
+    tax_rate_pct: Percent = Decimal("0")
+    tax_code: SalesTaxCode | None = None
+
+
+class InvoiceSchedule(Scoped):
+    """A recurring invoice: one draft per period through the invoice service, never sent by itself."""
+
+    title: str = Field(min_length=1, max_length=200)
+    account_id: str
+    project_id: str | None = None
+    contact_id: str | None = None
+    currency: Currency
+    lines: list[ScheduleLine] = Field(min_length=1, max_length=60)
+    due_in_days: int = Field(default=14, ge=0, le=365)
+    customer_reference: str = Field(default="", max_length=120)
+    notes: str = Field(default="", max_length=1000)
+    payment_terms: str = Field(default="", max_length=1000)
+    frequency: ScheduleFrequency
+    interval: int = Field(default=1, ge=1, le=366)
+    start_date: date
+    end_date: date | None = None
+    max_count: int | None = Field(default=None, ge=1, le=1000)
+    issue_mode: IssueMode = IssueMode.DRAFT
+    status: ScheduleStatus = ScheduleStatus.ACTIVE
+    anchor_date: date
+    next_index: int = 0
+    next_date: date | None = None
+    created_count: int = 0
+    last_period: date | None = None
+    last_invoice_id: str | None = None
+    # Why the last period could not be drafted or sent for approval (plain words), cleared when one works.
+    last_error: str = Field(default="", max_length=500)
+    end_reason: str = Field(default="", max_length=20)  # "owner", "end_date" or "count"
+    ended_at: datetime | None = None
+    version: int = 1
+    created_by: str
+    updated_by: str
+
+
+class InvoiceAutomation(Scoped):
+    """The owner's switches for the daily pass, one row per workspace. Every email it plans waits in Approvals."""
+
+    auto_reminders: bool = False
+    email_scheduled: bool = False
+    language: Literal["en", "ar"] = "en"
+    last_run_on: date | None = None
+    last_run_at: datetime | None = None
+    last_run_summary: dict[str, Any] | None = None
+    updated_by: str

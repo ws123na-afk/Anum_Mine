@@ -24,8 +24,10 @@ from ..scoped_store import open_scoped_store
 from .invoice_models import (
     CreditNote,
     Invoice,
+    InvoiceAutomation,
     InvoiceCounter,
     InvoiceMessage,
+    InvoiceSchedule,
     InvoicePayment,
     PaymentLink,
     PaymentNotice,
@@ -52,6 +54,7 @@ from .models import (
     ProposalVersion,
     ResearchRun,
     SupportTicket,
+    TicketMessage,
     TicketReply,
     UsageEntry,
 )
@@ -98,6 +101,10 @@ KINDS: dict[str, type[BaseModel]] = {
     "payment_links": PaymentLink,
     "portal_access": PortalAccess,
     "portal_decisions": PortalDecision,
+    # Recurring invoices, the daily pass and customer replies in the portal (migration 0174_business_depth).
+    "invoice_schedules": InvoiceSchedule,
+    "invoice_automation": InvoiceAutomation,
+    "ticket_messages": TicketMessage,
 }
 
 ModelT = TypeVar("ModelT", bound=BaseModel)

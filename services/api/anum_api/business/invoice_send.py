@@ -227,7 +227,7 @@ def _remember(context: TenantContext, invoice: Invoice, message: InvoiceMessage,
 
 
 async def request_email(context: TenantContext, units: Any, invoice_id: str, *, to: str | None, language: Literal["en", "ar"],
-                        reminder: bool) -> InvoiceMessage:
+                        reminder: bool, step: int | None = None) -> InvoiceMessage:
     """Plan the invoice email (or the next reminder) as a delivery that waits for an approval.
 
     ``units`` opens short units of work (``dependencies.units_of_work``): every store step runs in
@@ -262,7 +262,7 @@ async def request_email(context: TenantContext, units: Any, invoice_id: str, *, 
         id=new_id("binmsg"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice.id,
         kind=MessageKind.REMINDER if reminder else MessageKind.INVOICE, reminder_number=number, language=language, to_email=address,
         subject=subject, status=status, approval_id=outcome.approval_id, task_id=outcome.task_id, payload_hash=outcome.payload_hash,
-        detail=(outcome.summary or "")[:500], requested_by=context.user_id, created_at=now, updated_at=now,
+        detail=(outcome.summary or "")[:500], requested_by=context.user_id, created_at=now, updated_at=now, schedule_step=step,
     )
     await asyncio.to_thread(_remember, context, invoice, message, reminder)
     return message
