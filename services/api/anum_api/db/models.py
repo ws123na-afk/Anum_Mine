@@ -996,6 +996,9 @@ class NotificationPreferenceRecord(Base):
     # Migration 0038_commerce; the server default keeps older releases' inserts valid.
     commerce_alerts: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
     tyre_alerts: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
+    # Migration 0174_calendar_email_prefs: calendar reminders by email, and their language (null = both).
+    calendar_email: Mapped[bool] = mapped_column(nullable=False, default=True, server_default=text("true"))
+    calendar_email_language: Mapped[str | None] = mapped_column(String(2))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (_workspace_fk("notification_preferences"),)

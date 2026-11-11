@@ -4,6 +4,8 @@ import '../records_kit/records_export.dart';
 import '../records_kit/records_kit.dart';
 import 'finance_money_models.dart';
 import 'finance_personal_models.dart';
+import 'finance_tools_data.dart'
+    show ReconHistory, ReconResolution, StatementPdfTransport;
 
 /// The Finance pages the phone gained for parity with the web
 /// (docs/finance.md): reconciliation sessions and the exceptions across
@@ -39,9 +41,20 @@ class ReconIssue {
     this.reason,
     this.month,
     this.transactionId,
+    this.otherTransactionId,
+    this.statementRef,
+    this.ageDays,
+    this.creditOn,
+    this.actions = const [],
   });
   final String id, kind, severity;
   final String? postedOn, amount, description, reason, month, transactionId;
+  final String? otherTransactionId, statementRef, creditOn;
+  final int? ageDays;
+
+  /// What the owner can do: match, correct, attach, pending,
+  /// accept_reversal, open or import.
+  final List<String> actions;
 
   factory ReconIssue.fromJson(JsonReader r) => ReconIssue(
         id: r.string('id'),
@@ -53,6 +66,11 @@ class ReconIssue {
         reason: r.optString('reason'),
         month: r.optString('month'),
         transactionId: r.optString('transaction_id'),
+        otherTransactionId: r.optString('other_transaction_id'),
+        statementRef: r.optString('statement_ref'),
+        ageDays: r.optInt('age_days'),
+        creditOn: r.optObject('details')?.optString('credit_on'),
+        actions: r.optStrings('actions') ?? const [],
       );
 }
 
@@ -203,6 +221,9 @@ class ReconDetail {
     required this.offset,
     required this.hasHistory,
     this.card,
+    this.resolutions = const [],
+    this.history = const [],
+    this.source = 'typed',
   });
   final ReconRow row;
   final ReconFigures figures;
@@ -213,6 +234,14 @@ class ReconDetail {
 
   /// Completed at least once: it can no longer be deleted.
   final bool hasHistory;
+
+  /// The owner's matches, attachments, pending marks, reversal pairs and
+  /// correcting entries, and when it was completed or reopened.
+  final List<ReconResolution> resolutions;
+  final List<ReconHistory> history;
+
+  /// `import` (from a statement import) or `typed`.
+  final String source;
 
   bool get owedKind => row.accountKind == 'card' || row.accountKind == 'loan';
 
@@ -227,6 +256,9 @@ class ReconDetail {
         total: r.optInt('total') ?? 0,
         offset: r.optInt('offset') ?? 0,
         hasHistory: (r.optList('history') ?? const []).isNotEmpty,
+        resolutions: r.optObjects('resolutions', ReconResolution.fromJson),
+        history: r.optObjects('history', ReconHistory.fromJson),
+        source: r.optString('source') ?? 'typed',
       );
 }
 
@@ -630,8 +662,12 @@ class FinanceTag {
 
 /// Every route these pages use, through the app's API client.
 class FinanceMoreRepository {
-  FinanceMoreRepository(this.api);
+  FinanceMoreRepository(this.api, {this.pdf});
   final AnumApiClient api;
+
+  /// Sends a statement PDF to the reader (the app's file transfer); null
+  /// where reading PDFs is not available (a test that never reads one).
+  final StatementPdfTransport? pdf;
   static const base = '/api/v1/finance';
   static const pageSize = 20;
 

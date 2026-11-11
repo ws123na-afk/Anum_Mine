@@ -134,6 +134,21 @@ const supportEn = <String, String>{
   'biz.support.reply.sentAt': 'Sent {time}',
   'biz.support.replyEmpty': 'Write the reply first.',
   'biz.support.replySaved': 'Draft saved.',
+  'biz.support.portal.title': 'Customer portal conversation',
+  'biz.support.portal.help':
+      'What the customer wrote in this request from their portal link, and your answers there. An answer is shown in their portal and is not sent by email or WhatsApp.',
+  'biz.support.portal.none': 'No messages in the portal yet.',
+  'biz.support.portal.team': 'Your team',
+  'biz.support.portal.label': 'Answer in the portal',
+  'biz.support.portal.answer': 'Answer in the portal',
+  'biz.support.portal.answered':
+      'Answered. The customer sees it in their portal.',
+  'biz.support.portal.required': 'Write the answer first.',
+  'biz.support.portal.closed':
+      'The ticket is closed. Reopen it to answer in the portal.',
+  'biz.support.portal.noLink':
+      'This customer has no active portal link, so nobody would read an answer there. Create a link under Accounts, or reply by email or WhatsApp.',
+  'biz.support.portal.readOnly': 'Owners and members answer in the portal.',
   'biz.support.save': 'Save',
   'biz.support.note': 'Add a note',
   'biz.support.noteHint': 'What happened',
@@ -323,6 +338,19 @@ const supportAr = <String, String>{
   'biz.support.reply.sentAt': 'أُرسل {time}',
   'biz.support.replyEmpty': 'اكتب الرد أولًا.',
   'biz.support.replySaved': 'حُفظت المسودة.',
+  'biz.support.portal.title': 'المحادثة في بوابة العميل',
+  'biz.support.portal.help':
+      'ما كتبه العميل في هذا الطلب من رابط بوابته، وإجاباتك هناك. تظهر الإجابة في بوابته ولا تُرسل بالبريد أو واتساب.',
+  'biz.support.portal.none': 'لا رسائل في البوابة بعد.',
+  'biz.support.portal.team': 'فريقك',
+  'biz.support.portal.label': 'أجب في البوابة',
+  'biz.support.portal.answer': 'أجب في البوابة',
+  'biz.support.portal.answered': 'تمت الإجابة. يراها العميل في بوابته.',
+  'biz.support.portal.required': 'اكتب الإجابة أولا.',
+  'biz.support.portal.closed': 'التذكرة مغلقة. أعد فتحها للإجابة في البوابة.',
+  'biz.support.portal.noLink':
+      'ليس لدى هذا العميل رابط بوابة نشط، فلن يقرأ أحد الإجابة هناك. أنشئ رابطا من الحسابات، أو رد بالبريد أو واتساب.',
+  'biz.support.portal.readOnly': 'يجيب المالكون والأعضاء في البوابة.',
   'biz.support.save': 'حفظ',
   'biz.support.note': 'إضافة ملاحظة',
   'biz.support.noteHint': 'ماذا حدث',

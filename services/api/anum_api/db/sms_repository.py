@@ -314,7 +314,7 @@ class SqlAlchemySmsStore:
         return found[0] if found else None
 
     def mark_entry(self, context: TenantContext, entry_id: str, *, status: EntryStatus | None = None, reversed_by_id: str | None = None,
-                   reconciled_at: datetime | None = None, reconciled_ref: str | None = None) -> None:
+                   reconciled_at: datetime | None = None, reconciled_ref: str | None = None, clear_reconciled: bool = False) -> None:
         values: dict[str, Any] = {}
         if status is not None:
             values["status"] = status.value
@@ -322,6 +322,8 @@ class SqlAlchemySmsStore:
             values["reversed_by_id"] = reversed_by_id
         if reconciled_at is not None:
             values["reconciled_at"], values["reconciled_ref"] = reconciled_at, reconciled_ref
+        if clear_reconciled:
+            values["reconciled_at"], values["reconciled_ref"] = None, None
         if values:
             record = FinanceJournalEntryRecord
             self.session.execute(update(record).where(*_mine(record, context), record.id == entry_id).values(**values))

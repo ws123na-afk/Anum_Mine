@@ -715,6 +715,8 @@ class SqlAlchemyNotificationPreferenceStore:
             push_enabled=record.push_enabled,
             commerce_alerts=record.commerce_alerts,
             tyre_alerts=record.tyre_alerts,
+            calendar_email=record.calendar_email,
+            calendar_email_language=record.calendar_email_language,
         )
 
     def save(self, context: TenantContext, preferences: NotificationPreferences) -> NotificationPreferences:
@@ -736,6 +738,8 @@ class SqlAlchemyNotificationPreferenceStore:
         record.push_enabled = preferences.push_enabled
         record.commerce_alerts = preferences.commerce_alerts
         record.tyre_alerts = preferences.tyre_alerts
+        record.calendar_email = preferences.calendar_email
+        record.calendar_email_language = preferences.calendar_email_language
         record.updated_at = utc_now()
         self.session.flush()
         return preferences

@@ -13,7 +13,8 @@ from collections.abc import Iterator
 from decimal import Decimal
 from typing import Annotated, Literal
 from .model_gateway import build_default_model_gateway
-from .meeting_execution import execute_meeting_turn
+from .meeting_execution import execute_meeting_turn, meeting_gateway
+from .model_budget import ModelBudgetExceededError
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -405,7 +406,8 @@ async def execute_turn(
     require_permission(context, Permission.WORKSPACE_MANAGE)
     await _admit_turns(context, meeting_id, 1)
     try:
-        gateway = build_default_model_gateway()
+        # The workspace's budgeted gateway (docs/ANUM_MINE_LIVE_MEETING_BUDGET_AND_TRANSCRIPTS.md#the-workspace-model-budget-counts-them-too).
+        gateway = await asyncio.to_thread(meeting_gateway, context, build_default_model_gateway())
         result = await execute_meeting_turn(context, meeting_id, body.request_key, gateway)
         return result
     except LiveMeetingStoreError as exc:
@@ -424,7 +426,7 @@ async def run_meeting(
     """
     require_permission(context, Permission.WORKSPACE_MANAGE)
     await _admit_turns(context, meeting_id, body.turns)
-    gateway = build_default_model_gateway()
+    gateway = await asyncio.to_thread(meeting_gateway, context, build_default_model_gateway())
     results = []
     try:
         for index in range(body.turns):
@@ -432,6 +434,11 @@ async def run_meeting(
             result = await execute_meeting_turn(context, meeting_id, key, gateway)
             results.append(result)
         return {"items": results, "completed": len(results), "run_key": body.run_key}
+    except ModelBudgetExceededError as exc:
+        # The workspace model budget ran out after some turns: keep what was said (402 otherwise).
+        if results:
+            return {"items": results, "completed": len(results), "run_key": body.run_key, "stopped_reason": exc.message}
+        raise
     except LiveMeetingStoreError as exc:
         if results:
             return {"items":results,"completed":len(results),"run_key":body.run_key,

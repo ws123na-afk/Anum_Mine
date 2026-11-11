@@ -18,8 +18,18 @@ abstract interface class TeamRepository {
   Future<void> tick(String itemId, String entryId, bool done);
   Future<CommandPreview> parseCommand(String text);
   Future<WorkItem> runCommand(String text, AssigneeChoice? assignee);
-  Future<NotificationPage> notifications({String? cursor});
+
+  /// The caller's notifications, newest first. [state] is `unread` or
+  /// `read` (null for all); [kind] one exact kind (null for every kind).
+  Future<NotificationPage> notifications({
+    String? cursor,
+    String? state,
+    String? kind,
+  });
+  Future<List<NotificationKindCount>> notificationKinds();
   Future<void> markRead(String id);
+  Future<void> markUnread(String id);
+  Future<void> deleteNotification(String id);
   Future<void> markAllRead();
   Future<List<WorkloadRow>> workload();
   Future<List<Assistant>> assistants();
@@ -122,17 +132,36 @@ class ApiTeamRepository implements TeamRepository {
   @override
   Future<NotificationPage> notifications({
     String? cursor,
-  }) async =>
-      NotificationPage.fromJson(
-        await api.request(
-          'GET',
-          '/api/v1/notifications?limit=30${cursor == null ? '' : '&cursor=${_id(cursor)}'}',
-        ),
-      );
+    String? state,
+    String? kind,
+  }) async {
+    final qs = Uri(queryParameters: {
+      'limit': '30',
+      if (state != null) 'state': state,
+      if (kind != null) 'kind': kind,
+      if (cursor != null) 'cursor': cursor,
+    }).query;
+    return NotificationPage.fromJson(
+      await api.request('GET', '/api/v1/notifications?$qs'),
+    );
+  }
+
+  @override
+  Future<List<NotificationKindCount>> notificationKinds() async =>
+      JsonReader(await api.request('GET', '/api/v1/notifications/kinds'))
+          .objects('items', NotificationKindCount.fromJson);
 
   @override
   Future<void> markRead(String id) =>
       api.request('POST', '/api/v1/notifications/${_id(id)}/read');
+
+  @override
+  Future<void> markUnread(String id) =>
+      api.request('POST', '/api/v1/notifications/${_id(id)}/unread');
+
+  @override
+  Future<void> deleteNotification(String id) =>
+      api.request('DELETE', '/api/v1/notifications/${_id(id)}');
 
   @override
   Future<void> markAllRead() =>

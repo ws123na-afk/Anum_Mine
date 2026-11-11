@@ -87,6 +87,7 @@ class ActionStore(Protocol):
     def get_session(self, context: TenantContext, session_id: str) -> SessionRecord | None: ...
     def save_session(self, context: TenantContext, record: SessionRecord) -> SessionRecord: ...
     def sessions_for_task(self, context: TenantContext, task_id: str) -> list[SessionRecord]: ...
+    def recent_sessions(self, context: TenantContext, *, limit: int, offset: int = 0) -> list[SessionRecord]: ...
     def count_since(self, context: TenantContext, since: datetime) -> int: ...
     def add_step(self, context: TenantContext, step: StepRecord) -> StepRecord: ...
     def steps(self, context: TenantContext, session_id: str, *, after: int = 0, limit: int = 200) -> list[StepRecord]: ...
@@ -136,6 +137,13 @@ class InMemoryActionStore:
         with self._lock:
             rows = [row for (t, w, _), row in self._sessions.items() if (t, w) == (context.tenant_id, context.workspace_id) and row.task_id == task_id]
             return [row.model_copy(deep=True) for row in sorted(rows, key=lambda r: r.created_at)]
+
+    def recent_sessions(self, context: TenantContext, *, limit: int, offset: int = 0) -> list[SessionRecord]:
+        """The workspace's sessions, newest first (the runs list, docs/action-browser.md#api)."""
+        with self._lock:
+            rows = [row for (t, w, _), row in self._sessions.items() if (t, w) == (context.tenant_id, context.workspace_id)]
+            rows.sort(key=lambda r: (r.created_at, r.id), reverse=True)
+            return [row.model_copy(deep=True) for row in rows[offset:offset + limit]]
 
     def count_since(self, context: TenantContext, since: datetime) -> int:
         with self._lock:
@@ -272,6 +280,13 @@ class SqlActionStore:
         rows = self.session.execute(text(
             f"select {_SESSION_COLUMNS} from action_browser_sessions where tenant_id = :t and workspace_id = :w and task_id = :task "  # nosec B608
             "order by created_at, id limit 50"), {**self._params(context), "task": task_id}).all()
+        return [self._session(row) for row in rows]
+
+    def recent_sessions(self, context: TenantContext, *, limit: int, offset: int = 0) -> list[SessionRecord]:
+        rows = self.session.execute(text(
+            f"select {_SESSION_COLUMNS} from action_browser_sessions where tenant_id = :t and workspace_id = :w "  # nosec B608 - fixed columns
+            "order by created_at desc, id desc limit :limit offset :offset"),
+            {**self._params(context), "limit": limit, "offset": offset}).all()
         return [self._session(row) for row in rows]
 
     def count_since(self, context: TenantContext, since: datetime) -> int:

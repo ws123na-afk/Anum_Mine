@@ -43,6 +43,12 @@ abstract interface class SupportRepository {
   Future<TicketDetail> editReply(String id, String replyId, String body);
   Future<TicketDetail> discardReply(String id, String replyId);
 
+  /// Answer inside the customer portal: shown to the customer, never sent.
+  Future<TicketDetail> answerInPortal(String id, String body);
+
+  /// Mark the customer's portal messages on the ticket read.
+  Future<TicketDetail> readPortalMessages(String id);
+
   /// Hands the reply to the inbox's approval path; returns the fresh ticket
   /// and the API's sentence on what happened.
   Future<(TicketDetail, String)> requestApproval(String id, String replyId);
@@ -157,6 +163,15 @@ class ApiSupportRepository implements SupportRepository {
   @override
   Future<TicketDetail> addReply(String id, String body) =>
       _detail('POST', '/tickets/${_id(id)}/replies', body: {'body': body});
+
+  @override
+  Future<TicketDetail> answerInPortal(String id, String body) =>
+      _detail('POST', '/tickets/${_id(id)}/portal-messages',
+          body: {'body': body});
+
+  @override
+  Future<TicketDetail> readPortalMessages(String id) =>
+      _detail('POST', '/tickets/${_id(id)}/portal-messages/read');
 
   @override
   Future<TicketDetail> editReply(String id, String replyId, String body) =>

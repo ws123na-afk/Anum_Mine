@@ -133,6 +133,17 @@ class FinanceSettingsSection extends StatelessWidget {
               icon: Icons.auto_fix_high_outlined,
               children: [
                 Text(d.t('set.links.onWeb'), style: muted),
+                if (finance.more != null)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: FilledButton.icon(
+                      key: const Key('set-open-rules'),
+                      onPressed: () => openFinanceMore(
+                          context, finance, FinanceMorePage.rules),
+                      icon: const Icon(Icons.rule),
+                      label: Text(d.t('set.links.open')),
+                    ),
+                  ),
                 for (final view in ['rules', 'merchants', 'automation'])
                   FinanceWebLink(
                       key: Key('set-link-$view'),
@@ -812,6 +823,10 @@ class TransactionScreen extends StatelessWidget {
             repository: repository,
             transactionId: transactionId,
             onChanged: onChanged),
+        TransferPairSection(
+            repository: repository,
+            transactionId: transactionId,
+            onChanged: onChanged),
       ]),
     );
   }
@@ -1047,6 +1062,139 @@ class _FxSectionState extends State<FxSection> {
           children[i],
         ],
       ]),
+    );
+  }
+}
+
+/// The own transfer this transaction belongs to and an Unpair button
+/// (docs/finance.md#own-transfers). Unpairing voids the pair's link; both rows
+/// keep their categories and the pair is offered again under Find transfers.
+class TransferPairSection extends StatefulWidget {
+  const TransferPairSection(
+      {required this.repository,
+      required this.transactionId,
+      this.onChanged,
+      super.key});
+  final FinanceDepthRepository repository;
+  final String transactionId;
+  final Future<void> Function()? onChanged;
+
+  @override
+  State<TransferPairSection> createState() => _TransferPairSectionState();
+}
+
+class _TransferPairSectionState extends State<TransferPairSection> {
+  TransferPairOf? _pair;
+  bool _failed = false, _busy = false;
+  String? _notice;
+  bool _noticeError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final next = await widget.repository.transferPair(widget.transactionId);
+      if (mounted) {
+        setState(() {
+          _pair = next;
+          _failed = false;
+        });
+      }
+    } on Object {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  Future<void> _unpair(TransferPairOf pair) async {
+    final d = FinanceDepthStrings.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text(d.t('tp.confirmTitle')),
+        scrollable: true,
+        content: Text(d.t('tp.confirmText')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(dialog).pop(false),
+              child: Text(d.t('fx.cancel'))),
+          FilledButton(
+              key: const Key('transfer-unpair-confirm'),
+              onPressed: () => Navigator.of(dialog).pop(true),
+              child: Text(d.t('tp.unpair'))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _busy = true;
+      _notice = null;
+    });
+    try {
+      await widget.repository.unpair(pair.linkId!, pair.linkVersion);
+      _notice = d.t('tp.done');
+      _noticeError = false;
+      await widget.onChanged?.call();
+    } on Object catch (error) {
+      _notice = RecordsFailure.from(error).message;
+      _noticeError = true;
+    }
+    await _load();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = FinanceDepthStrings.of(context);
+    final p = context.palette;
+    final pair = _pair;
+    if (_failed) {
+      return Row(children: [
+        Expanded(
+            child: Text(d.t('tp.error'), style: TextStyle(color: p.muted))),
+        TextButton(onPressed: _load, child: Text(d.t('tp.retry'))),
+      ]);
+    }
+    if (pair == null || !pair.paired || pair.linkId == null) {
+      return _notice == null
+          ? const SizedBox.shrink()
+          : Text(_notice!,
+              style: TextStyle(color: _noticeError ? p.stop : p.ok));
+    }
+    final amount = pair.otherAmount != null && pair.otherCurrency != null
+        ? formatAmount(pair.otherAmount!, pair.otherCurrency!)
+        : '-';
+    return AnumSurface(
+      key: const Key('transfer-pair'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnumHeader(
+            title: d.t('tp.title'),
+            subtitle: d.t(pair.role == 'out' ? 'tp.sentTo' : 'tp.receivedFrom',
+                {'account': pair.otherAccount ?? d.t('tp.unknownAccount')}),
+          ),
+          RecordsField(d.t('tp.otherDay'), pair.otherDay ?? '-'),
+          RecordsField(d.t('tp.otherAmount'), amount),
+          if ((pair.otherText ?? '').isNotEmpty)
+            RecordsField(d.t('tp.otherText'), pair.otherText!),
+          if (_notice != null)
+            Text(_notice!,
+                style: TextStyle(color: _noticeError ? p.stop : p.ok)),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton.icon(
+              key: const Key('transfer-unpair'),
+              onPressed: _busy ? null : () => _unpair(pair),
+              icon: const Icon(Icons.link_off),
+              label: Text(d.t('tp.unpair')),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

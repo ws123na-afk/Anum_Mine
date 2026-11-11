@@ -3,7 +3,7 @@
 // signed-in app's client, so nothing authenticated runs on the public page.
 import type {
   PortalChange, PortalChangeSummary, PortalDecisionInput, PortalInvoice, PortalInvoiceSummary, PortalMe, PortalOffer, PortalOfferSummary, PortalPaymentNoticeInput,
-  PortalTicket, PortalTicketInput, PortalTicketSummary,
+  PortalTicket, PortalTicketInput, PortalMessageInput, PortalTicketSummary,
 } from '@anum/contracts';
 import { ApiError, apiErrorFromResponse } from './errors';
 import { getLocale } from './i18n';
@@ -43,6 +43,8 @@ export const getInvoice = (invoiceId: string) => get<PortalInvoice>(`/invoices/$
 export const listTickets = () => get<PortalTicketSummary[]>('/tickets');
 export const getTicket = (ticketId: string) => get<PortalTicket>(`/tickets/${id(ticketId)}`);
 export const createTicket = (body: PortalTicketInput) => post<PortalTicket>('/tickets', body);
+/** Write inside one of your requests (docs/business-portal.md#replying-inside-a-request). */
+export const writeInTicket = (ticketId: string, body: PortalMessageInput) => post<PortalTicket>(`/tickets/${id(ticketId)}/messages`, body);
 
 export async function invoicePrintable(invoiceId: string, lang: 'en' | 'ar'): Promise<Blob> {
   return (await send(`/invoices/${id(invoiceId)}/print?lang=${lang}`)).blob();

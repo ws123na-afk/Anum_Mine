@@ -12,7 +12,9 @@ import 'package:anum_mobile/features/library/library_screens.dart';
 import 'package:anum_mobile/features/reports/report_sections.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -61,12 +63,42 @@ class FakeLibrary implements LibraryRepository {
   final saved = <String>[];
   final calls = <String>[];
 
+  final favoriteQueries = <Map<String, Object?>>[];
+  final moves = <String>[];
+  Object? failMove;
+
+  /// `stars` is the person's own order; other sorts are computed.
   @override
-  Future<LibraryPage<Favorite>> favorites(
-      {String? type, int offset = 0}) async {
-    final rows =
-        stars.where((f) => type == null || f.itemType == type).toList();
-    return LibraryPage(rows, rows.length);
+  Future<LibraryPage<Favorite>> favorites({
+    String? type,
+    int offset = 0,
+    String? query,
+    String? sort,
+    int? limit,
+  }) async {
+    favoriteQueries.add({'type': type, 'q': query, 'sort': sort});
+    var rows = stars
+        .where((f) => type == null || f.itemType == type)
+        .where((f) =>
+            query == null ||
+            f.label.toLowerCase().contains(query.toLowerCase()))
+        .toList();
+    if (sort == 'name') rows.sort((a, b) => a.label.compareTo(b.label));
+    if (sort == null) rows = rows.reversed.toList();
+    final page = rows.skip(offset).take(limit ?? 20).toList();
+    return LibraryPage(page, rows.length);
+  }
+
+  @override
+  Future<void> moveFavorite(String id,
+      {String? beforeId, String? afterId}) async {
+    moves.add('$id:${beforeId != null ? 'before' : 'after'}:'
+        '${beforeId ?? afterId}');
+    if (failMove != null) throw failMove!;
+    final moving = stars.firstWhere((f) => f.id == id);
+    stars.remove(moving);
+    final at = stars.indexWhere((f) => f.id == (beforeId ?? afterId));
+    stars.insert(beforeId != null ? at : at + 1, moving);
   }
 
   @override
@@ -383,6 +415,135 @@ void main() {
           .tap(find.byTooltip('Remove Tyre cost report_1 from favorites'));
       await tester.pumpAndSettle();
       expect(find.text('Nothing starred yet'), findsOneWidget);
+    });
+
+    FakeLibrary arranged() => FakeLibrary()
+      ..stars = [
+        for (final name in ['Alpha', 'Bravo', 'Charlie'])
+          Favorite(
+              id: 'fav_$name',
+              itemType: 'task',
+              itemId: 'task_$name',
+              label: name,
+              createdAt: _now),
+      ];
+
+    List<String> shown(WidgetTester tester) => [
+          for (final name in ['Alpha', 'Bravo', 'Charlie'])
+            if (find.text(name).evaluate().isNotEmpty) name
+        ]..sort((a, b) => tester
+            .getTopLeft(find.text(a))
+            .dy
+            .compareTo(tester.getTopLeft(find.text(b)).dy));
+
+    testWidgets('favorites: search waits for a pause, sort and the empty match',
+        (tester) async {
+      final repo = arranged();
+      await _pump(
+          tester, FavoritesScreen(repository: repo, onOpenOther: (_) {}));
+      expect(repo.favoriteQueries.last['sort'], 'custom');
+      expect(shown(tester), ['Alpha', 'Bravo', 'Charlie']);
+      expect(find.textContaining('Drag a row by its handle'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'brav');
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(repo.favoriteQueries.last['q'], isNot('brav'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+      expect(repo.favoriteQueries.last['q'], 'brav');
+      expect(shown(tester), ['Bravo']);
+
+      await tester.enterText(find.byType(TextField), 'zulu');
+      await tester.pumpAndSettle(const Duration(milliseconds: 400));
+      expect(find.text('Nothing starred matches "zulu"'), findsOneWidget);
+      await tester.tap(find.text('Clear search').last);
+      await tester.pumpAndSettle();
+      expect(shown(tester), ['Alpha', 'Bravo', 'Charlie']);
+
+      await tester.tap(find.byKey(const Key('fav-sort')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Newest first').last);
+      await tester.pumpAndSettle();
+      expect(repo.favoriteQueries.last['sort'], isNull);
+      expect(shown(tester), ['Charlie', 'Bravo', 'Alpha']);
+      expect(find.textContaining('sort by My order'), findsOneWidget);
+      expect(find.byKey(const Key('fav-arrange-fav_Alpha')), findsNothing);
+    });
+
+    testWidgets('favorites: Move up and Move down save the person\'s order',
+        (tester) async {
+      final repo = arranged();
+      await _pump(
+          tester, FavoritesScreen(repository: repo, onOpenOther: (_) {}));
+      await tester.tap(find.byTooltip('Arrange Charlie'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Move up'));
+      await tester.pumpAndSettle();
+      expect(repo.moves, ['fav_Charlie:before:fav_Bravo']);
+      expect(shown(tester), ['Alpha', 'Charlie', 'Bravo']);
+
+      await tester.tap(find.byTooltip('Arrange Alpha'));
+      await tester.pumpAndSettle();
+      // The first row cannot move up.
+      final up = tester.widget<PopupMenuItem<int>>(
+          find.widgetWithText(PopupMenuItem<int>, 'Move up'));
+      expect(up.enabled, isFalse);
+      await tester.tap(find.text('Move down'));
+      await tester.pumpAndSettle();
+      expect(repo.moves.last, 'fav_Alpha:after:fav_Charlie');
+      expect(shown(tester), ['Charlie', 'Alpha', 'Bravo']);
+    });
+
+    testWidgets('favorites: screen readers move a row with an action',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      final repo = arranged();
+      await _pump(
+          tester, FavoritesScreen(repository: repo, onOpenOther: (_) {}));
+      final node = tester.getSemantics(find.byKey(const ValueKey('fav_Bravo')));
+      final labels = (node.getSemanticsData().customSemanticsActionIds ?? [])
+          .map((id) => CustomSemanticsAction.getAction(id)!.label)
+          .toSet();
+      expect(labels, {'Move up', 'Move down'});
+      final upId = node.getSemanticsData().customSemanticsActionIds!.firstWhere(
+          (id) => CustomSemanticsAction.getAction(id)!.label == 'Move up');
+      tester
+          .renderObject(find.byKey(const ValueKey('fav_Bravo')))
+          .owner!
+          .semanticsOwner!
+          .performAction(node.id, SemanticsAction.customAction, upId);
+      await tester.pumpAndSettle();
+      expect(repo.moves, ['fav_Bravo:before:fav_Alpha']);
+      expect(shown(tester), ['Bravo', 'Alpha', 'Charlie']);
+      handle.dispose();
+    });
+
+    testWidgets('favorites: a drag saves the order; a refusal puts it back',
+        (tester) async {
+      final repo = arranged();
+      await _pump(
+          tester, FavoritesScreen(repository: repo, onOpenOther: (_) {}));
+      final handle = find.byKey(const Key('fav-drag-fav_Alpha'));
+      final gesture = await tester.startGesture(tester.getCenter(handle));
+      // A pause before moving (a long press) still drags.
+      await tester.pump(kLongPressTimeout);
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(0, 20));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(repo.moves.single, startsWith('fav_Alpha:after:'));
+      expect(shown(tester).first, isNot('Alpha'));
+
+      repo.failMove = const ApiException(503, 'The database is unavailable');
+      final before = shown(tester);
+      await tester.tap(find.byTooltip('Arrange ${before.last}'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Move up'));
+      await tester.pumpAndSettle();
+      expect(
+          find.textContaining('Could not save the new order'), findsOneWidget);
+      expect(shown(tester), before);
     });
 
     testWidgets('reports: a failed load retries; generate opens the report',

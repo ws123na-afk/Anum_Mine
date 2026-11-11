@@ -2,7 +2,7 @@
 // (any of call:read, business:read, whatsapp:read, email:read), write (business:write) and manage (business:manage).
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
-import { exportName, type BuildReport, type Channel, type PeopleFilters, type PeoplePage, type PersonBody, type PersonDetail, type ProposalPage } from './contacts';
+import { exportName, type BuildReport, type Channel, type ImportDecision, type ImportMapping, type ImportPreview, type ImportResult, type PeopleFilters, type PeoplePage, type PersonBody, type PersonDetail, type ProposalPage } from './contacts';
 
 const BASE = '/api/v1/contacts';
 const id = encodeURIComponent;
@@ -41,3 +41,10 @@ export async function downloadPeople(): Promise<string> {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return name;
 }
+
+/** What importing a CSV file would do, row by row (owners only); nothing is written. */
+export const previewImport = (csv: string, fileName: string, mapping: ImportMapping | null) =>
+  apiRequest<ImportPreview>(`${BASE}/import/preview`, json('POST', { csv, file_name: fileName, ...(mapping ? { mapping } : {}) }));
+/** Imports the previewed file with every row's decision, all of it or nothing (owners only). */
+export const applyImport = (csv: string, fileName: string, preview: ImportPreview, decisions: ImportDecision[]) =>
+  apiRequest<ImportResult>(`${BASE}/import/apply`, json('POST', { csv, file_name: fileName, mapping: preview.mapping, fingerprint: preview.fingerprint, decisions }));

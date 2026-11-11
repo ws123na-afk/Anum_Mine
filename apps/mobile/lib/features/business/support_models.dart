@@ -280,6 +280,25 @@ class TicketActivity {
       );
 }
 
+/// One message of the conversation inside the request in the customer
+/// portal (docs/business-portal.md#replying-inside-a-request).
+class TicketMessage {
+  const TicketMessage(this.id, this.author, this.authorName, this.body,
+      this.createdAt, this.readAt);
+  final String id, author, authorName, body;
+  final DateTime createdAt;
+  final DateTime? readAt;
+  bool get fromCustomer => author == 'customer';
+  factory TicketMessage.fromJson(JsonReader r) => TicketMessage(
+        r.string('id'),
+        r.string('author'),
+        r.optString('author_name') ?? '',
+        r.optString('body') ?? '',
+        r.date('created_at'),
+        r.optDate('read_at'),
+      );
+}
+
 class TicketDetail {
   const TicketDetail({
     required this.ticket,
@@ -287,6 +306,10 @@ class TicketDetail {
     required this.activities,
     required this.canReply,
     this.replyChannel,
+    this.portalMessages = const [],
+    this.portalOpen = false,
+    this.portalUnread = 0,
+    this.accountId,
   });
   final SupportTicket ticket;
   final List<TicketReply> replies;
@@ -294,12 +317,26 @@ class TicketDetail {
   final bool canReply;
   final String? replyChannel;
 
+  /// The conversation in the customer portal, oldest first.
+  final List<TicketMessage> portalMessages;
+
+  /// The team can answer there: an active portal link and not closed.
+  final bool portalOpen;
+  final int portalUnread;
+
+  /// The client account the request belongs to (the portal needs one).
+  final String? accountId;
+
   factory TicketDetail.fromJson(JsonReader r) => TicketDetail(
         ticket: SupportTicket.fromJson(r),
         replies: r.objects('replies', TicketReply.fromJson),
         activities: r.objects('activities', TicketActivity.fromJson),
         canReply: r.boolean('can_reply'),
         replyChannel: r.optString('reply_channel'),
+        portalMessages: r.optObjects('portal_messages', TicketMessage.fromJson),
+        portalOpen: r.optBool('portal_open') ?? false,
+        portalUnread: r.optInt('portal_unread') ?? 0,
+        accountId: r.optString('account_id'),
       );
 }
 

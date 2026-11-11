@@ -11,11 +11,12 @@ import 'finance_more_menu.dart';
 import 'finance_more_strings.dart';
 import 'finance_review_strings.dart';
 import 'finance_strings.dart';
+import 'finance_tools_strings.dart';
 
 /// The review side of Finance on the phone (docs/finance.md): filing an
 /// uncategorized row, the suggestion queue, the last statement import and
 /// reconciliation status. The phone shows what matters and acts on it;
-/// rules, matching rows and completing a reconciliation stay on the web.
+/// rules and reconciling open from here into More in Finance.
 
 /// Lays [parts] out one under the other with the shared spacing.
 Widget _stack(List<Widget> parts) => Column(
@@ -340,6 +341,16 @@ class SuggestionsView extends StatelessWidget {
           ),
         ),
       Text(s.t('sug.rulesOnWeb'), style: muted),
+      if (c.more != null)
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(
+            key: const Key('sug-open-rules'),
+            onPressed: () => openFinanceMore(context, c, FinanceMorePage.rules),
+            icon: const Icon(Icons.rule),
+            label: Text(FinanceToolsStrings.of(context).t('menu.rules')),
+          ),
+        ),
       if (c.depth != null) ...[
         Text(s.t('sug.notices'), style: muted),
         Align(
@@ -513,6 +524,16 @@ class _SuggestionCard extends StatelessWidget {
                 onPressed: () => onReview!(reviewId),
                 child: Text(s.t('sug.review')),
               ),
+            // A reconciliation exception is resolved in its session, which
+            // the phone has (docs/finance.md#reconciliation-sessions).
+            if (item.kind == 'reconciliation' && controller.more != null)
+              FilledButton.icon(
+                key: Key('sug-recon-${item.key}'),
+                onPressed: () =>
+                    openFinanceMore(context, controller, FinanceMorePage.recon),
+                icon: const Icon(Icons.fact_check_outlined),
+                label: Text(FinanceMoreStrings.of(context).t('recon.open')),
+              ),
             if (item.variant == 'vehicle_record' && onOpenVehicles != null)
               FilledButton.icon(
                 key: Key('sug-vehicles-${item.key}'),
@@ -529,6 +550,7 @@ class _SuggestionCard extends StatelessWidget {
         ),
         if (mode == 'none' &&
             reviewId == null &&
+            !(item.kind == 'reconciliation' && controller.more != null) &&
             !(item.variant == 'vehicle_record' && onOpenVehicles != null))
           FinanceWebLink(
               appUrl: appUrl,
@@ -575,6 +597,17 @@ class LastImportCard extends StatelessWidget {
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           AnumHeader(title: s.t('import.none')),
           Text(s.t('import.noneText'), style: muted),
+          if (c.more != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: FilledButton.icon(
+                key: const Key('import-open'),
+                onPressed: () =>
+                    openFinanceMore(context, c, FinanceMorePage.import),
+                icon: const Icon(Icons.upload_file),
+                label: Text(FinanceToolsStrings.of(context).t('imp.start')),
+              ),
+            ),
           FinanceWebLink(
               appUrl: appUrl,
               openLink: openLink,

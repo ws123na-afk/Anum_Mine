@@ -16,6 +16,7 @@ import 'invoice_controller.dart';
 import 'invoice_document.dart';
 import 'invoice_form.dart';
 import 'invoice_models.dart';
+import 'recurring_invoices.dart';
 
 /// Invoices on the phone (docs/business.md#invoices): the per-currency
 /// summary, the filtered list, an invoice with its lines, approval state,
@@ -249,6 +250,21 @@ class _InvoicesViewState extends State<InvoicesView> {
             onPressed: _new,
             icon: const Icon(Icons.add),
             label: Text(l.t('biz.inv.new')),
+          ),
+        if (c.recurring != null)
+          OutlinedButton.icon(
+            key: const Key('inv-recurring'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => RecurringInvoicesScreen(
+                  repository: c.recurring!,
+                  canWrite: c.canWrite,
+                  onOpenInvoice: _open,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.event_repeat_outlined),
+            label: Text(l.t('biz.rinv.title')),
           ),
         OutlinedButton.icon(
           key: const Key('inv-profile'),

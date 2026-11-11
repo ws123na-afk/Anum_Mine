@@ -201,7 +201,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Connect'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      // The provider choice inside the sheet (Settings itself has other dropdowns).
+      await tester.tap(find
+          .descendant(
+              of: find.byType(BottomSheet),
+              matching: find.byType(DropdownButtonFormField<String>))
+          .first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Anthropic (Claude)').last);
       await tester.pumpAndSettle();

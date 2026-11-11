@@ -34,6 +34,7 @@ Code: `services/api/anum_api/action_browser/` (`classify.py`, `handles.py`, `pro
 - [Limits](#limits)
 - [Storage, audit and retention](#storage-audit-and-retention)
 - [API](#api)
+- [On the phone](#on-the-phone)
 - [Threat model](#threat-model)
 - [Setting it up](#setting-it-up)
 - [Tests](#tests)
@@ -192,10 +193,22 @@ All under `/api/v1/action-browser`, workspace scoped:
 | `GET /credentials` | Owners (`organization:manage`); others 403 with "Only a workspace owner manages saved logins and cards." |
 | `POST /credentials`, `PUT /credentials/{id}`, `DELETE /credentials/{id}` | Owners; a `cvc` field is refused (422) |
 | `GET /sessions?task_id=` | Anyone who can read the task (`task:read`) |
+| `GET /runs?limit=&offset=` | `task:read`: the workspace's runs, newest first, without step logs (the phone's runs list). A run whose task the caller cannot read (a teammate's private task, or a deleted task) is left out of the page, so a page may be shorter than `limit`; `next_offset` is where the next page starts, `null` at the end. A run whose task already ended is settled when listed, as the per-task read does. |
 | `GET /sessions/{id}` (with its steps) | `task:read` |
 | `GET /sessions/{id}/frame` | Owners |
 | `POST /sessions/{id}/input` | Owners, only while it needs a person |
 | `POST /sessions/{id}/stop` | Owners, or the person who created the task |
+
+## On the phone
+
+The Flutter app has **Action browser** (`/action-browser`, `apps/mobile/lib/features/action_browser/`; [Mobile app features](mobile-features.md#owner-desk)):
+
+- **Runs**: `GET /runs` newest first with Load more (`next_offset`); each row shows the goal, the status ("Waiting for your approval", "Needs you", "Done" and so on), the step count, when it started and the address.
+- **A run**: `GET /sessions/{id}` with its status, the sites it may open, how many saved items it may use (their names and values stay on the web), the step log (in Arabic from each step's detail, as the web), and the result or why it ended; read again every 4 seconds while it runs. **Stop** (`POST /sessions/{id}/stop`) for the owner or the task's creator, after a confirm.
+- **What it waits for**: the task's pending `web.act` approvals from `GET /approvals`, each with the kind of step, the site, the address, the action and the amount on the page. Approve sends the payload hash shown (`POST /approvals/{id}/approve`) after a confirm; Reject ends the task as on the web. A step that needs the card security code has no Approve on the phone ("Approve on the web to enter the security code"); nor has a "Needs you" step, whose check is done in the live picture on the web.
+- **Never on the phone**: saved logins and cards, the live picture and the owner's input to the page. No credential or card data is read, shown or typed there.
+
+Tests: `apps/mobile/test/owner_desk/action_browser_test.dart` and the journey `apps/mobile/integration_test/journeys/owner_desk.dart`.
 
 ## Threat model
 

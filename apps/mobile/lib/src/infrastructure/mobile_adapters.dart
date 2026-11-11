@@ -13,6 +13,7 @@ import "picked_file_size.dart";
 import '../../data/api_models.dart';
 import '../../data/session_store.dart';
 import '../../features/files/file_versions_models.dart';
+import '../../features/finance/finance_tools_data.dart';
 import '../../features/files/file_versions_repository.dart';
 import '../../features/mail_center/mail_center_transfer.dart';
 import '../../features/mail_center/mail_directory_models.dart';
@@ -209,7 +210,8 @@ class HttpWorkspaceFileTransfer
         WorkspaceFileTransfer,
         FileStreamTransfer,
         FileVersionTransfer,
-        MeetingUploadTransfer {
+        MeetingUploadTransfer,
+        StatementPdfTransport {
   HttpWorkspaceFileTransfer({
     required this.baseUri,
     required this.sessions,
@@ -391,6 +393,46 @@ class HttpWorkspaceFileTransfer
       fileName: file.name,
       bytes: bytes,
     );
+  }
+
+  /// Sends a statement PDF to the reader (docs/finance-statements.md): the
+  /// bytes the person picked, held in memory only, with the password in its
+  /// header when the file has one. Nothing is written to the phone's storage.
+  /// A refusal keeps the reader's own code (`pdf_password_required`,
+  /// `pdf_password_wrong`) so the screen can ask for the password.
+  @override
+  Future<JsonMap> readStatementPdf(Map<String, String> query, Uint8List bytes,
+      {String? password}) async {
+    final headers = {
+      ...await _headers(),
+      'content-type': 'application/pdf',
+      if (password != null && password.isNotEmpty)
+        'X-Statement-Password': password,
+    };
+    final response = await guardTransfer(
+        () => _client.post(_uploadUri('api/v1/finance/imports/pdf/read', query),
+            headers: headers, body: bytes),
+        timeout: downloadTimeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String? code;
+      try {
+        final error =
+            JsonReader.of(jsonDecode(response.body)).optObject('error');
+        final details = error?.optList('details') ?? const [];
+        for (final item in details) {
+          if (item case {'type': final String type}
+              when type.startsWith('pdf_')) {
+            code = type.substring(4);
+          }
+        }
+        code ??= error?.optString('code');
+      } on Object {
+        code = null;
+      }
+      throw ApiException(response.statusCode, _detail(response.body),
+          code: code);
+    }
+    return jsonObject(jsonDecode(response.body));
   }
 
   String _detail(String body) {

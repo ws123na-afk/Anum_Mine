@@ -21,7 +21,23 @@ export interface MatchRow {
 }
 
 /** The person's choice for one row; anything unset follows the engine's default. */
-export interface Choice { action?: 'import' | 'skip' | null; bill?: boolean | null; transfer?: boolean | null; correct?: boolean | null }
+export interface Choice {
+  action?: 'import' | 'skip' | null; bill?: boolean | null; transfer?: boolean | null; correct?: boolean | null;
+  /** The record ids of one offered group: the row stands for all of them (docs/finance.md#one-row-for-several-recorded-payments). */
+  split?: string[] | null;
+}
+
+/** Whether the person picked this group of records for the row. */
+export function sameRecords(picked: readonly string[] | null | undefined, group: readonly { record_id: string }[]): boolean {
+  if (!picked || picked.length !== group.length) return false;
+  const ids = new Set(group.map((record) => record.record_id));
+  return picked.every((id) => ids.has(id));
+}
+
+/** Groups of recorded payments this row may stand for (only offered on new rows and possible duplicates). */
+export function splitsOf(match: FinanceRowMatch): FinanceMatchedRecord[][] {
+  return match.status === 'new' || match.status === 'possible_duplicate' ? match.splits ?? [] : [];
+}
 
 export type GroupId = 'decide' | 'matched' | 'bills' | 'transfers' | 'recorded' | 'new';
 export const GROUP_ORDER: readonly GroupId[] = ['decide', 'matched', 'bills', 'transfers', 'new', 'recorded'];
@@ -31,7 +47,7 @@ export type Outcome = 'import' | 'attach' | 'review' | 'skip' | 'duplicate';
 
 /** A row needs the person when it is a possible duplicate, or a bill or transfer match is weak. */
 export function needsDecision(match: FinanceRowMatch): boolean {
-  return match.status === 'possible_duplicate' || match.bill?.strength === 'weak' || match.transfer?.strength === 'weak';
+  return match.status === 'possible_duplicate' || match.bill?.strength === 'weak' || match.transfer?.strength === 'weak' || splitsOf(match).length > 0;
 }
 
 /** The groups a row is listed in: its status, and also "Pays a bill" or "Transfers" when it does. */
@@ -60,6 +76,7 @@ export function canImportAnyway(match: FinanceRowMatch): boolean {
 /** What the import will do with the row, given the person's choice. */
 export function outcomeOf(match: FinanceRowMatch, choice: Choice | undefined): Outcome {
   if (choice?.action === 'skip') return 'skip';
+  if (choice?.split?.length && splitsOf(match).some((group) => sameRecords(choice.split, group))) return 'attach';
   if (choice?.action === 'import' && (canImportAnyway(match) || match.status === 'new')) return 'import';
   if (match.status === 'exact_duplicate') return 'duplicate';
   if (match.status === 'matched_existing') return choice?.action === 'import' ? 'import' : 'attach';
@@ -91,6 +108,7 @@ export function decisionsFor(rows: readonly MatchRow[], choices: Readonly<Record
     if (choice.bill === false) decision.bill = false;
     if (typeof choice.transfer === 'boolean') decision.transfer = choice.transfer;
     if (choice.correct === false) decision.correct = false;
+    if (choice.split?.length && choice.action !== 'skip') decision.split = [...choice.split];
     if (Object.keys(decision).length > 1) out.push(decision);
   }
   return out;

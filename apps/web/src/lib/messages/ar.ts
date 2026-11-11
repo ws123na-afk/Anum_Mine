@@ -73,6 +73,7 @@ import { filesOrganizeAr } from './filesOrganize.ar.ts';
 import { invoiceMoneyAr } from './invoiceMoney.ar.ts';
 import { businessAccountsAr } from './businessAccounts.ar.ts';
 import { invoiceSendAr } from './invoiceSend.ar.ts';
+import { invoiceSchedulesAr } from './invoiceSchedules.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
 import { portalAr } from './portal.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
@@ -181,6 +182,7 @@ export const ar: Record<MessageKey, Message> = {
   ...invoiceMoneyAr,
   ...businessAccountsAr,
   ...invoiceSendAr,
+  ...invoiceSchedulesAr,
   ...portalAr,
   ...brevoAr,
   ...agentControlsAr,
@@ -928,6 +930,9 @@ export const ar: Record<MessageKey, Message> = {
   'tasks.detail.archivedBadge': 'مؤرشفة',
   'tasks.detail.privateBadge': 'خاصة بك',
   'tasks.detail.privateHint': 'أنت وحدك ترى هذه المهمة وتشغيلاتها ونتائجها. جاءت من محادثتك الخاصة أو قرأت بياناتك أنت.',
+  'tasks.detail.privateOnly': 'أنت وحدك ترى هذه المهمة وتشغيلاتها ونتائجها.',
+  'tasks.detail.privateWhy.data': 'قرأت بياناتك أنت (المالية أو صندوق بريدك)، لذا تبقى خاصة دائمًا وتقرر موافقاتها بنفسك.',
+  'tasks.detail.privateWhy.chat': 'جاءت من محادثتك الخاصة. إذا انتظر تشغيلها موافقة شخص آخر، تُشارك مع مساحة العمل في تلك اللحظة.',
   'tasks.detail.archived': 'أُرشفت',
   'tasks.detail.runs': 'مرات التشغيل',
   'tasks.detail.by': '{when} بواسطة {who}',

@@ -13,7 +13,7 @@ import { LOCALES, LOCALE_NAMES, chooseLocale, formatDateTime, getLocale, t, type
 import { formatMoney, formatPct } from './lib/business';
 import {
   REPORT_METHODS, REQUEST_SEVERITIES, changeStatusLabel, checkSigner, confirmText, emptyReport, expiryState, localToday, invoiceStatusText, invoiceStatusTone, methodLabel,
-  offerStatusLabel, problemKind, reportBody, reportStatusLabel, reportTone, resolveToken, severityLabel, storeToken, ticketStatusLabel, ticketTone, withoutFragment,
+  newReportKey, offerStatusLabel, problemKind, reportBody, reportStatusLabel, reportTone, resolveToken, severityLabel, storeToken, ticketStatusLabel, ticketTone, withoutFragment,
 } from './lib/portal';
 import * as p from './lib/portalApi';
 import { printHtml } from './lib/printWindow';
@@ -644,5 +644,38 @@ function RequestDetail({ id, fresh, onBack, onLinkLost }: { id: string; fresh: s
       {ticket.replies.length === 0 ? <p className="muted">{t('pt.req.noReplies')}</p>
         : <ul className="ptReplies">{ticket.replies.map((reply, index) => <li key={index} className="surface"><p dir="auto" className="ptPre">{reply.body}</p><small className="muted">{dateTime(reply.sent_at)}</small></li>)}</ul>}
     </section>
+    <Conversation ticket={ticket} onTicket={detail.set} onLinkLost={onLinkLost} />
   </article>;
+}
+
+// The conversation inside a request: the customer writes, the business answers here (docs/business-portal.md#replying-inside-a-request).
+function Conversation({ ticket, onTicket, onLinkLost }: { ticket: PortalTicket; onTicket: (next: PortalTicket) => void; onLinkLost: (message: string | null) => void }) {
+  const [body, setBody] = useState(''), [key, setKey] = useState(newReportKey), [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null), [sent, setSent] = useState(false);
+  const field = useId();
+  const messages = ticket.messages ?? [];
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!body.trim()) { setProblem(t('pt.msg.required')); return; }
+    setBusy(true); setProblem(null); setSent(false);
+    try {
+      onTicket(await p.writeInTicket(ticket.id, { body: body.trim(), idempotency_key: key }));
+      setBody(''); setKey(newReportKey()); setSent(true);
+    } catch (error) {
+      if (problemKind(statusOf(error), detailOf(error)) === 'link') onLinkLost(detailOf(error));
+      setProblem(detailOf(error) ?? t('pt.err.generic'));
+    } finally { setBusy(false); }
+  }
+  return <section className="ptBlock" aria-labelledby="pt-thread-h"><h3 id="pt-thread-h">{t('pt.msg.title')}</h3>
+    {messages.length === 0 ? <p className="muted">{t('pt.msg.none')}</p>
+      : <ol className="ptThread">{messages.map((message) => <li key={message.id} className={`surface ${message.author === 'you' ? 'ptMine' : 'ptTheirs'}`}>
+        <strong dir="auto">{message.author === 'you' ? t('pt.msg.you') : message.author_name}</strong>
+        <p dir="auto" className="ptPre">{message.body}</p><small className="muted">{dateTime(message.created_at)}</small></li>)}</ol>}
+    {ticket.can_reply ? <form className="surface ptForm" onSubmit={(event) => void submit(event)} noValidate aria-label={t('pt.msg.write')}>
+      <label className="field" htmlFor={field}><span>{t('pt.msg.label')}</span><textarea id={field} rows={4} maxLength={4000} value={body} disabled={busy} onChange={(event) => setBody(event.target.value)} dir="auto" /></label>
+      {problem && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{problem}</p>}
+      {sent && <Notice live>{t('pt.msg.sent')}</Notice>}
+      <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : t('pt.msg.send')}</button></div>
+    </form> : <p className="muted">{ticket.status === 'closed' ? t('pt.msg.closed') : t('pt.msg.paused')}</p>}
+  </section>;
 }

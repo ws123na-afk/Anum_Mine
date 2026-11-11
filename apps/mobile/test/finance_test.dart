@@ -80,6 +80,38 @@ Map<String, Object?> summaryJson({bool empty = false}) => {
       'minimum_payments': [],
       'debt_count': 0,
       'goals': [],
+      'net_worth_parts': empty
+          ? <Object?>[]
+          : [
+              {
+                'currency': 'AED',
+                'accounts': '15349.50',
+                'receivables': '500.00',
+                'holdings_at_cost': '0.00',
+                'debts': '2000.00',
+                'installments': '300.00',
+                'net': '13549.50',
+              },
+              {
+                'currency': 'USD',
+                'accounts': '-60.25',
+                'receivables': '0',
+                'holdings_at_cost': '0',
+                'debts': '0',
+                'installments': '0',
+                'net': '-60.25',
+              },
+            ],
+      'net_worth_excluded': empty
+          ? <Object?>[]
+          : [
+              {
+                'kind': 'holding',
+                'name': 'Example fund',
+                'currency': 'USD',
+                'reason': 'no_cost_basis'
+              },
+            ],
     };
 
 Map<String, Object?> transactionJson(int i, {bool uncategorized = false}) => {
@@ -841,6 +873,36 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('TALABAT ORDER 0'), findsOneWidget);
+    });
+  }
+
+  for (final arabic in [false, true]) {
+    testWidgets(
+        'net worth shows each currency with its parts, never summed'
+        '${arabic ? ' (Arabic)' : ''}', (tester) async {
+      final c = FinanceController(FakeFinance());
+      await tester.pumpWidget(
+          app(c, locale: Locale(arabic ? 'ar' : 'en'), textScale: 2));
+      await open(tester);
+      final worth = find.byKey(const Key('finance-net-worth'));
+      await tester.ensureVisible(worth);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('worth-net-AED')), findsOneWidget);
+      expect(find.byKey(const Key('worth-net-USD')), findsOneWidget);
+      if (!arabic) {
+        expect(find.text('Net worth'), findsOneWidget);
+        expect(find.text('Money lent, still owed back'), findsOneWidget);
+        expect(find.text('Debts with no account of their own'), findsOneWidget);
+        // A debt reads as money taken off; a zero line is left out.
+        expect(find.text('AED -2,000.00'), findsOneWidget);
+        expect(find.text('Holdings at cost'), findsNothing);
+        expect(find.textContaining('Example fund (no cost basis)'),
+            findsOneWidget);
+      } else {
+        expect(find.text('صافي الثروة'), findsOneWidget);
+        expect(Directionality.of(tester.element(worth)), TextDirection.rtl);
+      }
     });
   }
 

@@ -51,7 +51,9 @@ export async function mockPortal(page: Page, options: PortalOptions = {}): Promi
   const tickets: Json[] = [{
     id: 'btkt_1', reference: 'T-1001', title: 'Logo is cut off on mobile', severity: 'normal', status: 'resolved', project_name: 'Website rebuild', reported_at: now(), updated_at: now(), opened_here: true,
     description: 'The logo is clipped on my phone.', resolution_summary: 'We fixed the header and it is live.', resolved_at: now(), replies: [{ body: 'Thanks, we have fixed it. Please check on your phone.', sent_at: now() }],
+    messages: [], can_reply: true,
   }];
+  const messageKeys = new Set<string>();
   const offer = (): Json => ({
     id: 'bprop_1', title: 'Website rebuild', status: decided.offer || options.empty ? 'waiting' : 'waiting', currency: 'SAR', total: 5750, version: 2, sent_at: now(), valid_until: day(14), expired: false,
     decision: decided.offer ?? null, can_decide: canDecide && !decided.offer,
@@ -158,9 +160,21 @@ export async function mockPortal(page: Page, options: PortalOptions = {}): Promi
     if (path === '/tickets' && method === 'POST') {
       const input = body as Json;
       const created = { id: `btkt_new${++counter}`, reference: `T-${1001 + tickets.length}`, title: input.title, severity: input.severity ?? 'normal', status: 'new', project_name: input.project_id ? 'Website rebuild' : null, reported_at: now(), updated_at: now(), opened_here: true,
-        description: input.description, resolution_summary: '', resolved_at: null, replies: [] };
+        description: input.description, resolution_summary: '', resolved_at: null, replies: [], messages: [], can_reply: true };
       tickets.unshift(created);
       return json(created, 201);
+    }
+    if (parts[0] === 'tickets' && parts[2] === 'messages' && method === 'POST') {
+      // docs/business-portal.md#replying-inside-a-request: the same key is the same message; a resolved request reopens.
+      const ticket = tickets.find((item) => item.id === parts[1]);
+      if (!ticket) return json(envelope('not_found', 'Request not found'), 404);
+      const input = body as Json;
+      if (ticket.status === 'closed') return json(envelope('conflict', 'This request is closed. Open a new request if you need more help.'), 409);
+      if (messageKeys.has(String(input.idempotency_key))) return json(ticket, 200);
+      messageKeys.add(String(input.idempotency_key));
+      (ticket.messages as Json[]).push({ id: `btmsg_${++counter}`, author: 'you', author_name: 'Sara Khan', body: String(input.body), created_at: now() });
+      if (ticket.status === 'resolved') ticket.status = 'in_progress';
+      return json(ticket, 201);
     }
     if (parts[0] === 'tickets' && parts.length === 2) return json(tickets.find((item) => item.id === parts[1]) ?? envelope('not_found', 'Request not found'), tickets.some((item) => item.id === parts[1]) ? 200 : 404);
     return json(envelope('not_found', 'Not found'), 404);

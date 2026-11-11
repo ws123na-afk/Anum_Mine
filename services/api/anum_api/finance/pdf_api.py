@@ -368,6 +368,9 @@ class PdfImportRow(BaseModel):
     bill: bool | None = None
     transfer: bool | None = None
     correct: bool | None = None
+    # The recorded payments (their ``record_id`` from the preview's ``splits``) this one row stands for: all of them are
+    # attached to it or, if any changed since the preview, none (docs/finance.md#one-row-for-several-recorded-payments).
+    split: list[str] | None = Field(default=None, min_length=2, max_length=4)
 
 
 class PdfStatedFact(BaseModel):

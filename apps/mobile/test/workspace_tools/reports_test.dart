@@ -122,8 +122,16 @@ class FakeReports implements LibraryRepository {
 
   @override
   Future<LibraryPage<Favorite>> favorites(
-          {String? type, int offset = 0}) async =>
+          {String? type,
+          int offset = 0,
+          String? query,
+          String? sort,
+          int? limit}) async =>
       const LibraryPage([], 0);
+
+  @override
+  Future<void> moveFavorite(String id,
+      {String? beforeId, String? afterId}) async {}
 
   @override
   Future<ReportExport> saveReportToFiles(String id) async {

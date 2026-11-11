@@ -20,7 +20,7 @@ Checked before building (4 November 2026), so nothing is duplicated:
 | SMS | Nothing: no SMS or bank-message API, model or screen existed | Everything on this page |
 | Business invoicing | `docs/business.md`, separate tables | Untouched: personal and business books are never mixed |
 
-Still not built (stated plainly): bank APIs (Open Finance providers stay owner actions, [Finance](finance.md#owner-actions)), a Flutter screen for SMS review, and real bank formats (none are available to validate).
+Still not built (stated plainly): bank APIs (Open Finance providers stay owner actions, [Finance](finance.md#owner-actions)), the set-up on the phone (the safety check, devices and their tokens, see [On the phone](#on-the-phone)), and real bank formats (none are available to validate).
 
 ## How a message travels
 
@@ -148,6 +148,10 @@ For an import whose rows were added anyway, `GET /sms/reconcile/{import_id}` mat
 `GET /api/v1/finance/ledger/dashboard?month=&account_id=&currency=&category=&kind=`: income, expenses and surplus for the month; balances (with the bank's last stated balance and the difference); cards with what is owed, the limit and utilization; loans; assets, liabilities and net worth per currency (never added across currencies); spending by category and by merchant; the last 12 months and this year; money in transit; `uncategorized_count` (the month's rows no rule recognised, in neither income nor expenses, shown as "N uncategorized, not counted"); bills due; goals; debts with the months to clear them at the minimum payment; and sync status. `GET /ledger/entries` lists the journal.
 
 **Personal and business:** each workspace has its own ledger per person, so books are never mixed. The ledger's kind (`personal` or `business`, Settings) labels it; keep personal banking in the workspace you use for yourself.
+
+## On the phone
+
+Finance, More in Finance, **iPhone SMS review** and **Ledger** (`apps/mobile/lib/features/finance/finance_sms_screens.dart`). The review page shows forwarding (on or off, connected iPhones, the last message and problem, how many wait), **Paste a message**, the messages by status (Waiting for review first, every status, paged) and **Formats ANUM learned** with Switch on, Switch off and Delete. A message opens with its masked text and the fields ANUM read: change only what is wrong (an empty field keeps what was read, the web's `correctionBody`), tick **This reading is right**, **Learn this format** or, for a duplicate, **It is a separate transaction**, then **Record** (or **Record the correction** for a recorded one); **Ask the AI for the fields** appears only when AI help is on and the text is kept; **Dismiss**, or **Undo** with a confirmation for a recorded one. The ledger shows the month (previous and next) with the account, currency, category and kind filters, the figures per currency, forwarding, money in transit, rows left out of every figure, accounts, cards (limit used) and loans with what a message last said, spending by category and merchant, twelve months and the year, bills, debts and goals, and the journal with each entry's postings; an entry opens its chain of corrections (`GET /ledger/transactions/{canonical_id}`). Turning forwarding on, the safety check, connecting an iPhone (its token is shown once) and the Shortcut steps stay on the web, where the token can be copied to the iPhone's Shortcut. Tests: `apps/mobile/test/finance/finance_tools_test.dart`.
 
 ## The Shortcut
 

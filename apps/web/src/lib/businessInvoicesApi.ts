@@ -1,6 +1,7 @@
 // Invoices and the customer portal's owner routes over the live API (/api/v1/business, docs/business.md#invoices,
 // docs/business-portal.md). Every route checks the caller's role on the server; a 403 carries the API's own sentence.
 import type {
+  InvoiceAutomation, InvoiceSchedule, InvoiceScheduleDetail, InvoiceScheduleFields, ScheduleRunResult, ScheduleStatus,
   Billable, BillingProfile, BusinessInvoice, BusinessPage, BusinessPaymentProvider, CreditNoteInput, InvoiceCreate, InvoiceEmailInput, InvoiceEmailResult,
   InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
 } from '@anum/contracts';
@@ -90,3 +91,20 @@ export const listPortalAccess = (accountId: string) => apiRequest<PortalAccessIt
 export const createPortalAccess = (body: PortalAccessInput) => apiRequest<PortalAccessCreated>(`${BASE}/portal/access`, json('POST', body));
 export const revokePortalAccess = (accessId: string) => apiRequest<PortalAccessItem>(`${BASE}/portal/access/${id(accessId)}/revoke`, json('POST'));
 export const listPortalDecisions = (q: { account_id?: string; subject_id?: string }) => apiRequest<PortalDecisionRow[]>(`${BASE}/portal/decisions${query(q)}`, { method: 'GET' });
+
+// ---- recurring invoices and the daily pass (docs/business.md#recurring-invoices) ----------------------------------
+
+export const listSchedules = (q: { status?: ScheduleStatus | ''; q?: string; account_id?: string; limit: number; offset: number }) =>
+  apiRequest<BusinessPage<InvoiceSchedule>>(`${BASE}/invoice-schedules${query(q)}`, { method: 'GET' });
+export const getSchedule = (scheduleId: string) => apiRequest<InvoiceScheduleDetail>(`${BASE}/invoice-schedules/${id(scheduleId)}`, { method: 'GET' });
+export const createSchedule = (body: InvoiceScheduleFields) => apiRequest<InvoiceScheduleDetail>(`${BASE}/invoice-schedules`, json('POST', body));
+export const updateSchedule = (scheduleId: string, version: number, body: InvoiceScheduleFields) =>
+  apiRequest<InvoiceScheduleDetail>(`${BASE}/invoice-schedules/${id(scheduleId)}`, json('PATCH', { ...body, version }));
+export const changeSchedule = (scheduleId: string, action: 'pause' | 'resume' | 'end', version: number) =>
+  apiRequest<InvoiceScheduleDetail>(`${BASE}/invoice-schedules/${id(scheduleId)}/${action}`, json('POST', { version }));
+export const deleteSchedule = (scheduleId: string) => apiRequestVoid(`${BASE}/invoice-schedules/${id(scheduleId)}`, { method: 'DELETE' });
+export const runSchedule = (scheduleId: string) => apiRequest<ScheduleRunResult>(`${BASE}/invoice-schedules/${id(scheduleId)}/run`, json('POST'));
+export const getAutomation = () => apiRequest<InvoiceAutomation>(`${BASE}/invoice-automation`, { method: 'GET' });
+export const saveAutomation = (body: { auto_reminders: boolean; email_scheduled: boolean; language: 'en' | 'ar' }) =>
+  apiRequest<InvoiceAutomation>(`${BASE}/invoice-automation`, json('PUT', body));
+export const runAutomation = () => apiRequest<InvoiceAutomation>(`${BASE}/invoice-automation/run`, json('POST'));

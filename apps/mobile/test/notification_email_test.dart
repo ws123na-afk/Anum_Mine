@@ -4,6 +4,7 @@ import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/data/session_store.dart';
 import 'package:anum_mobile/features/auth/auth_repository.dart';
+import 'package:anum_mobile/features/settings/calendar_email_strings.dart';
 import 'package:anum_mobile/features/settings/settings_controller.dart';
 import 'package:anum_mobile/features/settings/settings_screen.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
@@ -166,5 +167,68 @@ void main() {
     expect(find.byKey(const Key('email-hint')), findsNothing);
     expect(find.text('Email delivery'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'calendar reminder emails: a switch, a warning while Email is off and the language',
+      (tester) async {
+    final transport = _Transport();
+    final controller = await _controller(transport);
+    await _open(tester, controller);
+    final toggle = find.byKey(const Key('calendar-email'));
+    await tester.ensureVisible(toggle);
+    expect(find.text('Calendar reminders by email'), findsOneWidget);
+    expect(find.byKey(const Key('calendar-email-needs-email')), findsNothing);
+    // Choosing Arabic saves it with the other switches.
+    final language = find.byKey(const Key('calendar-email-language'));
+    await tester.ensureVisible(language);
+    await tester.tap(language);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Arabic').last);
+    await tester.pumpAndSettle();
+    final saved = transport.requests.lastWhere((r) =>
+        r.method == 'PUT' && r.uri.path.endsWith('/notification-preferences'));
+    expect(saved.body!['calendar_email_language'], 'ar');
+    expect(saved.body!['calendar_email'], isTrue);
+    expect(saved.body!['tyre_alerts'], isTrue);
+    // Turning calendar emails off saves it and disables the language.
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    final off = transport.requests.lastWhere((r) =>
+        r.method == 'PUT' && r.uri.path.endsWith('/notification-preferences'));
+    expect(off.body!['calendar_email'], isFalse);
+  });
+
+  test('calendar email strings have the same keys in English and Arabic', () {
+    expect(CalendarEmailStrings.ar.keys.toSet(),
+        CalendarEmailStrings.en.keys.toSet());
+  });
+
+  test('the calendar email settings read and write their JSON', () {
+    final prefs = NotificationPreferences.fromJson(const {
+      'task_completed': true,
+      'approval_required': true,
+      'run_failed': true,
+      'automation_failed': true,
+      'email_enabled': true,
+      'desktop_enabled': true,
+      'calendar_email': false,
+      'calendar_email_language': 'en',
+    });
+    expect(prefs.calendarEmail, isFalse);
+    expect(prefs.calendarEmailLanguage, 'en');
+    expect(prefs.toJson()['calendar_email_language'], 'en');
+    final older = NotificationPreferences.fromJson(const {
+      'task_completed': true,
+      'approval_required': true,
+      'run_failed': true,
+      'automation_failed': true,
+      'email_enabled': true,
+      'desktop_enabled': true,
+      'calendar_email_language': 'fr',
+    });
+    expect(older.calendarEmail, isTrue);
+    expect(older.calendarEmailLanguage, isNull);
   });
 }

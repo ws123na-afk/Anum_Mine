@@ -61,6 +61,7 @@ import 'api_workspace_repository.dart';
 import '../attendance/attendance_strings.dart';
 import '../books/books_strings.dart';
 import '../purchases/purchases_strings.dart';
+import '../owner_desk/owner_desk_routes.dart';
 import '../records_kit/record_module_routes.dart';
 import '../vault/vault_strings.dart';
 import '../vehicles/vehicles_strings.dart';
@@ -1035,6 +1036,38 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 Icons.menu_book_outlined,
                 BooksStrings.of(context).t('title')
               ),
+            ])
+              AnumMenuEntry(
+                key: Key('menu-${route.substring(1).replaceAll('/', '-')}'),
+                icon: icon,
+                label: label,
+                onTap: () => go(() => Navigator.of(context).pushNamed(route)),
+              ),
+            // The owner desk (docs/mobile-features.md#owner-desk), named
+            // routes. Ready to sell is the platform owner's checklist, so
+            // only owners see it in the menu (the API decides either way).
+            for (final (route, icon, label) in [
+              (
+                OwnerDeskRoutes.executive,
+                Icons.workspaces_outlined,
+                l.t('nav.executive')
+              ),
+              (
+                OwnerDeskRoutes.actionBrowser,
+                Icons.travel_explore_outlined,
+                l.t('od.menu.actionBrowser')
+              ),
+              (
+                OwnerDeskRoutes.ibkr,
+                Icons.candlestick_chart_outlined,
+                l.t('od.menu.ibkr')
+              ),
+              if (_showDeveloper)
+                (
+                  OwnerDeskRoutes.readyToSell,
+                  Icons.sell_outlined,
+                  l.t('selling.ready.title')
+                ),
             ])
               AnumMenuEntry(
                 key: Key('menu-${route.substring(1).replaceAll('/', '-')}'),

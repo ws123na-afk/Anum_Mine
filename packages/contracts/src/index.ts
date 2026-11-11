@@ -40,6 +40,8 @@ export interface Task {
   archivedBy?: string | null;
   /** Set when only this user may see the task, its runs, approvals and events (docs/tasks.md#private-tasks). */
   privateTo?: string | null;
+  /** Why it is private: `chat` (from the person's private chat) or `data` (it read their own data, for good). */
+  privateKind?: 'chat' | 'data' | null;
   /** Planning fields (docs/tasks.md): never change what the agent may do. */
   priority?: TaskPriority;
   /** When the result is wanted, UTC; null for no due date. */

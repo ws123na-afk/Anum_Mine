@@ -165,6 +165,7 @@ from .developer import register_developer_tools, router as developer_router
 from .whatsapp import register_whatsapp_tools, router as whatsapp_router
 from .sales_api import router as sales_router
 from .sales_followup_scheduler import run_due_sales_followups
+from .business.invoice_jobs import run_due_invoice_work
 from .routing_probe import run_due_routing_probes
 from . import email_inbox
 from .email_api import router as email_router
@@ -693,6 +694,8 @@ email_inbox.integration_enabled = lambda context, integration_id: not integratio
 # Approved social posts publish at their time on every scheduler pass (docs/marketing.md#publishing).
 register_scheduler_pass("marketing_publisher", run_due_posts)
 register_scheduler_pass("sales_followup_delivery", run_due_sales_followups)
+# Recurring Business invoices and the planned reminders, each waiting for an owner (docs/business.md#recurring-invoices).
+register_scheduler_pass("business_invoices", run_due_invoice_work)
 # Routing targets are re-probed on the same loop (docs/governance-and-scale.md#routing-targets).
 register_scheduler_pass("routing_probe", run_due_routing_probes)
 # Agents are built from exactly the tools this runtime has (docs/agents.md).

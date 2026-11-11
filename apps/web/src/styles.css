@@ -602,6 +602,8 @@ dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 
 .settingToggle strong { font-size: var(--text-md); font-weight: 600; }
 .settingToggle strong::first-letter { text-transform: uppercase; }
 .settingToggle input { accent-color: var(--d-violet); flex: none; height: 20px; min-height: 0; width: 20px; }
+.settingChoice { display: grid; gap: var(--d-s1); margin-top: var(--d-s3); max-width: 22rem; }
+.settingChoice > span { color: var(--d-muted); font-size: var(--text-md); }
 /* Settings › Notifications: the phones registered for push (NotificationSettings.tsx). */
 .phonePushSummary { color: var(--d-muted); font-size: var(--text-md); margin-block-start: var(--d-s3); }
 .phoneList { display: grid; list-style: none; margin-block: var(--d-s4) 0; margin-inline: 0; padding: 0; }

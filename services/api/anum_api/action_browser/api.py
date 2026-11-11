@@ -1,7 +1,8 @@
 """Routes of the action browser for the web app (docs/action-browser.md#api).
 
 * Saved logins and cards: owners only (``organization:manage``); lists never decrypt.
-* Sessions and their step log: anyone who can read tasks.
+* Sessions and their step log: anyone who can read tasks; the runs list (``GET /runs``) only
+  shows sessions whose task the caller can read (a teammate's private task stays hidden).
 * The live picture, the owner's input for a "Needs you" step and Stop: owners (Stop also the
   person who created the task).
 
@@ -238,6 +239,56 @@ async def list_sessions(
             steps = (await asyncio.to_thread(_one, context, record.id, after) or (record, steps))[1]
         views.append(_view(context, record, steps, creator))
     return views
+
+
+class RunPage(BaseModel):
+    """One page of the workspace's browser runs, newest first, without their step logs."""
+
+    items: list[SessionView]
+    limit: int
+    offset: int
+    next_offset: int | None = None
+
+
+def _recent(units: deps.UnitsOfWork, context: TenantContext, limit: int, offset: int) -> tuple[list[tuple[SessionRecord, str | None]], bool]:
+    """A page of sessions whose task the caller may read, each with its task's creator, and whether more follow.
+
+    The store pages over every session of the workspace; a session whose task is not visible (another
+    person's private task, or a task that was deleted) is left out of the page rather than counted, so a
+    page may hold fewer than ``limit`` items while ``next_offset`` still says where the next one starts.
+    """
+    with open_action_store(context) as store:
+        rows = store.recent_sessions(context, limit=limit + 1, offset=offset)
+    more, rows = len(rows) > limit, rows[:limit]
+    owner = deps.has_permission(context, Permission.ORGANIZATION_MANAGE)
+    visible: list[tuple[SessionRecord, str | None]] = []
+    with units(context) as repository:
+        for record in rows:
+            if not record.task_id:
+                if owner:
+                    visible.append((record, None))
+                continue
+            task = repository.get_task(record.task_id, context)
+            if task is not None:
+                visible.append((record, task.created_by))
+    return visible, more
+
+
+@router.get("/runs", response_model=RunPage)
+async def list_runs(
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=100000),
+    context: TenantContext = Depends(deps.tenant_context),
+    units: deps.UnitsOfWork = Depends(deps.units_of_work),
+) -> RunPage:
+    """Every browser run of the workspace the caller may see, newest first (the phone's runs list)."""
+    deps.require_permission(context, Permission.TASK_READ)
+    found, more = await asyncio.to_thread(_recent, units, context, limit, offset)
+    items = []
+    for record, creator in found:
+        record = await _reconcile(context, units, record)
+        items.append(_view(context, record, [], creator))
+    return RunPage(items=items, limit=limit, offset=offset, next_offset=offset + limit if more else None)
 
 
 @router.get("/sessions/{session_id}", response_model=SessionView)

@@ -16,6 +16,23 @@ export function person(id: string, name: string, extra: Json = {}): Json {
   };
 }
 
+/** What the import preview answers for the file the specs choose (docs/contacts.md#import-from-a-csv-file). */
+export function importPreview(mapping?: Json): Json {
+  const chosen = mapping ?? { name: ['Full name'], organisation: 'Company', notes: null, phones: ['Mobile'], emails: ['Email'], do_not_contact: 'Do not contact' };
+  const base = { organisation: '', emails: [], do_not_contact: [], target_id: null, matches: [], duplicate_of: null, problems: [] };
+  return {
+    columns: ['Full name', 'Company', 'Mobile', 'Email', 'Do not contact'], mapping: chosen, suggested: !mapping, fingerprint: 'f'.repeat(64), delimiter: ',',
+    counts: { rows: 4, new: 1, match: 1, possible_duplicate: 0, duplicate_in_file: 1, invalid: 1 },
+    rows: [
+      { ...base, row: 2, name: 'Sara Ahmed', organisation: 'Tyre Co', phones: ['+971501234567'], status: 'match', action: 'update', actions: ['update', 'create', 'skip'], target_id: 'ct_sara',
+        matches: [{ id: 'ct_sara', name: 'Sara Ahmed', shared: ['+971501234567'], do_not_contact: ['phone'] }] },
+      { ...base, row: 3, name: 'Rana Saleh', phones: ['+971507770000'], do_not_contact: ['email'], status: 'new', action: 'create', actions: ['create', 'skip'] },
+      { ...base, row: 4, name: 'R. Saleh', phones: ['+971507770000'], status: 'duplicate_in_file', action: 'skip', actions: ['skip', 'create'], duplicate_of: 3 },
+      { ...base, row: 5, name: 'Bad Number', phones: [], status: 'invalid', action: 'skip', actions: ['skip'], problems: ["'12' is not a phone number with its country code (+971...)."], issues: [{ code: 'not_phone', value: '12' }] },
+    ],
+  };
+}
+
 export async function mockContacts(page: Page, options: ContactsMockOptions = {}) {
   const calls: { method: string; path: string; query: string; body: unknown }[] = [];
   const owner = (options.role ?? 'owner') === 'owner';
@@ -69,6 +86,19 @@ export async function mockContacts(page: Page, options: ContactsMockOptions = {}
     calls.push({ method, path, query: url.search, body: request.postData() ? request.postDataJSON() : null });
     if (options.status === 403) return json(envelope('forbidden', 'Contacts hold personal data from Phone calls, Business, WhatsApp and the Email Center, so viewers cannot see them. Ask a workspace owner to make you a member.'), 403);
     if (options.status === 500) return json(envelope('internal_error', 'Database unavailable'), 500);
+    if (path === '/api/v1/contacts/import/preview') {
+      if (!owner) return json(envelope('forbidden', 'Only workspace owners can do this (clear a do-not-contact mark, delete a person, import or export the directory).'), 403);
+      const body = request.postDataJSON() as Json;
+      if (String(body.csv).trim().split('\n').length < 2) return json(envelope('validation_error', 'The file has a header row but no people under it.'), 422);
+      return json(importPreview(body.mapping as Json | undefined));
+    }
+    if (path === '/api/v1/contacts/import/apply') {
+      const body = request.postDataJSON() as Json;
+      const decisions = body.decisions as { action: string }[];
+      const created = decisions.filter((d) => d.action === 'create').length, updated = decisions.filter((d) => d.action === 'update').length;
+      people = [...people, ...Array.from({ length: created }, (_, i) => person(`ct_imported_${i}`, `Imported ${i + 1}`, { source: 'manual', sources: [] }))];
+      return json({ created, updated, skipped: decisions.length - created - updated, marks_added: 1, proposals_created: 1, rows: decisions.length });
+    }
     if (path === '/api/v1/contacts/export') return route.fulfill({ status: 200, contentType: 'text/csv', headers: { 'content-disposition': 'attachment; filename="contacts.csv"' }, body: 'name,organisation\n' });
     if (path === '/api/v1/contacts/directory/rebuild') { people = [...people, person('ct_new', 'New Caller', { phones: [{ kind: 'phone', value: '+971509990000', label: '+971509990000' }] })]; return json({ scanned: 1, linked: 1, people_created: 1, proposals_created: 0, complete: true }); }
     if (path === '/api/v1/contacts/proposals' && method === 'GET') { const state = url.searchParams.get('state') ?? 'open'; const items = proposals.filter((p) => p.status === state).map(proposalView); return json({ items, total: items.length, can_write: true }); }

@@ -187,6 +187,51 @@ def test_an_email_reminder_goes_once_in_english_and_arabic_to_people_who_want_em
     assert all("mona@" not in str(a.metadata) and "PMV" not in str(a.metadata) for a in audits)
 
 
+def test_each_person_gets_the_reminder_email_in_their_own_language_and_can_turn_calendar_email_off(mail: list[tuple[str, str, str]]) -> None:
+    from anum_api.onboarding import NotificationPreferences, _notifications
+
+    now = utc_now().replace(microsecond=0)
+    start = now + timedelta(minutes=25)
+    people = {"member_c": "mona@example.com", "owner_c": "sajid@example.com", "lead_c": "lina@example.com"}
+    for user, address in people.items():
+        memory_team_store.save_profile(ctx(user), MemberProfile(user_id=user, display_name=user, email=address))
+    _notifications.save(ctx("member_c"), NotificationPreferences(email_enabled=True, calendar_email_language="ar"))
+    _notifications.save(ctx("owner_c"), NotificationPreferences(email_enabled=True, calendar_email_language="en"))
+    # Email is on, but this person turned calendar reminder emails off.
+    _notifications.save(ctx("lead_c"), NotificationPreferences(email_enabled=True, calendar_email=False))
+    create(starts_at=start.isoformat(), ends_at=(start + timedelta(hours=1)).isoformat(), reminders=[30], email_reminders=[30],
+           timezone="Asia/Dubai", attendees=[{"name": n, "email": e} for n, e in people.items()])
+    run_calendar_reminder_pass(now=now)
+    sent = {to: (subject, body) for to, subject, body in mail}
+    assert set(sent) == {"mona@example.com", "sajid@example.com"}
+    arabic_subject, arabic_body = sent["mona@example.com"]
+    assert arabic_subject.startswith("ANUM: تذكير: PMV Team Meeting") and "بعد 25 دقيقة" in arabic_body and "Asia/Dubai" in arabic_body
+    assert "starts in" not in arabic_body and "Open Calendar" not in arabic_body and "الإعدادات، الإشعارات" in arabic_body
+    english_subject, english_body = sent["sajid@example.com"]
+    assert english_subject == "ANUM: PMV Team Meeting starts in 25 minutes" and "تذكير" not in english_body
+    assert "Settings, Notifications" in english_body
+    skipped = next(a for a in store.audit_records if a.action == "calendar.reminder_emailed" and a.metadata["recipient"] == "lead_c")
+    assert skipped.metadata["status"] == "skipped" and "Calendar reminder emails are off" in skipped.metadata["detail"]
+
+
+def test_saving_notification_settings_without_the_calendar_fields_keeps_them(mail: list[tuple[str, str, str]]) -> None:
+    headers = {**MEMBER}
+    saved = client.put("/api/v1/notification-preferences", headers=headers, json={
+        "task_completed": True, "approval_required": True, "run_failed": True, "automation_failed": True,
+        "email_enabled": True, "desktop_enabled": True, "calendar_email": False, "calendar_email_language": "ar"})
+    assert saved.status_code == 200 and saved.json()["calendar_email_language"] == "ar"
+    # An older phone app sends only the fields it knows: the calendar settings stay as they were.
+    older = client.put("/api/v1/notification-preferences", headers=headers, json={
+        "task_completed": False, "approval_required": True, "run_failed": True, "automation_failed": True,
+        "email_enabled": True, "desktop_enabled": True})
+    assert older.status_code == 200 and older.json()["calendar_email"] is False and older.json()["calendar_email_language"] == "ar"
+    assert client.get("/api/v1/notification-preferences", headers=headers).json()["task_completed"] is False
+    # Clearing the language goes back to English and Arabic; any other value is refused.
+    cleared = client.put("/api/v1/notification-preferences", headers=headers, json={**older.json(), "calendar_email_language": None})
+    assert cleared.json()["calendar_email_language"] is None
+    assert client.put("/api/v1/notification-preferences", headers=headers, json={**older.json(), "calendar_email_language": "fr"}).status_code == 422
+
+
 def test_an_email_reminder_honours_do_not_contact_and_needs_an_address(mail: list[tuple[str, str, str]]) -> None:
     now = utc_now().replace(microsecond=0)
     start = now + timedelta(minutes=20)

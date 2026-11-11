@@ -266,7 +266,7 @@ def test_preview_groups_rows_and_the_import_attaches_instead_of_doubling() -> No
     content = "Date,Description,Amount\n2026-11-04,POS EXAMPLE MARKET RIYADH,-45.50\n2026-11-04,EXAMPLE BAKERY,-9.00\n"
     view = preview(s["card"]["id"], content)
     assert statuses(view) == ["matched_existing", "new"]
-    assert view["counts"] == {"new": 1, "exact_duplicate": 0, "matched_existing": 1, "possible_duplicate": 0, "bills": 0, "transfers": 0}
+    assert view["counts"] == {"new": 1, "exact_duplicate": 0, "matched_existing": 1, "possible_duplicate": 0, "bills": 0, "transfers": 0, "splits": 0}
     matched = view["rows"][0]["match"]
     assert matched["record"]["source"] == "sms" and matched["record"]["last4"] == "1234" and matched["lag_days"] == 1
     done = do_import(s["card"]["id"], content)

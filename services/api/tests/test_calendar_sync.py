@@ -98,6 +98,8 @@ class FakeCalendars:
         self.graph_calls: list[str] = []
         self.graph_params: list[dict[str, str]] = []
         self.graph_instances: dict[str, list[dict[str, Any]]] = {}
+        # Series masters by id (events/{id}); an id not here answers 404.
+        self.graph_masters: dict[str, dict[str, Any]] = {}
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         host, path = request.url.host, request.url.path
@@ -170,6 +172,10 @@ class FakeCalendars:
         if request.method == "GET" and path.endswith("/instances"):
             self.graph_params.append({**params, "instances": path})
             return httpx.Response(200, json={"value": self.graph_instances.get(path.split("/")[2], [])})
+        if request.method == "GET" and path.startswith("/events/") and path.count("/") == 2:
+            self.graph_params.append({**params, "master": path})
+            master = self.graph_masters.get(path.split("/")[2])
+            return httpx.Response(200, json=master) if master else httpx.Response(404, json={"error": {"message": "The specified object was not found in the store."}})
         if path == "/calendarView/delta":
             self.graph_params.append(params)
             if "$deltatoken" in params:

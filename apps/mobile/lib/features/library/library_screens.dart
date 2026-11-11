@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/api_client.dart';
@@ -259,12 +262,23 @@ class FavoritesScreen extends StatefulWidget {
   State<FavoritesScreen> createState() => _FavoritesScreenState();
 }
 
+/// The sorts the API knows, in the order the web offers them. `custom` is
+/// the person's own order (docs/knowledge-base.md#favorites).
+const favoriteSorts = ['custom', 'newest', 'oldest', 'name'];
+
 class _FavoritesScreenState extends State<FavoritesScreen> {
+  final _search = TextEditingController();
+  Timer? _debounce;
   String? _type;
+  String _query = '';
+  String _sort = 'custom';
   List<Favorite> _items = [];
   int _total = 0;
   Object? _error;
-  bool _loading = true, _more = false;
+  bool _loading = true, _more = false, _moving = false;
+  int _generation = 0;
+
+  bool get _canArrange => _sort == 'custom';
 
   @override
   void initState() {
@@ -272,21 +286,38 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<LibraryPage<Favorite>> _page({int offset = 0, int? limit}) =>
+      widget.repository.favorites(
+        type: _type,
+        offset: offset,
+        query: _query,
+        sort: _sort == 'newest' ? null : _sort,
+        limit: limit,
+      );
+
   Future<void> _load() async {
+    final generation = ++_generation;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final page = await widget.repository.favorites(type: _type);
-      if (!mounted) return;
+      final page = await _page();
+      if (!mounted || generation != _generation) return;
       setState(() {
         _items = page.items;
         _total = page.total;
         _loading = false;
       });
     } on Object catch (e) {
-      if (mounted) {
+      if (mounted && generation == _generation) {
         setState(() {
           _error = e;
           _loading = false;
@@ -295,14 +326,56 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     }
   }
 
+  /// Reads again as many rows as are shown, so a move keeps the loaded pages.
+  Future<void> _reloadShown() async {
+    final want = _items.length < ApiLibraryRepository.pageSize
+        ? ApiLibraryRepository.pageSize
+        : _items.length;
+    final rows = <Favorite>[];
+    var total = _total;
+    while (rows.length < want) {
+      final page = await _page(
+          offset: rows.length,
+          limit: (want - rows.length).clamp(1, 200).toInt());
+      rows.addAll(page.items);
+      total = page.total;
+      if (page.items.isEmpty || rows.length >= total) break;
+    }
+    if (mounted) {
+      setState(() {
+        _items = rows;
+        _total = total;
+      });
+    }
+  }
+
+  void _searchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || value.trim() == _query) return;
+      _query = value.trim();
+      _load();
+    });
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    _search.clear();
+    if (_query.isEmpty) return;
+    _query = '';
+    _load();
+  }
+
   Future<void> _loadMore() async {
     setState(() => _more = true);
     try {
-      final page = await widget.repository.favorites(
-        type: _type,
-        offset: _items.length,
-      );
-      if (mounted) setState(() => _items = [..._items, ...page.items]);
+      final page = await _page(offset: _items.length);
+      if (mounted) {
+        setState(() {
+          _items = [..._items, ...page.items];
+          _total = page.total;
+        });
+      }
     } on Object catch (e) {
       if (mounted) _snack(_failure(context, e, 'libDenied'));
     } finally {
@@ -310,8 +383,9 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     }
   }
 
-  void _snack(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  void _snack(String text) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _remove(Favorite f) async {
     final l = context.anum;
@@ -324,6 +398,70 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       _snack(l.f('libFavRemoved', {'name': f.label}));
     } on Object catch (e) {
       if (mounted) _snack(_failure(context, e, 'libDenied'));
+    }
+  }
+
+  /// The favorite next to row [index] in direction [step]; read from the API
+  /// when it is past the loaded rows.
+  Future<Favorite?> _neighbour(int index, int step) async {
+    final at = index + step;
+    if (at >= 0 && at < _items.length) return _items[at];
+    if (at < 0 || at >= _total) return null;
+    final page = await _page(offset: at, limit: 1);
+    return page.items.isEmpty ? null : page.items.first;
+  }
+
+  /// Moves row [index] one place ([step] -1 or 1), or to [target] when it
+  /// was dragged there. The list changes at once and goes back if the API
+  /// refuses; the API's order is read again after it agrees.
+  Future<void> _move(int index, {int? target, int step = 1}) async {
+    if (!_canArrange || _moving || index < 0 || index >= _items.length) {
+      return;
+    }
+    final l = context.anum;
+    final f = _items[index];
+    final before = _items;
+    setState(() => _moving = true);
+    try {
+      final down = target != null ? target > index : step > 0;
+      final anchor =
+          target != null ? _items[target] : await _neighbour(index, step);
+      if (anchor == null || anchor.id == f.id) return;
+      final to = target ?? (index + step).clamp(0, _items.length - 1).toInt();
+      if (mounted && to != index) {
+        setState(() {
+          final next = [..._items]..removeAt(index);
+          next.insert(to, f);
+          _items = next;
+        });
+      }
+      await widget.repository.moveFavorite(
+        f.id,
+        beforeId: down ? null : anchor.id,
+        afterId: down ? anchor.id : null,
+      );
+      final said = l.f('ad.fav.movedTo', {
+        'name': f.label,
+        'where': l.t(down ? 'ad.fav.after' : 'ad.fav.before'),
+        'other': anchor.label,
+      });
+      if (mounted) {
+        SemanticsService.sendAnnouncement(
+            View.of(context), said, Directionality.of(context));
+      }
+      try {
+        await _reloadShown();
+      } on Object {
+        // The move was saved; the list keeps showing it until the next load.
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        setState(() => _items = before);
+        final message = e is ApiException ? e.message : l.t('libOffline');
+        _snack(l.f('ad.fav.moveFailed', {'message': message}));
+      }
+    } finally {
+      if (mounted) setState(() => _moving = false);
     }
   }
 
@@ -347,16 +485,195 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     }
   }
 
+  Widget _row(BuildContext context, int index) {
+    final l = context.anum;
+    final f = _items[index];
+    final canUp = _canArrange && index > 0;
+    final canDown = _canArrange && index < _total - 1;
+    final row = AnumRow(
+      icon: _canArrange ? null : Icons.star,
+      tone: AnumTone.warn,
+      title: f.label,
+      subtitle: l.t('libItem_${f.itemType}'),
+      onTap: () => _open(f),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_canArrange)
+            PopupMenuButton<int>(
+              key: Key('fav-arrange-${f.id}'),
+              tooltip: l.f('ad.fav.arrange', {'name': f.label}),
+              enabled: !_moving && (canUp || canDown),
+              icon: const Icon(Icons.swap_vert),
+              onSelected: (step) => _move(index, step: step),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                    value: -1,
+                    enabled: canUp,
+                    child: Text(l.t('ad.fav.moveUp'))),
+                PopupMenuItem(
+                    value: 1,
+                    enabled: canDown,
+                    child: Text(l.t('ad.fav.moveDown'))),
+              ],
+            ),
+          IconButton(
+            tooltip: l.f('libUnstar', {'name': f.label}),
+            icon: const Icon(Icons.star),
+            onPressed: () => _remove(f),
+          ),
+        ],
+      ),
+    );
+    if (!_canArrange) return KeyedSubtree(key: ValueKey(f.id), child: row);
+    return Semantics(
+      key: ValueKey(f.id),
+      // Screen readers move a row without opening the menu or dragging.
+      customSemanticsActions: _moving
+          ? null
+          : {
+              if (canUp)
+                CustomSemanticsAction(label: l.t('ad.fav.moveUp')): () =>
+                    _move(index, step: -1),
+              if (canDown)
+                CustomSemanticsAction(label: l.t('ad.fav.moveDown')): () =>
+                    _move(index, step: 1),
+            },
+      child: Row(
+        children: [
+          ReorderableDragStartListener(
+            index: index,
+            enabled: !_moving,
+            // No tooltip: its long press would take the gesture from a drag
+            // that starts after a pause.
+            child: Semantics(
+              label: l.f('ad.fav.drag', {'name': f.label}),
+              child: SizedBox(
+                key: Key('fav-drag-${f.id}'),
+                width: 40,
+                height: 48,
+                child: Icon(Icons.drag_indicator, color: context.palette.muted),
+              ),
+            ),
+          ),
+          Expanded(child: row),
+        ],
+      ),
+    );
+  }
+
+  Widget _list(BuildContext context) {
+    final l = context.anum;
+    final more = _items.length < _total
+        ? TextButton(
+            onPressed: _more ? null : _loadMore,
+            child: Text(
+              l.f('libMore', {'shown': _items.length, 'total': _total}),
+            ),
+          )
+        : null;
+    final rows = _canArrange
+        ? ReorderableListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            buildDefaultDragHandles: false,
+            itemCount: _items.length,
+            itemBuilder: _row,
+            onReorderItem: (from, to) {
+              if (to != from) _move(from, target: to);
+            },
+          )
+        : Column(
+            children: [
+              for (var i = 0; i < _items.length; i++) _row(context, i),
+            ],
+          );
+    return Column(children: [rows, if (more != null) more]);
+  }
+
+  Widget _empty(BuildContext context) {
+    final l = context.anum;
+    if (_query.isNotEmpty) {
+      return AnumEmpty(
+        icon: Icons.search_off,
+        title: l.f('ad.fav.noMatch', {'query': _query}),
+        message: l.t('ad.fav.noMatchText'),
+        action: l.t('ad.fav.clearSearch'),
+        onAction: _clearSearch,
+      );
+    }
+    if (_type != null) {
+      return AnumEmpty(
+        icon: Icons.star_border,
+        title: l.t('ad.fav.noneOfType'),
+        message: l.t('ad.fav.noneOfTypeText'),
+        action: l.t('ad.fav.showAll'),
+        onAction: () {
+          setState(() => _type = null);
+          _load();
+        },
+      );
+    }
+    return AnumEmpty(
+      icon: Icons.star_border,
+      title: l.t('libFavEmpty'),
+      message: l.t('libFavEmptyText'),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = context.anum;
+    final p = context.palette;
     return _Page(
       title: l.t('libFavorites'),
       onRefresh: _load,
       children: [
-        Text(
-          l.t('libFavIntro'),
-          style: TextStyle(color: context.palette.muted),
+        Text(l.t('libFavIntro'), style: TextStyle(color: p.muted)),
+        const SizedBox(height: AnumSpacing.sm),
+        TextField(
+          controller: _search,
+          onChanged: _searchChanged,
+          textInputAction: TextInputAction.search,
+          onSubmitted: (v) {
+            _debounce?.cancel();
+            _query = v.trim();
+            _load();
+          },
+          decoration: InputDecoration(
+            labelText: l.t('ad.fav.search'),
+            hintText: l.t('ad.fav.searchHint'),
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: ListenableBuilder(
+              listenable: _search,
+              builder: (context, _) => _search.text.isEmpty
+                  ? const SizedBox.shrink()
+                  : IconButton(
+                      tooltip: l.t('ad.fav.clearSearch'),
+                      icon: const Icon(Icons.close),
+                      onPressed: _clearSearch,
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(height: AnumSpacing.sm),
+        DropdownButtonFormField<String>(
+          key: const Key('fav-sort'),
+          initialValue: _sort,
+          isExpanded: true,
+          decoration: InputDecoration(labelText: l.t('ad.fav.sort')),
+          items: [
+            for (final sort in favoriteSorts)
+              DropdownMenuItem(
+                value: sort,
+                child: Text(l.t('ad.fav.sort.$sort')),
+              ),
+          ],
+          onChanged: (value) {
+            if (value == null || value == _sort) return;
+            setState(() => _sort = value);
+            _load();
+          },
         ),
         const SizedBox(height: AnumSpacing.sm),
         SingleChildScrollView(
@@ -382,6 +699,15 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             ],
           ),
         ),
+        if (!_loading && _error == null && _items.length > 1) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          Text(
+            _canArrange
+                ? l.t('ad.fav.arrangeHint')
+                : l.f('ad.fav.arrangeOff', {'sort': l.t('ad.fav.sort.custom')}),
+            style: TextStyle(color: p.muted, fontSize: AnumType.sm),
+          ),
+        ],
         const SizedBox(height: AnumSpacing.sm),
         AnumSurface(
           child: _loading
@@ -392,38 +718,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                       onRetry: _load,
                     )
                   : _items.isEmpty
-                      ? AnumEmpty(
-                          icon: Icons.star_border,
-                          title: l.t('libFavEmpty'),
-                          message: l.t('libFavEmptyText'),
-                        )
-                      : Column(
-                          children: [
-                            for (final f in _items)
-                              AnumRow(
-                                icon: Icons.star,
-                                tone: AnumTone.warn,
-                                title: f.label,
-                                subtitle: l.t('libItem_${f.itemType}'),
-                                onTap: () => _open(f),
-                                trailing: IconButton(
-                                  tooltip: l.f('libUnstar', {'name': f.label}),
-                                  icon: const Icon(Icons.star_border),
-                                  onPressed: () => _remove(f),
-                                ),
-                              ),
-                            if (_items.length < _total)
-                              TextButton(
-                                onPressed: _more ? null : _loadMore,
-                                child: Text(
-                                  l.f('libMore', {
-                                    'shown': _items.length,
-                                    'total': _total,
-                                  }),
-                                ),
-                              ),
-                          ],
-                        ),
+                      ? _empty(context)
+                      : _list(context),
         ),
       ],
     );
@@ -1432,7 +1728,7 @@ class _LibrarySectionState extends State<LibrarySection> {
 
   Future<void> _load() async {
     try {
-      final page = await widget.repository.favorites();
+      final page = await widget.repository.favorites(sort: 'custom', limit: 4);
       if (mounted) setState(() => _favorites = page.items.take(4).toList());
     } on Object {
       // The tiles still work; the starred list just stays empty.

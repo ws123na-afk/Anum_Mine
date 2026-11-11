@@ -418,6 +418,9 @@ class CalendarStoreProtocol(Protocol):
     def pending_push(self, connection_id: str, limit: int) -> list[CalendarEvent]:
         """Events waiting to be sent, without those that failed ``MAX_PUSH_ATTEMPTS`` times in a row."""
         ...
+    def linked_series(self, connection_id: str, limit: int) -> list[CalendarEvent]:
+        """The series (masters, not their changed occurrences) linked to a provider series."""
+        ...
     def count_linked(self, connection_id: str) -> int: ...
     def unlink(self, connection_id: str) -> int: ...
 
@@ -512,6 +515,15 @@ class MemoryCalendarStore:
             items = [
                 e for e in self.b.events.values()
                 if self._mine(e) and e.connection_id == connection_id and e.sync_state == "pending_push" and e.sync_attempts < MAX_PUSH_ATTEMPTS
+            ]
+        items.sort(key=_order)
+        return [e.model_copy(deep=True) for e in items[:limit]]
+
+    def linked_series(self, connection_id: str, limit: int) -> list[CalendarEvent]:
+        with self.b.lock:
+            items = [
+                e for e in self.b.events.values()
+                if self._mine(e) and e.connection_id == connection_id and e.external_id and e.recurrence is not None and e.series_id is None
             ]
         items.sort(key=_order)
         return [e.model_copy(deep=True) for e in items[:limit]]

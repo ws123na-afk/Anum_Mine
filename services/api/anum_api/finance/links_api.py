@@ -166,6 +166,62 @@ def transaction_links(canonical_id: str, context: TenantContext = Depends(tenant
                             links=[_view(l) for l in rows])
 
 
+class TransferSide(BaseModel):
+    transaction_id: str | None
+    account_id: str | None
+    account_name: str | None
+    posted_on: Any = None
+    amount: Decimal | None
+    currency: str | None
+    description: str | None
+
+
+class TransferPair(BaseModel):
+    """An own transfer this payment is one side of (docs/finance.md#own-transfers): the pair's link and the other side."""
+
+    paired: bool
+    link_id: str | None = None
+    link_version: int | None = None
+    role: Literal["out", "in"] | None = None
+    other: TransferSide | None = None
+
+
+@router.get("/api/v1/finance/links/transfer", response_model=TransferPair)
+@refusals
+def transfer_pair(transaction_id: str = Query(min_length=1, max_length=80), context: TenantContext = Depends(tenant_context)) -> TransferPair:
+    """Whether this transaction is paired as an own transfer, and with which row. Unpairing is ``POST /finance/links/{link_id}/void``."""
+    from .commitments import TRANSFER_DIMENSION
+
+    _read(context)
+    with open_link_stores(context) as (finance, sms, links):
+        row = finance.get_transaction(context, transaction_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Transaction not found. It may have been deleted.")
+        entry = sms.entry_for_transaction(context, row.id)
+        if entry is None:
+            return TransferPair(paired=False)
+        canonical = entry.canonical_id or entry.id
+        outgoing, _ = links.list_links(context, canonical_id=canonical, dimension=TRANSFER_DIMENSION, target_type=None, target_id=None, status=None,
+                                       limit=5, offset=0)
+        incoming, _ = links.list_links(context, canonical_id=None, dimension=TRANSFER_DIMENSION, target_type=None, target_id=canonical, status=None,
+                                       limit=5, offset=0)
+        link = next((item for item in outgoing + incoming if item.status != LinkStatus.VOID), None)
+        if link is None:
+            return TransferPair(paired=False)
+        role: Literal["out", "in"] = "out" if link.canonical_id == canonical else "in"
+        other = K.live_entry(sms.chain(context, link.target_id if role == "out" else link.canonical_id))
+        side = TransferSide(transaction_id=None, account_id=None, account_name=None, amount=None, currency=None, description=None)
+        if other is not None:
+            leg = next((p for p in other.postings if p.account_id), None)
+            other_row = finance.get_transaction(context, leg.transaction_id) if leg is not None and leg.transaction_id else None
+            account = finance.get_account(context, leg.account_id) if leg is not None and leg.account_id else None
+            side = TransferSide(transaction_id=leg.transaction_id if leg else None, account_id=leg.account_id if leg else None,
+                                account_name=account.name if account is not None else None, posted_on=other.posted_on,
+                                amount=leg.amount if leg else None, currency=leg.currency if leg else None,
+                                description=(other_row.description if other_row is not None else None) or other.merchant or other.description)
+    return TransferPair(paired=True, link_id=link.id, link_version=link.version, role=role, other=side)
+
+
 @router.post("/api/v1/finance/links", response_model=LinkResult, status_code=status.HTTP_201_CREATED)
 @refusals
 def create_link(body: LinkInput, idempotency_key: str | None = Header(default=None, max_length=120),

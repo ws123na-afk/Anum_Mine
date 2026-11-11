@@ -17,6 +17,10 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `push_enabled` | Phone push for this workspace (migration `0027_push_devices`, default on; older clients that do not send it leave it on) | The channel switch for all of the above; also gates a `notify` step that asked for push (`automation.notification` with `push: true`, to the run's owner) |
 | `desktop_enabled` | Desktop notifications | Not a phone channel. The channel switch for the web and desktop apps' [operating-system notifications](#desktop) |
 | `email_enabled` | Email | The channel switch for [email](#email): each kind above is also emailed to people who turned this on |
+| `calendar_email` | Calendar reminders by email (migration `0174_calendar_email_prefs`, default on) | Not a phone channel. Whether the calendar reminders an event asks to email reach this person by email, on top of `email_enabled` ([Calendar](calendar.md#reminders)); calendar reminder pushes follow `push_enabled` |
+| `calendar_email_language` | Language of calendar reminder emails (same migration): `en`, `ar`, or null for English then Arabic | Not a switch: the language the reminder email is written in |
+
+A client that saves the switches without `calendar_email` or `calendar_email_language` (an older phone app) leaves the stored values as they are; any other field omitted takes its default.
 
 A visitor checked in for a host (kind `visitor_arrived`, [reception](ANUM_MINE_HQ_RECEPTION.md#host-notification)) is in-app only: its row is stored with email and push `not_requested`, and `push.IN_APP_ONLY_KINDS` keeps its `notification.created` event from becoming a phone push, whatever the switches say (owner rule: no autonomous email, SMS or push).
 

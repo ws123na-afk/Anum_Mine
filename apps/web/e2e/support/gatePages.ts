@@ -25,6 +25,7 @@ import { VEHICLE_TABS } from '../../src/lib/vehicles.ts';
 import { PURCHASE_TABS } from '../../src/lib/purchases.ts';
 import { CONTACT_TABS } from '../../src/lib/contacts.ts';
 import { mockContacts } from './contactsApi';
+import { mockSchedules } from './invoiceSchedulesApi';
 
 // Every page the web app can open, for the UI quality gates: e2e/page-layout.spec.ts (overflow and
 // clipped controls), e2e/accessibility.spec.ts (axe) and e2e/journey.spec.ts (no dead buttons).
@@ -114,6 +115,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-projects', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-catalog', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-invoices', view: 'business', mock: mockInvoicesWithData, ready: '.bzTabs [aria-current="page"]' },
+  { hash: 'business-invoices/recurring', view: 'business', mock: (page) => mockSchedules(page), ready: '.rinvAuto .bzFieldset' },
   { hash: 'business-settings', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-books', view: 'business', mock: (page) => mockBooks(page), ready: '.bkDashBills tbody tr' },
   { hash: 'business-books/bills', view: 'business', mock: (page) => mockBooks(page), ready: '.bzTable tbody tr' },
@@ -159,6 +161,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'contacts', view: 'contacts', mock: contacts, ready: '.ctRow' },
   { hash: 'contacts?person=ct_sara', view: 'contacts', mock: contacts, ready: '.ctChannel' },
   { hash: 'contacts-duplicates', view: 'contacts', mock: contacts, ready: '.ctProposal, .ctList .emptyState' },
+  { hash: 'contacts-import', view: 'contacts', mock: contacts, ready: '.ctImport input[type="file"]' },
   { hash: 'developer', view: 'developer', mock: mockDeveloper, ready: '.devLayout' },
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },

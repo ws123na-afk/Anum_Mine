@@ -335,6 +335,9 @@ router = APIRouter(prefix="/api/v1", tags=["notifications"])
 
 
 def _store_for_caller(context: TenantContext) -> Any:
+    """The caller's team unit. Blocking: only from plain ``def`` routes (FastAPI's threadpool) or
+    a worker thread, never on the event loop (docs/realtime.md#event-loop,
+    tests/test_notifications_off_event_loop.py)."""
     from .team_work import open_team_unit
 
     return open_team_unit(context, require_membership=True)
@@ -453,7 +456,7 @@ class NotificationKinds(BaseModel):
 
 
 @router.get("/notifications", response_model=NotificationPage)
-async def list_my_notifications(
+def list_my_notifications(
     unread_only: bool = False,
     state: Literal["unread", "read"] | None = Query(default=None, description="Only unread, or only read, notifications"),
     kind: str | None = Query(default=None, min_length=1, max_length=60, pattern=r"^[a-z0-9_.]+$"),
@@ -479,7 +482,7 @@ async def list_my_notifications(
 
 
 @router.post("/notifications/{notification_id}/read", response_model=UserNotification)
-async def mark_notification_read(notification_id: str, context: TenantContext = Depends(tenant_context)) -> UserNotification:
+def mark_notification_read(notification_id: str, context: TenantContext = Depends(tenant_context)) -> UserNotification:
     with _store_for_caller(context) as unit:
         store = unit.store
         notification = store.get_notification(context, notification_id)
@@ -524,6 +527,6 @@ def delete_my_notification(notification_id: str, context: TenantContext = Depend
 
 
 @router.post("/notifications/read-all")
-async def mark_all_notifications_read(context: TenantContext = Depends(tenant_context)) -> dict[str, int]:
+def mark_all_notifications_read(context: TenantContext = Depends(tenant_context)) -> dict[str, int]:
     with _store_for_caller(context) as unit:
         return {"updated": unit.store.mark_all_read(context, utc_now())}

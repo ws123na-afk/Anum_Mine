@@ -226,6 +226,7 @@ Map<String, Object?> ticketJson() => {
       'replies': [
         {'body': 'We are looking into it.', 'sent_at': '2026-10-18T09:00:00Z'}
       ],
+      'can_reply': true,
     };
 
 class FakePortal implements PortalRepository {
@@ -418,6 +419,29 @@ class FakePortal implements PortalRepository {
   Future<PortalTicket> ticket(String id) async {
     await _enter('ticket $id');
     return PortalTicket.fromJson(JsonReader.of(ticketJson()));
+  }
+
+  Map<String, Object?>? messageBody;
+
+  @override
+  Future<PortalTicket> writeInTicket(String id,
+      {required String body, required String idempotencyKey}) async {
+    await _enter('write-ticket');
+    messageBody = {'body': body, 'idempotency_key': idempotencyKey};
+    return PortalTicket.fromJson(JsonReader.of({
+      ...ticketJson(),
+      'status': 'in_progress',
+      'can_reply': true,
+      'messages': [
+        {
+          'id': 'btmsg_1',
+          'author': 'you',
+          'author_name': 'Sara Example',
+          'body': body,
+          'created_at': '2026-10-20T08:00:00Z'
+        }
+      ],
+    }));
   }
 
   @override
@@ -1107,6 +1131,30 @@ void main() {
       expect(find.text('Fixed in the new release.'), findsOneWidget);
       expect(find.text('We are looking into it.'), findsOneWidget);
       expect(find.text('Opened by you'), findsOneWidget);
+    });
+
+    testWidgets('writing inside a request sends one message with its key',
+        (tester) async {
+      sized(tester, 390, 3000);
+      final repo = FakePortal();
+      await pumpScreen(tester, repo,
+          (c) => PortalTicketScreen(controller: c, ticketId: 'btkt_1'));
+      expect(find.text('Conversation'), findsOneWidget);
+      await tester.ensureVisible(find.text('Send message'));
+      await tester.tap(find.text('Send message'));
+      await tester.pumpAndSettle();
+      expect(find.text('Write your message first.'), findsOneWidget);
+      expect(repo.messageBody, isNull);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Your message'), 'It is still slow.');
+      await tester.ensureVisible(find.text('Send message'));
+      await tester.tap(find.text('Send message'));
+      await tester.pumpAndSettle();
+      expect(repo.messageBody?['body'], 'It is still slow.');
+      expect((repo.messageBody?['idempotency_key'] as String).length, 32);
+      expect(find.text('It is still slow.'), findsOneWidget);
+      expect(find.text('Sent. The business sees it in your request.'),
+          findsOneWidget);
     });
 
     testWidgets('empty, with a way to open one', (tester) async {

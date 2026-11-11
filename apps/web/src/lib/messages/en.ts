@@ -72,6 +72,7 @@ import { filesOrganizeEn } from './filesOrganize.en.ts';
 import { invoiceMoneyEn } from './invoiceMoney.en.ts';
 import { businessAccountsEn } from './businessAccounts.en.ts';
 import { invoiceSendEn } from './invoiceSend.en.ts';
+import { invoiceSchedulesEn } from './invoiceSchedules.en.ts';
 import { invoicesEn } from './invoices.en.ts';
 import { portalEn } from './portal.en.ts';
 import { brevoEn } from './brevo.en.ts';
@@ -180,6 +181,7 @@ export const en = {
   ...invoiceMoneyEn,
   ...businessAccountsEn,
   ...invoiceSendEn,
+  ...invoiceSchedulesEn,
   ...portalEn,
   ...brevoEn,
   ...agentControlsEn,
@@ -927,6 +929,9 @@ export const en = {
   'tasks.detail.archivedBadge': 'archived',
   'tasks.detail.privateBadge': 'Private to you',
   'tasks.detail.privateHint': 'Only you can see this task, its runs and its results. It came from your private chat, or it read your own data.',
+  'tasks.detail.privateOnly': 'Only you can see this task, its runs and its results.',
+  'tasks.detail.privateWhy.data': 'It read your own data (Finance or your own mailbox), so it stays private for good and you decide its approvals yourself.',
+  'tasks.detail.privateWhy.chat': 'It came from your private chat. If a run waits for someone else\'s approval, it is shared with the workspace at that moment.',
   'tasks.detail.archived': 'Archived',
   'tasks.detail.runs': 'Runs',
   'tasks.detail.by': '{when} by {who}',

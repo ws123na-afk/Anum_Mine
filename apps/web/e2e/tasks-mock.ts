@@ -2,7 +2,7 @@ import type { Page, Route } from '@playwright/test';
 
 // A stateful mock of the Tasks API (docs/tasks.md) for e2e/tasks.spec.ts: filtered keyset list,
 // summary, edit, archive, bulk, run history, retry, task events and the run-log export.
-export type ApiTask = { id: string; title: string; prompt: string; status: string; tenant_id: string; workspace_id: string; created_at: string; updated_at: string; created_by: string; archived_at: string | null; archived_by: string | null };
+export type ApiTask = { id: string; title: string; prompt: string; status: string; tenant_id: string; workspace_id: string; created_at: string; updated_at: string; created_by: string; archived_at: string | null; archived_by: string | null; private_to?: string | null; private_kind?: 'chat' | 'data' | null };
 type ApiRun = { id: string; task_id: string; status: string; result: string | null; steps: { id: string; type: string; summary: string; created_at: string; metadata?: Record<string, unknown> }[]; created_at: string; updated_at: string; checkpoint: { phase: string } };
 type ApiEvent = { id: string; type: string; version: number; tenant_id: string; workspace_id: string; subject: string; correlation_id: string; created_at: string; payload: Record<string, unknown> };
 

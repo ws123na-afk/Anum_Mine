@@ -740,4 +740,19 @@ def test_every_state_changing_route_is_audited_without_contact_details_or_text(s
         call("POST", "/lead-duplicates/merge", json={"keep_id": first, "merge_id": second})
     finally:
         memory_whatsapp_leads.clear()
+    # Recurring invoices and the daily pass's switches (docs/business.md#recurring-invoices).
+    from datetime import timedelta as days
+
+    later = (utc_now().date() + days(days=30)).isoformat()
+    body = {"account_id": third["lead"]["account_id"], "frequency": "monthly", "start_date": later, "lines": [{"description": "Support", "unit_price": 100}]}
+    sched = call("POST", "/invoice-schedules", json=body).json()
+    sched = call("PATCH", f"/invoice-schedules/{sched['id']}", json={"version": sched["version"], "title": "Support retainer"}).json()
+    sched = call("POST", f"/invoice-schedules/{sched['id']}/pause", json={"version": sched["version"]}).json()
+    sched = call("POST", f"/invoice-schedules/{sched['id']}/resume", json={"version": sched["version"]}).json()
+    call("POST", f"/invoice-schedules/{sched['id']}/run")
+    call("DELETE", f"/invoice-schedules/{sched['id']}")
+    ended = call("POST", "/invoice-schedules", json=body).json()
+    call("POST", f"/invoice-schedules/{ended['id']}/end", json={"version": ended["version"]})
+    call("PUT", "/invoice-automation", json={"auto_reminders": True, "email_scheduled": False})
+    call("POST", "/invoice-automation/run")
     probe.assert_covered()

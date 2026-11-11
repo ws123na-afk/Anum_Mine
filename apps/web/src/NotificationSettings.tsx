@@ -4,6 +4,8 @@ import * as api from './lib/api';
 import { describeError } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
 import {
+  CALENDAR_EMAIL_LANGUAGES,
+  calendarEmailLanguageLabel,
   desktopHint,
   emailHint,
   emailTestNotice,
@@ -13,6 +15,7 @@ import {
   pushSummary,
   sortDevices,
   withDefaults,
+  type CalendarEmailLanguage,
   type ChannelHint,
   type NotificationChannels,
   type NotificationPreferences,
@@ -73,7 +76,8 @@ function NotificationSwitches({ onSaved }: { onSaved: (value: NotificationPrefer
     <h2 id={`${id}-title`}>{t('settings.notifications.title')}</h2>
     {loading && !prefs && <p className="muted" role="status">{t('settings.notifications.loading')}</p>}
     {prefs && notificationSwitches().map((item) => {
-      const hint: ChannelHint | null = item.key === 'email_enabled' ? emailHint(prefs, channels) : item.key === 'desktop_enabled' ? desktopHint(prefs, permission) : null;
+      const hint: ChannelHint | null = item.key === 'email_enabled' ? emailHint(prefs, channels) : item.key === 'desktop_enabled' ? desktopHint(prefs, permission)
+        : item.key === 'calendar_email' && prefs.calendar_email && !prefs.email_enabled ? { tone: 'warning', text: t('settings.notifications.calendar_email.needsEmail') } : null;
       return <div key={item.key}>
         <label className="settingToggle">
           <div><strong>{item.label}</strong><p id={`${id}-${item.key}`}>{item.description}</p></div>
@@ -85,6 +89,13 @@ function NotificationSwitches({ onSaved }: { onSaved: (value: NotificationPrefer
           <button type="button" className="secondary" disabled={testing} onClick={() => void sendTest()}>{testing ? t('settings.notifications.test.sending') : t('settings.notifications.test.send')}</button>
         </div>}
         {item.key === 'email_enabled' && testResult && <p className={`notice ${testResult.tone === 'warning' ? 'errorNotice' : ''}`} role={testResult.tone === 'warning' ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{testResult.text}</p>}
+        {item.key === 'calendar_email' && <label className="settingChoice">
+          <span>{t('settings.notifications.calendar_email_language')}</span>
+          <select value={prefs.calendar_email_language ?? ''} disabled={saving || !prefs.calendar_email}
+            onChange={(e) => { setNote(null); setPrefs({ ...prefs, calendar_email_language: (e.target.value || null) as CalendarEmailLanguage | null }); }}>
+            {CALENDAR_EMAIL_LANGUAGES.map((value) => <option key={value || 'both'} value={value}>{calendarEmailLanguageLabel(value)}</option>)}
+          </select>
+        </label>}
         {item.key === 'desktop_enabled' && permission === 'default' && <div className="actions">
           <button type="button" className="secondary" onClick={() => void Notification.requestPermission().then(setPermission)}>{t('settings.notifications.desktop.allow')}</button>
         </div>}

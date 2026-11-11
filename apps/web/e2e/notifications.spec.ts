@@ -133,7 +133,7 @@ test('the Email switch says what it can do and the test email proves it', async 
   await page.goto('/#notifications');
   const settings = page.getByRole('region', { name: 'Notifications' });
   await expect(settings.getByText('Ready. Switch it on and save to get emails.')).toBeVisible();
-  await settings.getByRole('checkbox', { name: 'Email', exact: false }).check();
+  await settings.getByRole('checkbox', { name: /^Email/ }).check();
   await expect(settings.getByText(/^On\. You get an email for the kinds you switched on above/)).toBeVisible();
   await settings.getByRole('button', { name: 'Send me a test email' }).click();
   await expect(settings.getByRole('status').filter({ hasText: 'Test email sent to me@example.com.' })).toBeVisible();
@@ -162,5 +162,29 @@ test('Email asks for an address when ANUM has none, and nothing breaks if the ch
   await expect(page.getByRole('region', { name: 'Notifications' }).getByText(/ANUM has no email address for you/)).toBeVisible();
   await mockApi(page, { channels: null });
   await page.reload();
-  await expect(page.getByRole('region', { name: 'Notifications' }).getByRole('checkbox', { name: 'Email' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByRole('checkbox', { name: /^Email/ })).toBeVisible();
+});
+
+test('calendar reminder emails have their own switch and language, saved with the others', async ({ page }) => {
+  const state = await mockApi(page);
+  await page.goto('/#notifications');
+  const settings = page.getByRole('region', { name: 'Notifications' });
+  const calendar = settings.getByRole('checkbox', { name: /^Calendar reminders by email/ });
+  // On by default (older servers do not send it), with a warning while Email itself is off.
+  await expect(calendar).toBeChecked();
+  await expect(settings.getByText('Off while Email is off: switch Email on to get calendar reminder emails.')).toBeVisible();
+  const language = settings.getByLabel('Language of calendar reminder emails');
+  await expect(language).toHaveValue('');
+  await settings.getByRole('checkbox', { name: /^Email/ }).check();
+  await expect(settings.getByText(/Off while Email is off/)).toHaveCount(0);
+  await language.selectOption('ar');
+  await settings.getByRole('button', { name: 'Save notifications' }).click();
+  await expect.poll(() => state.puts.length).toBe(1);
+  expect(state.puts[0]).toMatchObject({ email_enabled: true, calendar_email: true, calendar_email_language: 'ar' });
+  // Turning calendar emails off disables the language choice and keeps it for later.
+  await calendar.uncheck();
+  await expect(language).toBeDisabled();
+  await settings.getByRole('button', { name: 'Save notifications' }).click();
+  await expect.poll(() => state.puts.length).toBe(2);
+  expect(state.puts[1]).toMatchObject({ calendar_email: false, calendar_email_language: 'ar' });
 });

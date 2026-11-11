@@ -45,6 +45,10 @@ abstract interface class PortalRepository {
   });
   Future<List<PortalTicketSummary>> tickets();
   Future<PortalTicket> ticket(String id);
+
+  /// Write inside one of your requests; the same key again is the same message.
+  Future<PortalTicket> writeInTicket(String id,
+      {required String body, required String idempotencyKey});
   Future<PortalTicket> openTicket({
     required String title,
     required String description,
@@ -198,6 +202,14 @@ class ApiPortalRepository implements PortalRepository {
   @override
   Future<PortalTicket> ticket(String id) async => PortalTicket.fromJson(
       JsonReader.of(await _call('GET', '/tickets/${_id(id)}')));
+
+  @override
+  Future<PortalTicket> writeInTicket(String id,
+          {required String body, required String idempotencyKey}) async =>
+      PortalTicket.fromJson(JsonReader.of(await _call(
+          'POST',
+          '/tickets/${_id(id)}/messages',
+          {'body': body, 'idempotency_key': idempotencyKey})));
 
   @override
   Future<PortalTicket> openTicket({

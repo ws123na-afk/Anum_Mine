@@ -172,7 +172,7 @@ class FinanceStrings {
     'kind.investment': 'Investment',
     'endingIn': 'ending {last4}',
     'importOnWeb':
-        'Import statements, edit categories and manage holdings in Finance on the web.',
+        'Import a statement, review SMS, edit rules and reconcile from the menu (More in Finance). Holdings are managed in Finance on the web.',
     'category.income': 'Income',
     'category.transfer': 'Transfers',
     'category.groceries': 'Groceries',
@@ -455,7 +455,7 @@ class FinanceStrings {
     'kind.investment': 'استثمار',
     'endingIn': 'ينتهي بـ {last4}',
     'importOnWeb':
-        'استورد الكشوف وعدّل الفئات وأدر الاستثمارات من المالية على الويب.',
+        'استورد كشفًا وراجع رسائل SMS وعدّل القواعد وطابق الحسابات من القائمة (المزيد في المالية). تُدار الاستثمارات من المالية على الويب.',
     'category.income': 'الدخل',
     'category.transfer': 'التحويلات',
     'category.groceries': 'البقالة',

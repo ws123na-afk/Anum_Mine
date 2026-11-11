@@ -16,8 +16,15 @@ button.taskSmallButton svg { height: 16px; width: 16px; }
 .taskErrorRow { align-items: center; flex-wrap: wrap; }
 .taskErrorRow span { flex: 1 1 200px; }
 .taskRow { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr); }
-.taskList .recordButton { gap: var(--d-s3); }
+.taskList .recordButton { flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); }
 .taskList .recordButton > span { min-width: 0; }
+/* The title keeps at least 11rem; on a narrow row the badges move under it instead of squeezing it. */
+.taskList .recordButton > span:first-child { flex: 1 1 11rem; }
+.taskRowBadges { align-items: center; display: inline-flex; flex: none; flex-wrap: wrap; gap: var(--d-s1); justify-content: flex-end; }
+.taskPrivateBadge { align-items: center; display: inline-flex; gap: 4px; }
+.taskPrivateBadge svg { flex: none; height: 12px; width: 12px; }
+.taskPrivateNote { align-items: flex-start; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-muted); display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0 0 var(--d-s3); padding: var(--d-s2) var(--d-s3); }
+.taskPrivateNote svg { flex: none; height: 16px; margin-top: 2px; width: 16px; }
 .taskPromptPreview { color: var(--d-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .taskLoading { padding: var(--d-s3) 0; }
 .taskHint { margin-top: var(--d-s3); }

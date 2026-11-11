@@ -173,6 +173,9 @@ export const deleteTicket = (ticketId: string) => apiRequestVoid(ticketPath(tick
 export const addReply = (ticketId: string, body: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies`, json('POST', { body }));
 export const editReply = (ticketId: string, replyId: string, body: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies/${id(replyId)}`, json('PATCH', { body }));
 export const discardReply = (ticketId: string, replyId: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/replies/${id(replyId)}`, { method: 'DELETE' });
+/** Answer inside the customer portal (docs/business-portal.md#replying-inside-a-request): shown to the customer, never sent anywhere. */
+export const answerInPortal = (ticketId: string, body: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/portal-messages`, json('POST', { body }));
+export const readPortalMessages = (ticketId: string) => apiRequest<TicketDetail>(`${ticketPath(ticketId)}/portal-messages/read`, json('POST'));
 export const requestReplyApproval = (ticketId: string, replyId: string) => apiRequest<TicketReplyRequest>(`${ticketPath(ticketId)}/replies/${id(replyId)}/request-approval`, json('POST'));
 
 // One lead list (docs/business.md#whatsapp-leads): WhatsApp leads waiting to join it and duplicate suggestions.

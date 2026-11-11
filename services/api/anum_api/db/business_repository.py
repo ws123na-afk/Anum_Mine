@@ -458,6 +458,9 @@ class BusinessInvoiceRecord(Base, _Updated):
     marked_milestones: Mapped[list[Any]] = mapped_column(JSONB)
     decision_note: Mapped[str] = mapped_column(String(500))
     created_by: Mapped[str] = mapped_column(String(160))
+    # Migration 0175_business_depth: the recurring invoice that drafted it and the period.
+    schedule_id: Mapped[str | None] = mapped_column(String(80))
+    period_date: Mapped[date | None] = mapped_column(Date)
 
 
 class BusinessInvoicePaymentRecord(Base, _Updated):
@@ -488,6 +491,7 @@ class BusinessInvoiceMessageRecord(Base, _Updated):
     payload_hash: Mapped[str | None] = mapped_column(String(64))
     detail: Mapped[str] = mapped_column(String(500))
     requested_by: Mapped[str] = mapped_column(String(160))
+    schedule_step: Mapped[int | None] = mapped_column(Integer)
 
 
 class BusinessInvoicePaymentLinkRecord(Base, _Updated):
@@ -577,6 +581,65 @@ class BusinessPortalDecisionRecord(Base, _Updated):
     decided_at: Mapped[datetime] = mapped_column(TS)
 
 
+class BusinessInvoiceScheduleRecord(Base, _Updated):
+    __tablename__ = "business_invoice_schedules"
+    title: Mapped[str] = mapped_column(String(200))
+    account_id: Mapped[str] = mapped_column(String(80))
+    project_id: Mapped[str | None] = mapped_column(String(80))
+    contact_id: Mapped[str | None] = mapped_column(String(80))
+    currency: Mapped[str] = mapped_column(String(3))
+    lines: Mapped[list[Any]] = mapped_column(JSONB)
+    due_in_days: Mapped[int] = mapped_column(Integer)
+    customer_reference: Mapped[str] = mapped_column(String(120))
+    notes: Mapped[str] = mapped_column(Text)
+    payment_terms: Mapped[str] = mapped_column(Text)
+    frequency: Mapped[str] = mapped_column(String(10))
+    interval: Mapped[int] = mapped_column(Integer)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    max_count: Mapped[int | None] = mapped_column(Integer)
+    issue_mode: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(10))
+    anchor_date: Mapped[date] = mapped_column(Date)
+    next_index: Mapped[int] = mapped_column(Integer)
+    next_date: Mapped[date | None] = mapped_column(Date)
+    created_count: Mapped[int] = mapped_column(Integer)
+    last_period: Mapped[date | None] = mapped_column(Date)
+    last_invoice_id: Mapped[str | None] = mapped_column(String(80))
+    last_error: Mapped[str] = mapped_column(String(500))
+    end_reason: Mapped[str] = mapped_column(String(20))
+    ended_at: Mapped[datetime | None] = mapped_column(TS)
+    version: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[str] = mapped_column(String(160))
+    updated_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessInvoiceAutomationRecord(Base, _Updated):
+    __tablename__ = "business_invoice_automation"
+    auto_reminders: Mapped[bool] = mapped_column(Boolean)
+    email_scheduled: Mapped[bool] = mapped_column(Boolean)
+    language: Mapped[str] = mapped_column(String(2))
+    last_run_on: Mapped[date | None] = mapped_column(Date)
+    last_run_at: Mapped[datetime | None] = mapped_column(TS)
+    last_run_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    updated_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessTicketMessageRecord(Base, _Updated):
+    __tablename__ = "business_ticket_messages"
+    ticket_id: Mapped[str] = mapped_column(String(80))
+    account_id: Mapped[str] = mapped_column(String(80))
+    author: Mapped[str] = mapped_column(String(10))
+    author_name: Mapped[str] = mapped_column(String(160))
+    access_id: Mapped[str | None] = mapped_column(String(80))
+    contact_id: Mapped[str | None] = mapped_column(String(80))
+    body: Mapped[str] = mapped_column(Text)
+    client_key: Mapped[str | None] = mapped_column(String(80))
+    read_at: Mapped[datetime | None] = mapped_column(TS)
+    read_by: Mapped[str | None] = mapped_column(String(160))
+    created_by: Mapped[str] = mapped_column(String(160))
+
+
 class BusinessSettingsRecord(Base):
     __tablename__ = "business_settings"
     tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -619,6 +682,9 @@ RECORDS: dict[str, Any] = {
     "payment_links": BusinessInvoicePaymentLinkRecord,
     "portal_access": BusinessPortalAccessRecord,
     "portal_decisions": BusinessPortalDecisionRecord,
+    "invoice_schedules": BusinessInvoiceScheduleRecord,
+    "invoice_automation": BusinessInvoiceAutomationRecord,
+    "ticket_messages": BusinessTicketMessageRecord,
 }
 RECORDS.update(PIPELINE_RECORDS)
 if set(RECORDS) != set(KINDS):  # pragma: no cover - import-time wiring check

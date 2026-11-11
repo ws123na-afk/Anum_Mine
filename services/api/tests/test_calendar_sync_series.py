@@ -6,6 +6,7 @@ Every provider call goes to the ``httpx.MockTransport`` of ``test_calendar_sync`
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -24,9 +25,18 @@ from test_calendar_sync import (  # noqa: F401 (the autouse fixture)
     stamp,
     sync,
 )
+from test_calendar_sync import stored as stored_connection
 
 from anum_api.calendar_api import MAX_PUSH_ATTEMPTS, calendar_backend
-from anum_api.calendar_providers import Recurrence, google_rrule, graph_recurrence, parse_google_recurrence
+from anum_api.calendar_providers import (
+    Recurrence,
+    google_rrule,
+    graph_recurrence,
+    graph_removed_occurrences,
+    graph_zone,
+    parse_google_recurrence,
+    parse_graph_recurrence,
+)
 from anum_api.schemas import utc_now
 from anum_api.store import store
 
@@ -269,3 +279,215 @@ def test_a_google_rule_outside_anums_subset_falls_back_to_its_instances(fake: Fa
     audits = [e for e in events() if e["title"] == "Quarterly audit"]
     assert len(audits) == 2 and not any(e["is_recurring"] for e in audits)
     assert any(q.get("instances") == "/gm1/instances" for q in fake.google_query)
+
+
+# -- Microsoft series into ANUM ------------------------------------------------------------------------
+
+
+def _graph_time(moment: datetime) -> dict[str, str]:
+    return {"dateTime": moment.strftime("%Y-%m-%dT%H:%M:%S.0000000"), "timeZone": "UTC"}
+
+
+def graph_master(master_id: str, start: datetime, recurrence: dict[str, Any], title: str = "Depot walk", **extra: Any) -> dict[str, Any]:
+    return {
+        "id": master_id, "type": "seriesMaster", "subject": title, "changeKey": "cks1", "lastModifiedDateTime": stamp(-2),
+        "start": _graph_time(start), "end": _graph_time(start + timedelta(minutes=30)), "isOrganizer": True,
+        "organizer": {"emailAddress": {"address": "owner@contoso.example"}}, "attendees": [], "recurrence": recurrence,
+        "originalStartTimeZone": "Arabian Standard Time", **extra,
+    }
+
+
+def graph_occurrence(occurrence_id: str, master_id: str, start: datetime, title: str = "Depot walk", kind: str = "occurrence", **extra: Any) -> dict[str, Any]:
+    return {
+        "id": occurrence_id, "type": kind, "seriesMasterId": master_id, "subject": title, "changeKey": f"ck_{occurrence_id}",
+        "lastModifiedDateTime": stamp(-2), "originalStart": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "start": _graph_time(start), "end": _graph_time(start + timedelta(minutes=30)), "isOrganizer": True,
+        "organizer": {"emailAddress": {"address": "owner@contoso.example"}}, "attendees": [], **extra,
+    }
+
+
+def daily(count: int, zone: str = "Arabian Standard Time") -> dict[str, Any]:
+    return {"pattern": {"type": "daily", "interval": 1, "firstDayOfWeek": "sunday"},
+            "range": {"type": "numbered", "numberOfOccurrences": count, "startDate": first_start().date().isoformat(), "recurrenceTimeZone": zone}}
+
+
+def microsoft_connection(fake: FakeCalendars, items: list[dict[str, Any]]) -> str:
+    fake.graph_items = items
+    connection = connect("microsoft")
+    return connection["id"]
+
+
+def series_rows(title_prefix: str) -> list[dict[str, Any]]:
+    return [e for e in events() if e["title"].startswith(title_prefix)]
+
+
+def test_a_microsoft_series_is_read_as_one_series_with_its_exceptions_and_removed_occurrences(fake: FakeCalendars) -> None:
+    start = first_start()
+    starts = [start + timedelta(days=n) for n in range(5)]
+    occurrences = [graph_occurrence(f"m_occ{n}", "m_s1", s) for n, s in enumerate(starts)]
+    # Before this change (and while its master cannot be read) the occurrences are single events.
+    connection_id = microsoft_connection(fake, occurrences)
+    assert len(series_rows("Depot walk")) == 5 and not any(e["is_recurring"] for e in series_rows("Depot walk"))
+    # The master is readable now. Outlook changed the second occurrence on its own and deleted the third.
+    moved = graph_occurrence("m_occ1", "m_s1", starts[1], "Depot walk with Sara", kind="exception", changeKey="ck_moved")
+    fake.graph_masters["m_s1"] = graph_master("m_s1", start, daily(5))
+    fake.graph_instances["m_s1"] = [occurrences[0], moved, occurrences[3], occurrences[4]]
+    fake.graph_changes = [moved, {"id": "m_occ2", "@removed": {"reason": "deleted"}}]
+    sync(connection_id)
+    assert any(p.get("master") == "/events/m_s1" for p in fake.graph_params)
+    shown = series_rows("Depot walk")
+    assert [e["title"] for e in shown] == ["Depot walk", "Depot walk with Sara", "Depot walk", "Depot walk"]
+    assert all(e["is_recurring"] for e in shown) and shown[1]["overridden"] is True
+    series = calendar_backend.events[shown[0]["id"]]
+    assert series.recurrence == Recurrence(freq="daily", count=5) and series.timezone == "Asia/Dubai" and series.external_id == "m_s1"
+    assert series.skipped == [starts[2]] and series.source == "microsoft" and series.sync_state == "synced"
+    # The single events the older sync stored for its occurrences are gone (no duplicates).
+    assert not [e for e in calendar_backend.events.values() if (e.external_id or "").startswith("m_occ") and e.series_id is None]
+    # Later Outlook deletes another occurrence: Graph reports only that occurrence's id as removed.
+    fake.graph_masters["m_s1"]["changeKey"] = "cks2"
+    fake.graph_instances["m_s1"] = [occurrences[0], moved, occurrences[4]]
+    fake.graph_changes = [{"id": "m_occ3", "@removed": {"reason": "deleted"}}]
+    summary = sync(connection_id)["summary"]
+    assert summary["deleted"] == 1
+    assert calendar_backend.events[series.id].skipped == [starts[2], starts[3]]
+    assert len(series_rows("Depot walk")) == 3
+    # Graph lists the series' own occurrences again on a change: none is imported as a single event.
+    fake.graph_changes = [occurrences[0], occurrences[4]]
+    sync(connection_id)
+    assert len(series_rows("Depot walk")) == 3 and len([e for e in calendar_backend.events.values() if e.external_id == "m_occ0"]) == 0
+
+
+def test_an_occurrence_deleted_in_outlook_from_a_series_anum_sent_is_removed_in_anum(fake: FakeCalendars) -> None:
+    connect("microsoft")
+    connection_id = client.get("/api/v1/calendar/sync", headers=OWNER).json()["connections"][0]["id"]
+    series = create(series_body())
+    sent = fake.graph_writes[-1]
+    assert series["external_id"] == "m_new" and sent["recurrence"]["range"]["numberOfOccurrences"] == 6
+    start = first_start()
+    starts = [start + timedelta(days=n) for n in range(6)]
+    # Outlook deleted the fourth occurrence; the master's change key moved, nothing else changed.
+    fake.graph_masters["m_new"] = graph_master("m_new", start, sent["recurrence"], title="Fleet stand-up", changeKey="ck_after_delete")
+    fake.graph_instances["m_new"] = [graph_occurrence(f"m_new_{n}", "m_new", s, "Fleet stand-up") for n, s in enumerate(starts) if n != 3]
+    fake.graph_changes = [{"id": "m_new_3", "@removed": {"reason": "deleted"}}]
+    writes = len(fake.graph_writes)
+    sync(connection_id)
+    stored_series = calendar_backend.events[series["id"]]
+    assert stored_series.skipped == [starts[3]] and stored_series.recurrence == Recurrence(freq="daily", count=6)
+    assert stored_series.external_etag == "ck_after_delete" and stored_series.source != "microsoft"
+    assert len(occurrences_of(series["id"])) == 5
+    # Nothing is written back: the removal came from the provider.
+    assert len(fake.graph_writes) == writes
+
+
+def test_a_microsoft_series_deleted_in_outlook_is_removed_in_anum(fake: FakeCalendars) -> None:
+    start = first_start()
+    fake.graph_masters["m_s2"] = graph_master("m_s2", start, daily(3), title="Yard check")
+    fake.graph_instances["m_s2"] = [graph_occurrence(f"m_y{n}", "m_s2", start + timedelta(days=n), "Yard check") for n in range(3)]
+    connection_id = microsoft_connection(fake, list(fake.graph_instances["m_s2"]))
+    assert len(series_rows("Yard check")) == 3 and all(e["is_recurring"] for e in series_rows("Yard check"))
+    del fake.graph_masters["m_s2"]
+    fake.graph_changes = [{"id": f"m_y{n}", "@removed": {"reason": "deleted"}} for n in range(3)]
+    sync(connection_id)
+    assert series_rows("Yard check") == []
+
+
+def test_a_microsoft_pattern_outside_anums_subset_keeps_its_occurrences_as_single_events(fake: FakeCalendars) -> None:
+    start = first_start()
+    yearly = {"pattern": {"type": "relativeYearly", "interval": 1, "daysOfWeek": ["monday"], "index": "first", "month": 3},
+              "range": {"type": "noEnd", "startDate": start.date().isoformat(), "recurrenceTimeZone": "Arabian Standard Time"}}
+    fake.graph_masters["m_s3"] = graph_master("m_s3", start, yearly, title="Annual audit")
+    occurrence = graph_occurrence("m_a1", "m_s3", start, "Annual audit")
+    fake.graph_instances["m_s3"] = [occurrence]
+    microsoft_connection(fake, [occurrence])
+    audits = series_rows("Annual audit")
+    assert len(audits) == 1 and not audits[0]["is_recurring"]
+
+
+def test_microsoft_series_over_the_per_pass_limit_wait_in_the_cursor(fake: FakeCalendars, monkeypatch: Any) -> None:
+    from anum_api import calendar_providers
+
+    monkeypatch.setattr(calendar_providers, "MAX_GRAPH_SERIES", 1)
+    start = first_start()
+    items = []
+    for master, title in (("m_w1", "Wash bay"), ("m_w2", "Tyre bay")):
+        fake.graph_masters[master] = graph_master(master, start, daily(2), title=title)
+        fake.graph_instances[master] = [graph_occurrence(f"{master}_{n}", master, start + timedelta(days=n), title) for n in range(2)]
+        items.extend(fake.graph_instances[master])
+    connection_id = microsoft_connection(fake, items)
+    state = json.loads(stored_connection(connection_id).sync_cursor)
+    assert state["v"] == 2 and state["waiting"] == ["m_w2"]
+    assert all(e["is_recurring"] for e in series_rows("Wash bay"))
+    # The waiting series is read on the next pass, and its single events become one series.
+    sync(connection_id)
+    assert all(e["is_recurring"] for e in series_rows("Tyre bay")) and len(series_rows("Tyre bay")) == 2
+    assert "waiting" not in json.loads(stored_connection(connection_id).sync_cursor)
+
+
+def test_a_graph_cursor_from_before_series_were_read_starts_one_full_sync(fake: FakeCalendars) -> None:
+    connection_id = microsoft_connection(fake, [graph_item("m1", "Teams stand-up", 6)])
+    row = stored_connection(connection_id)
+    state = json.loads(row.sync_cursor)
+    del state["v"]
+    row.sync_cursor = json.dumps(state)
+    assert sync(connection_id)["summary"]["full"] is True and "startDateTime" in fake.graph_params[-2]
+
+
+def test_graph_rules_and_zones_read_back() -> None:
+    start = datetime.fromisoformat("2030-03-04T05:00:00+00:00")  # a Monday, 09:00 in Dubai
+    for rule in (
+        Recurrence(freq="weekly", interval=2, by_weekday=["MO", "WE"], until=datetime(2030, 6, 30).date()),
+        Recurrence(freq="monthly", by_weekday=["TU"], by_setpos=-1, count=4),
+        Recurrence(freq="monthly", by_monthday=15),
+        Recurrence(freq="yearly"),
+        Recurrence(freq="daily", interval=3),
+    ):
+        assert parse_graph_recurrence(graph_recurrence(rule, start, "Asia/Dubai"), start, "Asia/Dubai") == rule
+    assert parse_graph_recurrence({"pattern": {"type": "relativeYearly"}, "range": {"type": "noEnd"}}, start, "UTC") is None
+    assert parse_graph_recurrence({"pattern": {"type": "absoluteYearly", "month": 7, "dayOfMonth": 1}, "range": {"type": "noEnd"}}, start, "UTC") is None
+    sunday_weeks = {"pattern": {"type": "weekly", "interval": 2, "daysOfWeek": ["monday", "friday"], "firstDayOfWeek": "sunday"}, "range": {"type": "noEnd"}}
+    assert parse_graph_recurrence(sunday_weeks, start, "UTC") is None
+    assert parse_graph_recurrence({"pattern": {"type": "daily", "interval": 1}, "range": {"type": "numbered", "numberOfOccurrences": 5000}}, start, "UTC") is None
+    assert graph_zone("Arabian Standard Time") == "Asia/Dubai" and graph_zone("Asia/Riyadh") == "Asia/Riyadh"
+    assert graph_zone("UTC") == "UTC" and graph_zone("Mars Standard Time") is None and graph_zone(None) is None
+
+
+def test_removed_occurrences_are_only_inferred_when_graphs_instances_match_the_rule() -> None:
+    from anum_api.calendar_providers import RemoteEvent
+
+    now = utc_now().replace(minute=0, second=0, microsecond=0)
+    since, until = now - timedelta(days=30), now + timedelta(days=365)
+    start = now + timedelta(days=20)
+    master = RemoteEvent(external_id="m", title="x", starts_at=start, ends_at=start + timedelta(hours=1), updated_at=now)
+    rule = Recurrence(freq="daily", count=4)
+
+    def inst(moment: datetime) -> RemoteEvent:
+        return RemoteEvent(external_id=f"i{moment:%d}", title="x", starts_at=moment, ends_at=moment + timedelta(hours=1), updated_at=now, original_start=moment)
+
+    starts = [start + timedelta(days=n) for n in range(4)]
+    assert graph_removed_occurrences(rule, master, "UTC", [inst(starts[0]), inst(starts[2]), inst(starts[3])], since=since, until=until) == [starts[1]]
+    # An instance the rule does not make: ANUM's reading disagrees with Graph's, so nothing is inferred.
+    assert graph_removed_occurrences(rule, master, "UTC", [inst(starts[0] + timedelta(hours=1))], since=since, until=until) is None
+    # No instance at all: nothing is taken as removed.
+    assert graph_removed_occurrences(rule, master, "UTC", [], since=since, until=until) == []
+    # Near the window's edge an occurrence may only have moved out of it: not taken as removed.
+    edge = until - timedelta(days=3)
+    edge_master = RemoteEvent(external_id="m", title="x", starts_at=edge, ends_at=edge + timedelta(hours=1), updated_at=now)
+    assert graph_removed_occurrences(Recurrence(freq="daily", count=2), edge_master, "UTC", [inst(edge)], since=since, until=until) == []
+
+
+# -- removed in ANUM, outside the sync window ------------------------------------------------------------
+
+
+def test_an_occurrence_removed_in_anum_beyond_the_sync_window_is_removed_at_the_provider(fake: FakeCalendars) -> None:
+    connect()
+    start = first_start()
+    series = create(series_body(recurrence={"freq": "weekly", "count": 60}))
+    starts = [start + timedelta(weeks=n) for n in range(60)]
+    far = starts[56]  # about 392 days ahead: past the 365 days that sync
+    assert far > utc_now() + timedelta(days=365)
+    fake.google_instances["g_new"] = [instance("g_new", s) for s in starts]
+    response = client.delete(f"/api/v1/calendar/events/{series['id']}", headers=MEMBER, params={"scope": "this", "occurrence_start": far.isoformat()})
+    assert response.status_code == 204
+    assert fake.google_writes[-1] == {"method": "DELETE", "id": f"g_new_{far:%Y%m%dT%H%M%SZ}", "params": {"sendUpdates": "none"}}
+    read = [q for q in fake.google_query if q.get("instances") == "/g_new/instances"][-1]
+    assert read["timeMin"] < far.strftime("%Y-%m-%dT%H:%M:%SZ") < read["timeMax"]

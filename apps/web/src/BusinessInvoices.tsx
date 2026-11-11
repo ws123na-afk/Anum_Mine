@@ -4,7 +4,7 @@
 // record payments by hand or from a customer's report (with a receipt PDF each), credit notes (with their PDF), void, print or download a PDF,
 // ask for the invoice email or a payment reminder, and a card payment link (BusinessInvoiceSend.tsx). Sending is never done from here: an owner
 // approves it in Approvals with the hash they were shown, and only then does the invoice get its number or the email go out.
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { PaymentLinkBlock, SendBlock } from './BusinessInvoiceSend';
 import { Download, Plus, Printer, Search, Send, Trash2 } from 'lucide-react';
 import type {
@@ -31,7 +31,26 @@ const dayText = (value: string | null) => (value ? day(value) : '-');
 
 // ---- the tab -----------------------------------------------------------------------------------
 
+// Recurring invoices load on demand (docs/business.md#recurring-invoices); the route is #business-invoices/recurring.
+const RecurringInvoices = lazy(() => import('./BusinessRecurringInvoices').then((module) => ({ default: module.RecurringInvoices })));
+export const RECURRING_VIEW = 'recurring';
+
+function InvoiceViews({ recurring, onPick }: { recurring: boolean; onPick: (recurring: boolean) => void }) {
+  return <div className="segmented invViews" role="group" aria-label={t('rinv.views')}>
+    <button type="button" aria-pressed={!recurring} onClick={() => onPick(false)}>{t('rinv.view.all')}</button>
+    <button type="button" aria-pressed={recurring} onClick={() => onPick(true)}>{t('rinv.view.recurring')}</button>
+  </div>;
+}
+
 export function InvoicesTab({ setup, openId, onOpen, onChanged }: { setup: BusinessSetup; openId: string | null; onOpen: (id: string | null) => void; onChanged: () => void }) {
+  if (openId === RECURRING_VIEW) return <section className="bzSection" aria-label={t('biz.tab.invoices')}>
+    <InvoiceViews recurring onPick={(recurring) => onOpen(recurring ? RECURRING_VIEW : null)} />
+    <Suspense fallback={<Note>{t('biz.loading')}</Note>}><RecurringInvoices setup={setup} onOpenInvoice={(id) => onOpen(id)} /></Suspense>
+  </section>;
+  return <InvoiceList setup={setup} openId={openId} onOpen={onOpen} onChanged={onChanged} />;
+}
+
+function InvoiceList({ setup, openId, onOpen, onChanged }: { setup: BusinessSetup; openId: string | null; onOpen: (id: string | null) => void; onChanged: () => void }) {
   const [filters, setFilters] = useState<InvoiceFilters>(defaultInvoiceFilters), [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false), [tick, setTick] = useState(0);
   const applied: InvoiceFilters = { ...filters, q: search };
@@ -43,6 +62,7 @@ export function InvoicesTab({ setup, openId, onOpen, onChanged }: { setup: Busin
   const clear = () => { setFilters(defaultInvoiceFilters()); setSearch(''); };
   const empty = list.load.kind === 'ready' && list.items.length === 0;
   return <section className="bzSection" aria-label={t('biz.tab.invoices')}>
+    <InvoiceViews recurring={false} onPick={(recurring) => onOpen(recurring ? RECURRING_VIEW : null)} />
     <SummaryBand reload={tick} />
     <div className="bzToolbar">
       <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(filters.q.trim()); setTick((value) => value + 1); }}>
@@ -68,7 +88,8 @@ export function InvoicesTab({ setup, openId, onOpen, onChanged }: { setup: Busin
           <th scope="row"><button type="button" className="linkButton" onClick={() => onOpen(item.id)}><span dir="auto">{invoiceTitle(item)}</span></button><small dir="auto">{item.account_name}{item.project_name ? `, ${item.project_name}` : ''}</small></th>
           <td><div className="invBadges"><Badge tone={invoiceTone(item.status, item.overdue)}>{invoiceStatusLabel(item.status)}</Badge>
             {item.overdue && <Badge tone="dangerTone">{overdueText(item)}</Badge>}
-            {item.notices_pending > 0 && <Badge tone="warning">{t('inv.notice.badge', { count: item.notices_pending })}</Badge>}</div></td>
+            {item.notices_pending > 0 && <Badge tone="warning">{t('inv.notice.badge', { count: item.notices_pending })}</Badge>}
+            {item.schedule_id && <Badge tone="neutral">{t('rinv.badge')}</Badge>}</div></td>
           <td className="num">{money(item.total, item.currency)}</td>
           <td className="num">{item.status === 'sent' || item.status === 'paid' ? money(item.balance, item.currency) : '-'}</td>
           <td className="bzHideMd nowrap">{dayText(listDate(item))}</td>
@@ -133,11 +154,11 @@ function FieldsForm({ draft, onChange, disabled, billToHelp }: { draft: FieldsDr
   </fieldset>;
 }
 
-function ManualLines({ lines, onChange, taxHint }: { lines: ManualLineDraft[]; onChange: (next: ManualLineDraft[]) => void; taxHint: string }) {
+export function ManualLines({ lines, onChange, taxHint, help }: { lines: ManualLineDraft[]; onChange: (next: ManualLineDraft[]) => void; taxHint: string; help?: string }) {
   const set = (index: number, patch: Partial<ManualLineDraft>) => onChange(lines.map((line, at) => (at === index ? { ...line, ...patch } : line)));
   return <fieldset className="bzFieldset">
     <legend>{t('inv.form.manual')}</legend>
-    <p className="muted bzHint">{t('inv.form.manualHelp')}</p>
+    <p className="muted bzHint">{help ?? t('inv.form.manualHelp')}</p>
     <div className="bzRows">{lines.map((line, index) => <div key={index} className="bzRow invLineRow" role="group" aria-label={t('inv.form.lineN', { number: index + 1 })}>
       <label className="field"><span>{t('inv.form.lineDesc')}</span><input value={line.description} onChange={(event) => set(index, { description: event.target.value })} dir="auto" /></label>
       <label className="field"><span>{t('inv.form.lineKind')}</span><select value={line.kind} onChange={(event) => set(index, { kind: event.target.value as ManualLineDraft['kind'] })}>{LINE_KINDS.map((kind) => <option key={kind} value={kind}>{lineKindLabel(kind)}</option>)}</select></label>
@@ -312,6 +333,7 @@ export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: Busine
         {invoice.overdue && <Badge tone="dangerTone">{overdueText(invoice)}</Badge>}
         {(invoice.status === 'sent' || invoice.status === 'paid') && <span className="muted">{paymentStateLabel(invoice.payment_state)}</span>}
         <span className="muted" dir="auto">{invoice.account_name}{invoice.project_name ? `, ${invoice.project_name}` : ''}</span>
+        {invoice.schedule_id && <Badge tone="neutral">{t('rinv.madeFor', { date: invoice.period_date ?? '-' })}</Badge>}
       </div>
       <div aria-live="polite">{notice && <Note>{notice}</Note>}</div>
       {problem && <Note error>{problem}</Note>}

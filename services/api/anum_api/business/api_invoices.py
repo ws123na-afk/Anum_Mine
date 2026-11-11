@@ -171,6 +171,9 @@ class InvoiceListItem(BaseModel):
     lines: int
     updated_at: datetime
     created_at: datetime
+    # Drafted by a recurring invoice (docs/business.md#recurring-invoices) for this period.
+    schedule_id: str | None = None
+    period_date: date | None = None
 
 
 class InvoiceView(Invoice):
@@ -270,7 +273,7 @@ def list_item(store: BusinessStore, invoice: Invoice, today: date, names: dict[t
         project_name=project_name, currency=invoice.currency, total=invoice.total, amount_paid=invoice.amount_paid, amount_credited=invoice.amount_credited,
         issue_date=invoice.issue_date, due_date=invoice.due_date, customer_reference=invoice.customer_reference, notices_pending=(pending or {}).get(invoice.id, 0),
         lines=len(invoice.lines), updated_at=invoice.updated_at,
-        created_at=invoice.created_at, **payment_state(invoice, today),
+        created_at=invoice.created_at, schedule_id=invoice.schedule_id, period_date=invoice.period_date, **payment_state(invoice, today),
     )
 
 

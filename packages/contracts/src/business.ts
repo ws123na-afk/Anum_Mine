@@ -304,6 +304,8 @@ export interface SupportTicket extends Scoped {
   sla: TicketSla;
   /** The statuses this ticket may move to now. */
   allowed: TicketStatus[];
+  /** Customer messages from the portal nobody on the team has opened yet. */
+  portal_unread?: number;
 }
 
 export interface TicketReplyApproval {
@@ -320,11 +322,21 @@ export interface TicketReply extends Scoped {
 
 export interface TicketActivity extends BusinessActivity { ticket_id: string | null }
 
+/** One message of the conversation inside a request in the customer portal (docs/business-portal.md#replying-inside-a-request). */
+export interface TicketMessage extends Scoped {
+  ticket_id: string; account_id: string; author: 'customer' | 'staff'; author_name: string; access_id: string | null; contact_id: string | null;
+  body: string; client_key: string | null; read_at: string | null; read_by: string | null; created_by: string;
+}
+
 export interface TicketDetail extends SupportTicket {
   replies: TicketReply[];
   activities: TicketActivity[];
   can_reply: boolean;
   reply_channel: ReplyChannel | null;
+  /** The conversation in the customer portal. */
+  portal_messages?: TicketMessage[];
+  /** The team can answer in the portal: the account has an active link and the ticket is not closed. */
+  portal_open?: boolean;
 }
 
 export interface TicketReplyRequest { ticket: TicketDetail; reply: TicketReply; detail: string }
@@ -375,6 +387,8 @@ export type InvoiceMessageStatus = 'waiting_approval' | 'sent' | 'rejected' | 'f
 export interface InvoiceMessage extends Scoped {
   invoice_id: string; kind: InvoiceMessageKind; reminder_number: number | null; language: 'en' | 'ar'; to_email: string; subject: string;
   status: InvoiceMessageStatus; approval_id: string | null; task_id: string | null; payload_hash: string | null; detail: string; requested_by: string;
+  /** The reminder step (1 to 4) the daily pass planned; null when a person asked. */
+  schedule_step?: number | null;
 }
 export interface InvoiceEmailInput { to?: string; language: 'en' | 'ar' }
 export interface InvoiceEmailResult { message: InvoiceMessage; payload_hash: string | null; invoice: BusinessInvoice }
@@ -434,12 +448,49 @@ export interface BusinessInvoice extends Scoped {
   /** The open payment page for the current balance. */
   payment_link: InvoicePaymentLink | null;
   can: InvoiceCan;
+  /** Drafted by a recurring invoice for this period (docs/business.md#recurring-invoices). */
+  schedule_id?: string | null; period_date?: string | null;
 }
 
 export interface InvoiceListItem {
   id: string; number: string | null; status: InvoiceStatus; account_id: string; account_name: string; project_id: string | null; project_name: string | null;
   currency: BusinessCurrency; total: number; amount_paid: number; amount_credited: number; balance: number; issue_date: string | null; due_date: string | null;
   overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState; customer_reference: string; notices_pending: number; lines: number; updated_at: string; created_at: string;
+  /** Drafted by a recurring invoice for this period. */
+  schedule_id?: string | null; period_date?: string | null;
+}
+
+// -- recurring invoices and the daily pass (docs/business.md#recurring-invoices) -----------------------------------------
+
+export type ScheduleFrequency = 'monthly' | 'quarterly' | 'yearly' | 'days' | 'weeks' | 'months';
+export type ScheduleStatus = 'active' | 'paused' | 'ended';
+/** draft: each period's invoice waits as a draft; request_approval: it is also sent for an owner's approval. */
+export type ScheduleIssueMode = 'draft' | 'request_approval';
+export interface ScheduleLine { description: string; kind?: LineKind; quantity: number; unit_price: number; tax_rate_pct: number; tax_code?: SalesTaxCode | null }
+export interface InvoiceScheduleFields {
+  title?: string; account_id?: string; project_id?: string | null; contact_id?: string | null; currency?: BusinessCurrency; lines?: ScheduleLine[];
+  due_in_days?: number | null; customer_reference?: string; notes?: string; payment_terms?: string; frequency?: ScheduleFrequency; interval?: number;
+  start_date?: string; end_date?: string | null; max_count?: number | null; issue_mode?: ScheduleIssueMode;
+}
+export interface InvoiceSchedule extends Scoped {
+  title: string; account_id: string; project_id: string | null; contact_id: string | null; currency: BusinessCurrency; lines: ScheduleLine[];
+  due_in_days: number; customer_reference: string; notes: string; payment_terms: string; frequency: ScheduleFrequency; interval: number;
+  start_date: string; end_date: string | null; max_count: number | null; issue_mode: ScheduleIssueMode; status: ScheduleStatus;
+  anchor_date: string; next_index: number; next_date: string | null; created_count: number; last_period: string | null; last_invoice_id: string | null;
+  /** Why the last period could not be drafted or sent for approval, in plain words. */
+  last_error: string; end_reason: '' | 'owner' | 'end_date' | 'count'; ended_at: string | null; version: number; created_by: string; updated_by: string;
+  account_name: string | null; project_name: string | null; subtotal: number; tax: number; total: number;
+  /** The next periods still to be drafted. */
+  upcoming: string[];
+}
+export interface ScheduleInvoice { id: string; number: string | null; status: InvoiceStatus; period_date: string | null; total: number; currency: BusinessCurrency; payment_state: InvoicePaymentState; created_at: string }
+export interface InvoiceScheduleDetail extends InvoiceSchedule { invoices: ScheduleInvoice[]; invoices_total: number }
+export interface ScheduleRunResult { drafted: number; sent_for_approval: number; note: string; schedule: InvoiceScheduleDetail }
+export interface InvoiceAutomationSummary { reminders_planned: number; emails_planned: number; skipped_do_not_contact: number; failed: number; note: string }
+/** The owner's switches for the daily pass; every email it plans waits in Approvals (docs/business.md#reminders-planned-by-the-daily-pass). */
+export interface InvoiceAutomation {
+  auto_reminders: boolean; email_scheduled: boolean; language: 'en' | 'ar'; last_run_on: string | null; last_run_at: string | null;
+  last_run_summary: InvoiceAutomationSummary | null; can_change: boolean;
 }
 
 export interface InvoiceSummary {
@@ -554,7 +605,13 @@ export interface PortalTicketSummary {
   id: string; reference: string; title: string; severity: TicketSeverity; status: TicketStatus; project_name: string | null; reported_at: string;
   updated_at: string; opened_here: boolean;
 }
+/** One message of the conversation inside a request: yours, or the business's. */
+export interface PortalMessage { id: string; author: 'you' | 'business'; author_name: string; body: string; created_at: string }
 export interface PortalTicket extends PortalTicketSummary {
   description: string; resolution_summary: string; resolved_at: string | null; replies: { body: string; sent_at: string | null }[];
+  messages?: PortalMessage[];
+  /** You may write in this request (it is not closed and the business is not paused). */
+  can_reply?: boolean;
 }
+export interface PortalMessageInput { body: string; idempotency_key: string }
 export interface PortalTicketInput { title: string; description: string; severity?: 'low' | 'normal' | 'high'; project_id?: string | null }

@@ -211,6 +211,27 @@ test('the transaction drawer shows the card FX details and separates the fee wit
   expect(separate).toEqual([{ plan_hash: 'b'.repeat(64) }]);
 });
 
+test('an own transfer shows its other side in the drawer and is unpaired after a confirmation', async ({ page }) => {
+  const { state } = await mockFinance(page);
+  const first = String(state.transactions[0].id);
+  state.transferPairs = { [first]: { paired: true, link_id: 'fin_link_9', link_version: 2, role: 'out',
+    other: { transaction_id: 'fin_txn_in', account_id: 'fin_acct_card', account_name: 'Rewards card', posted_on: '2026-11-05', amount: '1000.00', currency: 'AED', description: 'EXAMPLE PAYMENT RECEIVED' } } };
+  const voids: unknown[] = [];
+  page.on('request', (request) => { if (request.method() === 'POST' && request.url().endsWith('/links/fin_link_9/void')) voids.push(request.postDataJSON()); });
+  await page.goto('/#finance-transactions');
+  await page.locator('.fregTable tbody tr').first().click();
+  const pair = page.getByRole('region', { name: 'Own transfer' });
+  await expect(pair).toContainText('Paired with the money that arrived on Rewards card.');
+  await expect(pair).toContainText('EXAMPLE PAYMENT RECEIVED');
+  await pair.getByRole('button', { name: 'Unpair' }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'Unpair this transfer?' });
+  await expect(confirm).toContainText('Both rows stay in the ledger');
+  await confirm.getByRole('button', { name: 'Unpair' }).click();
+  await expect(page.getByText(/Unpaired\. Both rows stay as they are/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Own transfer' })).toHaveCount(0);
+  expect(voids).toEqual([{ version: 2 }]);
+});
+
 for (const { width, height } of GATE_SIZES) {
   test(`responsive @gate: the bill's supporting documents and the evidence pack fit at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });

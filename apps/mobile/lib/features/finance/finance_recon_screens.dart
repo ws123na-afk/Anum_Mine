@@ -9,13 +9,18 @@ import '../records_kit/records_widgets.dart';
 import 'finance_models.dart';
 import 'finance_more_data.dart';
 import 'finance_more_strings.dart';
+import 'finance_recon_actions.dart';
 import 'finance_review_strings.dart';
+import 'finance_tools_data.dart';
+import 'finance_tools_strings.dart';
 
 /// Finance, Reconciliation on the phone (docs/finance.md#reconciliation-sessions):
 /// every open exception across accounts (sorted by the server, paged, CSV),
-/// the sessions with their state, and one session's equation, card check
-/// and exceptions with Edit figures and Delete while it is open. Matching
-/// rows, correcting entries, completing and reopening stay on the web.
+/// the sessions with their state, starting one, and one session's equation,
+/// card check and exceptions with the owner's decisions: match, confirm on
+/// this statement, not on this statement, accept a reversal pair, post a
+/// correcting entry approved with its payload hash, undo, complete and
+/// reopen with a reason. Edit figures and Delete while it is open.
 
 AnumTone reconTone(ReconRow s) => switch (s.label) {
       'changed' => AnumTone.stop,
@@ -94,11 +99,25 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
     _queue.load(filter: '$_sort|$_desc');
   }
 
+  /// Opens a session; when it asks for Transactions or Import, this page
+  /// closes too and hands the request to Finance.
   Future<void> _open(String id) async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
+    final next = await Navigator.of(context).push(MaterialPageRoute<String>(
         builder: (_) =>
             ReconSessionScreen(repository: widget.repository, id: id)));
-    if (mounted) await _reload();
+    if (!mounted) return;
+    if (next != null) {
+      Navigator.of(context).pop(next);
+      return;
+    }
+    await _reload();
+  }
+
+  Future<void> _start() async {
+    final made = await startReconciliation(context, widget.repository);
+    if (made == null || !mounted) return;
+    recordsToast(context, FinanceToolsStrings.of(context).t('rc.started'));
+    await _open(made.row.id);
   }
 
   @override
@@ -111,6 +130,15 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
         listenable: Listenable.merge([_queue, _sessions]),
         builder: (context, _) => AnumPage(onRefresh: _reload, children: [
           Text(m.t('recon.intro'), style: muted),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilledButton.icon(
+              key: const Key('recon-start'),
+              onPressed: _start,
+              icon: const Icon(Icons.add),
+              label: Text(FinanceToolsStrings.of(context).t('rc.start')),
+            ),
+          ),
           AnumHeader(
               title: m.t('recon.queue.title'),
               subtitle: m.t('recon.queue.sub')),
@@ -267,8 +295,8 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() => _phase = RecordsPhase.loading);
+  Future<void> _load({bool quiet = false}) async {
+    if (!quiet) setState(() => _phase = RecordsPhase.loading);
     try {
       _show(await widget.repository.recon(widget.id));
     } on Object catch (error) {
@@ -372,6 +400,85 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
     if (saved && mounted) recordsToast(context, m.t('recon.edit.saved'));
   }
 
+  bool _busy = false;
+
+  /// Runs one of the owner's decisions, then reloads the session.
+  Future<void> _run(Future<bool> Function() work, String done) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final ok = await work();
+      if (!mounted) return;
+      if (ok) {
+        recordsToast(context, done);
+        await _load(quiet: true);
+      }
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _act(ReconDetail d, ReconIssue issue, String action) {
+    final t = FinanceToolsStrings.of(context);
+    final repo = widget.repository;
+    switch (action) {
+      case 'attach' || 'pending':
+        _run(() async {
+          await repo.resolveRecon(d.row.id,
+              {'kind': action, 'transaction_id': issue.transactionId});
+          return true;
+        }, t.t('rc.done.$action'));
+      case 'accept_reversal':
+        _run(() async {
+          await repo.resolveRecon(d.row.id, {
+            'kind': 'reversal',
+            'transaction_id': issue.transactionId,
+            'other_transaction_id': issue.otherTransactionId,
+          });
+          return true;
+        }, t.t('rc.done.reversal'));
+      case 'match':
+        _run(
+            () => matchReconRow(context, repo, d, issue), t.t('rc.done.match'));
+      case 'correct':
+        _run(() => correctReconRow(context, repo, d, issue),
+            t.t('rc.done.correct'));
+      case 'open':
+        Navigator.of(context).pop('transactions');
+      case 'import':
+        Navigator.of(context).pop('import');
+    }
+  }
+
+  Future<void> _complete(ReconDetail d) {
+    final t = FinanceToolsStrings.of(context);
+    return _run(() async {
+      _show(await widget.repository.completeRecon(d.row.id, d.row.version));
+      return true;
+    }, t.t('rc.done.complete'));
+  }
+
+  Future<void> _reopen(ReconDetail d) async {
+    final t = FinanceToolsStrings.of(context);
+    final reason = await askReopenReason(context);
+    if (reason == null || !mounted) return;
+    await _run(() async {
+      _show(
+          await widget.repository.reopenRecon(d.row.id, d.row.version, reason));
+      return true;
+    }, t.t('rc.done.reopen'));
+  }
+
+  Future<void> _undo(ReconDetail d, ReconResolution r) {
+    final t = FinanceToolsStrings.of(context);
+    return _run(() async {
+      await widget.repository.undoResolution(d.row.id, r.id);
+      return true;
+    }, t.t('rc.done.undo'));
+  }
+
   Future<void> _delete(ReconDetail d) async {
     final m = FinanceMoreStrings.of(context);
     final ok = await confirmRecords(context,
@@ -414,6 +521,7 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
 
   List<Widget> _body(BuildContext context, ReconDetail d) {
     final m = FinanceMoreStrings.of(context);
+    final t = FinanceToolsStrings.of(context);
     final p = context.palette;
     final muted = TextStyle(color: p.muted);
     final c = d.row.currency;
@@ -434,6 +542,27 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
         Text(m.t('recon.changedNote'), style: TextStyle(color: p.warn))
       else if (!d.row.open)
         Text(m.t('recon.completedNote'), style: muted),
+      if (d.row.open) ...[
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: FilledButton.icon(
+            key: const Key('recon-complete'),
+            onPressed: _busy || !d.row.canComplete ? null : () => _complete(d),
+            icon: const Icon(Icons.verified_outlined),
+            label: Text(t.t('rc.complete')),
+          ),
+        ),
+        if (!d.row.canComplete) Text(t.t('rc.completeWhy'), style: muted),
+      ] else
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: OutlinedButton.icon(
+            key: const Key('recon-reopen'),
+            onPressed: _busy ? null : () => _reopen(d),
+            icon: const Icon(Icons.restart_alt),
+            label: Text(t.t('rc.reopen')),
+          ),
+        ),
       if (d.row.open)
         Wrap(spacing: AnumSpacing.sm, runSpacing: AnumSpacing.sm, children: [
           FilledButton.icon(
@@ -485,13 +614,16 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
               horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
           child: Column(children: [
             for (final issue in _issues)
-              AnumRow(
-                key: Key('recon-detail-issue-${issue.id}'),
-                icon: Icons.rule_outlined,
-                tone: _severityTone(issue.severity),
-                title: _kindLabel(context, issue.kind),
-                subtitle: m.t('recon.severity.${issue.severity}'),
-                detail: _issueLine(context, issue, c),
+              RecordsRowAction(
+                row: AnumRow(
+                  key: Key('recon-detail-issue-${issue.id}'),
+                  icon: Icons.rule_outlined,
+                  tone: _severityTone(issue.severity),
+                  title: _kindLabel(context, issue.kind),
+                  subtitle: m.t('recon.severity.${issue.severity}'),
+                  detail: _issueLine(context, issue, c),
+                ),
+                action: _actions(context, d, issue),
               ),
           ]),
         ),
@@ -509,7 +641,71 @@ class _ReconSessionScreenState extends State<ReconSessionScreen> {
                 {'shown': _issues.length, 'total': d.total})),
           ),
         ),
-      Text(m.t('recon.resolveOnWeb'), style: muted),
+      AnumHeader(title: t.t('rc.decisions')),
+      if (d.resolutions.isEmpty)
+        Text(t.t('rc.decisionsNone'), style: muted)
+      else
+        AnumSurface(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
+          child: Column(children: [
+            for (final r in d.resolutions)
+              RecordsRowAction(
+                row: AnumRow(
+                  key: Key('recon-resolution-${r.id}'),
+                  icon: Icons.task_alt,
+                  title: t.t('rc.resolution.${r.kind}'),
+                  subtitle: r.createdAt.isEmpty
+                      ? null
+                      : recordsDateTime(context, r.createdAt),
+                  detail: r.note,
+                ),
+                action: d.row.open && r.kind != 'correction'
+                    ? TextButton.icon(
+                        key: Key('recon-undo-${r.id}'),
+                        onPressed: _busy ? null : () => _undo(d, r),
+                        icon: const Icon(Icons.undo),
+                        label: Text(t.t('rc.undo')),
+                      )
+                    : null,
+              ),
+          ]),
+        ),
+      AnumHeader(title: t.t('rc.history')),
+      if (d.history.isEmpty)
+        Text(t.t('rc.historyNone'), style: muted)
+      else
+        for (final h in d.history)
+          Text(
+              [
+                t.t('rc.history.${h.action}'),
+                if (h.at.isNotEmpty) recordsDateTime(context, h.at),
+                if (h.reason != null) h.reason!,
+              ].join(' · '),
+              key: Key('recon-history-${h.at}')),
     ];
+  }
+
+  /// The decisions the owner can make on [issue], as buttons: only while
+  /// the session is open, except Open Transactions and Import.
+  Widget? _actions(BuildContext context, ReconDetail d, ReconIssue issue) {
+    final t = FinanceToolsStrings.of(context);
+    final actions = d.row.open
+        ? issue.actions
+        : issue.actions.where((a) => a == 'open' || a == 'import').toList();
+    if (actions.isEmpty) return null;
+    return Wrap(
+      alignment: WrapAlignment.end,
+      spacing: AnumSpacing.xs,
+      children: [
+        for (final a in actions)
+          if (t.maybe('rc.action.$a') != null)
+            TextButton(
+              key: Key('recon-act-$a-${issue.id}'),
+              onPressed: _busy ? null : () => _act(d, issue, a),
+              child: Text(t.t('rc.action.$a')),
+            ),
+      ],
+    );
   }
 }

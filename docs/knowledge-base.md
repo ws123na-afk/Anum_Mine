@@ -146,8 +146,18 @@ A favorite stars a `conversation`, `task`, `agent` (installed skill), `file`, `r
   Assistant home. Opening a report or collection deep-links it (`#reports/<id>`,
   `#knowledge/<id>`); other types open their view.
 - **Flutter**: the Menu drawer's Knowledge Base, Favorites and Reports entries, Home's
-  "Quick access" card (the same three and the first starred items), the Favorites screen,
-  and a star on the report screen. The Knowledge Base screen's "Memories & files" action
+  "Quick access" card (the same three and the first four starred items in the person's own
+  order), the Favorites screen, and a star on the report screen. The Favorites screen has
+  the web's search (waits for a pause in typing; a search with no match says so with
+  **Clear search**), sort (**My order** first, newest, oldest, name), type filters and
+  **Show more** paging. With **My order** each row has a drag handle and an **Arrange**
+  menu with **Move up** and **Move down** (off at the ends of the whole list, not only of
+  the loaded rows), and screen readers get both as row actions; the move is shown at once,
+  sent as `before_id` or `after_id`, announced ("Moved A before B"), then the loaded rows
+  are read again, and a refused move puts the list back and says why. Moving past the last
+  loaded row reads the neighbour from the API. Other sorts hide the handles and say how to
+  arrange by hand. Tests: `apps/mobile/test/library_test.dart` and the journey
+  `integration_test/journeys/notifications_favorites.dart`. The Knowledge Base screen's "Memories & files" action
   goes to Resources.
 
 ### Navigation

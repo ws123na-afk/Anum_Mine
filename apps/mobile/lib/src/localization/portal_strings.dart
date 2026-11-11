@@ -145,8 +145,18 @@ const portalEn = <String, String>{
   'portal.ticket.resolution': 'How it was resolved',
   'portal.ticket.replies': 'Replies from the business',
   'portal.ticket.noReplies': 'No reply yet.',
-  'portal.ticket.followUp':
-      'To add something, answer the business\'s e-mail or open a new request.',
+  'portal.msg.title': 'Conversation',
+  'portal.msg.none':
+      'No messages yet. Write here to add something or answer the business.',
+  'portal.msg.you': 'You',
+  'portal.msg.label': 'Your message',
+  'portal.msg.send': 'Send message',
+  'portal.msg.sent': 'Sent. The business sees it in your request.',
+  'portal.msg.required': 'Write your message first.',
+  'portal.msg.closed':
+      'This request is closed. Open a new request if you need more help.',
+  'portal.msg.paused':
+      'This business has paused its account, so you can read but not write now.',
   'portal.new.title': 'Title',
   'portal.new.details': 'Details',
   'portal.new.severity': 'How urgent is it?',
@@ -319,8 +329,17 @@ const portalAr = <String, String>{
   'portal.ticket.resolution': 'كيف حُلّ',
   'portal.ticket.replies': 'ردود الجهة',
   'portal.ticket.noReplies': 'لا ردّ بعد.',
-  'portal.ticket.followUp':
-      'لإضافة شيء، ردّ على بريد الجهة الإلكتروني أو افتح طلبًا جديدًا.',
+  'portal.msg.title': 'المحادثة',
+  'portal.msg.none': 'لا رسائل بعد. اكتب هنا لإضافة شيء أو للرد على الجهة.',
+  'portal.msg.you': 'أنت',
+  'portal.msg.label': 'رسالتك',
+  'portal.msg.send': 'إرسال الرسالة',
+  'portal.msg.sent': 'أُرسلت. تراها الجهة في طلبك.',
+  'portal.msg.required': 'اكتب رسالتك أولا.',
+  'portal.msg.closed':
+      'هذا الطلب مغلق. افتح طلبا جديدا إذا احتجت إلى مساعدة أخرى.',
+  'portal.msg.paused':
+      'أوقفت هذه الجهة حسابها مؤقتا، لذلك يمكنك القراءة دون الكتابة الآن.',
   'portal.new.title': 'العنوان',
   'portal.new.details': 'التفاصيل',
   'portal.new.severity': 'ما درجة الاستعجال؟',

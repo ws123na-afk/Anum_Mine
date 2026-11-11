@@ -788,6 +788,9 @@ class RowDecision(BaseModel):
     bill: bool | None = None  # False: do not record the row as the bill's payment
     transfer: bool | None = None  # True: pair a weak transfer; False: do not pair
     correct: bool | None = None  # False: keep the recorded amount when the bank billed another
+    # The recorded payments (their ``record_id`` from the preview's ``splits``) this one row stands for: all of them are
+    # attached to it or, if any changed since the preview, none (docs/finance.md#one-row-for-several-recorded-payments).
+    split: list[str] | None = Field(default=None, min_length=2, max_length=4)
 
 
 class ImportInput(BaseModel):
@@ -883,6 +886,8 @@ class ImportView(BaseModel):
     # Statement rows the ledger does not hold (held for review or left out by the person). A statement whose balances tie
     # reconciles the account only when this is 0 (docs/finance.md#reconciliation).
     not_in_ledger: int = 0
+    # Rows attached to several recorded payments (docs/finance.md#one-row-for-several-recorded-payments).
+    split_matched: int = 0
 
 
 def import_view(record: ImportRecord, *, breaks: int = 0, outcome: ImportOutcome | None = None) -> ImportView:
@@ -891,7 +896,8 @@ def import_view(record: ImportRecord, *, breaks: int = 0, outcome: ImportOutcome
     check = record.reconciliation or {}
     extra: dict[str, Any] = {"reconciled": record.attached_count, "held_for_review": record.held_count, "corrected": record.corrected_count,
                              "skipped": record.skipped_count, "dropped": record.dropped_count,
-                             "not_in_ledger": int(check.get("not_in_ledger") or 0), "rule_breaks": breaks}
+                             "not_in_ledger": int(check.get("not_in_ledger") or 0), "rule_breaks": breaks,
+                             "split_matched": sum(1 for row in record.dispositions or [] if row.get("reason") == "split_match")}
     if outcome is not None:
         extra.update(bills_paid=outcome.bills_paid, bills_review=outcome.bills_review, transfers=outcome.transfers)
     return ImportView(**{**data, **extra})
@@ -916,6 +922,9 @@ class RowDisposition(BaseModel):
     reason: str | None = None
     message: str | None = None
     record_id: str | None = None  # the transaction or canonical record the row was imported as, attached to, or duplicates
+    # One row attached to several recorded payments (reason ``split_match``): the group (to undo it) and the records.
+    split_group: str | None = None
+    split_records: list[str] | None = None
 
 
 class ImportDetail(ImportView):
@@ -1033,12 +1042,13 @@ class ImportOutcome:
     def __init__(self) -> None:
         self.attached = self.review = self.corrected = self.skipped = self.dropped = 0
         self.bills_paid = self.bills_review = self.transfers = 0
+        self.split = 0  # rows attached to several recorded payments
         self.failed: list[str] = []
 
     def audit(self, imported: int, duplicates: int, breaks: int) -> dict[str, Any]:
         return {"imported": imported, "duplicates": duplicates, "rule_breaks": breaks, "reconciled": self.attached, "review": self.review,
                 "corrected": self.corrected, "skipped": self.skipped, "dropped": self.dropped, "bills_paid": self.bills_paid,
-                "bills_review": self.bills_review, "transfers": self.transfers, "link_failures": sorted(set(self.failed))}
+                "bills_review": self.bills_review, "transfers": self.transfers, "split": self.split, "link_failures": sorted(set(self.failed))}
 
     def view(self, record: ImportRecord, breaks: int) -> ImportView:
         return import_view(record, breaks=breaks, outcome=self)
@@ -1117,6 +1127,7 @@ def record_import(
         by_line = {row.line: row for row in parsed.rows}
         by_hash_line = {row.dedupe_hash: row.line for row in parsed.rows}
         fresh: list[Transaction] = []
+        split_used: set[str] = set()
         follow: list[tuple[Transaction | None, str | None, Any]] = []  # (new row, canonical of an attached record, match)
         rows_done: dict[int, dict[str, Any]] = {}
         for line in lines:
@@ -1138,6 +1149,24 @@ def record_import(
                 notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
                 subcategory_id=classified.subcategory_id,
             ), classified.typed)
+            split_ids = sorted(getattr(choice, "split", None) or [])
+            if split_ids and action != "skip" and match.status in ("new", "possible_duplicate"):
+                # One bank row for several recorded payments: the group must still be one the engine offers on the live
+                # ledger, and none of its records used by another row of this import. All of it or none of it.
+                group = next((g for g in match.splits if sorted(r.record_id for r in g) == split_ids), None)
+                if group is None or any(r.record_id in split_used for r in group):
+                    SL.hold(sms, context, account, item, record.id, now=now, reference=reference)
+                    outcome.review += 1
+                    rows_done[row.line] = _disposition(row.line, row, "held_for_review", reason="split_changed")
+                    continue
+                split_used.update(r.record_id for r in group)
+                group_id = new_id("fin_split")
+                SL.attach_split(sms, context, account, item, list(group), record.id, group_id=group_id, line=row.line, now=now, reference=reference)
+                outcome.attached += 1
+                outcome.split += 1
+                rows_done[row.line] = {**_disposition(row.line, row, "attached_to_existing", reason="split_match", record_id=_record_id(group[0])),
+                                       "split_group": group_id, "split_records": [_record_id(r) for r in group]}
+                continue
             if match.status == "exact_duplicate" and match.code == "waiting_review":
                 # The same row already waits in Review from an earlier import: not in the ledger yet.
                 outcome.review += 1
@@ -1324,6 +1353,16 @@ def delete_import(
         sms.lock_owner(context)
         record = store.get_import(context, import_id)
         if record is not None:
+            # Rows matched to several recorded payments are detached too: those records are no longer confirmed by it.
+            from . import statement_ledger as SL
+            from .sms_store import MessageStatus
+
+            for group in {item.get("split_group") for item in record.dispositions or [] if item.get("split_group")}:
+                for message in SL.split_parts(sms, context, import_id, str(group)):
+                    message.status, message.reason, message.updated_at = MessageStatus.DISMISSED, "import_undone", utc_now()
+                    sms.save_message(message)
+                    if message.entry_id:
+                        sms.mark_entry(context, message.entry_id, clear_reconciled=True)
             rows, _ = store.list_transactions(context, TransactionFilter(account_id=record.account_id), limit=10_000, offset=0)
             reverse_for_transactions(store, sms, context, [t.id for t in rows if t.import_id == import_id], now=utc_now(), why="statement import undone")
         removed = store.delete_import(context, import_id)
@@ -1331,6 +1370,44 @@ def delete_import(
         raise _not_found("Import")
     _audit(repository, context, "finance.import.delete", import_id, {"removed": removed})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/imports/{import_id}/splits/{group_id}/undo", response_model=ImportView)
+def undo_split_match(
+    import_id: str,
+    group_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ImportView:
+    """Undo one row matched to several recorded payments (docs/finance.md#one-row-for-several-recorded-payments): every
+    record is detached together and the row waits in Finance, iPhone SMS, Review, where it can be imported or skipped."""
+    _manage(context)
+    from . import statement_ledger as SL
+    from .sms_service import owner_lock
+    from .sms_store import open_sms_stores
+
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
+        record = store.get_import(context, import_id)
+        if record is None:
+            raise _not_found("Import")
+        parts = SL.split_parts(sms, context, import_id, group_id)
+        row = next((item for item in record.dispositions or [] if item.get("split_group") == group_id), None)
+        if row is None:
+            raise _not_found("Matched row")
+        if not parts or row.get("disposition") != "attached_to_existing":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This match was already undone. The row waits in Finance, iPhone SMS, Review.")
+        SL.undo_split(store, sms, context, parts, now=utc_now())
+        row.update(disposition="held_for_review", reason="split_undone")
+        record.attached_count = max(0, record.attached_count - 1)
+        record.held_count += 1
+        if record.reconciliation is not None:
+            record.reconciliation = {**record.reconciliation, "not_in_ledger": str(int(record.reconciliation.get("not_in_ledger") or 0) + 1)}
+        record.dispositions = [dict(item) for item in record.dispositions or []]
+        store.save_import(record)
+        view = import_view(record)
+    _audit(repository, context, "finance.import.split_undone", import_id, {"parts": len(parts)})
+    return view
 
 
 # -- bills, debts, goals and holdings ---------------------------------------------------------

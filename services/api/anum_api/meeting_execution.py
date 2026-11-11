@@ -15,6 +15,7 @@ from sqlalchemy import text
 from . import live_agent_meeting_budget as meeting_budget
 from .live_agent_meeting_audit import audit_event, audit_in_new_transaction
 from .live_agent_meeting_store import LiveMeetingStoreError, SqlLiveMeetingStore
+from .model_budget import BudgetedModelGateway, ModelBudgetExceededError, check_model_budget
 from .model_gateway import ModelGateway, MockModelGateway, route_gateway, ModelRoute
 from .live_agent_meeting_redaction import redact_secrets
 from .scoped_store import open_scoped_store
@@ -53,6 +54,8 @@ set total_input_tokens=total_input_tokens+:input,
 where tenant_id=:tenant and workspace_id=:workspace and id=:id
 """)
 TURN_ACTION = "agent_meeting.turn"
+# The spend breakdown's name for meeting turns and summaries (model_budget.feature_for_module).
+MEETING_FEATURE = "meetings"
 RELEASE_SQL = text("""
 delete from agent_meeting_turn_leases
 where tenant_id=:tenant and workspace_id=:workspace and session_id=:id
@@ -144,6 +147,37 @@ def _meter_dropped(store: SqlLiveMeetingStore, context: TenantContext, meeting_i
     return billed
 
 
+def meeting_gateway(context: TenantContext, fallback: ModelGateway) -> ModelGateway:
+    """The workspace's model behind its monthly model budget, for meeting turns and summaries.
+
+    ``fallback`` is the server default (``build_default_model_gateway``); a model the workspace
+    saved in Settings answers instead, like every other workspace call. Reads the workspace's
+    model settings: call it in a worker thread, never on the event loop."""
+    from .onboarding import budgeted_model_gateway
+
+    return budgeted_model_gateway(context, fallback, feature=MEETING_FEATURE)
+
+
+def _budgeted_for(context: TenantContext, gateway: ModelGateway, agent: str) -> ModelGateway:
+    """``gateway`` behind the workspace model budget and ``agent``'s own cap, metered once.
+
+    A gateway that is already budgeted is only rebound to the agent (wrapping it again would
+    record the call twice); any other gateway is wrapped here, so no meeting turn reaches a
+    provider unmetered. The workspace model budget is a separate ledger from the meeting's
+    monthly ledger (``agent_meeting_usage_monthly``): the turn is counted once in each."""
+    if isinstance(gateway, BudgetedModelGateway):
+        return gateway.for_agent(agent)
+    return BudgetedModelGateway(gateway, context, agent_id=agent, feature=MEETING_FEATURE)
+
+
+def _record_model_budget_refusal(context: TenantContext, meeting_id: str, request_key: str, correlation: str,
+                                 exc: ModelBudgetExceededError) -> None:
+    """The workspace's model budget (or the agent's cap, or the emergency stop) refused the turn
+    before any provider call: audited in its own transaction, ids and the code only."""
+    audit_in_new_transaction(context, TURN_ACTION, meeting_id, outcome="blocked", correlation_id=correlation,
+                             meeting_id=meeting_id, request_key=request_key, reason="model_budget", code=str(exc.code)[:30])
+
+
 async def execute_meeting_turn(
     context: TenantContext, meeting_id: str, request_key: str, gateway: ModelGateway
 ) -> dict[str,Any]:
@@ -157,6 +191,9 @@ async def execute_meeting_turn(
         return await _execute_meeting_turn(context,meeting_id,request_key,gateway,correlation)
     except meeting_budget.MeetingBudgetReached as exc:
         await asyncio.to_thread(_record_cap_hit,context,meeting_id,request_key,correlation,exc.state)
+        raise
+    except ModelBudgetExceededError as exc:
+        await asyncio.to_thread(_record_model_budget_refusal,context,meeting_id,request_key,correlation,exc)
         raise
     except LiveMeetingStoreError as exc:
         if exc.code=="forbidden":
@@ -175,6 +212,9 @@ async def _execute_meeting_turn(
     from .agent_controls import agents_stopped
     if await asyncio.to_thread(agents_stopped,context):
         raise LiveMeetingStoreError("conflict","The emergency stop is on: agents are paused")
+    # The workspace's monthly model budget, before anything is claimed: a workspace at its model
+    # budget gets a 402 and no turn is started (the agent's own cap is checked by the gateway).
+    await asyncio.to_thread(check_model_budget,context)
     lease=new_id("meeting_lease")
     claimed_seq=0
     # What the provider billed for this turn's model call, once it answered. A turn dropped after
@@ -235,7 +275,9 @@ async def _execute_meeting_turn(
     )
     prompt=json.dumps({"system":instruction,"history":history,"task":"Provide your next meeting contribution."},
                       ensure_ascii=False)
-    model=route_gateway(gateway,persona_route)
+    # Through the workspace's budgeted gateway: checked against the model budget and the agent's
+    # cap before the call, recorded in the workspace's model usage after it (docs/model-gateway.md).
+    model=route_gateway(_budgeted_for(context,gateway,agent),persona_route)
     try:
         if isinstance(model,MockModelGateway) or getattr(model,'provider',None)=='mock':
             raise LiveMeetingStoreError('unavailable','Mock models cannot execute meetings')

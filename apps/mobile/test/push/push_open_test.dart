@@ -184,5 +184,20 @@ void main() {
       await waitFor(tester, find.text('Publish the release notes'), api: api);
       expect(find.textContaining('That notification is for'), findsNothing);
     });
+
+    testWidgets('the weekly money note opens the Money advisor, not Finance',
+        (tester) async {
+      final api = apiWithTwoWorkspaces();
+      final messaging = await launch(tester, api);
+      messaging.opened.add(IncomingPush(data: {
+        'anum_kind': 'finance_advice',
+        'workspace_id': Fx.workspaceId,
+        'tenant_id': Fx.tenantId,
+      }));
+      await waitFor(tester, find.text('Money advisor'), api: api);
+      expect(api.sent('GET', '/api/v1/finance/advisor'), isNotEmpty);
+      // Not Finance's own page: its section tabs are not there.
+      expect(find.text('Overview'), findsNothing);
+    });
   });
 }

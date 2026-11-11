@@ -3,8 +3,9 @@
 Who may do what mirrors the four source lists: reading needs any of ``call:read``,
 ``business:read``, ``whatsapp:read`` or ``email:read`` (members and owners; viewers hold none),
 changing people, merging, marking do not contact and rebuilding need ``business:write``, and
-clearing a do-not-contact mark, deleting a person and the CSV export need ``business:manage``
-(owners), as Business's own do-not-contact clearing and the opt-out list's export do. Every
+clearing a do-not-contact mark, deleting a person and the CSV export and import need
+``business:manage`` (owners), as Business's own do-not-contact clearing and the opt-out list's
+export do. Every
 state-changing route writes an audit record with ids and counts only.
 """
 
@@ -18,7 +19,7 @@ from ..audit import AuditRecord
 from ..authorization import Permission
 from ..dependencies import has_permission, tenant_context
 from ..schemas import TenantContext, new_id, utc_now
-from . import service
+from . import importer, service
 from .models import (
     DEFAULT_PAGE,
     MAX_LIST,
@@ -45,7 +46,7 @@ READ_DENIED = (
     "Ask a workspace owner to make you a member."
 )
 WRITE_DENIED = "Only workspace owners and members can change people in Contacts."
-MANAGE_DENIED = "Only workspace owners can do this (clear a do-not-contact mark, delete a person, export the directory)."
+MANAGE_DENIED = "Only workspace owners can do this (clear a do-not-contact mark, delete a person, import or export the directory)."
 READ_PERMISSIONS = (Permission.CALL_READ, Permission.BUSINESS_READ, Permission.WHATSAPP_READ, Permission.EMAIL_READ)
 
 
@@ -119,6 +120,24 @@ def export_people(context: TenantContext = Depends(tenant_context)) -> Response:
         _audit(store, context, "contacts.exported", f"workspace:{context.workspace_id}", {"rows": len(views)})
     return Response(content=body, media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="contacts.csv"', "Cache-Control": "no-store"})
+
+
+@router.post("/import/preview", response_model=importer.ImportPreview)
+def preview_import(payload: importer.ImportFile, context: TenantContext = Depends(tenant_context)) -> importer.ImportPreview:
+    """What importing this CSV would do, row by row (owners only). Nothing is written."""
+    _manage(context)
+    with open_contacts_store(context) as store:
+        return importer.preview(store, payload)
+
+
+@router.post("/import/apply", response_model=importer.ImportResult)
+def apply_import(payload: importer.ImportApply, context: TenantContext = Depends(tenant_context)) -> importer.ImportResult:
+    """Import the previewed file with the caller's decisions, all of it or nothing (owners only)."""
+    _manage(context)
+    with open_contacts_store(context) as store:
+        result = importer.apply(store, context, payload)
+        _audit(store, context, "contacts.imported", f"workspace:{context.workspace_id}", result.model_dump())
+        return result
 
 
 @router.get("/proposals", response_model=ProposalPage)

@@ -20,6 +20,7 @@ import '../lifecycle/lifecycle_controller.dart';
 import '../lifecycle/lifecycle_screen.dart';
 import '../lifecycle/lifecycle_strings.dart';
 import '../privacy/privacy_strings.dart';
+import 'calendar_email_strings.dart';
 import '../privacy/privacy_controller.dart';
 import '../privacy/privacy_screen.dart';
 import '../push/push_settings_card.dart';
@@ -432,7 +433,10 @@ class _NotificationState extends State<_NotificationCard> {
           bool? email,
           bool? desktop,
           bool? push,
-          bool? commerce}) =>
+          bool? commerce,
+          bool? calendarEmail,
+          String? language,
+          bool clearLanguage = false}) =>
       NotificationPreferences(
           taskCompleted: task ?? value.taskCompleted,
           approvalRequired: approval ?? value.approvalRequired,
@@ -441,7 +445,54 @@ class _NotificationState extends State<_NotificationCard> {
           emailEnabled: email ?? value.emailEnabled,
           desktopEnabled: desktop ?? value.desktopEnabled,
           pushEnabled: push ?? value.pushEnabled,
-          commerceAlerts: commerce ?? value.commerceAlerts);
+          commerceAlerts: commerce ?? value.commerceAlerts,
+          tyreAlerts: value.tyreAlerts,
+          calendarEmail: calendarEmail ?? value.calendarEmail,
+          calendarEmailLanguage:
+              clearLanguage ? null : (language ?? value.calendarEmailLanguage));
+
+  /// The calendar reminder email switch and its language
+  /// (docs/calendar.md#reminders), in English or Arabic.
+  Widget _calendarEmail(BuildContext context) {
+    final s = CalendarEmailStrings.of(context);
+    final theme = Theme.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SwitchListTile(
+          key: const Key('calendar-email'),
+          secondary: const Icon(Icons.event_outlined),
+          title: Text(s.t('title')),
+          subtitle: Text(s.t('hint')),
+          value: value.calendarEmail,
+          onChanged: (v) => update(copy(calendarEmail: v))),
+      if (value.calendarEmail && !value.emailEnabled)
+        Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(72, 0, 16, 8),
+            child: Text(s.t('needsEmail'),
+                key: const Key('calendar-email-needs-email'),
+                style: TextStyle(
+                    fontSize: AnumType.sm, color: theme.colorScheme.error))),
+      Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(72, 0, 16, 12),
+        child: DropdownButtonFormField<String>(
+            key: const Key('calendar-email-language'),
+            initialValue: value.calendarEmailLanguage ?? '',
+            isExpanded: true,
+            decoration: InputDecoration(labelText: s.t('language')),
+            items: [
+              for (final code in const ['', 'en', 'ar'])
+                DropdownMenuItem(
+                    value: code,
+                    child: Text(s.t(code.isEmpty ? 'both' : code))),
+            ],
+            onChanged: value.calendarEmail
+                ? (code) => update(code == null || code.isEmpty
+                    ? copy(clearLanguage: true)
+                    : copy(language: code))
+                : null),
+      ),
+    ]);
+  }
+
   Widget _emailExtras(BuildContext context) {
     final c = widget.controller;
     final channels = c.channels;
@@ -518,6 +569,7 @@ class _NotificationState extends State<_NotificationCard> {
             value: value.emailEnabled,
             onChanged: (v) => update(copy(email: v))),
         _emailExtras(context),
+        _calendarEmail(context),
         SwitchListTile(
             secondary: const Icon(Icons.phone_iphone),
             title: const Text('Phone push'),

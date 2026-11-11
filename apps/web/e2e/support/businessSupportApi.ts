@@ -51,7 +51,7 @@ export async function mockSupport(page: Page, options: { role?: 'owner' | 'membe
       severity: 'normal', status: 'new', assignee_id: null, source: 'manual', source_ref: null, source_account_id: null, reported_at: now(),
       response_due_at: later(8), resolution_due_at: later(80), first_responded_at: null, sla_paused_at: null, sla_paused_minutes: 0, escalated: false,
       escalation_reason: '', escalated_at: null, escalated_by: null, resolution_code: null, resolution_summary: '', resolved_at: null, resolved_by: null,
-      closed_at: null, closed_by: null, reopened_count: 0, created_by: 'user_local', replies: [], activities: [], ...fields,
+      closed_at: null, closed_by: null, reopened_count: 0, created_by: 'user_local', replies: [], activities: [], portal_messages: [], portal_link: false, ...fields,
       reference: `T-${String(1000 + counter)}`,
     };
   };
@@ -66,12 +66,14 @@ export async function mockSupport(page: Page, options: { role?: 'owner' | 'membe
     return { response, resolution, breached: false };
   };
   const view = (ticket: Json) => {
-    const { replies, activities, ...rest } = ticket;
-    void replies; void activities;
-    return { ...rest, account_name: null, contact_name: null, project_name: null, support_plan_name: null, sla: sla(ticket), allowed: TRANSITIONS[String(ticket.status)] };
+    const { replies, activities, portal_messages, portal_link, ...rest } = ticket;
+    void replies; void activities; void portal_link;
+    const unread = (portal_messages as Json[]).filter((item) => item.author === 'customer' && !item.read_at).length;
+    return { ...rest, portal_unread: unread, account_name: null, contact_name: null, project_name: null, support_plan_name: null, sla: sla(ticket), allowed: TRANSITIONS[String(ticket.status)] };
   };
   const channel = (ticket: Json) => (ticket.source === 'email' ? 'email' : ticket.source === 'whatsapp' ? 'whatsapp' : null);
-  const detail = (ticket: Json) => ({ ...view(ticket), replies: ticket.replies, activities: ticket.activities, can_reply: channel(ticket) !== null && ticket.status !== 'closed', reply_channel: channel(ticket) });
+  const detail = (ticket: Json) => ({ ...view(ticket), replies: ticket.replies, activities: ticket.activities, can_reply: channel(ticket) !== null && ticket.status !== 'closed', reply_channel: channel(ticket),
+    portal_messages: ticket.portal_messages, portal_open: Boolean(ticket.portal_link) && ticket.status !== 'closed' });
   mock.seed = (fields: Json) => { const ticket = newTicket(fields); tickets.unshift(ticket); return String(ticket.id); };
 
   const handler = async (route: Route) => {
@@ -156,6 +158,19 @@ export async function mockSupport(page: Page, options: { role?: 'owner' | 'membe
       if (body.responded && !ticket.first_responded_at) ticket.first_responded_at = now();
       activity(ticket, body.responded ? 'response_recorded' : 'note', String(body.text));
       return json(detail(ticket));
+    }
+    if (parts[2] === 'portal-messages' && parts[3] === 'read') {
+      for (const item of ticket.portal_messages as Json[]) if (item.author === 'customer' && !item.read_at) item.read_at = now();
+      return json(detail(ticket));
+    }
+    if (parts[2] === 'portal-messages' && method === 'POST') {
+      // docs/business-portal.md#replying-inside-a-request: shown in the customer's portal, never sent anywhere.
+      if (!ticket.portal_link) return json(envelope('conflict', 'This customer has no active portal link, so nobody would read the answer.'), 409);
+      (ticket.portal_messages as Json[]).push({ id: id('btmsg'), ...scope, created_at: now(), updated_at: now(), ticket_id: ticket.id, account_id: ticket.account_id, author: 'staff',
+        author_name: '', access_id: null, contact_id: null, body: body.body, client_key: null, read_at: null, read_by: null, created_by: 'user_local' });
+      Object.assign(ticket, { first_responded_at: ticket.first_responded_at ?? now(), updated_at: now() });
+      activity(ticket, 'portal_ticket_answer', 'Answered in the customer portal.');
+      return json(detail(ticket), 201);
     }
     if (parts[2] === 'replies' && parts.length === 3 && method === 'POST') {
       if (!channel(ticket)) return json(envelope('conflict', 'This ticket was opened by hand, so ANUM has no conversation to reply in.'), 409);

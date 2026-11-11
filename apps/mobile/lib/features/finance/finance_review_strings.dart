@@ -78,7 +78,7 @@ class FinanceReviewStrings {
     'import.failed': 'The last import could not be loaded: {message}',
     'import.none': 'No statement imported yet',
     'import.noneText':
-        'Statements are imported on the web (Finance, Import). Each import then shows here with what happened to its rows.',
+        'Import a statement here (More in Finance, Import a statement) or on the web. Each import then shows here with what happened to its rows.',
     'import.imported': 'Imported',
     'import.held': 'Held for review',
     'import.attached': 'Attached to a recorded payment',
@@ -114,8 +114,7 @@ class FinanceReviewStrings {
         'Next: the reconciliation for {month} changed after completion. Review it.',
     'recon.next.upToDate': 'Up to date.',
     'recon.next.none': 'Nothing to reconcile for this kind of account.',
-    'recon.onWeb':
-        'Matching rows, corrections and completing a reconciliation are done on the web.',
+    'recon.onWeb': 'Reconcile with Open reconciliation above, or on the web.',
     'reconKind.not_in_ledger': 'Statement row not in your books',
     'reconKind.unmatched_payment': 'Payment no statement confirmed',
     'reconKind.unmatched_deposit': 'Deposit no statement confirmed',
@@ -153,7 +152,7 @@ class FinanceReviewStrings {
     'sug.unavailable':
         'Some checks could not run this time: {names}. The rest are shown.',
     'sug.rulesOnWeb':
-        'Rules, merchant spellings, subcategories and automation are edited on the web: Finance, Suggestions.',
+        'Rules, merchant spellings, subcategories and automation are edited under More in Finance, Rules and merchants.',
     'sug.kind.attribution': 'Links to other records',
     'sug.kind.fx_fee': 'Card FX fees',
     'sug.head.attribution.business': 'Allocate to {business_name}?',
@@ -303,7 +302,7 @@ class FinanceReviewStrings {
     'import.failed': 'تعذر تحميل آخر استيراد: {message}',
     'import.none': 'لم يُستورد أي كشف بعد',
     'import.noneText':
-        'تُستورد الكشوف على الويب (المالية، الاستيراد). يظهر كل استيراد هنا بعدها مع ما حدث لصفوفه.',
+        'استورد كشفًا من هنا (المزيد في المالية، استيراد كشف) أو من الويب. يظهر كل استيراد هنا بعدها مع ما حدث لصفوفه.',
     'import.imported': 'مستورد',
     'import.held': 'محجوز للمراجعة',
     'import.attached': 'مرفق بدفعة مسجلة',
@@ -336,7 +335,7 @@ class FinanceReviewStrings {
     'recon.next.review': 'التالي: تغيّرت مطابقة {month} بعد إكمالها. راجعها.',
     'recon.next.upToDate': 'محدّث.',
     'recon.next.none': 'لا مطابقة لهذا النوع من الحسابات.',
-    'recon.onWeb': 'مطابقة الصفوف والتصحيحات وإكمال المطابقة تتم على الويب.',
+    'recon.onWeb': 'طابق الحسابات من زر فتح المطابقة أعلاه، أو على الويب.',
     'reconKind.not_in_ledger': 'سطر في الكشف ليس في دفاترك',
     'reconKind.unmatched_payment': 'دفعة لم يؤكدها أي كشف',
     'reconKind.unmatched_deposit': 'إيداع لم يؤكده أي كشف',
@@ -372,7 +371,7 @@ class FinanceReviewStrings {
     'sug.unavailable':
         'تعذر تشغيل بعض الفحوص هذه المرة: {names}. البقية معروضة.',
     'sug.rulesOnWeb':
-        'تُعدَّل القواعد وكتابات التجار والفئات الفرعية والأتمتة على الويب: المالية، الاقتراحات.',
+        'تُعدَّل القواعد وكتابات التجار والفئات الفرعية والأتمتة من المزيد في المالية، القواعد والتجار.',
     'sug.kind.attribution': 'روابط بسجلات أخرى',
     'sug.kind.fx_fee': 'رسوم صرف البطاقة',
     'sug.head.attribution.business': 'تخصيصها إلى {business_name}؟',

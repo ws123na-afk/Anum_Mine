@@ -243,3 +243,15 @@
 .invDecisions { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-top: var(--d-s2); padding-top: var(--d-s3); }
 .invDecisions h4 { font-size: var(--text-md); font-weight: 600; }
 .invDecisions .pagePager { padding: 0; }
+
+/* Recurring invoices (BusinessRecurringInvoices.tsx, docs/business.md#recurring-invoices). */
+.rinvAuto h2 { align-items: center; display: flex; gap: var(--d-s2); }
+.rinvAuto h2 svg { flex: none; height: 20px; width: 20px; }
+.rinvAuto .bzFieldset { display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); }
+.bzPlainList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.bzPlainList li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); min-width: 0; }
+.invViews { margin-block-end: var(--d-s3); }
+
+/* The customer portal conversation in a ticket (BusinessSupport.tsx). */
+.portalThread li.fromTeam { border-inline-start: 3px solid var(--d-accent); padding-inline-start: var(--d-s2); }
+.portalThread .bzMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }

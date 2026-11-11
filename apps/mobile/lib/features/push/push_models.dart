@@ -149,7 +149,7 @@ class PushDestination {
         PushDestinationKind.tyreAlerts => '/tyres/alerts',
         PushDestinationKind.automation => '/automations',
         PushDestinationKind.financeReport => '/finance/intel',
-        PushDestinationKind.financeAdvice => '/finance',
+        PushDestinationKind.financeAdvice => '/finance/advisor',
         PushDestinationKind.teamCalls => '/team-calls',
         PushDestinationKind.calendar => '/calendar',
       };

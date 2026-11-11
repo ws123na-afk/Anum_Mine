@@ -17,6 +17,34 @@ const adminDepthEn = <String, String>{
   'ad.task.private.chat':
       'It came from your private chat. If a run waits for someone else\'s approval, it is shared with the workspace at that moment.',
 
+  // ---- Favorites: search, sort and the person's own order ----
+  'ad.fav.search': 'Search favorites',
+  'ad.fav.searchHint': 'Name of a starred item',
+  'ad.fav.clearSearch': 'Clear search',
+  'ad.fav.sort': 'Sort',
+  'ad.fav.sort.custom': 'My order',
+  'ad.fav.sort.newest': 'Newest first',
+  'ad.fav.sort.oldest': 'Oldest first',
+  'ad.fav.sort.name': 'Name, A to Z',
+  'ad.fav.arrangeHint':
+      'Drag a row by its handle, or use Move up and Move down, to put your favorites in your own order. It is saved for every device.',
+  'ad.fav.arrangeOff': 'To arrange favorites by hand, sort by {sort}.',
+  'ad.fav.noMatch': 'Nothing starred matches "{query}"',
+  'ad.fav.noMatchText':
+      'Search looks at the names of starred items. Try another word or clear the search.',
+  'ad.fav.noneOfType': 'Nothing of this type is starred',
+  'ad.fav.noneOfTypeText': 'Star one where it lives, or show every type.',
+  'ad.fav.showAll': 'Show every type',
+  'ad.fav.arrange': 'Arrange {name}',
+  'ad.fav.drag': 'Drag {name} to move it',
+  'ad.fav.moveUp': 'Move up',
+  'ad.fav.moveDown': 'Move down',
+  'ad.fav.movedTo': 'Moved {name} {where} {other}.',
+  'ad.fav.before': 'before',
+  'ad.fav.after': 'after',
+  'ad.fav.moveFailed':
+      'Could not save the new order: {message} The list is back as it was.',
+
   // ---- Budgets: alert threshold ----
   'ad.bud.alertPercent': 'Alert owners at (%)',
   'ad.bud.alertHint':
@@ -343,6 +371,34 @@ const adminDepthAr = <String, String>{
       'قرأت بياناتك أنت (المالية أو صندوق بريدك)، لذا تبقى خاصة دائمًا وتقرر موافقاتها بنفسك.',
   'ad.task.private.chat':
       'جاءت من محادثتك الخاصة. إذا انتظر تشغيلها موافقة شخص آخر، تُشارك مع مساحة العمل في تلك اللحظة.',
+
+  // ---- المفضلة: البحث والترتيب وترتيب الشخص ----
+  'ad.fav.search': 'ابحث في المفضلة',
+  'ad.fav.searchHint': 'اسم عنصر مميز بنجمة',
+  'ad.fav.clearSearch': 'مسح البحث',
+  'ad.fav.sort': 'الترتيب',
+  'ad.fav.sort.custom': 'ترتيبي',
+  'ad.fav.sort.newest': 'الأحدث أولًا',
+  'ad.fav.sort.oldest': 'الأقدم أولًا',
+  'ad.fav.sort.name': 'الاسم، أبجديًا',
+  'ad.fav.arrangeHint':
+      'اسحب صفًا من مقبضه، أو استخدم نقل للأعلى ونقل للأسفل، لترتيب المفضلة كما تريد. يُحفظ الترتيب لكل أجهزتك.',
+  'ad.fav.arrangeOff': 'لترتيب المفضلة يدويًا، اختر الترتيب {sort}.',
+  'ad.fav.noMatch': 'لا شيء في المفضلة يطابق "{query}"',
+  'ad.fav.noMatchText':
+      'يبحث البحث في أسماء العناصر المميزة بنجمة. جرّب كلمة أخرى أو امسح البحث.',
+  'ad.fav.noneOfType': 'لا شيء من هذا النوع مميز بنجمة',
+  'ad.fav.noneOfTypeText': 'ميّز عنصرًا بنجمة حيث يوجد، أو اعرض كل الأنواع.',
+  'ad.fav.showAll': 'عرض كل الأنواع',
+  'ad.fav.arrange': 'ترتيب {name}',
+  'ad.fav.drag': 'اسحب {name} لنقله',
+  'ad.fav.moveUp': 'نقل للأعلى',
+  'ad.fav.moveDown': 'نقل للأسفل',
+  'ad.fav.movedTo': 'نُقل {name} {where} {other}.',
+  'ad.fav.before': 'قبل',
+  'ad.fav.after': 'بعد',
+  'ad.fav.moveFailed':
+      'تعذّر حفظ الترتيب الجديد: {message} عادت القائمة كما كانت.',
 
   // ---- الميزانيات: حد التنبيه ----
   'ad.bud.alertPercent': 'تنبيه المالكين عند (%)',

@@ -48,7 +48,7 @@ export interface ReviewRow {
 }
 
 /** The person's ticks on a row's match, sent with the row (the API reads them per row). */
-export interface PdfChoice { action?: 'import' | 'skip' | null; bill?: boolean | null; transfer?: boolean | null; correct?: boolean | null }
+export interface PdfChoice { action?: 'import' | 'skip' | null; bill?: boolean | null; transfer?: boolean | null; correct?: boolean | null; split?: string[] | null }
 
 export function reviewRows(view: Pick<FinancePdfStatement, 'rows'>): ReviewRow[] {
   return view.rows.map((row: FinancePdfRow) => ({
@@ -179,13 +179,14 @@ function sendable(row: ReviewRow, currency: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(row.posted_on) && toMinor(row.amount, row.currency || currency) !== null && row.description.trim() !== '';
 }
 
-function choiceFields(choice: PdfChoice | undefined): Partial<Pick<FinancePdfImportInput['rows'][number], 'action' | 'bill' | 'transfer' | 'correct'>> {
+function choiceFields(choice: PdfChoice | undefined): Partial<Pick<FinancePdfImportInput['rows'][number], 'action' | 'bill' | 'transfer' | 'correct' | 'split'>> {
   if (!choice) return {};
-  const out: Partial<Pick<FinancePdfImportInput['rows'][number], 'action' | 'bill' | 'transfer' | 'correct'>> = {};
+  const out: Partial<Pick<FinancePdfImportInput['rows'][number], 'action' | 'bill' | 'transfer' | 'correct' | 'split'>> = {};
   if (choice.action) out.action = choice.action;
   if (choice.bill === false) out.bill = false;
   if (typeof choice.transfer === 'boolean') out.transfer = choice.transfer;
   if (choice.correct === false) out.correct = false;
+  if (choice.split?.length && choice.action !== 'skip') out.split = [...choice.split];
   return out;
 }
 

@@ -25,7 +25,7 @@ from ..dependencies import UnitsOfWork, has_permission, repository_context, run_
 from ..punctuation import plain_dashes
 from ..repository import AnumRepository
 from ..schemas import Approval, TenantContext, new_id, utc_now
-from . import support, support_channels
+from . import support, support_channels, ticket_messages
 from .common import MANAGE_DENIED, Page, get_or_404, manage, page_bounds, read, write
 from .models import (
     OPEN_TICKET_STATUSES,
@@ -40,6 +40,7 @@ from .models import (
     Severity,
     SupportPolicy,
     SupportTicket,
+    TicketMessage,
     TicketReply,
     TicketSource,
     TicketStatus,
@@ -71,6 +72,8 @@ class TicketView(SupportTicket):
     support_plan_name: str | None = None
     sla: Sla
     allowed: list[TicketStatus]
+    # Customer messages from the portal nobody on the team has opened yet.
+    portal_unread: int = 0
 
 
 class ReplyView(TicketReply):
@@ -82,6 +85,10 @@ class TicketDetail(TicketView):
     activities: list[Activity]
     can_reply: bool
     reply_channel: ReplyChannel | None
+    # The conversation in the customer portal (docs/business-portal.md#replying-inside-a-request).
+    portal_messages: list[TicketMessage] = Field(default_factory=list)
+    # The team can answer in the portal: the account has an active link and the ticket is not closed.
+    portal_open: bool = False
 
 
 def reference(ticket: SupportTicket) -> str:
@@ -111,6 +118,7 @@ def ticket_view(store: BusinessStore, ticket: SupportTicket, now: datetime) -> T
         **ticket.model_dump(), reference=reference(ticket), account_name=_name(store, "accounts", ticket.account_id),
         contact_name=_name(store, "contacts", ticket.contact_id), project_name=_name(store, "projects", ticket.project_id),
         support_plan_name=_plan_name(store, ticket.support_offer_id), sla=Sla(**support.sla_state(ticket, now)), allowed=allowed,
+        portal_unread=ticket_messages.unread(store, ticket.id) if ticket.account_id else 0,
     )
 
 
@@ -480,7 +488,9 @@ def _detail(store: BusinessStore, repository: AnumRepository | None, context: Te
     channel = reply_channel(ticket)
     base = ticket_view(store, ticket, utc_now())
     return TicketDetail(**base.model_dump(), replies=views, activities=activities,
-                        can_reply=channel is not None and ticket.status != TicketStatus.CLOSED, reply_channel=channel)
+                        can_reply=channel is not None and ticket.status != TicketStatus.CLOSED, reply_channel=channel,
+                        portal_messages=ticket_messages.thread(store, ticket.id),
+                        portal_open=ticket.status != TicketStatus.CLOSED and ticket_messages.portal_link_active(store, ticket.account_id, utc_now()))
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketDetail)
@@ -813,3 +823,39 @@ async def request_reply_approval(
         return _result(context, repository, ticket_id, reply_id, outcome.detail)
 
     return await run_in_unit(units, context, recorded)
+
+
+# -- answering in the customer portal -------------------------------------------------------------------
+
+
+class PortalAnswer(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/tickets/{ticket_id}/portal-messages", response_model=TicketDetail, status_code=status.HTTP_201_CREATED)
+def answer_in_portal(ticket_id: str, payload: PortalAnswer, context: TenantContext = Depends(tenant_context),
+                     repository: AnumRepository = Depends(repository_context)) -> TicketDetail:
+    """Answer the customer inside the request: shown in their portal, never sent anywhere, so no approval is involved."""
+    write(context)
+    now = utc_now()
+    with open_business_store(context) as store:
+        ticket = get_or_404(store, "tickets", ticket_id, "Ticket", for_update=True)
+        message = ticket_messages.staff_message(store, context, ticket, body=payload.body, now=now)
+        ticket_messages.mark_read(store, context, ticket.id, now)
+        detail = _detail(store, repository, context, ticket)
+    audit(repository, context, "business.ticket.portal_answer", ticket_id, metadata={"message_id": message.id})
+    return detail
+
+
+@router.post("/tickets/{ticket_id}/portal-messages/read", response_model=TicketDetail)
+def read_portal_messages(ticket_id: str, context: TenantContext = Depends(tenant_context),
+                         repository: AnumRepository = Depends(repository_context)) -> TicketDetail:
+    """Mark the customer's portal messages on this ticket as read."""
+    write(context)
+    with open_business_store(context) as store:
+        ticket = get_or_404(store, "tickets", ticket_id, "Ticket", for_update=True)
+        count = ticket_messages.mark_read(store, context, ticket.id, utc_now())
+        detail = _detail(store, repository, context, ticket)
+    if count:
+        audit(repository, context, "business.ticket.portal_read", ticket_id, metadata={"count": count})
+    return detail

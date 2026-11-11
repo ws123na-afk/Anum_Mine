@@ -177,3 +177,25 @@ def test_the_cleanup_removes_stored_card_codes_in_each_tenant_under_rls(
     with app_session(tenant_context(TENANT_B, WORKSPACE_B)) as session:
         targets = session.execute(text("select target from audit_records where action = 'action_browser.card_code_removed'")).scalars().all()
     assert targets == ["action_browser_credential:abcred_card_b"]
+
+
+def test_recent_sessions_page_newest_first_within_the_workspace(seed_scopes: None, app_session: Callable[..., Iterator[Session]]) -> None:
+    """The runs list's store read (``GET /api/v1/action-browser/runs``) under forced RLS as the app role."""
+    from datetime import timedelta
+
+    a = tenant_context(TENANT_A, WORKSPACE_A)
+    start = utc_now() - timedelta(hours=1)
+    with app_session(a, commit=True) as session:
+        store = SqlActionStore(session)
+        for n in range(3):
+            record = _session(f"abs_recent_{n}")
+            record.created_at = record.updated_at = start + timedelta(minutes=n)
+            store.create_session(a, record)
+    with app_session(a) as session:
+        store = SqlActionStore(session)
+        assert [s.id for s in store.recent_sessions(a, limit=2)] == ["abs_recent_2", "abs_recent_1"]
+        assert [s.id for s in store.recent_sessions(a, limit=2, offset=2)] == ["abs_recent_0"]
+        assert store.recent_sessions(a, limit=2, offset=3) == []
+    for other in (tenant_context(TENANT_B, WORKSPACE_B), tenant_context(TENANT_A, WORKSPACE_A2)):
+        with app_session(other) as session:
+            assert SqlActionStore(session).recent_sessions(other, limit=50) == []

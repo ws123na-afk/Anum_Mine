@@ -398,6 +398,24 @@ def test_notification_preferences_survive_a_restart_per_user_and_workspace(
     assert _count(database_engine, "notification_preferences") == 1
 
 
+def test_calendar_email_settings_persist_and_survive_a_client_that_does_not_send_them(
+    client: TestClient, database_engine: Engine
+) -> None:
+    """Migration 0174_calendar_email_prefs: the calendar-only email switch and the reminder language."""
+    saved = client.put("/api/v1/notification-preferences", headers=A, json={"email_enabled": True, "calendar_email": False, "calendar_email_language": "ar"})
+    assert saved.status_code == 200, saved.text
+    _forget_process_memory()
+    with open_notification_preference_store(tenant_context()) as store:
+        stored = store.get(tenant_context())
+    assert stored is not None and stored.calendar_email is False and stored.calendar_email_language == "ar"
+    # An older client saves without the new fields: they are kept.
+    assert client.put("/api/v1/notification-preferences", headers=A, json={"email_enabled": True, "run_failed": False}).status_code == 200
+    kept = client.get("/api/v1/notification-preferences", headers=A).json()
+    assert kept["calendar_email"] is False and kept["calendar_email_language"] == "ar" and kept["run_failed"] is False
+    # Another workspace and person still read the defaults (RLS).
+    assert client.get("/api/v1/notification-preferences", headers=B).json()["calendar_email_language"] is None
+
+
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [
