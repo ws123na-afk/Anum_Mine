@@ -9,7 +9,19 @@ import 'library_models.dart';
 /// Favorites, knowledge base and reports API (docs/knowledge-base.md,
 /// docs/reports.md).
 abstract interface class LibraryRepository {
-  Future<LibraryPage<Favorite>> favorites({String? type, int offset = 0});
+  /// The caller's favorites. [sort] is `custom` (the person's own order),
+  /// `oldest`, `name` or null (newest first); [query] matches the label.
+  Future<LibraryPage<Favorite>> favorites({
+    String? type,
+    int offset = 0,
+    String? query,
+    String? sort,
+    int? limit,
+  });
+
+  /// Puts favorite [id] just before [beforeId] or just after [afterId]
+  /// (exactly one) in the person's own order (`POST /favorites/{id}/move`).
+  Future<void> moveFavorite(String id, {String? beforeId, String? afterId});
   Future<void> star(String type, String id);
   Future<void> unstar(String type, String id);
 
@@ -65,18 +77,38 @@ class ApiLibraryRepository implements LibraryRepository {
       JsonReader(await api.request('GET', path));
 
   @override
-  Future<LibraryPage<Favorite>> favorites(
-      {String? type, int offset = 0}) async {
+  Future<LibraryPage<Favorite>> favorites({
+    String? type,
+    int offset = 0,
+    String? query,
+    String? sort,
+    int? limit,
+  }) async {
     final r = await _get(
       '/api/v1/favorites${_query({
             'item_type': type,
+            'q': query?.trim(),
+            'sort': sort,
             'offset': offset,
-            'limit': pageSize
+            'limit': limit ?? pageSize
           })}',
     );
     return LibraryPage(
       r.optObjects('items', Favorite.fromReader),
       r.optInt('total') ?? 0,
+    );
+  }
+
+  @override
+  Future<void> moveFavorite(String id, {String? beforeId, String? afterId}) {
+    assert((beforeId == null) != (afterId == null), 'exactly one anchor');
+    return api.request(
+      'POST',
+      '/api/v1/favorites/${Uri.encodeComponent(id)}/move',
+      body: {
+        if (beforeId != null) 'before_id': beforeId,
+        if (afterId != null) 'after_id': afterId,
+      },
     );
   }
 
