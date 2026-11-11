@@ -92,8 +92,9 @@ String? ruleBand(RuleConditions c, AnumLocalizations l) {
 }
 
 String approverLabel(String token, AnumLocalizations l) {
-  if (token == 'owner' || token == 'role:owner')
+  if (token == 'owner' || token == 'role:owner') {
     return l.t('ad.apr.who.owners');
+  }
   if (token == 'org_admin') return l.t('ad.apr.who.orgAdmins');
   if (token == 'role:member') return l.t('ad.apr.who.members');
   return token.startsWith('user:') ? token.substring(5) : token;
