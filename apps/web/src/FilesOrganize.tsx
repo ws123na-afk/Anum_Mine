@@ -54,7 +54,7 @@ export function FolderBar({ folders, current, canUpload, onOpen, onChanged, onNo
     {searching && <p className="muted folderNote">{t('files.folder.searchEverywhere')}</p>}
     {!searching && children.length > 0 && <ul className="folderList" aria-label={t('files.folder.subfolders', { name: hereName })}>
       {children.map((folder) => <li key={folder.id} className={menu === folder.id ? 'menuOpen' : undefined}>
-        <button type="button" className="folderChip" aria-label={`${folder.name}: ${t('files.folder.open', { name: folder.name })}`} onClick={() => onOpen(folder.id)}>
+        <button type="button" className="folderChip" title={t('files.folder.open', { name: folder.name })} onClick={() => onOpen(folder.id)}>
           <Folder aria-hidden="true" /><span dir="auto">{folder.name}</span><small>{t('files.folder.count', { count: folder.file_count })}</small>
         </button>
         {folder.can_manage && <div className="folderActions">
@@ -156,7 +156,7 @@ export function TagBar({ tags, active, canUpload, onToggle, onChanged, onNote, o
   if (!tags.length && !canUpload) return null;
   return <div className="tagBar" role="group" aria-label={t('files.tag.filter')}>
     <TagIcon aria-hidden="true" className="tagBarIcon" />
-    {tags.map((tag) => <button key={tag.id} type="button" className={`tagChipButton ${active === tag.id ? 'on' : ''}`} aria-pressed={active === tag.id} aria-label={`${tag.name}: ${t('files.tag.filterBy', { name: tag.name })}`} onClick={() => onToggle(active === tag.id ? null : tag.id)}><span dir="auto">{tag.name}</span><small>{formatNumber(tag.file_count)}</small></button>)}
+    {tags.map((tag) => <button key={tag.id} type="button" className={`tagChipButton ${active === tag.id ? 'on' : ''}`} aria-pressed={active === tag.id} title={t('files.tag.filterBy', { name: tag.name })} onClick={() => onToggle(active === tag.id ? null : tag.id)}><span dir="auto">{tag.name}</span><small>{formatNumber(tag.file_count)}</small></button>)}
     {active && <button type="button" className="secondary small" onClick={() => onToggle(null)}><X aria-hidden="true" />{t('files.tag.clearFilter')}</button>}
     {canUpload && <button type="button" className="secondary small tagManage" onClick={() => setManaging(true)}><Pencil aria-hidden="true" />{t('files.tag.manage')}</button>}
     {managing && <ManageTagsDialog tags={tags} canUpload={canUpload} onClose={() => setManaging(false)} onChanged={onChanged} onNote={onNote} onProblem={onProblem} />}

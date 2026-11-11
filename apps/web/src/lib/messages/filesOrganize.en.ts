@@ -5,6 +5,7 @@ import type { Message } from './types.ts';
 export const filesOrganizeEn = {
   'files.folder.root': 'All documents',
   'files.folder.trail': 'Folders',
+  'files.folder.meta': 'Folder',
   'files.folder.subfolders': 'Folders in {name}',
   'files.folder.open': 'Open folder {name}',
   'files.folder.count': { one: '{count} file', other: '{count} files' },

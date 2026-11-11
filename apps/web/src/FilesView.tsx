@@ -61,8 +61,8 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
   const loadUsage = useCallback(() => api.getFileUsage().then((value) => setUsage({ state: 'ready', value }), () => setUsage({ state: 'error' })), []);
   const loadIndex = useCallback(() => api.getRetrievalStatus().then((value) => setIndex({ state: 'ready', value }), () => setIndex({ state: 'error' })), []);
   const searching = query.trim().length > 0;
-  const loadFolders = useCallback(() => api.getFolders().then((tree) => setFolders(tree.items), (e: unknown) => { if (!isPermissionDenied(e)) setProblem(t('files.folder.loadFailed', { message: describeError(e) })); }), []);
-  const loadTags = useCallback(() => api.getFileTags().then((list) => setTags(list.items), (e: unknown) => { if (!isPermissionDenied(e)) setProblem(t('files.tag.loadFailed', { message: describeError(e) })); }), []);
+  const loadFolders = useCallback(() => api.getFolders().then((tree) => setFolders(Array.isArray(tree?.items) ? tree.items : []), (e: unknown) => { if (!isPermissionDenied(e)) setProblem(t('files.folder.loadFailed', { message: describeError(e) })); }), []);
+  const loadTags = useCallback(() => api.getFileTags().then((list) => setTags(Array.isArray(list?.items) ? list.items : []), (e: unknown) => { if (!isPermissionDenied(e)) setProblem(t('files.tag.loadFailed', { message: describeError(e) })); }), []);
   const load = useCallback(async () => {
     setList((current) => current.state === 'ready' ? current : { state: 'loading' });
     try {
@@ -325,7 +325,7 @@ function FileDetail({ fileId, me, canUpload, usage, onUsage, linkTtl, focusSigna
             <div><dt>{t('files.detail.size')}</dt><dd><bdi>{formatBytes(file.size_bytes)}</bdi></dd></div>
             <div><dt>{t('files.detail.uploaded')}</dt><dd><time dateTime={file.created_at}>{date(file.created_at)}</time></dd></div>
             <div><dt>{t('files.detail.uploadedBy')}</dt><dd>{file.created_by === me ? t('files.you') : <code dir="ltr">{file.created_by}</code>}</dd></div>
-            <div><dt>{t('files.folder.trail')}</dt><dd dir="auto">{file.folder_path ?? t('files.folder.root')}</dd></div>
+            <div><dt>{t('files.folder.meta')}</dt><dd dir="auto">{file.folder_path ?? t('files.folder.root')}</dd></div>
             {file.updated_at && file.updated_by && <div><dt>{t('files.detail.renamed')}</dt><dd>{rich('files.detail.renamedBy', { when: <time dateTime={file.updated_at}>{date(file.updated_at)}</time>, who: file.updated_by === me ? t('files.you') : <code dir="ltr">{file.updated_by}</code> })}</dd></div>}
             <div className="wideMeta"><dt>{t('files.detail.retrieval')}</dt><dd><span className={`statusBadge ${badge.tone}`}>{badge.label}</span> <small className="muted">{badge.detail}</small></dd></div>
             <div><dt>{t('files.detail.fileId')}</dt><dd><code dir="ltr">{file.id}</code></dd></div>

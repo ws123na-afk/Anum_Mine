@@ -6,6 +6,7 @@ import type { Message } from './types.ts';
 export const filesOrganizeAr = {
   'files.folder.root': 'كل المستندات',
   'files.folder.trail': 'المجلدات',
+  'files.folder.meta': 'المجلد',
   'files.folder.subfolders': 'المجلدات داخل {name}',
   'files.folder.open': 'افتح المجلد {name}',
   'files.folder.count': { zero: 'لا ملفات', one: 'ملف واحد', two: 'ملفان', few: '{count} ملفات', many: '{count} ملفًا', other: '{count} ملف' },

@@ -172,6 +172,11 @@ async function openFiles(page: Page) {
 const list = (page: Page) => page.getByRole('region', { name: 'Files' });
 const rows = (page: Page) => list(page).locator('tbody tr');
 const folderList = (page: Page, name: string) => page.getByRole('list', { name: `Folders in ${name}` });
+/** Below 1024px the list and the preview take turns: close the preview to get back to the list. */
+async function showList(page: Page) {
+  const close = page.getByRole('button', { name: 'Close file detail' });
+  if (await list(page).isHidden() && await close.isVisible()) await close.click();
+}
 
 test('the root shows its folders with counts and the files in no folder; opening a folder lists its files and the trail', async ({ page }) => {
   const api = await mockOrganize(page);
@@ -326,9 +331,11 @@ test('tags filter the list, are managed in a dialog and are added to or removed 
   await onFile.getByLabel('New tag').fill('Legal');
   await onFile.getByRole('button', { name: 'Create and add "Legal"' }).click();
   await expect(onFile.getByText('Legal')).toBeVisible();
-  await expect(tags.getByRole('button', { name: /^Legal/ })).toBeVisible();
   await onFile.getByRole('button', { name: 'Remove tag Paid from readme.txt' }).click();
   await expect(onFile.getByText('Paid')).toHaveCount(0);
+  // The new tag is a filter chip in the list pane too.
+  await showList(page);
+  await expect(tags.getByRole('button', { name: /^Legal/ })).toBeVisible();
 });
 
 test('a selection moves, tags, downloads and deletes files together, with Shift ranges and refusals', async ({ page }) => {
@@ -415,7 +422,7 @@ test('a failed folder read says so and the files still list', async ({ page }) =
   await expect(rows(page)).toHaveCount(3);
 });
 
-test('the Arabic page shows the folders, tags and the selection bar with no horizontal overflow at every size', async ({ page }) => {
+test('the Arabic page shows the folders, tags and the selection bar with no horizontal overflow at every size @gate', async ({ page }) => {
   await mockOrganize(page);
   await page.addInitScript(() => localStorage.setItem('anum.locale', 'ar'));
   for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
