@@ -17,7 +17,6 @@ Done in [Calendar](calendar.md#recurrence): series with the RFC 5545 subset, exc
 
 - **The phone's Notifications screen** ([Team work, Notifications page](team-work.md#notifications-page)) still lists notifications with mark read and mark all read only. The web page's kind and read-state filters, mark unread and delete (`GET /notifications/kinds`, `state`, `kind`, `POST /notifications/{id}/unread`, `DELETE /notifications/{id}`) are not on the phone yet.
 - **Favorites on the phone** ([Favorites](knowledge-base.md#favorites)) are listed newest first with type filters; search, sort and the person's own order (`q`, `sort=custom`, `POST /favorites/{id}/move`) are web only. The order set on the web is kept by the API, so the phone can adopt `sort=custom` without a server change.
-- **Migration `0171_favorites_position`**: other branches of this batch may also add a `0171`; renumber at merge (file name, `revision`, `down_revision`, and the mentions in `docs/knowledge-base.md`, `services/api/anum_api/favorites.py` and `services/api/anum_api/db/models.py`).
 
 ## Owner steps (only the owner can do these)
 

@@ -8,18 +8,18 @@ docs/knowledge-base.md#favorites.
   renumbers the caller's own rows. The row keeps its forced RLS on tenant, workspace and user
   (``0042_library``); nothing else is granted.
 
-Chained after ``0170_model_usage_daily``.
+Chained after ``0172_commerce_money_numeric``.
 
 Expand only. The previous release never reads or writes the column, so its stars keep working and
 simply land without a place (they show after the arranged ones). Rollback:
-``alembic downgrade 0170_model_usage_daily`` drops the column.
+``alembic downgrade 0172_commerce_money_numeric`` drops the column.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0171_favorites_position"
-down_revision = "0170_model_usage_daily"
+revision = "0173_favorites_position"
+down_revision = "0172_commerce_money_numeric"
 branch_labels = None
 depends_on = None
 

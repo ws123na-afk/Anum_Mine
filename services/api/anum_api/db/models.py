@@ -1648,7 +1648,7 @@ class FavoriteRecord(Base, WorkspaceScopedMixin):
     item_id: Mapped[str] = mapped_column(String(200), nullable=False)
     label: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # The person's own order (migration 0171_favorites_position); null until they arrange them.
+    # The person's own order (migration 0173_favorites_position); null until they arrange them.
     position: Mapped[int | None] = mapped_column(Integer)
 
     __table_args__ = (

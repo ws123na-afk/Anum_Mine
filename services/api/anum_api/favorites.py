@@ -10,7 +10,7 @@ the ``favorites`` row is under forced RLS on ``anum.tenant_id``, ``anum.workspac
 
 * ``GET /api/v1/favorites?item_type=&q=&sort=&limit=&offset=``: newest first by default, with ``total``;
   ``q`` matches the label, ``sort`` is ``newest``, ``oldest``, ``name`` or ``custom`` (the person's own
-  order, migration ``0171_favorites_position``).
+  order, migration ``0173_favorites_position``).
 * ``POST /api/v1/favorites``: star (idempotent: starring again returns the same row).
 * ``POST /api/v1/favorites/{id}/move {"before_id"} | {"after_id"}``: put one favorite just before or
   just after another in the caller's own order (drag, or Move up and Move down).

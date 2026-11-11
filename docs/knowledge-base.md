@@ -120,7 +120,7 @@ A favorite stars a `conversation`, `task`, `agent` (installed skill), `file`, `r
   At most 500 per user.
 - Deleting a report or collection removes the deleting user's star of it; stars other users
   kept read as "gone" when opened.
-- **The person's own order.** `position` (migration `0171_favorites_position`, nullable,
+- **The person's own order.** `position` (migration `0173_favorites_position`, nullable,
   expand only) is where the person put the item. `sort=custom` orders by it, rows without a
   place last and newest first among themselves (so before anyone arranges anything it equals
   newest first). A move renumbers all of the caller's rows 0, 1, 2... in one transaction, so
