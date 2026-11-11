@@ -24,16 +24,16 @@ Every new table is under forced RLS on ``anum.tenant_id`` and ``anum.workspace_i
 
 Expand only: three new tables, one nullable column and two concurrently built indexes. The
 previous release ignores all of them (its uploads land at the root and its deletes cascade the
-links). Rollback: ``alembic downgrade 0165_autonomy_undo_claim``.
+links). Rollback: ``alembic downgrade 0167_calendar_recurrence``.
 
-Chained after ``0165_autonomy_undo_claim``; renumbered at merge if other migrations land first.
+Chained after ``0167_calendar_recurrence``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0166_files_folders_tags"
-down_revision = "0165_autonomy_undo_claim"
+revision = "0168_files_folders_tags"
+down_revision = "0167_calendar_recurrence"
 branch_labels = None
 depends_on = None
 

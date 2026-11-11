@@ -1,4 +1,4 @@
-"""Folders, tags and bulk actions in PostgreSQL (migration 0166_files_folders_tags): forced RLS on
+"""Folders, tags and bulk actions in PostgreSQL (migration 0168_files_folders_tags): forced RLS on
 the three new tables, the unique indexes answering 409 without breaking the unit of work, the
 cascades, paging within a folder and by tag, bulk changes as all or nothing, the zip download and
 the audit rows, all as the non-owner app role."""

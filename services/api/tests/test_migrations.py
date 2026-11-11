@@ -1282,11 +1282,11 @@ def test_file_versions_migration_is_expand_only_with_forced_rls_and_a_scoped_ref
 
 def test_files_folders_tags_migration_is_expand_only_with_forced_rls_and_scoped_references() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0166_files_folders_tags.py").read_text(encoding="utf-8")
-    assert 'revision = "0166_files_folders_tags"' in revision_text and len("0166_files_folders_tags") <= 32
-    assert 'down_revision = "0165_autonomy_undo_claim"' in revision_text
-    others = [path for path in versions.glob("*.py") if path.name != "0166_files_folders_tags.py"]
-    assert not [path for path in others if 'down_revision = "0165_autonomy_undo_claim"' in path.read_text(encoding="utf-8")]
+    revision_text = (versions / "0168_files_folders_tags.py").read_text(encoding="utf-8")
+    assert 'revision = "0168_files_folders_tags"' in revision_text and len("0168_files_folders_tags") <= 32
+    assert 'down_revision = "0167_calendar_recurrence"' in revision_text
+    others = [path for path in versions.glob("*.py") if path.name != "0168_files_folders_tags.py"]
+    assert not [path for path in others if 'down_revision = "0167_calendar_recurrence"' in path.read_text(encoding="utf-8")]
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 3 and upgrade.count("op.add_column(") == 1
     # The new column is nullable (the root), so the previous release keeps inserting rows.

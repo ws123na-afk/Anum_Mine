@@ -317,7 +317,7 @@ class FileRecord(BaseModel):
     # for an ordinary file. Vault files are never listed or served by the Files routes; `hidden`
     # ones are invisible to every unit of work that is not the vault's own.
     vault: Literal["hidden", "assistant"] | None = None
-    # The folder the file is in (migration 0166_files_folders_tags, docs/files.md#folders); None at the root.
+    # The folder the file is in (migration 0168_files_folders_tags, docs/files.md#folders); None at the root.
     folder_id: str | None = None
 
 

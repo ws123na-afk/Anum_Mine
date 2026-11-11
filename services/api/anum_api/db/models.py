@@ -837,7 +837,7 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     # Document vault (migration 0133_document_vault, docs/documents.md#storage-and-isolation): null for
     # an ordinary file; `hidden` rows are invisible unless the unit of work set anum.vault (row policy).
     vault: Mapped[str | None] = mapped_column(String(10))
-    # The folder the file is in (migration 0166_files_folders_tags, docs/files.md#folders); null at the root.
+    # The folder the file is in (migration 0168_files_folders_tags, docs/files.md#folders); null at the root.
     folder_id: Mapped[str | None] = mapped_column(String(80))
 
     __table_args__ = (
@@ -902,7 +902,7 @@ class WorkspaceFileVersionRecord(Base, WorkspaceScopedMixin):
 
 
 class WorkspaceFileFolderRecord(Base, WorkspaceScopedMixin):
-    """A folder in a workspace's file tree (migration 0166_files_folders_tags, docs/files.md#folders)."""
+    """A folder in a workspace's file tree (migration 0168_files_folders_tags, docs/files.md#folders)."""
 
     __tablename__ = "workspace_file_folders"
 
@@ -933,7 +933,7 @@ class WorkspaceFileFolderRecord(Base, WorkspaceScopedMixin):
 
 
 class WorkspaceFileTagRecord(Base, WorkspaceScopedMixin):
-    """A tag name of a workspace (migration 0166_files_folders_tags, docs/files.md#tags)."""
+    """A tag name of a workspace (migration 0168_files_folders_tags, docs/files.md#tags)."""
 
     __tablename__ = "workspace_file_tags"
 
@@ -950,7 +950,7 @@ class WorkspaceFileTagRecord(Base, WorkspaceScopedMixin):
 
 
 class WorkspaceFileTagLinkRecord(Base):
-    """One tag on one file (migration 0166_files_folders_tags); both references are scoped and cascade."""
+    """One tag on one file (migration 0168_files_folders_tags); both references are scoped and cascade."""
 
     __tablename__ = "workspace_file_tag_links"
 
