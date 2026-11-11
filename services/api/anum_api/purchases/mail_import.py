@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal
@@ -73,14 +74,21 @@ def _seed(account_id: str, message_id: str | None, folder: str, uid: int) -> str
     return hashlib.sha256(f"mail\x1f{account_id}\x1f{stable}".encode()).hexdigest()
 
 
-def _store_attachment(context: TenantContext, raw: bytes, index: int, subject: str) -> str:
-    """The attachment as a private vault document (or the person's own copy already in the vault). Returns its id."""
+@dataclass(frozen=True)
+class _Attachment:
+    name: str
+    content_type: str
+    data: bytes
+    digest: str
+    scanned: bool
+
+
+def _check_attachment(context: TenantContext, raw: bytes, index: int) -> _Attachment:
+    """The chosen attachment, checked like an upload (type, content, malware hook, plan storage) before anything is saved."""
     from ..billing.enforce import require_capacity
     from ..files import check_upload_content, resolve_upload_type, valid_file_name
     from ..mailbox.config import mail_settings
     from ..mailbox.mime import attachment_bytes
-    from ..vault import service as V
-    from ..vault.store import open_vault_unit
 
     found = attachment_bytes(raw, index)
     if found is None:
@@ -95,17 +103,24 @@ def _store_attachment(context: TenantContext, raw: bytes, index: int, subject: s
         require_capacity(context, "storage", len(data))
     except HTTPException as exc:
         raise S.PurchaseError(exc.status_code, str(exc.detail), "attachment_refused") from None
-    digest = hashlib.sha256(data).hexdigest()
+    return _Attachment(name, allowed.content_type, data, hashlib.sha256(data).hexdigest(), scanned)
+
+
+def _keep_attachment(context: TenantContext, file: _Attachment, subject: str) -> str | None:
+    """The checked attachment as a private vault document (or the person's own copy already there). None if the vault refused it."""
+    from ..vault import service as V
+    from ..vault.store import open_vault_unit
+
     with open_vault_unit(context) as unit:
-        same = [record for record in unit.store.same_content(context, digest) if record.owner_user_id == context.user_id]
+        same = [record for record in unit.store.same_content(context, file.digest) if record.owner_user_id == context.user_id]
     if same:
         return same[0].id
-    title = V.safe_value(subject or Path(name).stem, 200) or name
+    title = V.safe_value(subject or Path(file.name).stem, 200) or file.name
     try:
-        record, _, _ = V.create_document(context, V.NewDocument(name=name, content_type=allowed.content_type, content=data, sha256=digest, scanned=scanned,
-                                                                title=title, category="receipt", access_class="private", source="web"))
-    except HTTPException as exc:
-        raise S.PurchaseError(exc.status_code, str(exc.detail), "attachment_refused") from None
+        record, _, _ = V.create_document(context, V.NewDocument(name=file.name, content_type=file.content_type, content=file.data, sha256=file.digest,
+                                                                scanned=file.scanned, title=title, category="receipt", access_class="private", source="web"))
+    except HTTPException:
+        return None
     return record.id
 
 
@@ -123,7 +138,7 @@ def save(context: TenantContext, body: FromMail, parsed: Any, raw: bytes) -> dic
         replay = store.purchase_by_idem(context, key)
     if replay is not None:
         return {"status": "replayed", "purchase_id": replay.id, "message": "This email was already saved as a purchase."}
-    document_id = _store_attachment(context, raw, body.attachment_index, subject) if body.attachment_index is not None else None
+    checked = _check_attachment(context, raw, body.attachment_index) if body.attachment_index is not None else None
     sent_at = parsed.date if parsed.date is not None and parsed.date.tzinfo is not None and parsed.date <= now else None
     found = P.parse(text, today=now.date()) if text else None
     if found is not None and found.recognised:
@@ -148,7 +163,8 @@ def save(context: TenantContext, body: FromMail, parsed: Any, raw: bytes) -> dic
         purchase_id = purchase.id
         result = {"status": "created", "purchase_id": purchase_id, "message": f"Saved {purchase.merchant} under Purchases as a draft. Check its details."}
     attached = False
-    if document_id is not None and result["status"] in {"created", "updated"}:
+    document_id = _keep_attachment(context, checked, subject) if checked is not None and result["status"] in {"created", "updated"} else None
+    if document_id is not None:
         with open_purchase_store(context) as store:
             current = S.get_purchase(store, context, purchase_id, lock=True)
             if current.document_id is None and S.can_edit_purchase(context, current):
