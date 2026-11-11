@@ -52,7 +52,88 @@ class WorkspaceController extends ChangeNotifier {
   List<WorkspaceAutomation> get automations =>
       snapshot?.automations ?? const [];
   List<WorkspaceFile> get files => snapshot?.files ?? const [];
-  List<WorkspaceMemory> get memories => snapshot?.memories ?? const [];
+
+  /// The loaded memories, newest page first then the older pages, with
+  /// edits made here applied.
+  List<WorkspaceMemory> get memories {
+    final seen = <String>{};
+    return [
+      for (final m in [...?snapshot?.memories, ..._olderMemories])
+        if (seen.add(m.id)) _editedMemories[m.id] ?? m
+    ];
+  }
+
+  final List<WorkspaceMemory> _olderMemories = [];
+  final Map<String, WorkspaceMemory> _editedMemories = {};
+
+  /// Older memories wait beyond the loaded ones ("Load older memories").
+  bool get hasOlderMemories => _olderMemories.isEmpty
+      ? (snapshot?.memories.length ?? 0) >= memoryFirstPage
+      : _moreOlder;
+  bool _moreOlder = false;
+  bool loadingOlderMemories = false;
+  String? olderMemoriesError;
+
+  /// The signed-in person's roles, so the Memory tab offers an owner the
+  /// edit of a shared note (set by the app with [currentUserId]).
+  List<String> currentRoles = const [];
+  bool get isOwner => currentRoles.contains('owner');
+
+  /// Loads the next older page (docs/memory.md#workspace-memories). One
+  /// extra memory is asked for to know whether another page follows.
+  Future<void> loadOlderMemories() async {
+    if (loadingOlderMemories || !hasOlderMemories) return;
+    loadingOlderMemories = true;
+    olderMemoriesError = null;
+    notifyListeners();
+    final epoch = _epoch;
+    try {
+      final offset = (snapshot?.memories.length ?? 0) + _olderMemories.length;
+      final page = await repository.memoryPage(
+          offset: offset, limit: memoryOlderPage + 1);
+      if (epoch != _epoch) return;
+      // Oldest first: the first of an over-full page belongs to the next one.
+      final more = page.length > memoryOlderPage;
+      final kept = more ? page.sublist(1) : page;
+      _olderMemories.addAll(kept.reversed);
+      _moreOlder = more;
+    } on Object catch (error) {
+      if (epoch != _epoch) return;
+      olderMemoriesError = readableError(error);
+    } finally {
+      if (epoch == _epoch) {
+        loadingOlderMemories = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Adds a memory for the whole workspace; null when saved, else the API's
+  /// sentence (memory governance may refuse its source type).
+  Future<String?> addWorkspaceMemory(String content, {int? keepDays}) async {
+    try {
+      await repository.createWorkspaceMemory(content, keepDays: keepDays);
+      await load();
+      return null;
+    } on Object catch (error) {
+      return readableError(error);
+    }
+  }
+
+  /// Changes a memory's text; null when saved, else why not.
+  Future<String?> editMemory(WorkspaceMemory memory, String content) async {
+    try {
+      final updated = await repository.updateMemory(memory.id, content);
+      _editedMemories[memory.id] = updated;
+      notifyListeners();
+      return null;
+    } on ApiException catch (error) {
+      return error.isPermissionDenied ? 'denied' : error.readable;
+    } on Object catch (error) {
+      return readableError(error);
+    }
+  }
+
   List<AutomationDefinition> get workflowDefinitions =>
       snapshot?.workflowDefinitions ?? const [];
   List<AutomationSchedule> get schedules => snapshot?.schedules ?? const [];
@@ -73,6 +154,11 @@ class WorkspaceController extends ChangeNotifier {
       final loaded = await repository.loadWorkspace();
       if (epoch != _epoch) return;
       snapshot = _withRunApprovals(loaded);
+      // A fresh first page: older pages loaded before would be offset wrongly.
+      _olderMemories.clear();
+      _editedMemories.clear();
+      _moreOlder = false;
+      olderMemoriesError = null;
       phase = _isEmpty(snapshot!) ? LoadPhase.empty : LoadPhase.ready;
     } on WorkspaceOfflineException catch (error) {
       if (epoch != _epoch) return;
@@ -98,6 +184,11 @@ class WorkspaceController extends ChangeNotifier {
     taskRefusal = null;
     skillNotice = null;
     currentUserId = null;
+    currentRoles = const [];
+    _olderMemories.clear();
+    _editedMemories.clear();
+    _moreOlder = false;
+    olderMemoriesError = null;
     _runApprovals.clear();
     decisionRefusals.clear();
     filesController?.reset();

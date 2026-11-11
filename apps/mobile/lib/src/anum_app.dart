@@ -828,6 +828,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
     try {
       final session = await auth.repository.restoreSession();
       workspace.currentUserId = session?.context.userId;
+      workspace.currentRoles = session?.context.roles ?? const [];
       appCalls.selfUserId = session?.context.userId;
     } on Object {
       // Unknown user: the API still refuses a second approval (409).
