@@ -2,6 +2,7 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'admin_models.dart';
 import 'approval_policy.dart';
+import 'approval_settings.dart';
 import 'budget_usage.dart';
 
 /// Owner screens' data: memberships, invitations, model budgets and the
@@ -35,6 +36,14 @@ abstract interface class AdminRepository {
   /// The whole range as CSV through the system save dialog; false when the
   /// person closed the dialog.
   Future<bool> exportBudgetUsage(UsageQuery query, String dialogTitle);
+
+  /// The organization's approval rules (any member reads them).
+  Future<List<ApprovalRuleView>> approvalRules();
+
+  /// The approval-ageing reminder; [setApprovalReminders] is owners only and
+  /// null turns it off.
+  Future<ReminderSetting> approvalReminders();
+  Future<ReminderSetting> setApprovalReminders(int? hours);
 
   Future<ApprovalPolicy> approvalPolicy();
   Future<ApprovalPolicy> setApprovalPolicy(ApprovalPolicy policy);
@@ -174,6 +183,22 @@ class ApiAdminRepository implements AdminRepository {
   Future<bool> exportBudgetUsage(UsageQuery query, String dialogTitle) =>
       api.download('GET', query.path(csv: true),
           fileName: query.csvFileName, dialogTitle: dialogTitle);
+
+  @override
+  Future<List<ApprovalRuleView>> approvalRules() async => JsonReader(
+          await api.request('GET', '/api/v1/organization/approval-rules'))
+      .optObjects('data', ApprovalRuleView.fromJson);
+
+  @override
+  Future<ReminderSetting> approvalReminders() async =>
+      ReminderSetting.fromJson(JsonReader(
+          await api.request('GET', '/api/v1/approval-reminders/settings')));
+
+  @override
+  Future<ReminderSetting> setApprovalReminders(int? hours) async =>
+      ReminderSetting.fromJson(JsonReader(await api.request(
+          'PUT', '/api/v1/approval-reminders/settings',
+          body: {'reminder_hours': hours})));
 
   @override
   Future<ApprovalPolicy> approvalPolicy() async => ApprovalPolicy.fromJson(

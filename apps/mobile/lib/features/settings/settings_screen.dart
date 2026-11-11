@@ -986,7 +986,7 @@ class _AdminCard extends StatelessWidget {
             leading: const Icon(Icons.policy_outlined),
             title: const Text('Approval policy'),
             subtitle: const Text(
-                'Two-person rule and approval for medium-risk actions.'),
+                'The two switches, organization rules, routing and reminders.'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _push(
                 context,

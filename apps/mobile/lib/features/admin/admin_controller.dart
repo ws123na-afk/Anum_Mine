@@ -6,6 +6,7 @@ import '../../src/localization/anum_localizations.dart';
 import 'admin_models.dart';
 import 'admin_repository.dart';
 import 'approval_policy.dart';
+import 'approval_settings.dart';
 import 'budget_usage.dart';
 
 /// `forbidden` comes from the API's 403: the client never guesses roles.
@@ -262,8 +263,27 @@ class BudgetsController extends ChangeNotifier {
 /// The workspace approval policy. Any member loads it; the caller's role comes
 /// from their persisted membership, and a 403 on saving is the API's answer.
 class ApprovalPolicyController extends ChangeNotifier {
-  ApprovalPolicyController(this.repository);
+  ApprovalPolicyController(this.repository)
+      : rules = ApprovalRulesController(repository),
+        reminders = ApprovalReminderController(repository);
   final AdminRepository repository;
+
+  /// The organization's rules and the reminder: each loads on its own, so a
+  /// policy that cannot be read hides neither (docs/approvals-and-risk.md).
+  final ApprovalRulesController rules;
+  final ApprovalReminderController reminders;
+
+  /// The policy, the rules and the reminder, each on its own.
+  Future<void> loadAll() async {
+    await Future.wait([load(), rules.load(), reminders.load()]);
+  }
+
+  @override
+  void dispose() {
+    rules.dispose();
+    reminders.dispose();
+    super.dispose();
+  }
 
   AdminPhase phase = AdminPhase.initial;
   ApprovalPolicy? policy;
