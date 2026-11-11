@@ -1352,23 +1352,19 @@ def delete_import(
     with owner_lock(context), open_sms_stores(context) as (store, sms):
         sms.lock_owner(context)
         record = store.get_import(context, import_id)
+        detached = 0
         if record is not None:
-            # Rows matched to several recorded payments are detached too: those records are no longer confirmed by it.
+            # Every row it attached to a recorded payment (one or several) or held in Review is detached too: those
+            # records are no longer confirmed by it (docs/finance.md#undoing-an-import).
             from . import statement_ledger as SL
-            from .sms_store import MessageStatus
 
-            for group in {item.get("split_group") for item in record.dispositions or [] if item.get("split_group")}:
-                for message in SL.split_parts(sms, context, import_id, str(group)):
-                    message.status, message.reason, message.updated_at = MessageStatus.DISMISSED, "import_undone", utc_now()
-                    sms.save_message(message)
-                    if message.entry_id:
-                        sms.mark_entry(context, message.entry_id, clear_reconciled=True)
+            detached = SL.detach_import(sms, context, import_id, now=utc_now())
             rows, _ = store.list_transactions(context, TransactionFilter(account_id=record.account_id), limit=10_000, offset=0)
             reverse_for_transactions(store, sms, context, [t.id for t in rows if t.import_id == import_id], now=utc_now(), why="statement import undone")
         removed = store.delete_import(context, import_id)
     if removed is None:
         raise _not_found("Import")
-    _audit(repository, context, "finance.import.delete", import_id, {"removed": removed})
+    _audit(repository, context, "finance.import.delete", import_id, {"removed": removed, "detached": detached})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
