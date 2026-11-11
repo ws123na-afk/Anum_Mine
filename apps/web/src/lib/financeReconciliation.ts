@@ -1,7 +1,8 @@
 // Finance, Reconciliation (docs/finance.md#reconciliation-sessions): the pure helpers the page uses. Every figure is
 // the API's; nothing here adds amounts across currencies or moves money. Covered by test/financeReconciliation.test.ts;
 // the API calls are in financeReconciliationApi.ts.
-import type { FinanceReconException, FinanceReconHealth, FinanceReconSeverity } from '@anum/contracts';
+import type { FinanceReconDetail, FinanceReconException, FinanceReconHealth, FinanceReconInput, FinanceReconQueueItem, FinanceReconSeverity } from '@anum/contracts';
+import { parseAmount, type Checked } from './finance.ts';
 
 export const EXCEPTIONS_PAGE = 20;
 
@@ -73,3 +74,63 @@ export const REASONS: ReadonlySet<string> = new Set([
   'held_for_review', 'unticked', 'dropped_by_reader', 'duplicate_skipped', 'sms', 'wallet', 'manual', 'statement',
   'rent_shown_as_incoming', 'money_in_type_paid_out', 'spending_type_paid_in',
 ]);
+
+/** The statement figure as the owner types it: a card or loan shows what is owed as a positive figure. */
+export function typedFromLedger(kind: string, stored: string | null): string {
+  if (stored === null) return '';
+  if ((kind === 'card' || kind === 'loan') && Number(stored) !== 0) return stored.startsWith('-') ? stored.slice(1) : `-${stored}`;
+  return stored;
+}
+
+export interface EditDraft { opening: string; closing: string; due: string; minimum: string; dueOn: string }
+
+/** The edit form starts from the session's stored statement figures. */
+export function editDraftOf(d: Pick<FinanceReconDetail, 'account_kind' | 'figures' | 'card'>): EditDraft {
+  return {
+    opening: typedFromLedger(d.account_kind, d.figures.statement_opening), closing: typedFromLedger(d.account_kind, d.figures.statement_closing),
+    due: d.card?.amount_due ?? '', minimum: d.card?.minimum_due ?? '', dueOn: d.card?.due_on ?? '',
+  };
+}
+
+/** The PATCH body for the statement figures as printed (compare and set on `version`), or what to fix. */
+export function editBody(draft: EditDraft, d: Pick<FinanceReconDetail, 'account_kind' | 'currency' | 'version'>): Checked<Partial<FinanceReconInput> & { version: number }> {
+  const closing = draft.closing.trim();
+  if (!closing) return { ok: false, error: 'closing' };
+  for (const typed of [closing, draft.opening.trim()]) {
+    if (!typed) continue;
+    const check = parseAmount(ledgerClosing(d.account_kind, typed), d.currency);
+    if (!check.ok) return check;
+  }
+  const card = d.account_kind === 'card';
+  for (const typed of card ? [draft.due.trim(), draft.minimum.trim()] : []) {
+    if (!typed) continue;
+    const check = parseAmount(typed, d.currency, { signed: false });
+    if (!check.ok) return check;
+  }
+  return {
+    ok: true,
+    value: {
+      version: d.version, statement_closing: ledgerClosing(d.account_kind, closing), statement_opening: draft.opening.trim() ? ledgerClosing(d.account_kind, draft.opening.trim()) : null,
+      ...(card ? { amount_due: draft.due.trim() || null, minimum_due: draft.minimum.trim() || null, due_on: draft.dueOn || null } : {}),
+    },
+  };
+}
+
+/** The exceptions table across accounts: GET /reconciliations/exceptions orders by these columns. */
+export type QueueSort = 'severity' | 'account' | 'period' | 'kind' | 'posted' | 'amount';
+export const QUEUE_SORTS: readonly QueueSort[] = ['severity', 'account', 'period', 'kind', 'posted', 'amount'];
+export interface QueueOrder { sort: QueueSort; desc: boolean }
+export const DEFAULT_QUEUE_ORDER: QueueOrder = { sort: 'severity', desc: false };
+export const QUEUE_PAGE = 20;
+
+/** A header click sorts that column; the same column again turns it round. Dates and amounts start with the latest and largest. */
+export function nextQueueOrder(current: QueueOrder, sort: QueueSort): QueueOrder {
+  if (current.sort === sort) return { sort, desc: !current.desc };
+  return { sort, desc: sort === 'posted' || sort === 'amount' || sort === 'period' };
+}
+
+/** What settles a queued exception: its session, when it has one; otherwise an import (a missing month) or the register. */
+export function queueAction(item: Pick<FinanceReconQueueItem, 'reconciliation_id' | 'exception'>): 'session' | 'import' | 'transactions' {
+  if (item.reconciliation_id) return 'session';
+  return item.exception.actions.includes('import') ? 'import' : 'transactions';
+}

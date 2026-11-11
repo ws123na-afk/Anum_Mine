@@ -5,7 +5,11 @@ import { describe, test } from 'node:test';
 import type { FinanceReconException, FinanceReconHealth } from '@anum/contracts';
 import { FINANCE_TABS, hashForTab, tabFromHash } from '../src/lib/finance.ts';
 import { FINANCE_NAV, OWN_HEAD_TABS, groupOf } from '../src/lib/financeNav.ts';
-import { REASONS, isZero, lastMonth, ledgerClosing, matchCandidates, nextStep, sessionFromHash, sessionStatus, sessionTone } from '../src/lib/financeReconciliation.ts';
+import {
+  DEFAULT_QUEUE_ORDER, QUEUE_SORTS, REASONS, editBody, editDraftOf, isZero, lastMonth, ledgerClosing, matchCandidates, nextQueueOrder, nextStep, queueAction, sessionFromHash, sessionStatus,
+  sessionTone, typedFromLedger,
+} from '../src/lib/financeReconciliation.ts';
+import { setLocale } from '../src/lib/i18n.ts';
 import { placeholdersOf } from '../src/lib/i18n.ts';
 import { financeReconAr } from '../src/lib/messages/financeRecon.ar.ts';
 import { financeReconEn } from '../src/lib/messages/financeRecon.en.ts';
@@ -73,6 +77,34 @@ describe('reconciliation page', () => {
   test('the usual period is the month before today', () => {
     assert.deepEqual(lastMonth('2026-11-09'), { start: '2026-10-01', end: '2026-10-31' });
     assert.deepEqual(lastMonth('2026-01-15'), { start: '2025-12-01', end: '2025-12-31' });
+  });
+
+  test('the edit form starts from the stored figures, shows what a card owes as positive and sends the ledger sign back with the version', () => {
+    setLocale('en');
+    assert.equal(typedFromLedger('card', '-930.00'), '930.00');
+    assert.equal(typedFromLedger('card', '25.00'), '-25.00');
+    assert.equal(typedFromLedger('bank', '-930.00'), '-930.00');
+    assert.equal(typedFromLedger('bank', null), '');
+    const card = { account_kind: 'card', currency: 'AED', version: 3, figures: { statement_opening: '-1000.00', statement_closing: '-930.00' } as never, card: { amount_due: '930.00', minimum_due: '50.00', due_on: '2026-11-25' } as never };
+    assert.deepEqual(editDraftOf(card), { opening: '1000.00', closing: '930.00', due: '930.00', minimum: '50.00', dueOn: '2026-11-25' });
+    assert.deepEqual(editBody({ opening: '1000.00', closing: '900', due: '900', minimum: '', dueOn: '' }, card),
+      { ok: true, value: { version: 3, statement_closing: '-900', statement_opening: '-1000.00', amount_due: '900', minimum_due: null, due_on: null } });
+    const bank = { account_kind: 'bank', currency: 'AED', version: 1 };
+    assert.deepEqual(editBody({ opening: '', closing: '930.00', due: '5', minimum: '', dueOn: '' }, bank), { ok: true, value: { version: 1, statement_closing: '930.00', statement_opening: null } });
+    assert.deepEqual(editBody({ opening: '', closing: ' ', due: '', minimum: '', dueOn: '' }, bank), { ok: false, error: 'closing' });
+    assert.equal(editBody({ opening: 'abc', closing: '930.00', due: '', minimum: '', dueOn: '' }, bank).ok, false);
+    assert.equal(editBody({ opening: '', closing: '930.00', due: '-5', minimum: '', dueOn: '' }, card).ok, false);
+  });
+
+  test('the exceptions table sorts by a known column, turns round on a second click, and each row knows its next step', () => {
+    assert.deepEqual(DEFAULT_QUEUE_ORDER, { sort: 'severity', desc: false });
+    assert.deepEqual(nextQueueOrder(DEFAULT_QUEUE_ORDER, 'severity'), { sort: 'severity', desc: true });
+    assert.deepEqual(nextQueueOrder(DEFAULT_QUEUE_ORDER, 'account'), { sort: 'account', desc: false });
+    assert.deepEqual(nextQueueOrder(DEFAULT_QUEUE_ORDER, 'amount'), { sort: 'amount', desc: true });
+    assert.deepEqual([...QUEUE_SORTS], ['severity', 'account', 'period', 'kind', 'posted', 'amount']);
+    assert.equal(queueAction({ reconciliation_id: 'rec_1', exception: issue({ actions: ['match'] }) }), 'session');
+    assert.equal(queueAction({ reconciliation_id: null, exception: issue({ kind: 'missing_period', actions: ['import'] }) }), 'import');
+    assert.equal(queueAction({ reconciliation_id: null, exception: issue({ kind: 'wrong_direction', actions: ['open'] }) }), 'transactions');
   });
 
   test('every key has an Arabic twin with the same placeholders, and every explained reason has words', () => {

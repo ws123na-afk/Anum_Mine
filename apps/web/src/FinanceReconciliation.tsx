@@ -4,16 +4,16 @@
 // figure comes from the API. Nothing here moves money or forces a balance: a difference nobody explained keeps the
 // session unresolved, and a correcting entry is posted only after the owner approves the legs they were shown.
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { AlertTriangle, BadgeCheck, CalendarClock, FileUp, History, Link2, Plus, RotateCcw, Scale, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, BadgeCheck, CalendarClock, Download, FileUp, History, Link2, Pencil, Plus, RotateCcw, Scale, Trash2, Undo2 } from 'lucide-react';
 import type {
   FinanceAccount, FinanceImport, FinanceReconCorrectionPreview, FinanceReconDetail, FinanceReconException, FinanceReconHealth,
-  FinanceReconHealthPage, FinanceReconPage, FinanceReconSummary,
+  FinanceReconHealthPage, FinanceReconPage, FinanceReconQueueItem, FinanceReconQueuePage, FinanceReconSummary,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import * as rc from './lib/financeReconciliation';
 import * as rapi from './lib/financeReconciliationApi';
 import { formatAmount, isolate, monthLabel, parseAmount, type FinanceTab } from './lib/finance';
-import { describeError } from './lib/errors';
+import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
@@ -64,8 +64,10 @@ export function ReconciliationPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
       <KpiCard icon={<CalendarClock />} label={t('frec.kpi.missing')} value={health.kind === 'ready' ? missing : '-'} tone={missing ? 'warn' : ''} hint={t('frec.kpi.missingHint')} />
     </KpiRow>
     {selected
-      ? <SessionDetail key={selected} id={selected} onBack={() => { setSelected(null); if (rc.sessionFromHash(location.hash)) history.replaceState(null, '', '#finance-reconciliation'); refresh(); }} onChanged={refresh} onOpen={onOpen} />
+      ? <SessionDetail key={selected} id={selected} onBack={() => { setSelected(null); if (rc.sessionFromHash(location.hash)) history.replaceState(null, '', '#finance-reconciliation'); refresh(); }}
+        onDeleted={() => { setSelected(null); if (rc.sessionFromHash(location.hash)) history.replaceState(null, '', '#finance-reconciliation'); setNotice(t('frec.done.delete')); refresh(); }} onChanged={refresh} onOpen={onOpen} />
       : <>
+        <QueueCard key={`queue-${open}-${changed}`} onPick={setSelected} onOpen={onOpen} />
         <SessionsCard state={sessions} retry={loadSessions} offset={offset} onOffset={setOffset} onPick={setSelected} onNew={() => setCreating({})} />
         <HealthCard state={health} retry={loadHealth} onImport={() => onOpen('import')} onReconcile={(accountId) => setCreating({ accountId })} onPick={setSelected} />
       </>}
@@ -76,6 +78,70 @@ export function ReconciliationPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
       }} />
     </Modal>}
   </div>;
+}
+
+const QUEUE_COLUMN: Record<rc.QueueSort, MessageKey> = { severity: 'frec.queue.col.severity', account: 'frec.queue.col.account', period: 'frec.queue.col.period', kind: 'frec.queue.col.kind', posted: 'frec.queue.col.posted', amount: 'frec.queue.col.amount' };
+
+/** Every open exception across the owner's accounts (GET /reconciliations/exceptions): sorted on the server, paged, exported as CSV, each with its next step. */
+function QueueCard({ onPick, onOpen }: { onPick: (id: string) => void; onOpen: (tab: FinanceTab) => void }) {
+  const [state, setState] = useState<Load<FinanceReconQueuePage>>({ kind: 'loading' });
+  const [order, setOrder] = useState<rc.QueueOrder>(rc.DEFAULT_QUEUE_ORDER);
+  const [offset, setOffset] = useState(0);
+  const [exporting, setExporting] = useState(false), [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const load = useCallback(() => {
+    setState((c) => (c.kind === 'ready' ? c : { kind: 'loading' }));
+    rapi.reconciliationExceptions(rc.QUEUE_PAGE, offset, order).then((v) => setState({ kind: 'ready', value: v })).catch((e) => setState(failed(e)));
+  }, [offset, order]);
+  useEffect(() => { load(); }, [load]);
+  const exportCsv = async () => {
+    setExporting(true); setNotice(null);
+    try { setNotice({ text: t('frec.queue.exported', { name: await rapi.exportExceptions(order) }) }); } catch (e) { setNotice({ text: describeError(e), error: true }); } finally { setExporting(false); }
+  };
+  const sortBy = (sort: rc.QueueSort) => { setOrder((current) => rc.nextQueueOrder(current, sort)); setOffset(0); };
+  const head = (sort: rc.QueueSort, className?: string) => <th scope="col" className={className} aria-sort={order.sort === sort ? (order.desc ? 'descending' : 'ascending') : 'none'}>
+    <button type="button" className="finSortButton" onClick={() => sortBy(sort)} aria-label={t('frec.queue.sortBy', { column: t(QUEUE_COLUMN[sort]) })}>{t(QUEUE_COLUMN[sort])}<ArrowDownUp aria-hidden="true" /></button></th>;
+  const page = state.kind === 'ready' ? state.value : null;
+  return <FinCard title={t('frec.queue.title')} icon={<AlertTriangle />} subtitle={t('frec.queue.sub')}
+    actions={page && page.total > 0 ? <button type="button" className="secondary" disabled={exporting} title={t('frec.queue.exportHelp')} onClick={() => void exportCsv()}>
+      <Download aria-hidden="true" />{exporting ? t('frec.queue.exporting') : t('frec.queue.export')}</button> : undefined}>
+    {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+    {state.kind === 'loading' && <Notice busy>{t('frec.loading')}</Notice>}
+    {state.kind === 'denied' && <Denied />}
+    {state.kind === 'error' && <LoadError message={t('frec.error', { message: state.message })} retry={load} />}
+    {page && page.total === 0 && <Empty icon={<BadgeCheck aria-hidden="true" />} title={t('frec.queue.none.title')} text={t('frec.queue.none.text')} />}
+    {page && page.total > 0 && <>
+      <p className="muted frecQueueCount" aria-live="polite">{t('frec.queue.count', { count: page.total })}. {t('frec.queue.sortedBy', { column: t(QUEUE_COLUMN[order.sort]), direction: t(order.desc ? 'frec.queue.descending' : 'frec.queue.ascending') })}</p>
+      <div className="dataTableWrap"><table className="dataTable frecQueue">
+        <caption className="visuallyHidden">{t('frec.queue.title')}</caption>
+        <thead><tr>{head('account')}{head('period', 'frecHideSm')}{head('severity')}{head('kind')}{head('posted', 'frecHideSm')}{head('amount', 'num')}<th scope="col">{t('frec.queue.col.action')}</th></tr></thead>
+        <tbody>{page.items.map((item) => <QueueRow key={`${item.reconciliation_id ?? item.account_id}:${item.exception.id}`} item={item} onPick={onPick} onOpen={onOpen} />)}</tbody>
+      </table></div>
+      {page.total > rc.QUEUE_PAGE && <div className="actions fpmPager">
+        <button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - rc.QUEUE_PAGE))}>{t('fpm.previous')}</button>
+        <span>{t('fpm.page', { page: Math.floor(offset / rc.QUEUE_PAGE) + 1, pages: Math.ceil(page.total / rc.QUEUE_PAGE) })}</span>
+        <button type="button" className="secondary" disabled={offset + rc.QUEUE_PAGE >= page.total} onClick={() => setOffset(offset + rc.QUEUE_PAGE)}>{t('fpm.next')}</button>
+      </div>}
+    </>}
+  </FinCard>;
+}
+
+function QueueRow({ item, onPick, onOpen }: { item: FinanceReconQueueItem; onPick: (id: string) => void; onOpen: (tab: FinanceTab) => void }) {
+  const e = item.exception;
+  const action = rc.queueAction(item);
+  const period = item.period_start && item.period_end ? t('frec.period', { start: day(item.period_start), end: day(item.period_end) }) : t('frec.queue.noPeriod');
+  return <tr className={`frecQueueRow ${e.severity}`}>
+    <th scope="row" dir="auto">{item.account_name || item.account_id}</th>
+    <td className="frecHideSm">{period}</td>
+    <td><StatusChip tone={SEVERITY_TONE[e.severity]}>{t(`frec.severity.${e.severity}` as MessageKey)}</StatusChip></td>
+    <td><strong>{t(`frec.kind.${e.kind}` as MessageKey)}</strong>{e.description && <><br /><span className="muted" dir="auto">{e.description}</span></>}{e.month && <><br /><span className="muted">{monthLabel(e.month)}</span></>}</td>
+    <td className="frecHideSm">{e.posted_on ? day(e.posted_on) : '-'}</td>
+    <td className="num">{e.amount === null ? '-' : <span className="frecAmount"><Money value={e.amount} currency={e.details.currency ? String(e.details.currency) : ''} signed /></span>}</td>
+    <td><div className="fpmRowActions">
+      {action === 'session' && <button type="button" className="secondary" onClick={() => onPick(item.reconciliation_id as string)}>{t('frec.queue.openSession')}</button>}
+      {action === 'import' && <button type="button" className="secondary" onClick={() => onOpen('import')}><FileUp aria-hidden="true" />{t('frec.action.import')}</button>}
+      {action === 'transactions' && <button type="button" className="secondary" onClick={() => onOpen('transactions')}>{t('frec.action.open')}</button>}
+    </div></td>
+  </tr>;
 }
 
 function SessionsCard({ state, retry, offset, onOffset, onPick, onNew }: {
@@ -151,7 +217,7 @@ function HealthRow({ h, onImport, onReconcile, onPick }: { h: FinanceReconHealth
   </li>;
 }
 
-function SessionDetail({ id, onBack, onChanged, onOpen }: { id: string; onBack: () => void; onChanged: () => void; onOpen: (tab: FinanceTab) => void }) {
+function SessionDetail({ id, onBack, onDeleted, onChanged, onOpen }: { id: string; onBack: () => void; onDeleted: () => void; onChanged: () => void; onOpen: (tab: FinanceTab) => void }) {
   const [state, setState] = useState<Load<FinanceReconDetail>>({ kind: 'loading' });
   const [severity, setSeverity] = useState<rc.SeverityFilter>('all');
   const [offset, setOffset] = useState(0);
@@ -159,7 +225,7 @@ function SessionDetail({ id, onBack, onChanged, onOpen }: { id: string; onBack: 
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [matching, setMatching] = useState<FinanceReconException | null>(null);
   const [correcting, setCorrecting] = useState<FinanceReconCorrectionPreview | null>(null);
-  const [reopening, setReopening] = useState(false);
+  const [reopening, setReopening] = useState(false), [editing, setEditing] = useState(false), [deleting, setDeleting] = useState(false);
   const load = useCallback(() => {
     setState((c) => (c.kind === 'ready' ? c : { kind: 'loading' }));
     rapi.getReconciliation(id, { severity, limit: rc.EXCEPTIONS_PAGE, offset }).then((v) => setState({ kind: 'ready', value: v })).catch((e) => setState(failed(e)));
@@ -191,7 +257,12 @@ function SessionDetail({ id, onBack, onChanged, onOpen }: { id: string; onBack: 
       <button type="button" className="secondary" onClick={onBack}>{t('frec.back')}</button>
       <h2 dir="auto">{d.account_name} <span className="muted">{t('frec.period', { start: day(d.period_start), end: day(d.period_end) })}</span></h2>
       <StatusChip tone={rc.sessionTone(d)}>{t(`frec.status.${status}` as MessageKey)}</StatusChip>
+      {d.status === 'open' && <div className="fpmRowActions frecDetailActions">
+        <button type="button" className="secondary" disabled={busy} onClick={() => setEditing(true)}><Pencil aria-hidden="true" />{t('frec.edit')}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => setDeleting(true)}><Trash2 aria-hidden="true" />{t('frec.delete')}</button>
+      </div>}
     </div>
+    {d.status === 'completed' && <p className="muted frecKept">{t('frec.completedKept')}</p>}
     {message && <Notice error={message.error}>{message.text}</Notice>}
     {d.changed && <FinBanner tone="warn" icon={<History />} title={t('frec.changed.title')}
       action={<button type="button" onClick={() => setReopening(true)}><RotateCcw aria-hidden="true" />{t('frec.reopen')}</button>}>{t('frec.changed.text')}</FinBanner>}
@@ -267,6 +338,18 @@ function SessionDetail({ id, onBack, onChanged, onOpen }: { id: string; onBack: 
         <tbody>{correcting.legs.map((leg) => <tr key={leg.ledger_account}><td dir="ltr">{leg.ledger_account}</td><td><Money value={leg.amount} currency={leg.currency} signed /></td></tr>)}</tbody>
       </table>
     </ConfirmDialog>}
+    {editing && <Modal title={t('frec.edit')} className="formDialog fpmDialog" onClose={() => setEditing(false)}>
+      <EditSessionForm rec={d} onCancel={() => setEditing(false)} onDone={(text) => { setEditing(false); setMessage({ text }); load(); onChanged(); }} />
+    </Modal>}
+    {deleting && <ConfirmDialog title={t('frec.delete.title')} confirmLabel={t('frec.delete')} danger busy={busy} onCancel={() => setDeleting(false)}
+      onConfirm={() => {
+        setBusy(true); setMessage(null);
+        rapi.deleteReconciliation(d.id).then(() => { setDeleting(false); onDeleted(); })
+          .catch((e) => { setDeleting(false); setMessage({ text: isPermissionDenied(e) ? describeError(e) : describeError(e), error: true }); })
+          .finally(() => setBusy(false));
+      }}>
+      <p>{t('frec.delete.text', { account: d.account_name, start: day(d.period_start), end: day(d.period_end) })}</p>
+    </ConfirmDialog>}
     {reopening && <Modal title={t('frec.reopen')} className="formDialog" onClose={() => setReopening(false)}>
       <ReopenForm onCancel={() => setReopening(false)} onSubmit={(reason) => { setReopening(false); void run(() => rapi.reopenReconciliation(d.id, d.version, reason), t('frec.done.reopen')); }} />
     </Modal>}
@@ -322,6 +405,37 @@ function MatchForm({ rec, row, onDone }: { rec: FinanceReconDetail; row: Finance
     {error && <p className="formError" role="alert">{error}</p>}
     <div className="actions"><button type="submit" disabled={busy || options.kind !== 'ready' || options.value.length === 0}>{t('frec.match.confirm')}</button>
       <button type="button" className="secondary" onClick={() => onDone(null)}>{t('fpm.cancel')}</button></div>
+  </form>;
+}
+
+/** The statement's figures as printed, changed while the session is open (PATCH, compare and set on the version). */
+function EditSessionForm({ rec, onCancel, onDone }: { rec: FinanceReconDetail; onCancel: () => void; onDone: (text: string) => void }) {
+  const [draft, setDraft] = useState<rc.EditDraft>(() => rc.editDraftOf(rec));
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const owes = rec.account_kind === 'card' || rec.account_kind === 'loan', card = rec.account_kind === 'card';
+  const set = (key: keyof rc.EditDraft) => (event: { target: { value: string } }) => setDraft((current) => ({ ...current, [key]: event.target.value }));
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const body = rc.editBody(draft, rec);
+    if (!body.ok) { setError(body.error === 'closing' ? t('frec.edit.closingNeeded') : body.error); return; }
+    setBusy(true); setError(null);
+    try { await rapi.updateReconciliation(rec.id, body.value); onDone(t('frec.done.edit')); } catch (e) { setError(describeError(e)); setBusy(false); }
+  };
+  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-label={t('frec.edit')}>
+    <p className="muted finHelp">{t('frec.edit.help')}</p>
+    <div className="cmFormGrid">
+      <label className="field"><span>{t(owes ? 'frec.form.openingOwed' : 'frec.form.opening', { currency: rec.currency })}</span>
+        <input value={draft.opening} onChange={set('opening')} inputMode="decimal" dir="ltr" data-autofocus /></label>
+      <label className="field"><span>{t(owes ? 'frec.form.closingOwed' : 'frec.form.closing', { currency: rec.currency })}</span>
+        <input value={draft.closing} onChange={set('closing')} inputMode="decimal" dir="ltr" required /></label>
+      {card && <>
+        <label className="field"><span>{t('frec.form.due', { currency: rec.currency })}</span><input value={draft.due} onChange={set('due')} inputMode="decimal" dir="ltr" /></label>
+        <label className="field"><span>{t('frec.form.minimum', { currency: rec.currency })}</span><input value={draft.minimum} onChange={set('minimum')} inputMode="decimal" dir="ltr" /></label>
+        <label className="field"><span>{t('frec.form.dueOn')}</span><input type="date" value={draft.dueOn} onChange={set('dueOn')} /></label>
+      </>}
+    </div>
+    {error && <p className="formError" role="alert">{error}</p>}
+    <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : t('frec.edit.save')}</button><button type="button" className="secondary" onClick={onCancel}>{t('fpm.cancel')}</button></div>
   </form>;
 }
 
