@@ -190,3 +190,34 @@ export interface VaultDocumentPatch {
   retention_until?: string | null;
   assistant_may_read?: boolean;
 }
+
+/** One record a confirmed receipt may belong to (docs/documents.md#receipt-matches): a payment of the caller's own
+ * Finance ledger (`target_id`: its canonical id) or a purchase with no receipt yet. A proposal only. */
+export interface VaultReceiptProposal {
+  kind: 'payment' | 'purchase';
+  target_id: string;
+  on: string;
+  amount: string;
+  currency: string;
+  /** The payment's merchant words or the purchase's shop. */
+  label: string;
+  /** Whether the receipt's merchant and this record share a meaningful word (null when either names none). */
+  merchant_agrees: boolean | null;
+  confidence: string;
+}
+
+/** `GET /api/v1/documents/{id}/matches`: what a receipt may be the receipt of. */
+export interface VaultReceiptMatches {
+  document_id: string;
+  receipt: { total: string; currency: string; on: string; merchant: string } | null;
+  /** Why nothing is proposed: not a receipt category, or its scanned values are not confirmed yet. */
+  reason: 'not_a_receipt' | 'not_confirmed' | null;
+  can_edit: boolean;
+  payments: VaultReceiptProposal[];
+  payments_unavailable: 'finance_access' | null;
+  purchases: VaultReceiptProposal[];
+  purchases_unavailable: 'purchase_access' | 'not_installed' | null;
+  /** Payments (canonical ids) and purchases the document is already linked to. */
+  linked_payments: string[];
+  linked_purchases: string[];
+}

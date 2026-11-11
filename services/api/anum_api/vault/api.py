@@ -833,6 +833,29 @@ def unlink_document(document_id: str, link_id: str, context: TenantContext = Dep
     return Response(status_code=204)
 
 
+class MatchAccept(BaseModel):
+    kind: Literal["payment", "purchase"]
+    target_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+
+@router.get("/{document_id}/matches", response_model=None)
+def receipt_matches(document_id: str, context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
+    """The payments and purchases this receipt may belong to (docs/documents.md#receipt-matches). Proposals only."""
+    _require(context, Permission.DOCUMENT_READ, READ_DENIED)
+    from .receipts import matches
+
+    return matches(context, document_id)
+
+
+@router.post("/{document_id}/matches/accept", response_model=None)
+def accept_receipt_match(document_id: str, body: MatchAccept, context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
+    """Confirm a proposed match: the payment's evidence link, or the purchase's receipt. Re-checked first (409 if gone)."""
+    _require(context, Permission.DOCUMENT_WRITE, WRITE_DENIED)
+    from .receipts import accept
+
+    return accept(context, document_id, body.kind, body.target_id)
+
+
 # --------------------------------------------------------------------------- scanning
 
 

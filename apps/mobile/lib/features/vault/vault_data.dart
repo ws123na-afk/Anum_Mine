@@ -115,6 +115,7 @@ class VaultDocument {
     this.file,
     this.links = const [],
     this.detail = false,
+    this.hasReceipt = false,
   });
   factory VaultDocument.fromJson(JsonReader j) => VaultDocument(
         id: j.string('id'),
@@ -140,6 +141,7 @@ class VaultDocument {
             : VaultFile.fromJson(j.object('file')),
         links: j.optObjects('links', VaultLink.fromJson),
         detail: j['links'] != null,
+        hasReceipt: j['receipt'] != null,
       );
   final String id, title, category, accessClass, status, expiryState;
   final String? issueDate, expiryDate, issuer, country, numberMasked;
@@ -155,7 +157,71 @@ class VaultDocument {
   /// Read from the detail route (links present).
   final bool detail;
 
+  /// The person confirmed scanned receipt values (total, currency, date).
+  final bool hasReceipt;
+
   bool get inTrash => status == 'deleted';
+}
+
+/// One record a confirmed receipt may belong to
+/// (docs/documents.md#receipt-matches): a payment of the person's own
+/// Finance ledger or a purchase with no receipt yet. A proposal only.
+class VaultMatch {
+  const VaultMatch(
+      {required this.kind,
+      required this.targetId,
+      required this.on,
+      required this.amount,
+      required this.currency,
+      required this.label,
+      required this.confidence,
+      this.merchantAgrees});
+  factory VaultMatch.fromJson(JsonReader j) => VaultMatch(
+      kind: j.string('kind'),
+      targetId: j.string('target_id'),
+      on: j.string('on'),
+      amount: j.string('amount'),
+      currency: j.string('currency'),
+      label: j.optString('label') ?? '',
+      merchantAgrees: j.optBool('merchant_agrees'),
+      confidence: j.optString('confidence') ?? '');
+  final String kind, targetId, on, amount, currency, label, confidence;
+  final bool? merchantAgrees;
+
+  /// The confidence as a whole percentage, or null.
+  int? get percent {
+    final n = double.tryParse(confidence);
+    return n == null || n <= 0 ? null : (n.clamp(0, 1) * 100).round();
+  }
+}
+
+/// `GET /documents/{id}/matches`.
+class VaultMatches {
+  const VaultMatches(
+      {required this.canEdit,
+      this.reason,
+      this.payments = const [],
+      this.purchases = const [],
+      this.paymentsUnavailable,
+      this.purchasesUnavailable,
+      this.linkedPayments = const [],
+      this.linkedPurchases = const []});
+  factory VaultMatches.fromJson(JsonReader j) => VaultMatches(
+      canEdit: j.optBool('can_edit') ?? false,
+      reason: j.optString('reason'),
+      payments: j.optObjects('payments', VaultMatch.fromJson),
+      purchases: j.optObjects('purchases', VaultMatch.fromJson),
+      paymentsUnavailable: j.optString('payments_unavailable'),
+      purchasesUnavailable: j.optString('purchases_unavailable'),
+      linkedPayments: j.optStrings('linked_payments') ?? const [],
+      linkedPurchases: j.optStrings('linked_purchases') ?? const []);
+  final bool canEdit;
+  final String? reason, paymentsUnavailable, purchasesUnavailable;
+  final List<VaultMatch> payments, purchases;
+  final List<String> linkedPayments, linkedPurchases;
+
+  bool get hasProposals => payments.isNotEmpty || purchases.isNotEmpty;
+  bool get linked => linkedPayments.isNotEmpty || linkedPurchases.isNotEmpty;
 }
 
 class VaultVersion {
@@ -211,6 +277,8 @@ abstract interface class VaultRepository {
   Future<VaultLink> addLink(String id,
       {required String targetType, required String targetId, String label});
   Future<void> removeLink(String id, String linkId);
+  Future<VaultMatches> matches(String id);
+  Future<VaultMatches> acceptMatch(String id, String kind, String targetId);
   Future<VaultDocument> upload(
     String path, {
     required String name,
@@ -303,6 +371,17 @@ class ApiVaultRepository implements VaultRepository {
   @override
   Future<void> removeLink(String id, String linkId) =>
       api.request('DELETE', '$_base/${_id(id)}/links/${_id(linkId)}');
+
+  @override
+  Future<VaultMatches> matches(String id) async => VaultMatches.fromJson(
+      JsonReader(await api.request('GET', '$_base/${_id(id)}/matches')));
+
+  @override
+  Future<VaultMatches> acceptMatch(
+          String id, String kind, String targetId) async =>
+      VaultMatches.fromJson(JsonReader(await api.request(
+          'POST', '$_base/${_id(id)}/matches/accept',
+          body: {'kind': kind, 'target_id': targetId})));
 
   MeetingUploadTransfer _transfer() {
     final found = transfer;

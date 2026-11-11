@@ -907,6 +907,26 @@ def update(purchase_id: str, body: PurchasePatch, context: TenantContext = Depen
     return result
 
 
+def attach_document(context: TenantContext, purchase_id: str, document_id: str) -> dict[str, Any]:
+    """Set a purchase's receipt to a vault document, for a confirmed receipt match (docs/documents.md#receipt-matches).
+    The same rules as ``PATCH`` with ``document_id``: purchases write, the purchase's edit right, a document the caller
+    can open; a purchase that has a receipt already is refused (``409 has_receipt``). Raises ``PurchaseError``."""
+    _write(context)
+    _check_document(context, document_id)
+    with open_purchase_store(context) as store:
+        purchase = S.get_purchase(store, context, purchase_id, lock=True)
+        S.require_purchase_edit(context, purchase)
+        if purchase.document_id:
+            raise S.PurchaseError(409, "This purchase has a receipt already. Change it on the purchase if this one is right.", "has_receipt")
+        updated = S.apply_changes(purchase, {"document_id": document_id}, utc_now())
+        if not store.save_purchase(updated, purchase.version):
+            raise S.PurchaseError(409, "This purchase changed since you opened it. Reload and try again.", "stale")
+        S.add_event(store, context, updated, "note", note="Receipt attached from the document vault")
+        result = detail(store, context, S.get_purchase(store, context, purchase_id))
+    _note_document(context, document_id, updated)
+    return result
+
+
 class ArchiveInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

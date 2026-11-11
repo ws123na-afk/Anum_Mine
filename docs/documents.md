@@ -20,6 +20,7 @@ Code: `services/api/anum_api/vault/` (`models.py`, `store.py`, `service.py`, `ap
 - [The OCR service](#the-ocr-service)
 - [Scanning from an iPhone](#scanning-from-an-iphone)
 - [Links](#links)
+- [Receipt matches](#receipt-matches)
 - [The assistant](#the-assistant)
 - [Privacy](#privacy)
 - [API](#api)
@@ -108,7 +109,19 @@ Shared tokens: a token made on Settings, Integrations, iPhone with the **Documen
 
 ## Links
 
-`vault_document_links` points a document at a vehicle, person, business or purchase (a reference the person types, resolved when those modules exist), at a finance transaction, or (since migration `0157_finance_evidence`) at a bill, invoice, adjustment or manual journal entry of the business books as its supporting document (`business_bill`, `business_invoice`, `business_adjustment`, `business_journal`; made only from Business, Books, which checks the record exists, [Business books](business-books.md#supporting-documents-and-evidence)). The vault's own link form does not offer those types; its detail pane lists them and removing one there removes the evidence. A finance link goes through `vault/links.py FinanceLinkPort`, which the finance links foundation connects at start (`finance/links.py VaultLinkAdapter`): the target is the payment's `canonical_id`, the caller needs `finance:manage`, and the document becomes an `evidence` link on that payment with no amount; it never posts money ([Finance links](finance-links.md)). An unknown payment answers 404. Removing that link in the vault voids the evidence link on the ledger first (`withdraw`), so both sides agree. The web page does not offer the finance target yet (it needs a payment picker).
+`vault_document_links` points a document at a vehicle, person, business or purchase (a reference the person types, resolved when those modules exist), at a finance transaction, or (since migration `0157_finance_evidence`) at a bill, invoice, adjustment or manual journal entry of the business books as its supporting document (`business_bill`, `business_invoice`, `business_adjustment`, `business_journal`; made only from Business, Books, which checks the record exists, [Business books](business-books.md#supporting-documents-and-evidence)). The vault's own link form does not offer those types; its detail pane lists them and removing one there removes the evidence. A finance link goes through `vault/links.py FinanceLinkPort`, which the finance links foundation connects at start (`finance/links.py VaultLinkAdapter`): the target is the payment's `canonical_id`, the caller needs `finance:manage`, and the document becomes an `evidence` link on that payment with no amount; it never posts money ([Finance links](finance-links.md)). An unknown payment answers 404. Removing that link in the vault voids the evidence link on the ledger first (`withdraw`), so both sides agree. The web page and the phone link a receipt to its payment from [Receipt matches](#receipt-matches); the reference form does not offer the finance target.
+
+## Receipt matches
+
+A receipt, invoice, maintenance invoice or purchase order whose scanned values the person **confirmed** (total, currency, date, merchant; `vault_documents.receipt`) is proposed to the records it may belong to (`vault/receipts.py`). Nothing is linked by itself: the person picks one.
+
+- **Payments.** The caller's own live payments out in the Finance ledger with the receipt's total in its currency (to the minor unit), posted from 3 days before the receipt's date to 5 days after (a card is billed later), whose words do not name another merchant (`merchants_agree`). Proposed only while the document is on no payment yet, and only to someone with `finance:read` (otherwise the answer says `payments_unavailable: finance_access`).
+- **Purchases.** The caller's own purchases ([Purchases](purchases.md)) with no receipt yet, the same total and currency, ordered within 7 days, whose shop does not name another merchant. Proposed only while no purchase names the document, and only to someone with `purchase:read` (`purchases_unavailable: purchase_access`).
+- **Confidence.** 0.9 when the merchant words agree and the dates are within a day, 0.8 when they agree, 0.6 or 0.5 when either side names no merchant; at most 5 of each kind, best first.
+- **Confirm.** `POST /api/v1/documents/{id}/matches/accept {kind: payment|purchase, target_id}` works the proposals out again and refuses one that is no longer proposed (`409`). A payment goes through the same path as a link typed by hand: the document's `finance_transaction` link and an `evidence` link on the payment through the finance links foundation (`finance:manage`, never money, [Finance links](finance-links.md)); removing it in the vault voids it on the ledger. A purchase gets the document as its receipt through the purchase's own rules (`purchase:write`, the purchase's edit right, `409 has_receipt` when it has one already) and the vault shows the purchase link. Only someone who may change the document confirms (`403` otherwise).
+- **Where.** The web document pane shows **Suggested matches** under the receipt with **Link payment** and **Attach to purchase** (loading, error with Retry, not confirmed yet, nothing fits, no access, read only); the phone's document page has the same section ([Mobile](#mobile)). A fuel receipt scanned for a vehicle's fuel entry also helps Finance propose that entry's payment ([Vehicles](vehicles.md#payments)).
+
+Tests: `services/api/tests/test_receipt_matches.py`, web `apps/web/test/vault.test.ts` and `e2e/vault.spec.ts`, phone `apps/mobile/test/vault/vault_test.dart`.
 
 ## The assistant
 
@@ -136,6 +149,7 @@ All under `/api/v1/documents` (contracts in `packages/contracts/src/documents.ts
 | `GET/POST /{id}/versions`; `POST /{id}/versions/{v}/restore`; `DELETE /{id}/versions/{v}` | Versions |
 | `POST /{id}/access`; `DELETE /{id}/access/{user}` | Sharing |
 | `POST /{id}/links`; `DELETE /{id}/links/{link}` | Links |
+| `GET /{id}/matches`; `POST /{id}/matches/accept` | [Receipt matches](#receipt-matches): proposals, then the person's pick |
 | `POST /{id}/extract`; `POST /extractions/{id}/confirm`; `POST /extractions/{id}/reject` | Scanning |
 
 ## The web page
@@ -150,7 +164,7 @@ Every list has loading, empty, error and permission states; viewers get the expl
 
 ## Mobile
 
-Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record modules](mobile.md#record-modules)): the summary, search, a category, **Expiring soon**, **Expired** and the trash, with cursor paging; each document shows its masked number and an expiry badge in words. A document shows its details, **Show number** (the owner only, `POST /{id}/number`, logged), its file, **Save a copy** (`GET /{id}/content` with the session, saved with the system dialog), **Upload a new version**, older versions to save or make current, links to a vehicle, person, business, purchase or Finance payment (add and remove), and **Move to trash** or **Restore**. **Add document** picks a file with the system picker (the vault's types and size limit are checked first), streams it with progress, and on the duplicate refusal offers **Add anyway** (`allow_duplicate=true`). From 840 px the list and the document sit side by side. Camera scanning is not on the phone: the app has no camera plugin, so photos come from the files the phone already has or from the iPhone Shortcut. Sharing, scan review, settings and categories stay on the web. Tests: `apps/mobile/test/vault/vault_test.dart`.
+Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record modules](mobile.md#record-modules)): the summary, search, a category, **Expiring soon**, **Expired** and the trash, with cursor paging; each document shows its masked number and an expiry badge in words. A document shows its details, **Show number** (the owner only, `POST /{id}/number`, logged), its file, **Save a copy** (`GET /{id}/content` with the session, saved with the system dialog), **Upload a new version**, older versions to save or make current, links to a vehicle, person, business, purchase or Finance payment (add and remove), and **Move to trash** or **Restore**. **Add document** picks a file with the system picker (the vault's types and size limit are checked first), streams it with progress, and on the duplicate refusal offers **Add anyway** (`allow_duplicate=true`). From 840 px the list and the document sit side by side. Camera scanning is not on the phone: the app has no camera plugin, so photos come from the files the phone already has or from the iPhone Shortcut. Sharing, scan review, settings and categories stay on the web. Tests: `apps/mobile/test/vault/vault_test.dart`. A document with confirmed receipt values shows **Suggested matches** ([Receipt matches](#receipt-matches)): the payments and purchases it may belong to with their date, amount and match, **Link payment** or **Attach to purchase** for someone who may change it, and why a section is missing without access.
 
 ## Tests
 
@@ -161,7 +175,7 @@ Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record m
 
 ## Not in this release
 
-- Automatic matching of a fuel receipt to its vehicle and transaction, a receipt to its purchase, or insurance to a vehicle reminder. A purchase or return that names a vault document as its receipt or proof adds a `purchase` link on that document when its owner may edit it ([Purchases](purchases.md#records)).
+- Linking insurance to a vehicle reminder, and attaching a receipt to a vehicle's fuel entry from the vault (the fuel entry names its receipt in Vehicles). A purchase or return that names a vault document as its receipt or proof adds a `purchase` link on that document when its owner may edit it ([Purchases](purchases.md#records)). Receipt matches are proposals the person confirms ([Receipt matches](#receipt-matches)); a dismissed proposal is not remembered (it is simply not picked).
 - The shared iPhone integrations page and generalised device tokens (after #364).
 - Native iPhone camera, VisionKit scanner and Share Sheet extension (Shortcuts only), and camera capture in the Flutter app (no camera plugin yet; the phone screens upload files the phone already has). On the phone: sharing, scan review, editing a document's details, settings and categories (on the web).
 - OCR of scanned PDFs (send them as images), Hijri date conversion, and the OCR service in the Helm chart (compose profile only, like the browser service).

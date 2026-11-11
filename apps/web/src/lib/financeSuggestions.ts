@@ -28,6 +28,8 @@ export function variantOf(item: Pick<FinanceSuggestion, 'kind' | 'params' | 'act
   const p = item.params ?? {};
   if (item.kind === 'attribution') {
     if (p.dimension === 'vehicle' && p.record === 'none') return 'vehicle_record';
+    // Proposed from the receipt scanned for the fuel entry or service record (docs/vehicles.md#payments).
+    if (p.dimension === 'vehicle' && p.source === 'receipt') return 'vehicle_receipt';
     return p.dimension ?? 'business';
   }
   if (item.kind === 'payment_match') return item.action.kind === 'link' ? 'link' : null;

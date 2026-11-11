@@ -600,6 +600,71 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
     if (sure == true && mounted) await _run(_c.trash, s.t('deleted'));
   }
 
+  /// Payments and purchases a confirmed receipt may belong to
+  /// (docs/documents.md#receipt-matches). The person picks one; the server
+  /// checks it is still proposed.
+  Widget _matches(BuildContext context, VaultStrings s) {
+    final m = _c.matches;
+    final muted = TextStyle(color: context.palette.muted);
+    Widget row(VaultMatch item) {
+      final percent = item.percent;
+      final payment = item.kind == 'payment';
+      return AnumRow(
+        key: Key('match-${item.targetId}'),
+        icon: payment ? Icons.payments_outlined : Icons.shopping_bag_outlined,
+        title: item.label.isEmpty
+            ? s.t(payment ? 'matchPayment' : 'matchPurchase')
+            : item.label,
+        subtitle: [
+          s.t('matchLine', {
+            'currency': item.currency,
+            'amount': item.amount,
+            'date': recordsDate(context, item.on),
+          }),
+          if (percent != null)
+            s.t(item.merchantAgrees == true ? 'matchAgrees' : 'matchSure',
+                {'percent': percent}),
+        ].join(' · '),
+        trailing: m!.canEdit
+            ? TextButton(
+                key: Key('match-take-${item.targetId}'),
+                onPressed: () => _run(() => _c.acceptMatch(item),
+                    s.t(payment ? 'matchLinked' : 'matchAttached')),
+                child: Text(
+                    s.t(payment ? 'matchLinkPayment' : 'matchAttachPurchase')))
+            : null,
+      );
+    }
+
+    return RecordsSection(
+        key: const Key('vault-matches'),
+        title: s.t('matches'),
+        children: [
+          if (_c.matchesError != null)
+            Text(_c.matchesError!,
+                style: TextStyle(color: context.palette.stop))
+          else if (m == null)
+            const LinearProgressIndicator()
+          else if (m.reason == 'not_confirmed')
+            Text(s.t('matchesNotConfirmed'), style: muted)
+          else if (m.reason == null) ...[
+            Text(s.t('matchesIntro'), style: muted),
+            if (m.linkedPayments.isNotEmpty) Text(s.t('matchesLinkedPayment')),
+            if (m.linkedPurchases.isNotEmpty)
+              Text(s.t('matchesLinkedPurchase')),
+            for (final item in [...m.payments, ...m.purchases]) row(item),
+            if (!m.hasProposals && !m.linked)
+              Text(s.t('matchesNone'), style: muted),
+            if (m.paymentsUnavailable != null)
+              Text(s.t('matchesNoFinance'), style: muted),
+            if (m.purchasesUnavailable != null)
+              Text(s.t('matchesNoPurchases'), style: muted),
+            if (m.hasProposals && !m.canEdit)
+              Text(s.t('readOnly'), style: muted),
+          ],
+        ]);
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: _c,
@@ -757,6 +822,7 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
                       ),
                     ),
               ]),
+            if (d.hasReceipt && !d.inTrash) _matches(context, s),
             RecordsSection(
               title: s.t('links'),
               trailing: editable

@@ -29,6 +29,8 @@ export interface VaultMockOptions {
   metaStatus?: 200 | 403 | 500;
   ocr?: boolean;
   manyDocuments?: number;
+  /** Receipt matches: the caller may not use Purchases (the section says why). */
+  noPurchases?: boolean;
 }
 
 export interface VaultMock {
@@ -58,6 +60,20 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
   // Older versions (Files versions under the vault, docs/documents.md#versions-trash-and-retention): one by default.
   const versions: Json[] = [{ id: 'filever_1', version: 1, content_type: 'image/png', size_bytes: 1900, created_by: 'user_local', created_at: now, replaced_by: 'user_local', replaced_at: now, downloadable: true }];
   const calls: VaultMock['calls'] = [];
+  const linkedPayments: string[] = [];
+  const linkedPurchases: string[] = [];
+  const matchesOf = (doc: Json): Json => {
+    const r = doc.receipt as Json | null;
+    if (!r) return { document_id: doc.id, receipt: null, reason: 'not_confirmed', can_edit: true, payments: [], payments_unavailable: null, purchases: [], purchases_unavailable: null, linked_payments: [], linked_purchases: [] };
+    const on = String(r.date ?? '2026-10-14');
+    return {
+      document_id: doc.id, receipt: { total: r.total, currency: r.currency, on, merchant: r.merchant ?? '' }, reason: null, can_edit: true,
+      payments: linkedPayments.length ? [] : [{ kind: 'payment', target_id: 'fin_je_fuel', on, amount: r.total, currency: r.currency, label: 'AL NOOR STATION RIYADH', merchant_agrees: true, confidence: '0.9' }],
+      payments_unavailable: null,
+      purchases: linkedPurchases.length || options.noPurchases ? [] : [{ kind: 'purchase', target_id: 'pur_1', on, amount: r.total, currency: r.currency, label: 'Example station shop', merchant_agrees: null, confidence: '0.6' }],
+      purchases_unavailable: options.noPurchases ? 'purchase_access' : null, linked_payments: [...linkedPayments], linked_purchases: [...linkedPurchases],
+    };
+  };
   const meta = () => ({
     summary: { active: docs.length, private: docs.filter((d) => d.access_class === 'private').length, expiring: docs.filter((d) => d.expiry_state === 'soon').length,
       expired: docs.filter((d) => d.expiry_state === 'expired').length, review: extraction?.status === 'pending' ? 1 : 0, trash: trash.length, linked: docs.some((d) => d.id === 'vdoc_lease') ? 1 : 0 },
@@ -142,6 +158,16 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
       if (rest === 'links' && method === 'POST') return json({ id: 'vlnk_1', document_id: id, ...(body as Json), status: 'confirmed', created_by: 'user_local', created_at: now }, 201);
       if (rest === 'extract') return json({ ...extraction, id: 'vext_2', document_id: id, status: 'pending' }, 201);
       if (rest === 'content') return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: 'bytes' });
+      // Receipt matches (docs/documents.md#receipt-matches): a payment and a purchase fit the confirmed receipt.
+      if (rest === 'matches' && method === 'GET') return json(matchesOf(doc));
+      if (rest === 'matches/accept' && method === 'POST') {
+        const pick = body as Json;
+        const known = matchesOf(doc);
+        const pool = (pick.kind === 'payment' ? known.payments : known.purchases) as Json[];
+        if (!pool.some((p) => p.target_id === pick.target_id)) return error(409, 'conflict', 'This match is no longer proposed: the receipt, the payment or the purchase changed, or it was linked already.');
+        (pick.kind === 'payment' ? linkedPayments : linkedPurchases).push(String(pick.target_id));
+        return json(matchesOf(doc));
+      }
     }
     if (path.startsWith('/links/token_')) return route.fulfill({ status: 200, contentType: 'image/png', body: logoPng() });
     return error(404, 'not_found', 'Not mocked');

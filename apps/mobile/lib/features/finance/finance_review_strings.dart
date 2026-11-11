@@ -158,6 +158,8 @@ class FinanceReviewStrings {
     'sug.head.attribution.business': 'Allocate to {business_name}?',
     'sug.head.attribution.vehicle': 'The {vehicle} cost of {day}?',
     'sug.head.attribution.vehicle_record': 'A cost of {vehicle}?',
+    'sug.head.attribution.vehicle_receipt':
+        'The {vehicle} cost of {day}, from its scanned receipt?',
     'sug.openVehicles': 'Record it in Vehicles',
     'sug.head.attribution.purchase': 'Pays your {merchant} purchase?',
     'sug.head.attribution.debt': 'A payment of {debt}?',
@@ -169,6 +171,8 @@ class FinanceReviewStrings {
         'Same amount and currency within a few days, and the words say fuel, parking or a service.',
     'sug.why.attribution.vehicle_record':
         'The words say fuel, parking or a service and you have one vehicle. Record it there to track its cost.',
+    'sug.why.attribution.vehicle_receipt':
+        'The receipt scanned for this vehicle record has the payment\'s total and currency, within a few days. Accept to link the payment to the record.',
     'sug.why.attribution.purchase':
         'Same total and currency within a week. Accept to link the payment to the purchase.',
     'sug.why.attribution.debt':
@@ -377,6 +381,8 @@ class FinanceReviewStrings {
     'sug.head.attribution.business': 'تخصيصها إلى {business_name}؟',
     'sug.head.attribution.vehicle': 'تكلفة {vehicle} في {day}؟',
     'sug.head.attribution.vehicle_record': 'تكلفة على {vehicle}؟',
+    'sug.head.attribution.vehicle_receipt':
+        'تكلفة {vehicle} في {day} حسب إيصالها الممسوح؟',
     'sug.openVehicles': 'سجّلها في المركبات',
     'sug.head.attribution.purchase': 'دفعة لمشترياتك من {merchant}؟',
     'sug.head.attribution.debt': 'دفعة من {debt}؟',
@@ -388,6 +394,8 @@ class FinanceReviewStrings {
         'نفس المبلغ والعملة خلال أيام قليلة، والوصف يذكر الوقود أو المواقف أو الصيانة.',
     'sug.why.attribution.vehicle_record':
         'الوصف يذكر الوقود أو المواقف أو الصيانة ولديك مركبة واحدة. سجلها هناك لمتابعة تكلفتها.',
+    'sug.why.attribution.vehicle_receipt':
+        'الإيصال الممسوح لسجل المركبة هذا يحمل إجمالي الدفعة وعملتها، خلال أيام قليلة. اقبل لربط الدفعة بالسجل.',
     'sug.why.attribution.purchase':
         'نفس الإجمالي والعملة خلال أسبوع. اقبل لربط الدفعة بالمشتريات.',
     'sug.why.attribution.debt':

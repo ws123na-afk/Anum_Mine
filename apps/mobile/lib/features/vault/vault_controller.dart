@@ -97,6 +97,8 @@ class VaultDocumentController extends ChangeNotifier {
   VaultDocument? document;
   VaultVersions? versions;
   String? versionsError;
+  VaultMatches? matches;
+  String? matchesError;
   RecordsPhase phase = RecordsPhase.loading;
   RecordsFailure? failure;
   bool _disposed = false;
@@ -118,6 +120,28 @@ class VaultDocumentController extends ChangeNotifier {
     }
     _notify();
     if (phase == RecordsPhase.ready && !document!.inTrash) await loadVersions();
+    if (phase == RecordsPhase.ready &&
+        !document!.inTrash &&
+        document!.hasReceipt) {
+      await loadMatches();
+    }
+  }
+
+  /// What a confirmed receipt may belong to (docs/documents.md#receipt-matches).
+  Future<void> loadMatches() async {
+    try {
+      matches = await repository.matches(documentId);
+      matchesError = null;
+    } on Object catch (error) {
+      matchesError = RecordsFailure.from(error).message;
+    }
+    _notify();
+  }
+
+  /// Confirms one proposal; the server checks it is still proposed.
+  Future<void> acceptMatch(VaultMatch match) async {
+    await repository.acceptMatch(documentId, match.kind, match.targetId);
+    await load();
   }
 
   Future<void> loadVersions() async {

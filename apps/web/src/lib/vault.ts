@@ -2,13 +2,14 @@
 // categories, expiry and warnings, the edit form's diff and the review form's checks. Pure, so
 // `node --test` covers it without a browser.
 import type {
-  DocumentExpiryState, DocumentExtraction, DocumentLink, VaultCategory, VaultDocument, VaultDocumentPatch, VaultDocumentRow, VaultMeta,
+  DocumentExpiryState, DocumentExtraction, DocumentLink, VaultCategory, VaultDocument, VaultDocumentPatch, VaultDocumentRow, VaultMeta, VaultReceiptMatches,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 
 export type {
   DocumentExtraction, VaultCategory, VaultDevice, VaultDeviceCreated, VaultDocument, VaultDocumentDetail, VaultDocumentPage, VaultMeta,
   VaultReviewItem, VaultSettings, VaultVersionPage, DocumentLink, DocumentLinkTarget, DocumentAccessGrant, VaultDocumentRow,
+  VaultReceiptMatches, VaultReceiptProposal,
 } from '@anum/contracts';
 
 export const VAULT_TABS = ['overview', 'documents', 'review', 'expiring', 'categories', 'access', 'trash', 'settings'] as const;
@@ -244,4 +245,21 @@ export function suggestionFields(extraction: Pick<DocumentExtraction, 'kind' | '
     const value = key === 'total' && extraction.fields.currency?.value ? `${extraction.fields.currency.value} ${field.value}` : field.value;
     return [{ key, value }];
   });
+}
+
+/** What the Suggested matches section shows for a receipt (docs/documents.md#receipt-matches). */
+export type MatchState = 'hidden' | 'not_confirmed' | 'linked' | 'proposals' | 'none';
+
+export function matchState(m: VaultReceiptMatches): MatchState {
+  if (m.reason === 'not_a_receipt') return 'hidden';
+  if (m.reason === 'not_confirmed') return 'not_confirmed';
+  if (m.payments.length > 0 || m.purchases.length > 0) return 'proposals';
+  if (m.linked_payments.length > 0 || m.linked_purchases.length > 0) return 'linked';
+  return 'none';
+}
+
+/** A proposal's confidence ("0.9") as a whole percentage, or null. */
+export function matchPercent(confidence: string): number | null {
+  const n = Number(confidence);
+  return Number.isFinite(n) && n > 0 ? Math.round(Math.min(n, 1) * 100) : null;
 }

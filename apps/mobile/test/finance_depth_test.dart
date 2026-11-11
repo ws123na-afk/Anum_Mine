@@ -244,6 +244,29 @@ void main() {
       expect((s.acceptMode, s.variant), ('link', 'debt'));
       expect(s.transactionIds, ['t1']);
     });
+
+    test('a vehicle record proposed from its scanned receipt has its words',
+        () {
+      Suggestion vehicle(Map<String, Object?> params) =>
+          Suggestion.fromJson(JsonReader({
+            'key': 'attribution:vehicle:t1:f1',
+            'kind': 'attribution',
+            'why': '',
+            'params': {'dimension': 'vehicle', ...params},
+            'action': {
+              'kind': 'link',
+              'transaction_ids': ['t1'],
+              'link': {'canonical_id': 'c1'}
+            },
+            'payload_hash': 'h',
+          }));
+      expect(
+          vehicle({'record': 'vehicle_fuel_entry', 'source': 'receipt'})
+              .variant,
+          'vehicle_receipt');
+      expect(vehicle({'record': 'vehicle_fuel_entry'}).variant, 'vehicle');
+      expect(vehicle({'record': 'none'}).variant, 'vehicle_record');
+    });
   });
 
   group('Finance settings', () {
