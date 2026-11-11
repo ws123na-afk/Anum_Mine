@@ -122,6 +122,12 @@ void financeJourneys() => group('Finance', () {
         await tester.enterText(merchant, 'Example gym');
         await pumpFor(tester);
         expect(find.text('Example gym'), findsOneWidget);
+        // The "Correcting entry posted" toast from the reconciliation can
+        // still cover the bottom of the form on a slow runner; wait for it to
+        // go so the tap reaches Save.
+        await waitUntil(tester, 'earlier toasts are gone',
+            () => find.byType(SnackBar).evaluate().isEmpty,
+            api: api);
         await tapOn(tester, find.byKey(const Key('rule-save')));
         await waitUntil(tester, 'the rule is proposed',
             () => api.sent('POST', '/api/v1/finance/rules').isNotEmpty,
