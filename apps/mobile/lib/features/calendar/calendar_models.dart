@@ -162,6 +162,10 @@ class CalendarEvent {
     this.overrideId,
     this.startDate,
     this.endDate,
+    this.emailReminders = const [],
+    this.syncError,
+    this.syncFailed = false,
+    this.occurrenceReplies = const [],
   });
 
   final String id, title, kind, status;
@@ -179,6 +183,17 @@ class CalendarEvent {
   final Recurrence? recurrence;
   final List<int> reminders;
   final DateTime? occurrenceStart;
+
+  /// The reminders (minutes) that also go by email (docs/calendar.md#reminders).
+  final List<int> emailReminders;
+
+  /// Why the last send to the connected calendar failed, and whether ANUM
+  /// stopped retrying after five failures (Send again).
+  final String? syncError;
+  final bool syncFailed;
+
+  /// Attendees whose shown reply is for this occurrence only.
+  final List<String> occurrenceReplies;
 
   /// Tells one shown occurrence from another.
   String get key => occurrenceKey ?? id;
@@ -199,13 +214,14 @@ class CalendarEvent {
   /// as it is now.
   final bool invitationsPending;
 
-  /// `synced`, `waiting` (to be sent) or `local` (only in ANUM).
+  /// `synced`, `waiting` (to be sent), `failed` (sending stopped after five
+  /// failures) or `local` (only in ANUM).
   String get syncKind => connectionId == null
       ? 'local'
       : syncState == 'synced'
           ? 'synced'
           : syncState == 'pending_push'
-              ? 'waiting'
+              ? (syncFailed ? 'failed' : 'waiting')
               : 'local';
 
   /// Attendees an invitation would reach.
@@ -268,6 +284,17 @@ class CalendarEvent {
         overrideId: j.optString('override_id'),
         startDate: j.optString('start_date'),
         endDate: j.optString('end_date'),
+        emailReminders: [
+          for (final value in j.optList('email_reminders') ?? const <Object?>[])
+            if (value is num) value.toInt()
+        ],
+        syncError: j.optString('sync_error'),
+        syncFailed: j.optBool('sync_failed') ?? false,
+        occurrenceReplies: [
+          for (final value
+              in j.optList('occurrence_replies') ?? const <Object?>[])
+            if (value is String) value
+        ],
       );
 }
 
@@ -383,6 +410,7 @@ class EventDraft {
     this.timezone,
     this.recurrence,
     this.reminders = const [],
+    this.emailReminders = const [],
   });
 
   String title, kind;
@@ -396,6 +424,9 @@ class EventDraft {
   String? timezone;
   Recurrence? recurrence;
   List<int> reminders;
+
+  /// The reminders that also go by email.
+  List<int> emailReminders;
 
   factory EventDraft.from(CalendarEvent e) => EventDraft(
         title: e.title,
@@ -415,6 +446,10 @@ class EventDraft {
         timezone: e.timezone,
         recurrence: e.recurrence,
         reminders: [...e.reminders],
+        emailReminders: [
+          for (final m in e.emailReminders)
+            if (e.reminders.contains(m)) m
+        ],
       );
 
   static String? _blank(String? value) =>
@@ -442,6 +477,9 @@ class EventDraft {
         if (timezone != null) 'timezone': timezone,
         if (scope != EditScope.thisOne) 'recurrence': recurrence?.toJson(),
         'reminders': ([...reminders.toSet()]..sort()),
+        'email_reminders': ([
+          ...emailReminders.where(reminders.contains).toSet()
+        ]..sort()),
         'description': _blank(description),
         'location': _blank(location),
         'conference_url': _blank(conferenceUrl),

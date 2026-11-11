@@ -113,16 +113,33 @@ class FakeCalendar implements CalendarRepository {
   }
 
   @override
-  Future<CalendarEvent> respond(
-      String id, String attendeeId, String response) async {
-    responses.add('$attendeeId:$response');
+  Future<CalendarEvent> respond(String id, String attendeeId, String response,
+      {DateTime? occurrenceStart}) async {
+    responses.add(occurrenceStart == null
+        ? '$attendeeId:$response'
+        : '$attendeeId:$response@${occurrenceStart.toUtc().toIso8601String()}');
     final json = Map<String, Object?>.from(store[id]!);
     json['attendees'] = [
       for (final a in (json['attendees'] as List).cast<Map<String, Object?>>())
         a['id'] == attendeeId ? {...a, 'response': response} : a
     ];
+    if (occurrenceStart != null) json['occurrence_replies'] = [attendeeId];
     store[id] = json;
     return CalendarEvent.fromJson(JsonReader(json));
+  }
+
+  final retries = <String>[];
+
+  @override
+  Future<CalendarEvent> retrySync(String id) async {
+    retries.add(id);
+    store[id] = {
+      ...store[id]!,
+      'sync_state': 'synced',
+      'sync_failed': false,
+      'sync_error': null
+    };
+    return CalendarEvent.fromJson(JsonReader(store[id]!));
   }
 
   @override
@@ -703,6 +720,174 @@ void main() {
         await tester.pump(const Duration(milliseconds: 50));
         expect(find.text('زامن الآن'), findsOneWidget, reason: 'at $width');
         expect(tester.takeException(), isNull, reason: 'overflow at $width');
+      }
+    });
+  });
+
+  group('series sync, replies per occurrence and email reminders', () {
+    final google = SyncConnection(
+        id: 'cal_1',
+        provider: 'google',
+        providerName: 'Google Calendar',
+        email: 'owner@example.com',
+        status: 'connected',
+        lastSyncAt: DateTime.now());
+
+    test('models read the new fields and the draft sends email reminders', () {
+      final event = CalendarEvent.fromJson(JsonReader(eventJson('e', extra: {
+        'connection_id': 'cal_1',
+        'sync_state': 'pending_push',
+        'sync_failed': true,
+        'sync_error': 'Backend Error',
+        'reminders': [10, 60],
+        'email_reminders': [60, 5],
+        'occurrence_replies': ['attendee_1'],
+      })));
+      expect(event.syncKind, 'failed');
+      expect(event.syncError, 'Backend Error');
+      expect(event.occurrenceReplies, ['attendee_1']);
+      final draft = EventDraft.from(event);
+      expect(draft.emailReminders, [60]);
+      expect(draft.toJson()['email_reminders'], [60]);
+      draft.reminders = [10];
+      expect(draft.toJson()['email_reminders'], isEmpty);
+    });
+
+    testWidgets('a failed send shows why and an owner sends it again',
+        (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google], canManage: true);
+      repo.store['event_1'] = eventJson('event_1', extra: {
+        'connection_id': 'cal_1',
+        'sync_state': 'pending_push',
+        'sync_failed': true,
+        'sync_error': 'Google Calendar answered 400: Invalid recurrence rule.',
+      });
+      final c = controllerFor(repo);
+      await c.load();
+      await pumpScreen(
+          tester,
+          EventScreen(
+              controller: c, eventId: 'event_1', openLink: (_) async => true),
+          height: 1600);
+      await tester.pumpAndSettle();
+      expect(find.text('Not sent to Google Calendar'), findsOneWidget);
+      expect(
+          find.textContaining('stopped trying: Google Calendar answered 400'),
+          findsOneWidget);
+      await tester.tap(find.text('Send again'));
+      await tester.pumpAndSettle();
+      expect(repo.retries, ['event_1']);
+      expect(find.text('Sent to Google Calendar.'), findsOneWidget);
+      expect(find.text('Synced with Google Calendar'), findsOneWidget);
+      expect(find.text('Send again'), findsNothing);
+    });
+
+    testWidgets('a viewer is told who can send a failed event again',
+        (tester) async {
+      final repo = FakeCalendar()
+        ..status = CalendarSyncStatus([google], canManage: false);
+      repo.store['event_1'] = eventJson('event_1', canManage: false, extra: {
+        'connection_id': 'cal_1',
+        'sync_state': 'pending_push',
+        'sync_failed': true,
+        'sync_error': 'Backend Error',
+      });
+      final c = controllerFor(repo);
+      await c.load();
+      await pumpScreen(
+          tester,
+          EventScreen(
+              controller: c, eventId: 'event_1', openLink: (_) async => true),
+          height: 1600);
+      await tester.pumpAndSettle();
+      expect(find.text('Send again'), findsNothing);
+      expect(
+          find.text(
+              'The person who added the event or an owner can send it again.'),
+          findsOneWidget);
+    });
+
+    testWidgets('a reply on an occurrence is for that occurrence by default',
+        (tester) async {
+      final repo = FakeCalendar();
+      final start = DateTime(2026, 10, 7, 10).toUtc();
+      repo.store['event_1'] = eventJson('event_1', extra: {
+        'is_recurring': true,
+        'occurrence_start': start.toIso8601String(),
+        'recurrence': {'freq': 'daily', 'interval': 1, 'count': 3},
+        'reminders': [60],
+        'email_reminders': [60],
+      });
+      final c = controllerFor(repo);
+      await c.load();
+      await pumpScreen(
+          tester,
+          EventScreen(
+              controller: c,
+              eventId: 'event_1',
+              occurrenceStart: start,
+              openLink: (_) async => true),
+          height: 1600);
+      await tester.pumpAndSettle();
+      expect(find.text('1 hour before, also by email'), findsOneWidget);
+      await tester.tap(find.text('Sajid Kamboh'));
+      await tester.pumpAndSettle();
+      expect(find.text('This event only'), findsOneWidget);
+      expect(find.text('All events in the series'), findsOneWidget);
+      await tester.tap(find.text('Declined'));
+      await tester.pumpAndSettle();
+      expect(
+          repo.responses, ['attendee_1:declined@${start.toIso8601String()}']);
+      expect(find.text('For this event only'), findsOneWidget);
+      // The whole series when the organiser picks it.
+      await tester.tap(find.text('Vinay Kumar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('All events in the series'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Maybe').last);
+      await tester.pumpAndSettle();
+      expect(repo.responses.last, 'attendee_2:tentative');
+    });
+
+    testWidgets('each reminder can also go by email, in English and Arabic',
+        (tester) async {
+      for (final arabic in [false, true]) {
+        EventDraft? saved;
+        await pumpScreen(
+            tester,
+            Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () async => saved = await showEventForm(context,
+                      draft: EventDraft(
+                          title: 'Yard walk',
+                          kind: 'meeting',
+                          startsAt: DateTime(2026, 10, 7, 10),
+                          endsAt: DateTime(2026, 10, 7, 11),
+                          reminders: [10, 1440])),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+            height: 1800,
+            locale: arabic ? const Locale('ar') : const Locale('en'));
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        final label = arabic
+            ? 'بالبريد أيضًا: قبل يوم واحد'
+            : 'Also by email: 1 day before';
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        expect(
+            find.textContaining(
+                arabic ? 'تذكيرات البريد' : 'Email reminders go'),
+            findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester
+            .tap(find.widgetWithText(TextButton, arabic ? 'حفظ' : 'Save'));
+        await tester.pumpAndSettle();
+        expect(saved!.emailReminders, [1440]);
       }
     });
   });

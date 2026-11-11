@@ -21,6 +21,24 @@ const calendarSyncEn = <String, String>{
   'calsync.state.synced': 'Synced with {provider}',
   'calsync.state.waiting': 'Waiting to be sent to {provider}',
   'calsync.state.local': 'Only in ANUM',
+  'calsync.state.failed': 'Not sent to {provider}',
+  'calsync.failedText':
+      'ANUM could not send this event to {provider} and stopped trying: {reason}',
+  'calsync.waitingText':
+      'The last send to {provider} failed: {reason} The next sync tries again.',
+  'calsync.failedReadOnly':
+      'The person who added the event or an owner can send it again.',
+  'calsync.retry': 'Send again',
+  'calsync.retried': 'Sent to {provider}.',
+  'calsync.retryWaiting': 'Not sent yet: {reason}',
+  // Email reminders and replies to one occurrence (docs/calendar.md#reminders).
+  'calendarEmailReminder': 'Also by email: {label}',
+  'calendarEmailRemindersHelp':
+      'Email reminders go to the same people through the workspace mail server, only to those whose email notifications are on and who are not marked do not contact by email.',
+  'calendarReminderWithEmail': '{label}, also by email',
+  'calendarReplyScopeThis': 'This event only',
+  'calendarReplyScopeAll': 'All events in the series',
+  'calendarReplyThisOnly': 'For this event only',
   'calsync.invite.ask': 'Ask to send invitations',
   'calsync.invite.pending':
       'Invitations have not been approved for this event as it is now. Attendees stay in ANUM until an owner approves.',
@@ -52,6 +70,22 @@ const calendarSyncAr = <String, String>{
   'calsync.state.synced': 'متزامن مع {provider}',
   'calsync.state.waiting': 'بانتظار إرساله إلى {provider}',
   'calsync.state.local': 'في ANUM فقط',
+  'calsync.state.failed': 'لم يُرسل إلى {provider}',
+  'calsync.failedText':
+      'تعذّر على ANUM إرسال هذا الحدث إلى {provider} وتوقف عن المحاولة: {reason}',
+  'calsync.waitingText':
+      'فشل آخر إرسال إلى {provider}: {reason} ستعيد المزامنة التالية المحاولة.',
+  'calsync.failedReadOnly': 'يستطيع من أضاف الحدث أو المالك إرساله مرة أخرى.',
+  'calsync.retry': 'أرسل مرة أخرى',
+  'calsync.retried': 'أُرسل إلى {provider}.',
+  'calsync.retryWaiting': 'لم يُرسل بعد: {reason}',
+  'calendarEmailReminder': 'بالبريد أيضًا: {label}',
+  'calendarEmailRemindersHelp':
+      'تذكيرات البريد تصل إلى الأشخاص أنفسهم عبر خادم البريد في مساحة العمل، فقط لمن فعّل إشعارات البريد ولمن لم يُطلب عدم مراسلته بالبريد.',
+  'calendarReminderWithEmail': '{label}، وبالبريد أيضًا',
+  'calendarReplyScopeThis': 'هذا الحدث فقط',
+  'calendarReplyScopeAll': 'كل أحداث السلسلة',
+  'calendarReplyThisOnly': 'لهذا الحدث فقط',
   'calsync.invite.ask': 'اطلب إرسال الدعوات',
   'calsync.invite.pending':
       'لم تتم الموافقة على الدعوات لهذا الحدث بصيغته الحالية. يبقى الحضور في ANUM إلى أن يوافق المالك.',

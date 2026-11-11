@@ -11,7 +11,14 @@ abstract interface class CalendarRepository {
   Future<CalendarEvent> event(String id, {DateTime? occurrenceStart});
   Future<CalendarEvent> create(EventDraft draft);
   Future<CalendarEvent> update(String id, Map<String, Object?> changes);
-  Future<CalendarEvent> respond(String id, String attendeeId, String response);
+
+  /// Records a reply; with [occurrenceStart] for that occurrence of a series
+  /// only (the series reply stays the default for the others).
+  Future<CalendarEvent> respond(String id, String attendeeId, String response,
+      {DateTime? occurrenceStart});
+
+  /// Sends an event to its connected calendar again after sends failed.
+  Future<CalendarEvent> retrySync(String id);
 
   /// Deletes an event, or with a scope one occurrence of a series or this
   /// and the following ones (docs/calendar.md#recurrence).
@@ -73,11 +80,21 @@ class ApiCalendarRepository implements CalendarRepository {
           .request('PATCH', '$_base/events/${_id(id)}', body: changes)));
 
   @override
-  Future<CalendarEvent> respond(
-          String id, String attendeeId, String response) async =>
+  Future<CalendarEvent> respond(String id, String attendeeId, String response,
+          {DateTime? occurrenceStart}) async =>
       CalendarEvent.fromJson(JsonReader(await api.request('PUT',
           '$_base/events/${_id(id)}/attendees/${_id(attendeeId)}/response',
-          body: {'response': response})));
+          body: {
+            'response': response,
+            if (occurrenceStart != null) 'scope': 'this',
+            if (occurrenceStart != null)
+              'occurrence_start': occurrenceStart.toUtc().toIso8601String(),
+          })));
+
+  @override
+  Future<CalendarEvent> retrySync(String id) async =>
+      CalendarEvent.fromJson(JsonReader(
+          await api.request('POST', '$_base/events/${_id(id)}/sync/retry')));
 
   @override
   Future<void> delete(String id,
