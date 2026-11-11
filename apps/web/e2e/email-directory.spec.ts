@@ -66,7 +66,7 @@ test('a send-as address with a signature becomes the composer\'s From', async ({
 
 test('the address book: empty, add, search, edit, delete', async ({ page }) => {
   const { directory } = await openEmail(page);
-  await page.getByRole('button', { name: 'Contacts' }).click();
+  await page.locator('#main').getByRole('button', { name: 'Contacts' }).click();
   const book = drawer(page, 'Contacts');
   await expect(book.getByRole('heading', { name: 'No contacts yet' })).toBeVisible();
   await book.getByRole('button', { name: 'Add contact' }).first().click();
@@ -97,7 +97,7 @@ test('the address book: empty, add, search, edit, delete', async ({ page }) => {
 
 test('a long address book pages with Show more', async ({ page }) => {
   await openEmail(page, { contacts: 30 });
-  await page.getByRole('button', { name: 'Contacts' }).click();
+  await page.locator('#main').getByRole('button', { name: 'Contacts' }).click();
   const book = drawer(page, 'Contacts');
   await expect(book.getByText('25 of 30')).toBeVisible();
   await book.getByRole('button', { name: 'Show more' }).click();
@@ -108,7 +108,7 @@ test('a long address book pages with Show more', async ({ page }) => {
 
 test('when the address book cannot load, it says so and offers Try again', async ({ page }) => {
   await openEmail(page, { failContacts: true, contacts: 2 });
-  await page.getByRole('button', { name: 'Contacts' }).click();
+  await page.locator('#main').getByRole('button', { name: 'Contacts' }).click();
   const book = drawer(page, 'Contacts');
   await expect(book.getByRole('alert')).toContainText('Contacts could not load');
   await book.getByRole('button', { name: 'Try again' }).click();
@@ -132,7 +132,7 @@ test('typing a recipient suggests contacts; Enter picks one', async ({ page }) =
 
 test('a contact\'s Write opens a new message to them', async ({ page }) => {
   const mail = await openEmail(page, { contacts: 1 });
-  await page.getByRole('button', { name: 'Contacts' }).click();
+  await page.locator('#main').getByRole('button', { name: 'Contacts' }).click();
   await drawer(page, 'Contacts').getByRole('button', { name: 'Write to Buyer 00 <buyer00@shop.example>' }).click();
   const composer = page.getByRole('article', { name: 'New message' });
   await expect(composer.getByRole('combobox', { name: 'To' })).toHaveValue('buyer00@shop.example');
