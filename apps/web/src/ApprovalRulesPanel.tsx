@@ -1,14 +1,18 @@
 // Organization approval rules on the Governance page: AED bands, a share of the order value, the
 // disputed flag, and who approves in one or two steps (docs/approvals-and-risk.md#approval-routing).
 // Organization administrators add, edit, turn off and delete rules; everyone else reads them.
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Pencil, Plus, Power, Scale, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from './Dialog';
 import {
   draftFromRule, emptyRuleDraft, ruleBand, ruleBody, ruleSteps, type ApprovalRule, type ApproverDraft, type Disputed, type RuleDraft,
 } from './lib/approvalRules';
 import * as gov from './lib/governanceApi';
+import { pageOf } from './lib/catalog';
+import { filterRules } from './lib/governance';
 import { t } from './lib/i18n';
+
+const PAGE = 10;
 
 type Act = (key: string, action: () => Promise<string>) => Promise<boolean>;
 
@@ -16,6 +20,12 @@ export function ApprovalRulesPanel({ rules, canManage, busy, act }: { rules: App
   const [editing, setEditing] = useState<{ id: string | null; draft: RuleDraft } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ApprovalRule | null>(null);
+  const [query, setQuery] = useState('');
+  const [pages, setPages] = useState(1);
+  const searchId = useId();
+  useEffect(() => setPages(1), [query]);
+  const matching = filterRules(rules, query);
+  const { shown, remaining } = pageOf(matching, pages, PAGE);
 
   const save = async () => {
     if (!editing) return;
@@ -48,8 +58,13 @@ export function ApprovalRulesPanel({ rules, canManage, busy, act }: { rules: App
     </div>
     {editing && canManage && <RuleForm editing={editing} error={error} busy={busy} onChange={(draft) => setEditing({ ...editing, draft })} onSave={() => void save()} onCancel={() => { setEditing(null); setError(null); }} />}
     {rules.length === 0 && <p className="muted">{t('rules.empty')}</p>}
+    {rules.length > 0 && <div className="govToolbar" role="search">
+      <label className="field" htmlFor={searchId}><span>{t('gov.rules.search')}</span><input id={searchId} type="search" dir="auto" value={query} placeholder={t('gov.rules.searchPlaceholder')} autoComplete="off" onChange={(e) => setQuery(e.target.value)} /></label>
+      <p className="muted" aria-live="polite">{t('gov.rules.count', { shown: matching.length, count: rules.length })}</p>
+    </div>}
+    {rules.length > 0 && matching.length === 0 && <p className="muted">{t('gov.rules.noMatch', { query })}</p>}
     <ul className="ruleList">
-      {rules.map((rule) => {
+      {shown.map((rule) => {
         const band = ruleBand(rule.conditions);
         return <li className="ruleRow" key={rule.id}>
           <Scale aria-hidden="true" />
@@ -66,6 +81,7 @@ export function ApprovalRulesPanel({ rules, canManage, busy, act }: { rules: App
         </li>;
       })}
     </ul>
+    {remaining > 0 && <div className="actions"><button type="button" className="secondary" onClick={() => setPages(pages + 1)}>{t('gov.rules.showMore', { count: Math.min(remaining, PAGE) })}</button></div>}
     {deleting && <ConfirmDialog title={t('rules.deleteTitle', { name: deleting.name })} confirmLabel={t('rules.delete')} danger busy={busy !== null} onConfirm={() => void remove()} onCancel={() => setDeleting(null)}>
       <p>{t('rules.deleteBody')}</p>
     </ConfirmDialog>}

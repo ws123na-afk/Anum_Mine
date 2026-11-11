@@ -17,6 +17,13 @@ export interface WorkspaceMember {
   updatedAt: string;
   /** Verified email of the invitation the member accepted, when there was one. */
   email?: string | null;
+  /** The role template given to this member (docs/governance-and-scale.md#role-templates), if any. */
+  roleTemplateId?: string | null;
+  roleTemplateName?: string | null;
+  /** The template's permissions as copied at assignment; null without a template. */
+  permissionLimit?: string[] | null;
+  /** The role's permissions intersected with the template's; null without a template. */
+  effectivePermissions?: string[] | null;
 }
 
 /** `GET /api/v1/workspace-members/summary`: counts independent of search and paging. */

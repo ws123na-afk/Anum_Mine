@@ -24,6 +24,12 @@
 .memberMain small { color: var(--d-faint); font-size: var(--text-xs); }
 .memberMain .memberHint { color: var(--d-warn); }
 .memberRole select { padding: 7px 9px; }
+/* The member's role template, under the name: a select and a one-line explanation of its effect. */
+.memberTemplate { display: grid; gap: 4px; margin-top: 4px; }
+.memberTemplatePick { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.memberTemplatePick > span { color: var(--d-muted); font-size: var(--text-xs); font-weight: 500; }
+.memberTemplatePick select { max-width: 100%; min-height: 32px; padding: 4px 8px; width: auto; }
+.memberTemplate small { color: var(--d-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .memberRow > button { align-items: center; border: 0; border-radius: 12px; color: #fff; display: inline-flex; font-weight: 600; gap: 6px; min-height: 44px; padding: 8px 14px; }
 .memberFilters { display: grid; gap: 0 var(--d-s3); grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
 .memberFilters .field { margin-top: var(--d-s3); }

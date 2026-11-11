@@ -26,12 +26,13 @@ import {
 import { describeError, isPermissionDenied } from './lib/errors';
 import { isOnlyActiveOwner, type InvitationStatusFilter, type MemberStatusFilter } from './lib/audit';
 import { ConfirmDialog } from './Dialog';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, joinList, t, type MessageKey } from './lib/i18n';
 import { AccessNotice } from './PageParts';
 import { AgentMeetingBudgetCard } from './AgentMeetingBudgetCard';
 import { ApprovalReminderCard } from './ApprovalReminderCard';
-import type { TenantWriteAccess } from './lib/governance';
-import { tenantWriteAccess } from './lib/governance';
+import type { RoleTemplate, TenantWriteAccess } from './lib/governance';
+import { templateEffect, tenantWriteAccess } from './lib/governance';
+import { getRoleTemplates } from './lib/governanceApi';
 import './admin.css';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'forbidden'; detail: string } | { kind: 'error'; detail: string };
@@ -70,6 +71,7 @@ function takeInvitationFromLocation(): { token: string; workspaceId: string | nu
 type PendingChange =
   | { kind: 'role'; member: WorkspaceMember; role: WorkspaceRole }
   | { kind: 'deactivate'; member: WorkspaceMember }
+  | { kind: 'template'; member: WorkspaceMember; template: RoleTemplate | null }
   | { kind: 'revoke'; invitation: WorkspaceInvitation }
   | null;
 
@@ -93,7 +95,11 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
   const [created, setCreated] = useState<CreatedInvitation | null>(null);
   const [pendingChange, setPendingChange] = useState<PendingChange>(null);
   const [linked] = useState(takeInvitationFromLocation);
+  // Role templates (docs/governance-and-scale.md#role-templates): a member or viewer keeps only
+  // the permissions their role and the template share. Loaded once; a failure is shown, not fatal.
+  const [templates, setTemplates] = useState<RoleTemplate[] | { error: string } | null>(null);
   const listRequest = useRef(0);
+  useEffect(() => { getRoleTemplates().then(setTemplates).catch((error: unknown) => setTemplates({ error: describeError(error) })); }, []);
 
   // Debounced search: the API filters by user id and email.
   useEffect(() => { const timer = setTimeout(() => setSearch(query), 300); return () => clearTimeout(timer); }, [query]);
@@ -155,6 +161,12 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
       void act(`member:${change.member.userId}`, async () => { await admin.changeMemberRole(change.member.userId, change.role); return t('members.roleChanged', { user: change.member.userId, role: roleName(change.role) }); }).then(done);
     } else if (change.kind === 'deactivate') {
       void act(`member:${change.member.userId}`, async () => { await admin.setMemberActive(change.member.userId, false); return t('members.deactivated', { user: change.member.userId }); }).then(done);
+    } else if (change.kind === 'template') {
+      const template = change.template;
+      void act(`member:${change.member.userId}`, async () => {
+        await admin.changeMemberRoleTemplate(change.member.userId, template ? template.id : null);
+        return template ? t('members.templateChanged', { user: change.member.userId, template: template.name }) : t('members.templateRemoved', { user: change.member.userId });
+      }).then(done);
     } else {
       void act(`invitation:${change.invitation.id}`, async () => { await admin.revokeInvitation(change.invitation.id); return t('members.revoked', { invitee: inviteeLabel(change.invitation) }); }).then(done);
     }
@@ -208,6 +220,7 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
                 {member.email && <small dir="ltr">{member.email}</small>}
                 <small>{t('memberPage.joined', { joined: when(member.createdAt), updated: when(member.updatedAt) })}</small>
                 {last && <small className="memberHint" id={hintId}>{t('members.lastOwner')}</small>}
+                <MemberTemplate member={member} templates={templates} busy={busy !== null} onChange={(template) => setPendingChange({ kind: 'template', member, template })} />
               </div>
               <span className={`statusBadge ${member.active ? 'success' : 'neutral'}`}>{member.active ? t('memberPage.badge.active') : t('memberPage.badge.deactivated')}</span>
               <label className="memberRole"><span className="visuallyHidden">{t('memberPage.roleFor', { user: member.userId })}</span>
@@ -269,17 +282,44 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
     </>}
     <AcceptInvitation initial={linked} currentWorkspaceId={workspaceId} onAccepted={() => void refresh()} onSwitchWorkspace={onSwitchWorkspace} onSwitchOrganisation={onSwitchOrganisation} />
     {pendingChange && <ConfirmDialog
-      title={pendingChange.kind === 'role' ? t('members.confirmRoleTitle', { user: pendingChange.member.userId, role: roleName(pendingChange.role) }, { isolate: false }) : pendingChange.kind === 'deactivate' ? t('members.confirmDeactivateTitle', { user: pendingChange.member.userId }, { isolate: false }) : t('members.confirmRevokeTitle', { invitee: inviteeLabel(pendingChange.invitation) }, { isolate: false })}
-      confirmLabel={pendingChange.kind === 'role' ? t('members.changeRole') : pendingChange.kind === 'deactivate' ? t('members.deactivate') : t('members.revokeInvitation')}
-      danger={pendingChange.kind !== 'role'}
+      title={pendingChange.kind === 'role' ? t('members.confirmRoleTitle', { user: pendingChange.member.userId, role: roleName(pendingChange.role) }, { isolate: false })
+        : pendingChange.kind === 'deactivate' ? t('members.confirmDeactivateTitle', { user: pendingChange.member.userId }, { isolate: false })
+        : pendingChange.kind === 'template' ? (pendingChange.template ? t('members.confirmTemplateTitle', { user: pendingChange.member.userId, template: pendingChange.template.name }, { isolate: false }) : t('members.confirmTemplateRemoveTitle', { user: pendingChange.member.userId }, { isolate: false }))
+        : t('members.confirmRevokeTitle', { invitee: inviteeLabel(pendingChange.invitation) }, { isolate: false })}
+      confirmLabel={pendingChange.kind === 'role' ? t('members.changeRole') : pendingChange.kind === 'deactivate' ? t('members.deactivate') : pendingChange.kind === 'template' ? t('members.changeTemplate') : t('members.revokeInvitation')}
+      danger={pendingChange.kind === 'deactivate' || pendingChange.kind === 'revoke'}
       busy={busy !== null}
       onCancel={() => setPendingChange(null)}
       onConfirm={confirmChange}>
       {pendingChange.kind === 'role' && <p>{t('members.confirmRoleText', { from: roleName(pendingChange.member.role), to: roleName(pendingChange.role), effect: t(`members.effect.${pendingChange.role}` as MessageKey) })}</p>}
       {pendingChange.kind === 'deactivate' && <p>{t('members.confirmDeactivateText')}</p>}
+      {pendingChange.kind === 'template' && <p>{pendingChange.template ? t('members.confirmTemplateText', { user: pendingChange.member.userId, role: roleName(pendingChange.member.role) }) : t('members.confirmTemplateRemoveText', { user: pendingChange.member.userId, role: roleName(pendingChange.member.role) })}</p>}
       {pendingChange.kind === 'revoke' && <p>{t('members.confirmRevokeText')}</p>}
     </ConfirmDialog>}
   </>;
+}
+
+/** The member's role template: which one, what it does to their permissions, and a control to change it. */
+function MemberTemplate({ member, templates, busy, onChange }: { member: WorkspaceMember; templates: RoleTemplate[] | { error: string } | null; busy: boolean; onChange: (template: RoleTemplate | null) => void }) {
+  if (member.role === 'owner') return member.roleTemplateId ? <small>{t('members.templateOwner')}</small> : null;
+  if (templates === null) return null;
+  if ('error' in templates) return <small className="memberHint">{t('members.templatesUnavailable', { message: templates.error })}</small>;
+  const effect = templateEffect(member.permissionLimit ?? [], member.effectivePermissions);
+  const current = member.roleTemplateId ?? '';
+  return <div className="memberTemplate">
+    <label className="memberTemplatePick"><span>{t('members.template')}</span>
+      <select aria-label={t('members.templateFor', { user: member.userId }, { isolate: false })} value={current} disabled={busy || !member.active} onChange={(event) => {
+        const next = event.target.value;
+        if (next !== current) onChange(templates.find((template) => template.id === next) ?? null);
+      }}>
+        <option value="">{t('members.template.none')}</option>
+        {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+        {current && !templates.some((template) => template.id === current) && <option value={current}>{member.roleTemplateName ?? current}</option>}
+      </select>
+    </label>
+    {templates.length === 0 && !current && <small>{t('members.templateNoneYet')}</small>}
+    {current && <small dir="auto">{t('members.templateEffect', { count: effect.applies })}{effect.outsideRole.length > 0 && <>. {t('members.templateOutside', { count: effect.outsideRole.length, role: roleName(member.role), list: joinList(effect.outsideRole) })}</>}</small>}
+  </div>;
 }
 
 /** When an invitation was accepted, revoked or expired, for its row. */

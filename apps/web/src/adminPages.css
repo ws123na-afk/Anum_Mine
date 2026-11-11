@@ -8,8 +8,14 @@
 .entTargets .entNarrow { display: none; }
 /* The routing table keeps id, model, status and Edit inside the pane: the long columns drop out
    below 1100px (the sidebar takes its share), and the region moves under the id on phones. */
-@media (max-width: 1100px) { .entTargets .dataTable .optional { display: none; } }
-@media (max-width: 560px) { .entTargets .entWide { display: none; } .entTargets .dataTable .entNarrow { display: block; } }
+/* Below 1100px (the sidebar still open) only id, health and the actions stay as columns; region and model move under the id. */
+@media (max-width: 1100px) { .entTargets .dataTable .optional, .entTargets .entWide { display: none; } .entTargets .dataTable .entNarrow { display: block; } }
+@media (max-width: 900px) {
+  /* Four row actions (probe, routing, edit, delete) sit two by two so the row never widens the table. */
+  .entTargets .cellActions { display: grid; grid-template-columns: repeat(2, auto); justify-content: end; }
+  .entTargets .entHealthDetail { max-width: 20ch; }
+}
+@media (max-width: 560px) { .entTargets .entHealthDetail { max-width: 14ch; } }
 
 /* ANUM Store (SkillsView.tsx): one dense row per skill instead of third-width cards. */
 .skillRows { background: linear-gradient(180deg, var(--d-surface-2), var(--d-surface-1)); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); display: grid; margin-bottom: var(--d-s4); min-width: 0; }

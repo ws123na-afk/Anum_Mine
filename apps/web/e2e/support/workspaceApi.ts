@@ -323,7 +323,8 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     if (path.startsWith('/api/v1/setup-plans/') && path.endsWith('/checks')) return json(JSON.parse(readFileSync(new URL('./setupPlanChecks.json', import.meta.url), 'utf8')));
     if (path === '/api/v1/organization/governance') return json({ tenant_id: 'tenant_local', policy_packs: 0, active_policy_packs: 0, role_templates: 0, approval_rules: 0, memory_governance_configured: false, can_manage_organization_policy: true });
     if (path === '/api/v1/enterprise/operations') return json({ tenant_id: 'tenant_local', active_regions: 1, healthy_targets: 1, degraded_targets: 0, installed_packages: 1, failover_ready: false, generated_at: now });
-    if (path === '/api/v1/routing/targets') return json([{ id: 'configured-model', region: 'local', provider: 'anthropic', model: 'claude', status: 'unverified', modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1 }]);
+    if (path === '/api/v1/routing/targets') return json([{ id: 'configured-model', region: 'local', provider: 'anthropic', model: 'claude', status: 'unverified', modalities: ['text'], sensitivity: ['standard'], cost_per_1k_tokens: 0, latency_ms: 1, enabled: true, last_checked_at: null, measured_latency_ms: null, last_error: null }]);
+    if (path === '/api/v1/organization/memory-governance') return json({ detail: 'Memory governance is not configured' }, 404);
     // Members, budgets, the approval policy and governance lists (docs/web-localization.md).
     if (path === '/api/v1/workspace-members/summary') return json({ total: 2, active: 2, deactivated: 0, active_owners: 1, pending_invitations: 1 });
     if (path === '/api/v1/workspace-members' && method === 'GET') return json([

@@ -56,6 +56,7 @@ export function MarketplaceCatalog({ owner, canManage, onChanged }: { owner: boo
       {canManage && <button type="button" onClick={() => setEditing({ draft: emptyPackageDraft(), isNew: true })}><Plus size={16} aria-hidden="true" />{t('market.publish')}</button>}</div>
     {loading && !packages.length && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('market.loading')}</p>}
     {loadError && <p className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" />{loadError}</p>}
+    {packages.length > 0 && <p className="featureMeta">{t('market.recordOnly')}</p>}
     {owner === false && packages.length > 0 && <p className="featureMeta">{t('market.ownersOnlyAsk')}</p>}
     {flash && <p className={`notice ${flash.error ? 'errorNotice' : ''}`} role={flash.error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{flash.text}</p>}
     {packages.length > 0 && <div className="catalogToolbar catalogToolbarFlat" role="search">
@@ -107,6 +108,7 @@ function InstallReview({ item, busy, onConfirm, onCancel }: { item: MarketPackag
     {summary.lines.map((line) => <p key={line}>{line}</p>)}
     {summary.warning && <p className="featureChip failed"><ShieldAlert aria-hidden="true" />{summary.warning}</p>}
     {item.permissions.length > 0 && <><h4>{t('market.permissionsTitle')}</h4><ul className="catalogToolList">{item.permissions.map((p) => <li key={p}><code dir="ltr">{p}</code></li>)}</ul></>}
+    <p className="featureMeta">{t('market.recordOnly')}</p>
     <p className="featureMeta">{t('market.installNote')}</p>
     <div className="actions"><button type="button" className="secondary" onClick={onCancel}>{t('market.cancel')}</button><button type="button" autoFocus disabled={busy} onClick={onConfirm}><PackageCheck aria-hidden="true" />{t('market.install')}</button></div>
   </Dialog>;
