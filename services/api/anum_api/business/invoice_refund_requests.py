@@ -31,7 +31,7 @@ from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolResult
+from ..agent_tools import ToolCall, ToolDefinition, ToolResult, approver_of
 from ..repository import AnumRepository
 from ..schemas import ApprovalStatus, RiskLevel, TenantContext, new_id, utc_now
 from .invoice_models import (
@@ -297,9 +297,9 @@ def _claim(call: ToolCall, context: TenantContext) -> tuple[RefundRequest, Invoi
             if request.amount > left:
                 detail = f"Only {request.currency.value} {left} can be refunded from this payment now (another refund was recorded); nothing was refunded."
                 store.save("refund_requests", request.model_copy(update={"status": RefundRequestStatus.FAILED, "detail": detail, "updated_at": now,
-                                                                         "decided_by": context.user_id, "decided_at": now}))
+                                                                         "decided_by": approver_of(context).user_id, "decided_at": now}))
                 return _failed(detail)
-            request = request.model_copy(update={"status": RefundRequestStatus.PROCESSING, "decided_by": context.user_id, "decided_at": now, "updated_at": now})
+            request = request.model_copy(update={"status": RefundRequestStatus.PROCESSING, "decided_by": approver_of(context).user_id, "decided_at": now, "updated_at": now})
             store.save("refund_requests", request)
     return request, payment, replay
 
@@ -328,7 +328,7 @@ def _run_refund(call: ToolCall, context: TenantContext) -> ToolResult:
         _close(context, request.id, RefundRequestStatus.FAILED, detail)
         return _failed(detail)
     provider_payment_id = payment.provider_payment_id or ""
-    actor = context.user_id
+    actor = approver_of(context).user_id
     try:
         if request.provider == "stripe":
             found = None

@@ -215,7 +215,7 @@ async def send_invoice(call: ToolCall, context: TenantContext) -> ToolResult:
             return _failed("The invoice changed after it was sent for approval; nothing was sent. Ask for approval again.")
         if store.get("accounts", invoice.account_id) is None:
             return _failed("The customer account no longer exists; nothing was sent.")
-        invoice = issue(invoice.model_copy(update={"content_hash": approved_hash}), store, context, now)
+        invoice = issue(invoice.model_copy(update={"content_hash": approved_hash}), store, approver_of(context), now)
         store.save("invoices", invoice)
         record_activity(
             store, context, "invoice_sent", f"Invoice {invoice.number} sent ({invoice.currency.value} {invoice.total}).",
