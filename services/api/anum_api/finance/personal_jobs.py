@@ -2,7 +2,9 @@
 
 Part of the daily job (``python -m anum_api.voice_retention``, reported under ``finance_loan_reminders``, counts
 only). People are found the way the weekly money note finds them (``advisor_jobs.discover_people``: an active
-finance account, read as ``anum_maintenance`` from scope columns only, never BYPASSRLS); each person is then
+finance account) and also by an open loan with a due date and reminders on, so someone who records loans but never
+added an account is reminded too (``discover_loan_people``, migration ``0179_loan_reminder_discovery``). Both read
+as ``anum_maintenance`` from scope and reminder columns only, never BYPASSRLS; each person is then
 handled as the application role in their own scope. A loan with a due date and reminders on gets one in-app
 notification ``remind_days_before`` days before the due date and one more once it is overdue (kind
 ``finance_loan_due``, in-app only: never an email and never a phone push, ``push.IN_APP_ONLY_KINDS``). The
@@ -19,12 +21,20 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import text
+
 from ..schemas import TenantContext, utc_now
 from . import personal as P
 
 logger = logging.getLogger("anum_api.finance.loans")
 
 NOTICE_KIND = "finance_loan_due"
+
+# Scope columns of open loans with reminders on, never a name, amount or note (migration 0179_loan_reminder_discovery).
+_DISCOVER_LOANS = text(
+    "select distinct tenant_id, workspace_id, owner_user_id from finance_person_loans "
+    "where remind and due_on is not null and closed_on is null order by 1, 2, 3"
+)
 
 
 @dataclass
@@ -118,11 +128,30 @@ def run_person(tenant_id: str, workspace_id: str, user_id: str, *, now: datetime
     return result
 
 
-def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]:
+def discover_loan_people() -> list[tuple[str, str, str]]:
+    """Everyone with an open loan that has a due date and reminders on, whether or not they have a finance account."""
+    from ..settings import settings
+
+    if settings.repository_backend == "memory":
+        from .personal_store import personal_memory_store
+
+        loans = [l for l in personal_memory_store.rows["person_loan"].values() if isinstance(l, P.PersonLoan)]
+        return sorted({(l.tenant_id, l.workspace_id, l.owner_user_id) for l in loans if l.remind and l.due_on is not None and l.closed_on is None})
+    from ..maintenance import default_session_factory, discover
+
+    return [(row[0], row[1], row[2]) for row in discover(default_session_factory, _DISCOVER_LOANS)]
+
+
+def people_to_remind() -> list[tuple[str, str, str]]:
+    """Finance account holders and loan owners, each once."""
     from .advisor_jobs import discover_people
 
+    return sorted(set(discover_people()) | set(discover_loan_people()))
+
+
+def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]:
     total = LoanReminderResult(dry_run=dry_run)
-    for tenant_id, workspace_id, user_id in discover_people():
+    for tenant_id, workspace_id, user_id in people_to_remind():
         try:
             part = run_person(tenant_id, workspace_id, user_id, now=now, dry_run=dry_run)
         except Exception as exc:  # noqa: BLE001 - counts only; the next run tries again
@@ -136,4 +165,4 @@ def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]
     return asdict(total)
 
 
-__all__ = ["LoanReminderResult", "NOTICE_KIND", "notice_text", "notify", "run", "run_person"]
+__all__ = ["LoanReminderResult", "NOTICE_KIND", "discover_loan_people", "notice_text", "notify", "people_to_remind", "run", "run_person"]

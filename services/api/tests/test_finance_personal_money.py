@@ -222,6 +222,33 @@ def test_the_daily_job_reminds_once_before_the_due_date_and_once_when_overdue(mo
         ws.notifications.update(saved)
 
 
+def test_loan_reminders_reach_a_person_who_never_added_a_finance_account() -> None:
+    """The job found people only by their finance accounts; someone who only records loans is found by the loan now."""
+    ws = memory_team_store._ws(ME)
+    saved = dict(ws.notifications)
+    ws.notifications.clear()
+    try:
+        assert finance_store.accounts == {} or all(a.owner_user_id != "owner_pm" for a in finance_store.accounts.values())
+        made = client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "borrowed", "person": "Friend E", "amount": "200",
+                                                                       "lent_on": "2026-10-01", "due_on": "2026-11-10", "remind_days_before": 3})
+        assert made.status_code == 201, made.text
+        client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Friend F", "amount": "50", "lent_on": "2026-10-01",
+                                                                "due_on": "2026-11-10", "remind": False})
+        assert J.discover_loan_people() == [(TENANT, WORKSPACE, "owner_pm")]
+        assert J.people_to_remind() == [(TENANT, WORKSPACE, "owner_pm")]
+        assert J.run(now=datetime(2026, 11, 7, 8, tzinfo=UTC)) == {"dry_run": False, "people": 1, "reminders": 1, "skipped": 0, "failed": 0}
+        sent = _notices()
+        assert [n.title for n in sent] == ["A loan you owe is due"] and "Friend E" in sent[0].body and sent[0].email_status.value == "not_requested"
+        # A loan closed or with reminders off is not discovered; the switch is the person's opt-out.
+        client.patch(f"{API}/people-loans/{made.json()['id']}", headers=OWNER, json={**{k: v for k, v in made.json().items() if k in (
+            "direction", "person", "amount", "currency", "lent_on", "due_on", "notes", "remind_days_before")}, "remind": False})
+        assert J.discover_loan_people() == []
+        assert J.run(now=datetime(2026, 11, 12, 8, tzinfo=UTC))["reminders"] == 0
+    finally:
+        ws.notifications.clear()
+        ws.notifications.update(saved)
+
+
 # -- payslips ---------------------------------------------------------------------------------------------
 
 
