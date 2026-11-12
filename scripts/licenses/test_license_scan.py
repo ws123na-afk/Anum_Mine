@@ -245,3 +245,34 @@ class OutputTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NativeInventoryTest(unittest.TestCase):
+    """docs/licenses.md#native-inventories: Chromium's own components and the Flutter plugins' Android libraries."""
+
+    CREDITS = (
+        "--------------------\nThe Chromium Project\n--------------------\n"
+        "Redistribution and use in source and binary forms, with or without modification ... "
+        "Neither the name of Google LLC nor the names of its contributors may be used\n\n"
+        "--------------------\nicu_locale\n--------------------\nUNICODE LICENSE V3\n\n"
+        "--------------------\nsqlite\n--------------------\nThe author disclaims copyright to this source code.\n\n"
+        "--------------------\nexample-lgpl\n--------------------\nGNU LESSER GENERAL PUBLIC LICENSE\n Version 2.1, February 1999\n"
+    )
+
+    def test_chromium_credits_split_into_components_with_their_licenses(self):
+        found = {c["name"]: c["license"] for c in scan.chromium_components(self.CREDITS)}
+        self.assertEqual(found, {"The Chromium Project": "BSD-3-Clause", "icu_locale": "Unicode-3.0",
+                                 "sqlite": "blessing", "example-lgpl": "LGPL-2.1-only"})
+
+    def test_anything_not_allowed_needs_an_owner_decision(self):
+        rows = [{"name": n, "license": lic, "version": "1243"} for n, lic in
+                (("chromium", "BSD-3-Clause"), ("lib", "LGPL-2.1-only"), ("odd", None), ("pipe|name", "MIT"))]
+        text, attention = scan.native_inventory("T", "I", rows, POLICY)
+        self.assertEqual([(r["name"], r["status"]) for r in attention], [("lib", "review"), ("odd", "unknown")])
+        self.assertIn("| pipe/name | 1243 | MIT | allowed |", text)
+        self.assertIn("Totals: 4 components; allowed 2, review 1, denied 0, not recognised 1.", text)
+
+    def test_gradle_init_output_is_read_once_per_coordinate(self):
+        output = ("noise\nANUM-DEPENDENCY com.google.firebase:firebase-messaging:24.1.0\n"
+                  "ANUM-DEPENDENCY androidx.core:core:1.13.1\nANUM-DEPENDENCY androidx.core:core:1.13.1\n")
+        self.assertEqual(scan.gradle_coordinates(output), ["androidx.core:core:1.13.1", "com.google.firebase:firebase-messaging:24.1.0"])

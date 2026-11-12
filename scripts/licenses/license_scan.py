@@ -649,16 +649,24 @@ allprojects {
 MAVEN_REPOSITORIES = ("https://dl.google.com/dl/android/maven2", "https://repo1.maven.org/maven2")
 
 
-def collect_gradle(args: argparse.Namespace) -> list[dict]:
+def gradle_coordinates(output: str) -> list[str]:
+    """group:artifact:version lines the init script printed, sorted and unique."""
+    return sorted({line.split(" ", 1)[1].strip() for line in output.splitlines() if line.startswith("ANUM-DEPENDENCY ")})
+
+
+def collect_gradle(args: argparse.Namespace, project: Path | None = None, app: str = "android") -> list[dict]:
+    """Release runtime dependencies of an Android build. ``project`` defaults to apps/android; the Flutter
+    app's Android build (apps/mobile/android) resolves the plugins' native libraries the same way."""
     gradle = args.gradle or shutil.which("gradle") or "gradle"
+    project = project or ROOT / "apps" / "android"
     with tempfile.TemporaryDirectory() as tmp:
         init = Path(tmp) / "anum-licenses.gradle"
         init.write_text(GRADLE_INIT)
-        output = run([gradle, "-p", str(ROOT / "apps" / "android"), "--quiet", "--no-configuration-cache",
+        output = run([gradle, "-p", str(project), "--quiet", "--no-configuration-cache",
                       "--init-script", str(init), ":app:anumLicenseDependencies"])
-    coordinates = sorted({line.split(" ", 1)[1].strip() for line in output.splitlines() if line.startswith("ANUM-DEPENDENCY ")})
+    coordinates = gradle_coordinates(output)
     if not coordinates:
-        raise SystemExit("Gradle reported no release runtime dependencies for apps/android")
+        raise SystemExit(f"Gradle reported no release runtime dependencies for {project.relative_to(ROOT)}")
     gradle_cache = Path(os.environ.get("GRADLE_USER_HOME") or Path.home() / ".gradle") / "caches" / "modules-2" / "files-2.1"
     pom_cache: dict[str, ET.Element | None] = {}
 
@@ -721,10 +729,103 @@ def collect_gradle(args: argparse.Namespace) -> list[dict]:
         declared = "; ".join(name or url for name, url in found)
         license_expr = " OR ".join(dict.fromkeys(ids)) if ids and all(ids) else None
         return record("gradle", f"{group}:{artifact}", version, declared, license_expr,
-                      source or f"https://mvnrepository.com/artifact/{group}/{artifact}", ["android"])
+                      source or f"https://mvnrepository.com/artifact/{group}/{artifact}", [app])
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         return list(pool.map(build, coordinates))
+
+
+# --------------------------------------------------------------------------- native libraries outside the lockfiles
+#
+# Two inventories the package scans above do not reach (docs/licenses.md#native-inventories): the
+# Chromium headless shell the browser image downloads, and the native Android libraries the Flutter
+# plugins pull in through Gradle. Each is checked against the same policy; a component whose license
+# is copyleft, proprietary or not recognised is listed as needing an owner decision.
+
+
+def collect_mobile_native(args: argparse.Namespace) -> list[dict]:
+    """The Flutter app's Android release runtime classpath (needs the Android SDK and flutter pub get)."""
+    return collect_gradle(args, ROOT / "apps" / "mobile" / "android", "mobile")
+
+
+# Texts of licenses Chromium's credits carry that the package signatures above do not need.
+CHROMIUM_SIGNATURES = [
+    ("Unicode-3.0", re.compile(r"UNICODE LICENSE V3|Unicode, Inc\..{0,400}?Permission is hereby granted, free of charge", re.I | re.S)),
+    ("FTL", re.compile(r"The FreeType Project LICENSE", re.I)),
+    ("MIT", re.compile(r"Permission is hereby granted, (?:free of charge, |without written agreement )?to any person obtaining", re.I)),
+    ("blessing", re.compile(r"The author disclaims copyright to this source code", re.I)),
+    ("LicenseRef-Public-Domain", re.compile(r"\b(?:placed|released|dedicated) (?:in|into) the public domain\b|\bis in the public domain\b", re.I)),
+    ("ISC", re.compile(r"Permission to use, copy, modify,? and(?:/or)? distribute this software", re.I)),
+    ("BSD-style", re.compile(r"Redistribution and use in source and binary forms", re.I)),
+]
+
+_CHROMIUM_HEADER = re.compile(r"^-{20}\n(.+?)\n-{20}\n", re.M)
+
+
+def chromium_components(text: str) -> list[dict]:
+    """The components of a Chromium ``LICENSE.headless_shell`` (each a ``---`` header, its name, then its license text)."""
+    parts = _CHROMIUM_HEADER.split(text)
+    found = []
+    for name, body in zip(parts[1::2], parts[2::2], strict=True):
+        detected = detect_text(body)
+        if detected is None:
+            extra = [spdx for spdx, pattern in CHROMIUM_SIGNATURES if pattern.search(body)]
+            detected = " AND ".join(dict.fromkeys(extra)) or None
+        found.append({"name": name.strip(), "license": detected, "chars": len(body)})
+    return found
+
+
+def native_status(expression: str | None, policy: dict) -> str:
+    """allowed, review, denied or unknown, with ids outside SPDX (BSD-style, public domain) counted as unknown."""
+    return classify(expression, policy) if expression else "unknown"
+
+
+def native_inventory(title: str, intro: str, rows: list[dict], policy: dict) -> tuple[str, list[dict]]:
+    lines = [f"# {title}", "", intro, "", "| Component | Version | License (detected) | Policy |", "|---|---|---|---|"]
+    attention = []
+    for row in rows:
+        status = native_status(row.get("license"), policy)
+        if status != "allowed":
+            attention.append({**row, "status": status})
+        name = row["name"].replace("|", "/")
+        lines.append(f"| {name} | {row.get('version') or '-'} | {row.get('license') or '-'} | {status} |")
+    counts = {key: sum(1 for r in rows if native_status(r.get('license'), policy) == key) for key in ("allowed", "review", "denied", "unknown")}
+    lines += ["", f"Totals: {len(rows)} components; allowed {counts['allowed']}, review {counts['review']}, denied {counts['denied']}, "
+              f"not recognised {counts['unknown']}. Every row other than allowed needs an owner decision (docs/licenses.md#native-inventories).", ""]
+    return "\n".join(lines), attention
+
+
+def command_native(args: argparse.Namespace) -> int:
+    policy = tomllib.loads(POLICY_FILE.read_text())
+    if args.what == "chromium":
+        if not args.license_file:
+            raise SystemExit("chromium needs --license-file: the LICENSE.headless_shell of the browser image's Chromium")
+        rows = [{**c, "version": args.revision or ""} for c in chromium_components(Path(args.license_file).read_text(errors="replace"))]
+        if not rows:
+            raise SystemExit(f"{args.license_file}: no component headers found; is it Chromium's LICENSE.headless_shell?")
+        title = "Chromium headless shell: third-party components"
+        intro = (f"Generated by `scripts/licenses/license_scan.py native chromium` from the shell's own `LICENSE.headless_shell`"
+                 f"{' (Chromium revision ' + args.revision + ')' if args.revision else ''}. The full texts are in that file inside the "
+                 "browser image (`/opt/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/`). Detection reads each "
+                 "component's own text; not recognised means read the text, not that it is a problem.")
+    else:
+        rows = collect_mobile_native(args)
+        title = "Flutter plugins: native Android libraries"
+        intro = ("Generated by `scripts/licenses/license_scan.py native mobile-android`: the release runtime classpath of the Flutter "
+                 "app's Android build (`apps/mobile/android`), licenses from each library's Maven POM. Dart packages themselves are "
+                 "in THIRD_PARTY_NOTICES.md.")
+    text, attention = native_inventory(title, intro, rows, policy)
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(text)
+        log(f"{args.what}: {len(rows)} components -> {args.out}")
+    for row in attention:
+        print(f"needs an owner decision: {row['name']} {row.get('version') or ''} ({row.get('license') or 'not recognised'}: {row['status']})")
+    if args.check and args.out_compare:
+        committed = Path(args.out_compare).read_text() if Path(args.out_compare).exists() else ""
+        if committed != text:
+            raise SystemExit(f"{args.out_compare} does not match this scan; regenerate it with --out")
+    return 1 if (args.strict and attention) else 0
 
 
 COLLECTORS = {"python": collect_python, "npm": collect_npm, "cargo": collect_cargo, "dart": collect_dart, "gradle": collect_gradle}
@@ -1188,7 +1289,18 @@ def main() -> int:
     report.add_argument("--sbom-dir")
     report.add_argument("--keep-unscanned", action="store_true",
                         help="local runs: keep the committed notices sections of ecosystems not in --inputs")
+    native = sub.add_parser("native", help="inventory Chromium's components or the Flutter plugins' native Android libraries")
+    native.add_argument("what", choices=("chromium", "mobile-android"))
+    native.add_argument("--license-file", help="chromium: the shell's LICENSE.headless_shell")
+    native.add_argument("--revision", help="chromium: the revision the file comes from, printed in the inventory")
+    native.add_argument("--gradle", help="mobile-android: gradle executable (default: gradle on PATH)")
+    native.add_argument("--out", help="write the inventory (Markdown) here")
+    native.add_argument("--check", action="store_true", help="fail when --out-compare differs from this scan")
+    native.add_argument("--out-compare", help="the committed inventory to compare with")
+    native.add_argument("--strict", action="store_true", help="exit 1 while any component needs an owner decision")
     args = parser.parse_args()
+    if args.command == "native":
+        return command_native(args)
     return command_collect(args) if args.command == "collect" else command_report(args)
 
 
