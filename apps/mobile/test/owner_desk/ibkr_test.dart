@@ -47,6 +47,22 @@ class FakeIbkr implements IbkrRepository {
       'deployment_live_enabled': false,
       'settings': {
         'kill_switch': stopped,
+        'version': 3,
+        'fractional_ok': false,
+        'live': {'on': live},
+        'allowed': [
+          {'symbol': 'SPUS', 'conid': 1, 'shariah_screened': true},
+          {'symbol': 'VOO', 'conid': 2, 'shariah_screened': false},
+        ],
+        'limits': {
+          'max_capital': '50',
+          'max_order': '10',
+          'max_daily_loss': '5',
+          'max_orders_per_day': 3,
+          'price_band_percent': '2',
+          'session_buffer_minutes': 15,
+          'fee_buffer': '1',
+        },
         'reconciliation': {
           'paper': {'state': 'ok'}
         },
@@ -145,7 +161,12 @@ class FakeIbkr implements IbkrRepository {
           'side': 'buy',
           'quantity': '1',
           'limit_price': '9.80',
-          'state': i == 0 ? 'filled' : 'cancelled',
+          'state': switch (i) {
+            0 => 'filled',
+            1 => 'unknown',
+            2 => 'submitted',
+            _ => 'cancelled'
+          },
           'filled_quantity': i == 0 ? '1' : '0',
           'average_price': i == 0 ? '9.79' : null,
           'message': null,
@@ -199,6 +220,89 @@ class FakeIbkr implements IbkrRepository {
     calls.add('release');
     stopped = false;
   }
+
+  String? refuseOrder;
+
+  @override
+  Future<IbkrQuote> quote(String symbol) async {
+    calls.add('quote $symbol');
+    return IbkrQuote(
+        symbol: symbol, last: '9.75', delayed: true, bandPercent: '2');
+  }
+
+  @override
+  Future<IbkrIntent> createOrder(
+      {required String symbol,
+      required String side,
+      required String quantity,
+      required String limitPrice,
+      String? reason}) async {
+    if (refuseOrder != null) throw ApiException(422, refuseOrder!);
+    calls.add('order $symbol $side $quantity $limitPrice');
+    pending = true;
+    return IbkrIntent.fromJson(JsonReader(_intent()));
+  }
+
+  String? refuseLimits;
+
+  @override
+  Future<void> saveLimits(Map<String, Object> limits, int version) async {
+    if (refuseLimits != null) throw ApiException(422, refuseLimits!);
+    calls.add(
+        'limits ${limits['max_order']} ${limits['max_orders_per_day']} v$version');
+  }
+
+  bool alertsRead = false;
+
+  @override
+  Future<(List<IbkrAlert>, int)> alerts({int limit = 10}) async => (
+        [
+          IbkrAlert.fromJson(JsonReader({
+            'id': 'ev_1',
+            'severity': 'critical',
+            'message': 'IBKR refused order 7: outside the price band.',
+            'environment': 'paper',
+            'created_at': '2026-11-10T14:30:00Z',
+            'read_at': alertsRead ? '2026-11-10T14:40:00Z' : null,
+          }))
+        ],
+        alertsRead ? 0 : 2
+      );
+
+  @override
+  Future<void> markAlertsRead() async {
+    calls.add('alerts read');
+    alertsRead = true;
+  }
+
+  IbkrOrder _done(String id, String state) => IbkrOrder.fromJson(JsonReader({
+        'id': id,
+        'environment': 'paper',
+        'symbol': 'SPUS',
+        'side': 'buy',
+        'quantity': '1',
+        'limit_price': '9.80',
+        'state': state,
+        'filled_quantity': '0',
+      }));
+
+  @override
+  Future<IbkrOrder> refreshOrder(String orderId) async {
+    calls.add('refresh $orderId');
+    return _done(orderId, 'submitted');
+  }
+
+  @override
+  Future<IbkrOrder> resendOrder(String orderId) async {
+    calls.add('resend $orderId');
+    return _done(orderId, 'submitted');
+  }
+
+  @override
+  Future<IbkrOrder> cancelOrder(String orderId) async {
+    calls.add('cancel $orderId');
+    return _done(orderId, 'cancelled');
+  }
 }
 
 Widget _screen(IbkrController c) => IbkrScreen(controller: c, countdown: false);
@@ -250,7 +354,8 @@ void main() {
     expect(find.text('Enough paper orders reached IBKR'), findsOneWidget);
     expect(find.text('1 of 2'), findsOneWidget); // live gates met
     expect(find.text('USD 40.20'), findsOneWidget);
-    expect(find.text('New alerts: 2. Read them on the web.'), findsOneWidget);
+    expect(find.text('New alerts: 2. They are listed under Alerts.'),
+        findsOneWidget);
     expect(find.text('240 seconds'), findsOneWidget);
     expect(find.text(_hash), findsOneWidget);
     expect(find.textContaining('1 SPUS @ USD 9.80'), findsWidgets);
@@ -346,6 +451,128 @@ void main() {
     expect(find.byKey(const Key('ib-status')), findsOneWidget);
   });
 
+  test('the ticket checks like the web before anything is sent', () {
+    String? check(String q, String p, {bool fractional = false}) =>
+        ibkrTicketProblem(
+            symbol: 'SPUS',
+            quantity: q,
+            limitPrice: p,
+            allowed: const ['SPUS'],
+            fractionalOk: fractional,
+            maxOrder: '10');
+    expect(check('1', '9.80'), isNull);
+    expect(check('1.5', '5'), 'wholeShares');
+    expect(check('1.5', '5', fractional: true), isNull);
+    expect(check('0', '5'), 'quantity');
+    expect(check('1', 'abc'), 'price');
+    expect(check('2', '9.80'), 'overOrder');
+    expect(ibkrNotional('3', '3.335'), '10.01');
+    expect(
+        ibkrTicketProblem(
+            symbol: 'QQQ',
+            quantity: '1',
+            limitPrice: '1',
+            allowed: const ['SPUS'],
+            fractionalOk: false,
+            maxOrder: '10'),
+        'symbol');
+  });
+
+  testWidgets(
+      'the ticket makes a request that waits for approval; a refusal is shown beside it',
+      (tester) async {
+    final fake = FakeIbkr()..pending = false;
+    final controller = IbkrController(fake, clock: () => _now);
+    await pumpDesk(tester, _screen(controller));
+    await tapDesk(tester, find.byKey(const Key('ib-ticket-quote')));
+    expect(fake.calls, contains('quote SPUS'));
+    expect(find.textContaining('IBKR price USD 9.75, Delayed'), findsOneWidget);
+    expect(
+        find.text(
+            'About USD 9.75 before fees. Your limit per order is USD 10.'),
+        findsOneWidget);
+    // Two shares are over the 10 USD limit: refused before anything is sent.
+    await tester.enterText(find.byKey(const Key('ib-ticket-quantity')), '2');
+    await tapDesk(tester, find.byKey(const Key('ib-ticket-create')));
+    expect(find.text('This order is over your limit of USD 10 per order.'),
+        findsOneWidget);
+    expect(fake.calls.where((c) => c.startsWith('order SPUS')), isEmpty);
+    await tester.enterText(find.byKey(const Key('ib-ticket-quantity')), '1');
+    fake.refuseOrder =
+        'The US market is closed. Orders are made in regular hours.';
+    await tapDesk(tester, find.byKey(const Key('ib-ticket-create')));
+    expect(
+        find.text('The US market is closed. Orders are made in regular hours.'),
+        findsOneWidget);
+    fake.refuseOrder = null;
+    await tapDesk(tester, find.byKey(const Key('ib-ticket-create')));
+    expect(fake.calls, contains('order SPUS buy 1 9.75'));
+    // It waits in the approvals with its code; nothing was approved.
+    expect(find.byKey(const Key('ib-approve-intent_1')), findsOneWidget);
+    expect(fake.calls.where((c) => c.startsWith('approve')), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('limits are changed by the owner; a refusal stays in the form',
+      (tester) async {
+    final fake = FakeIbkr();
+    final controller = IbkrController(fake, clock: () => _now);
+    await pumpDesk(tester, _screen(controller));
+    expect(find.text('Most per order'), findsOneWidget);
+    await tapDesk(tester, find.byKey(const Key('ib-limits-edit')));
+    await tester.enterText(
+        find.byKey(const Key('ib-limit-max_orders_per_day')), 'two');
+    await tapDesk(tester, find.byKey(const Key('ib-limits-save')));
+    expect(find.text('Orders per day and the minutes are whole numbers.'),
+        findsOneWidget);
+    await tester.enterText(
+        find.byKey(const Key('ib-limit-max_orders_per_day')), '2');
+    fake.refuseLimits = 'While live is on, limits can only be made stricter.';
+    await tapDesk(tester, find.byKey(const Key('ib-limits-save')));
+    expect(find.byKey(const Key('ib-limits-error')), findsOneWidget);
+    fake.refuseLimits = null;
+    await tester.enterText(find.byKey(const Key('ib-limit-max_order')), '8');
+    await tapDesk(tester, find.byKey(const Key('ib-limits-save')));
+    expect(fake.calls, contains('limits 8 2 v3'));
+    expect(find.byKey(const Key('ib-limits-save')), findsNothing);
+    expect(find.text('Saved.'), findsOneWidget);
+  });
+
+  testWidgets(
+      'alerts are read here; orders are checked, looked up and cancelled',
+      (tester) async {
+    final fake = FakeIbkr()..pending = false;
+    final controller = IbkrController(fake, clock: () => _now);
+    await pumpDesk(tester, _screen(controller));
+    expect(find.text('IBKR refused order 7: outside the price band.'),
+        findsOneWidget);
+    expect(find.text('Urgent'), findsOneWidget);
+    await tapDesk(tester, find.byKey(const Key('ib-alerts-read')));
+    expect(fake.calls, contains('alerts read'));
+    expect(find.text('Alerts marked as read.'), findsOneWidget);
+
+    expect(find.byKey(const Key('ib-check-order-order_0')),
+        findsNothing); // filled
+    await tapDesk(tester, find.byKey(const Key('ib-resend-order_1')));
+    expect(fake.calls, contains('resend order_1'));
+    expect(find.text('Looked up at IBKR first. Nothing is sent twice.'),
+        findsOneWidget);
+    await tapDesk(tester, find.byKey(const Key('ib-check-order-order_2')));
+    expect(fake.calls, contains('refresh order_2'));
+    await tapDesk(tester, find.byKey(const Key('ib-cancel-order_2')));
+    expect(find.text('Cancel this order at IBKR?'), findsOneWidget);
+    await tapDesk(tester, find.byKey(const Key('ib-cancel-confirm')));
+    expect(fake.calls, contains('cancel order_2'));
+    expect(find.text('Cancel sent to IBKR and checked.'), findsOneWidget);
+  });
+
+  testWidgets('no allowed ETF: the ticket says what to add', (tester) async {
+    final controller = IbkrController(_NoEtfs(), clock: () => _now);
+    await pumpDesk(tester, _screen(controller));
+    expect(find.byKey(const Key('ib-ticket-empty')), findsOneWidget);
+    expect(find.text('No ETF allowed yet'), findsOneWidget);
+  });
+
   testWidgets('reads in Arabic, right to left', (tester) async {
     await pumpDesk(
         tester, _screen(IbkrController(FakeIbkr(), clock: () => _now)),
@@ -367,5 +594,25 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     });
+  }
+}
+
+class _NoEtfs extends FakeIbkr {
+  @override
+  Future<IbkrOverview> overview() async {
+    final o = await super.overview();
+    return IbkrOverview(
+        mode: o.mode,
+        deploymentLiveEnabled: false,
+        killSwitch: false,
+        connections: o.connections,
+        snapshots: o.snapshots,
+        liveGates: o.liveGates,
+        paperProof: o.paperProof,
+        marketOpen: true,
+        marketMessage: '',
+        pending: const [],
+        reconciliation: o.reconciliation,
+        limits: o.limits);
   }
 }
