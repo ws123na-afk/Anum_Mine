@@ -2,7 +2,7 @@
 
 Off by default; only owners (and organisation administrators) turn it on and read it; members learn it is
 on; reports and corrections never appear in it. ``test_postgres_attendance.py`` checks the same rules
-under RLS (migration ``0179_attendance_manager_view``).
+under RLS (migration ``0181_attendance_manager_view``).
 """
 
 from __future__ import annotations

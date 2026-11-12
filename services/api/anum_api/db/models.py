@@ -1928,7 +1928,7 @@ class AppCallRecord(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
-    # Migration 0179_app_call_rooms: the group call this pair belongs to.
+    # Migration 0180_app_call_rooms: the group call this pair belongs to.
     room_id: Mapped[str | None] = mapped_column(String(80))
 
     __table_args__ = (
@@ -1941,7 +1941,7 @@ class AppCallRecord(Base):
 
 
 class AppCallRoomRecord(Base):
-    """A group call: who was invited and who is in it (migration ``0179_app_call_rooms``).
+    """A group call: who was invited and who is in it (migration ``0180_app_call_rooms``).
 
     Visible to its members only: a restrictive policy checks ``anum.user_id`` against
     ``member_user_ids``, and only the host inserts the row.

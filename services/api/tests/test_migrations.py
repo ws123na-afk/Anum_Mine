@@ -1018,8 +1018,8 @@ def test_app_calls_migration_is_expand_only_and_participants_only() -> None:
 
 def test_app_call_rooms_migration_is_expand_only_and_members_only() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0179_app_call_rooms.py").read_text(encoding="utf-8")
-    assert 'revision = "0179_app_call_rooms"' in revision_text and len("0179_app_call_rooms") <= 32
+    revision_text = (versions / "0180_app_call_rooms.py").read_text(encoding="utf-8")
+    assert 'revision = "0180_app_call_rooms"' in revision_text and len("0180_app_call_rooms") <= 32
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     assert upgrade.count("op.create_table(") == 1 and '"app_call_rooms"' in upgrade
     assert "enable row level security" in upgrade and "force row level security" in upgrade

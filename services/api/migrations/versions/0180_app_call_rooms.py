@@ -19,15 +19,15 @@ its pair calls, as the application role inside a member's context.
 Expand only: a new table and a nullable column. The previous release ignores both (it never
 writes ``room_id``; its pair calls are plain calls between two people).
 
-Chained after ``0178_refund_requests_vault``.
+Chained after ``0179_loan_reminder_discovery``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0179_app_call_rooms"
-down_revision = "0178_refund_requests_vault"
+revision = "0180_app_call_rooms"
+down_revision = "0179_loan_reminder_discovery"
 branch_labels = None
 depends_on = None
 

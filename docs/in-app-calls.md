@@ -109,7 +109,7 @@ Both tables have forced RLS: `tenant_isolation_*` on `anum.tenant_id` and `anum.
 
 The audit log records `app_call.placed`, `app_call.answered` and `app_call.ended` with the actor, the call id, audio or video, the outcome and the duration; it never names the other participant. Calls that ended more than `ANUM_CALLS_RETENTION_DAYS` (365) ago are deleted, with their signals, by the daily retention job (`python -m anum_api.voice_retention`, reported under `app_calls`): it discovers them as `anum_maintenance` and deletes each as the application role inside the caller's RLS context. A participant placing a new call also purges their own old calls.
 
-Migration `0179_app_call_rooms` (expand only: a new table and a nullable column) adds group calls:
+Migration `0180_app_call_rooms` (expand only: a new table and a nullable column) adds group calls:
 
 - `app_call_rooms`: the host, audio or video, `live` or `ended`, `member_user_ids` (everyone ever invited, at most 12) and `members` (a JSON list: user id, name at the time, state, the joined device, who invited them, joined, left and last seen times), created and ended times. Forced RLS: `tenant_isolation_app_call_rooms`, a restrictive `members_only_app_call_rooms` (`anum.user_id` must be in `member_user_ids`, for reads and writes, so nobody can drop themselves out of the row either) and a restrictive insert policy (only the host inserts). Deleting the organisation or the workspace purges it through `anum_tenant_purger` (`lifecycle_purge_app_call_rooms`; listed in `tenant_lifecycle_tables.py`).
 - `app_calls.room_id`: the group a pair call belongs to, foreign key `on delete set null`.

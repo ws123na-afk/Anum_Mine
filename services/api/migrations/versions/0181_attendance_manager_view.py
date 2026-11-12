@@ -13,7 +13,7 @@
   so a unit that sets the flag in a workspace that never turned the view on reads nothing more. Daily reports,
   corrections and shares are not widened: a report is still read only through the person's own share.
 
-Chained after ``0178_refund_requests_vault``. Expand only: the previous release never sets
+Chained after ``0180_app_call_rooms``. Expand only: the previous release never sets
 ``anum.attendance_manager`` and never reads the new table, so for it every policy admits exactly the rows it
 did. Rollback never reverses it in production.
 """
@@ -21,8 +21,8 @@ did. Rollback never reverses it in production.
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0179_attendance_manager_view"
-down_revision = "0178_refund_requests_vault"
+revision = "0181_attendance_manager_view"
+down_revision = "0180_app_call_rooms"
 branch_labels = None
 depends_on = None
 

@@ -250,7 +250,7 @@ def test_privacy_delete_and_purge_role_cover_attendance(client: TestClient, app_
         grants = connection.execute(text(
             "select table_name from information_schema.role_table_grants where grantee = 'anum_tenant_purger' "
             "and privilege_type = 'DELETE' and table_name like 'attendance_%'")).scalars().all()
-    # The workspace switch of 0179_attendance_manager_view is purged with the workspace too.
+    # The workspace switch of 0181_attendance_manager_view is purged with the workspace too.
     assert set(grants) == {*TABLES, "attendance_workspace_settings"}
 
 
@@ -263,7 +263,7 @@ def _manager_count(app_session: Callable[..., Iterator[Session]], table: str, us
 
 
 def test_manager_view_widens_reads_only_with_the_flag_and_the_switch(client: TestClient, app_session, database_engine: Engine) -> None:  # type: ignore[no-untyped-def]
-    """Migration 0179_attendance_manager_view (docs/attendance.md#manager-view) under RLS."""
+    """Migration 0181_attendance_manager_view (docs/attendance.md#manager-view) under RLS."""
     members(database_engine, (TENANT_A, WORKSPACE_A, ME["x-user-id"], "member"), (TENANT_A, WORKSPACE_A, BOSS["x-user-id"], "owner"))
     seed(client)
     boss = BOSS["x-user-id"]

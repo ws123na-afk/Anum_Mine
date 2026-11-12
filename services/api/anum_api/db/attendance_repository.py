@@ -161,7 +161,7 @@ def _fields(record: Any, model: type) -> dict[str, Any]:
 
 
 class AttendanceWorkspaceSettingsRecord(Base):
-    """Migration ``0179_attendance_manager_view``: one row per workspace, written only in a manager unit."""
+    """Migration ``0181_attendance_manager_view``: one row per workspace, written only in a manager unit."""
 
     __tablename__ = "attendance_workspace_settings"
 
@@ -417,7 +417,7 @@ class SqlAttendanceStore:
     _RECORDS = (AttendanceShareRecord, AttendanceDailyReportRecord, AttendanceDayTotalRecord, AttendanceCorrectionRecord,
                 AttendanceEventRecord, AttendanceSiteRecord, AttendanceProfileRecord)
 
-    # workspace settings and the manager view (migration 0179_attendance_manager_view) -----------------
+    # workspace settings and the manager view (migration 0181_attendance_manager_view) -----------------
 
     def get_workspace_settings(self, context: TenantContext) -> WorkspaceSettings:
         row = self.session.scalar(select(AttendanceWorkspaceSettingsRecord).where(

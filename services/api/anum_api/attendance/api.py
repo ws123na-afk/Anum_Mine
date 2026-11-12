@@ -12,7 +12,7 @@ Who can do what (checked here, on the server, for every route):
   turned ``manager_view`` on (off by default). Daily reports and corrections are never part of it. Everyone
   who keeps attendance may read whether it is on.
 * Viewers have no Attendance. The database enforces the same rules (forced RLS, migrations
-  ``0132_work_attendance`` and ``0179_attendance_manager_view``).
+  ``0132_work_attendance`` and ``0181_attendance_manager_view``).
 
 This is a personal log kept by the person, never an employer-certified timesheet, and the
 exports say so. Exact coordinates are never accepted or stored.

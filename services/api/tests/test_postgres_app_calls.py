@@ -222,7 +222,7 @@ def test_the_daily_retention_job_discovers_old_calls_as_maintenance(
         assert connection.execute(text("select id from app_calls")).scalars().all() == [recent["id"]]
 
 
-# --------------------------------------------------------------------------- group calls (0179_app_call_rooms)
+# --------------------------------------------------------------------------- group calls (0180_app_call_rooms)
 
 DEVICE_C = "device-carol-0000001"
 
