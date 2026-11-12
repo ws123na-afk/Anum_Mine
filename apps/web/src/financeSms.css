@@ -26,3 +26,9 @@
 .finSmsToken textarea { font-family: ui-monospace, monospace; font-size: var(--text-xs); width: 100%; }
 .finSmsFilters { align-items: center; }
 .finSmsTabs { flex-wrap: wrap; }
+.finSmsFix { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.finSmsFixText { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); min-width: 0; overflow-wrap: anywhere; }
+.finSmsFix svg, .finSmsFixText svg { flex: 0 0 auto; height: 1em; width: 1em; }
+.finSmsWhy > li > div { display: grid; gap: var(--d-s1); min-width: 0; }
+.finSmsWhyItems { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.finSmsWhyItems > li { display: grid; gap: var(--d-s1); min-width: 0; }

@@ -122,6 +122,7 @@ class MessageView(BaseModel):
     observed_balance: Decimal | None
     observed_currency: str | None
     attempts: int
+    learned: dict[str, Any] | None = None  # what ANUM applied from the person's earlier choices, with its undo
     fix: dict[str, Any] | None = None  # the one action that makes such a message automatic next time (docs/finance-sms.md#learning)
 
 
@@ -186,7 +187,8 @@ def _message_view(message: SmsMessage, settings: SmsSettings | None = None, acco
     return MessageView(
         id=message.id, device_id=message.device_id, source=message.source, received_at=message.received_at, sender=message.sender,
         bank_key=message.bank_key, body_masked=message.body_masked, body_kept_until=message.body_purge_at, status=message.status,
-        reason=message.reason, parsed=dict(message.parsed), rule=message.rule, entry_id=message.entry_id, duplicate_of=message.duplicate_of,
+        reason=message.reason, parsed={k: v for k, v in message.parsed.items() if k != "learned"},
+        learned=message.parsed.get("learned") if isinstance(message.parsed.get("learned"), dict) else None, rule=message.rule, entry_id=message.entry_id, duplicate_of=message.duplicate_of,
         observed_balance=message.observed_balance, observed_currency=message.observed_currency, attempts=message.attempts, fix=fix,
     )
 

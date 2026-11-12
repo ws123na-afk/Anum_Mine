@@ -1,5 +1,6 @@
 // iPhone SMS banking and the ledger (docs/finance-sms.md): pure view logic, covered by the unit tests.
-import type { FinanceSmsCorrection, FinanceSmsMessage, FinanceSmsStatus } from '@anum/contracts';
+import type { FinanceCategory, FinanceSmsCorrection, FinanceSmsFix, FinanceSmsLearningNotice, FinanceSmsMessage, FinanceSmsStatus } from '@anum/contracts';
+import { categoryLabel } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 
 export const SMS_KINDS = [
@@ -79,4 +80,43 @@ export function shortcutSteps(url: string): string[] {
   return [
     t('fsms.step.1'), t('fsms.step.2'), t('fsms.step.3'), t('fsms.step.4', { url }), t('fsms.step.5'), t('fsms.step.6'),
   ];
+}
+
+/** Kinds ANUM remembers for money from or to one party (docs/finance-sms.md#learning). */
+export const REMEMBERED_KINDS: readonly string[] = ['salary', 'own_transfer', 'refund'];
+
+/** Fixes the person can apply in one tap; the others are said in words (decide, record) or open Settings. */
+export const ONE_TAP_FIXES: readonly string[] = ['trust_sender', 'map_card', 'auto_post_on', 'clear_hold', 'remember_kind', 'undo_learning'];
+
+/** The one action that makes such a message automatic next time, in plain words. */
+export function fixText(fix: FinanceSmsFix): string {
+  const sender = fix.sender ?? '-';
+  switch (fix.action) {
+    case 'trust_sender': return t('fsms.fix.trust_sender', { sender });
+    case 'map_card': return fix.account_name ? t('fsms.fix.map_card', { last4: fix.last4 ?? '-', account: fix.account_name }) : t('fsms.fix.map_card_pick', { last4: fix.last4 ?? '-' });
+    case 'auto_post_on': return t('fsms.fix.auto_post_on');
+    case 'clear_hold': return t('fsms.fix.clear_hold', { sender });
+    case 'remember_kind': return t('fsms.fix.remember_kind', { party: fix.party ?? '-', kind: kindLabel(fix.kind) });
+    case 'undo_learning': return t('fsms.fix.undo_learning', { party: fix.party ?? '-', value: learnedValueLabel(fix.kind) });
+    case 'open_settings': return t('fsms.fix.open_settings');
+    case 'decide': return t('fsms.fix.decide');
+    default: return t('fsms.fix.record');
+  }
+}
+
+/** A remembered value: a kind ("Salary") or a category ("Health"). */
+export function learnedValueLabel(value: string | null | undefined): string {
+  if (!value) return '-';
+  const kind = kindLabel(value);
+  return kind !== value ? kind : categoryLabel(value as FinanceCategory);
+}
+
+/** What ANUM learned, as a sentence. */
+export function noticeText(notice: FinanceSmsLearningNotice): string {
+  switch (notice.kind) {
+    case 'sender_trusted': return t('fsms.learn.sender_trusted', { sender: notice.sender ?? '-' });
+    case 'kind_remembered': return t('fsms.learn.kind_remembered', { party: notice.party ?? '-', kind: kindLabel(notice.value) });
+    case 'category_remembered': return t('fsms.learn.category_remembered', { party: notice.party ?? '-', category: learnedValueLabel(notice.value) });
+    default: return t('fsms.learn.card_proposed', { last4: notice.last4 ?? '-', account: notice.account_name ?? '-' });
+  }
 }

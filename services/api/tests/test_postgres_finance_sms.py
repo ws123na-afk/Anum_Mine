@@ -314,7 +314,7 @@ def test_learning_from_reviews_under_rls(client: TestClient, app_session: Callab
     third = _send(api, s["token"], purchase("22.00", 3))
     assert third["status"] == "posted"
     shown = api.get(f"{API}/sms/messages/{third['message_id']}", headers=ME).json()
-    assert shown["parsed"]["learned"]["value"] == "health" and shown["fix"]["action"] == "undo_learning"
+    assert shown["learned"]["value"] == "health" and shown["fix"]["action"] == "undo_learning"
     assert api.get(f"{API}/sms/learning", headers=SOMEONE).json()["senders"] == []
     assert _count(app_session, "finance_rules", "user_test") >= 1 and _count(app_session, "finance_rules", "user_owner") == 0
     undo = api.post(f"{API}/sms/messages/{third['message_id']}/undo-learning", headers=ME)

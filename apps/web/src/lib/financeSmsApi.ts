@@ -2,8 +2,9 @@
 // caller's own; the server checks finance:read / finance:manage on every route.
 import type {
   FinanceDeviceScope, FinanceJournalPage, FinanceLedgerDashboard, FinanceReconcileView, FinanceSmsBank, FinanceSmsCorrection, FinanceSmsCorrectionResult,
-  FinanceSmsDevice, FinanceSmsDeviceToken, FinanceSmsIngestResult, FinanceSmsMessage, FinanceSmsMessagePage, FinanceSmsRule, FinanceSmsSelfTest,
-  FinanceSmsSettings, FinanceSmsSettingsInput, FinanceSmsStatus, FinanceSmsStatusView, FinanceSmsSuggestion,
+  FinanceSmsDevice, FinanceSmsDeviceToken, FinanceSmsIngestResult, FinanceSmsLearning, FinanceSmsMessage, FinanceSmsMessagePage, FinanceSmsReviewSummary,
+  FinanceSmsRule, FinanceSmsSelfTest, FinanceSmsSettings, FinanceSmsSettingsInput, FinanceSmsStatus, FinanceSmsStatusView, FinanceSmsSuggestion,
+  FinanceSmsUndoLearning,
 } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 
@@ -45,3 +46,18 @@ export interface LedgerFilters { month?: string; account_id?: string; currency?:
 export const ledgerDashboard = (filters: LedgerFilters) => get<FinanceLedgerDashboard>(`/ledger/dashboard${query({ ...filters })}`);
 export const ledgerEntries = (limit: number, offset: number) => get<FinanceJournalPage>(`/ledger/entries${query({ limit, offset })}`);
 
+
+// What ANUM learned from the person's reviews (docs/finance-sms.md#learning).
+export const smsLearning = () => get<FinanceSmsLearning>('/sms/learning');
+export const reviewSummary = () => get<FinanceSmsReviewSummary>('/sms/review/summary');
+export const trustSender = (sender: string) => send<FinanceSmsLearning>('POST', '/sms/learning/senders/trust', { sender });
+export const untrustSender = (sender: string) => send<FinanceSmsLearning>('POST', '/sms/learning/senders/untrust', { sender });
+export const clearHold = (sender: string) => send<FinanceSmsLearning>('POST', '/sms/learning/senders/clear-hold', { sender });
+export const mapCard = (last4: string, accountId: string) => send<FinanceSmsLearning>('POST', '/sms/learning/cards/map', { last4, account_id: accountId });
+export const declineCard = (last4: string) => send<FinanceSmsLearning>('POST', '/sms/learning/cards/decline', { last4 });
+export const activateKind = (memoryId: string) => send<FinanceSmsLearning>('POST', `/sms/learning/kinds/${id(memoryId)}/activate`);
+export const forgetKind = (memoryId: string) => send<FinanceSmsLearning>('DELETE', `/sms/learning/kinds/${id(memoryId)}`);
+export const forgetCategory = (ruleId: string) => send<FinanceSmsLearning>('DELETE', `/sms/learning/categories/${id(ruleId)}`);
+export const dismissNotice = (noticeId: string) => send<FinanceSmsLearning>('POST', `/sms/learning/notices/${id(noticeId)}/dismiss`);
+export const setAutoPost = (on: boolean) => send<FinanceSmsLearning>('POST', '/sms/learning/auto-post', { on });
+export const undoLearning = (messageId: string) => send<FinanceSmsUndoLearning>('POST', `/sms/messages/${id(messageId)}/undo-learning`);

@@ -27,9 +27,14 @@ export interface FinanceSmsSettings {
   ai: { enabled: boolean; opted_in_at: string | null; daily_cap: number; used_on: string | null; used: number };
   self_test_passed_at: string | null;
   integration_switches?: Record<string, boolean>;
+  learning?: { enabled: boolean; confirm_after: number };
+  auto_post_limits?: FinanceSmsAutoPostLimit[];
   version: number;
   updated_at: string | null;
 }
+
+/** The largest amount in one currency recorded without the person's look (docs/finance-sms.md#learning). */
+export interface FinanceSmsAutoPostLimit { currency: string; amount: string }
 
 export interface FinanceSmsSettingsInput {
   version: number;
@@ -46,6 +51,9 @@ export interface FinanceSmsSettingsInput {
   ai_enabled?: boolean;
   ai_consent?: boolean;
   ai_daily_cap?: number;
+  learning_enabled?: boolean;
+  learning_confirm_after?: number;
+  auto_post_limits?: FinanceSmsAutoPostLimit[];
 }
 
 export interface FinanceSmsStatusView {
@@ -117,7 +125,64 @@ export interface FinanceSmsMessage {
   observed_balance: string | null;
   observed_currency: string | null;
   attempts: number;
+  /** What ANUM applied from the person's earlier choices (undo with `undo-learning`). */
+  learned?: FinanceSmsLearnedApplied | null;
+  /** The one action that makes such a message automatic next time. */
+  fix?: FinanceSmsFix | null;
 }
+
+export interface FinanceSmsLearnedApplied { what: 'kind' | 'category'; value: string; ref: string; party: string; counter_account_id?: string }
+
+export type FinanceSmsFixAction =
+  | 'trust_sender' | 'map_card' | 'auto_post_on' | 'clear_hold' | 'remember_kind' | 'undo_learning' | 'open_settings' | 'decide' | 'record';
+
+export interface FinanceSmsFix {
+  action: FinanceSmsFixAction;
+  sender: string | null;
+  last4: string | null;
+  account_id: string | null;
+  account_name: string | null;
+  party: string | null;
+  kind: string | null;
+  ref: string | null;
+}
+
+export type FinanceSmsNoticeKind = 'sender_trusted' | 'kind_remembered' | 'category_remembered' | 'card_proposed';
+
+export interface FinanceSmsLearningNotice {
+  id: string;
+  kind: FinanceSmsNoticeKind;
+  sender: string | null;
+  party: string | null;
+  value: string | null;
+  last4: string | null;
+  account_id: string | null;
+  account_name?: string | null;
+  ref: string | null;
+  created_at: string;
+}
+
+export interface FinanceSmsLearning {
+  enabled: boolean;
+  confirm_after: number;
+  auto_post: boolean;
+  auto_post_limits: FinanceSmsAutoPostLimit[];
+  senders: { sender: string; trusted: boolean; clean: number; needed: number; auto_confirmed_at: string | null; corrected_at: string | null; held_until: string | null }[];
+  kinds: { id: string; sender: string; direction: 'in' | 'out'; party: string; kind: string; counter_account_id: string | null; count: number; active: boolean; since: string | null }[];
+  categories: { party: string; category: string; count: number; rule_id: string | null }[];
+  card_proposals: { last4: string; account_id: string; account_name: string | null; count: number }[];
+  notices: FinanceSmsLearningNotice[];
+  version: number;
+}
+
+export interface FinanceSmsReviewSummary {
+  total: number;
+  scanned: number;
+  complete: boolean;
+  groups: { reason: string; count: number; items: { key: string; count: number; fix: FinanceSmsFix | null }[] }[];
+}
+
+export interface FinanceSmsUndoLearning { message_id: string; status: string; reason: string | null; reversed_entry_id: string; learning: FinanceSmsLearning }
 
 export interface FinanceSmsMessagePage { items: FinanceSmsMessage[]; total: number; limit: number; offset: number }
 
@@ -138,6 +203,7 @@ export interface FinanceSmsCorrection {
   allow_duplicate?: boolean;
   confirm_format?: boolean;
   teach?: boolean;
+  remember?: boolean;
 }
 
 export interface FinanceSmsRule {
@@ -162,6 +228,7 @@ export interface FinanceSmsCorrectionResult {
   reversed_entry_id: string | null;
   proposed_rule: FinanceSmsRule | null;
   rule_error: string | null;
+  learned?: FinanceSmsLearningNotice[];
 }
 
 export interface FinanceSmsIngestResult { status: string; reason: string | null; message_id: string | null; replayed: boolean; text: string }

@@ -232,7 +232,7 @@ def test_the_same_kind_twice_for_a_party_is_applied_next_time_and_can_be_undone(
     three = send(s["token"], credit("2200.00", 3))
     assert three["status"] == "posted" and entry_of(three["message_id"]).kind == "salary"
     shown = message(three["message_id"])
-    assert shown["parsed"]["learned"]["what"] == "kind" and shown["fix"]["action"] == "undo_learning"
+    assert shown["learned"]["what"] == "kind" and shown["fix"]["action"] == "undo_learning"
     # Another party, or money out, is untouched.
     assert entry_of(send(s["token"], credit("50.00", 4, party="ZETA HOLDINGS"))["message_id"]).kind == "deposit"
     undo = client.post(f"{API}/sms/messages/{three['message_id']}/undo-learning", headers=OWNER)
@@ -296,7 +296,7 @@ def test_the_same_category_twice_makes_an_approved_learned_rule_that_files_the_n
     assert made["current"]["provenance"] == "learned" and made["current"]["status"] == "approved"
     third = send(s["token"], purchase("22.00", 3, merchant="ZEBRA MART"))
     assert entry_of(third["message_id"]).category == "health"
-    assert message(third["message_id"])["parsed"]["learned"] == {"what": "category", "value": "health", "ref": rule_id, "party": "ZEBRA MART"}
+    assert message(third["message_id"])["learned"] == {"what": "category", "value": "health", "ref": rule_id, "party": "ZEBRA MART"}
     # Forgetting it switches the rule off with a new version; the next one is filed by the built-in rules again.
     gone = client.delete(f"{API}/sms/learning/categories/{rule_id}", headers=OWNER)
     assert gone.status_code == 200, gone.text
