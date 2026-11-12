@@ -1,6 +1,7 @@
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
 import '../records_kit/records_kit.dart';
+import 'fleet_costs.dart';
 
 /// Vehicles, fuel and mileage (docs/vehicles.md#api), the fields the phone
 /// shows. Money is never posted here: a cost points at a Finance payment.
@@ -327,6 +328,8 @@ enum VehicleRecordKind {
 }
 
 abstract interface class VehiclesRepository {
+  /// Fleet costs and the monthly client report (docs/vehicles.md#fleet).
+  FleetApi get fleet;
   Future<RecordsChunk<Vehicle>> list(
       {String query, bool archived, String? token});
   Future<Vehicle> get(String id);
@@ -356,6 +359,9 @@ class ApiVehiclesRepository implements VehiclesRepository {
   static const _base = '/api/v1/vehicles';
   static const pageSize = 20;
   String _id(String id) => Uri.encodeComponent(id);
+
+  @override
+  FleetApi get fleet => FleetApi(api);
 
   @override
   Future<RecordsChunk<Vehicle>> list(

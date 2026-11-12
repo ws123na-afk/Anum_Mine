@@ -11,6 +11,40 @@ class VehiclesStrings extends ModuleStrings {
   static bool get catalogsMatch => ModuleStrings.match(_en, _ar);
 
   static const _en = <String, String>{
+    'fleet.title': 'Fleet costs',
+    'fleet.previous': 'Previous month',
+    'fleet.next': 'Next month',
+    'fleet.empty':
+        'No business vehicles yet. Import a client\'s fleet on the web (Vehicles, Import) or add a business vehicle.',
+    'fleet.summary': 'This month',
+    'fleet.vehiclesKm': '{vehicles} business vehicles, {km} km driven',
+    'fleet.total': 'Cost {amount}, {perKm} per km (month before {before})',
+    'fleet.basis':
+        'Each record counts once: its linked payment, else the figure on the record. Currencies are never added together.',
+    'fleet.perVehicle': 'Cost per vehicle',
+    'fleet.perKm': '{value} per km',
+    'fleet.worst': 'Highest cost per km',
+    'fleet.worstNone':
+        'No vehicle drove 100 km or more with a cost this month.',
+    'fleet.renewals': 'Renewals due',
+    'fleet.renewalsNone': 'Nothing expires in the next 60 days.',
+    'fleet.renewal.insurance': 'Insurance',
+    'fleet.renewal.registration': 'Registration',
+    'fleet.renewal.inspection': 'Inspection',
+    'fleet.overdue': 'Overdue',
+    'fleet.report': 'Monthly client report',
+    'fleet.company': 'Company name on the report',
+    'fleet.companyRequired': 'Type the company name the report is for.',
+    'fleet.english': 'English',
+    'fleet.arabic': 'Arabic',
+    'fleet.notes': 'Notes for the client',
+    'fleet.pdf': 'Save PDF',
+    'fleet.xlsx': 'Save Excel',
+    'fleet.saved': 'Report saved.',
+    'fleet.notSaved': 'Nothing was saved.',
+    'fleet.reportFailed': 'The report could not be made: {message}',
+    'fleet.never':
+        'ANUM makes the file and you save it; nothing is sent to the client. To email it, attach it in Email, where sending waits for approval.',
     'title': 'Vehicles',
     'subtitle':
         'Your cars and the business vehicles: fuel, trips, service and reminders. Costs come from Finance payments.',
@@ -172,6 +206,39 @@ class VehiclesStrings extends ModuleStrings {
   };
 
   static const _ar = <String, String>{
+    'fleet.title': 'تكاليف الأسطول',
+    'fleet.previous': 'الشهر السابق',
+    'fleet.next': 'الشهر التالي',
+    'fleet.empty':
+        'لا توجد مركبات أعمال بعد. استورد أسطول عميل من الويب (المركبات، استيراد) أو أضف مركبة أعمال.',
+    'fleet.summary': 'هذا الشهر',
+    'fleet.vehiclesKm': '{vehicles} مركبة أعمال، {km} كم مقطوعة',
+    'fleet.total': 'التكلفة {amount}، {perKm} لكل كم (الشهر السابق {before})',
+    'fleet.basis':
+        'يُحتسب كل سجل مرة واحدة: بدفعته المرتبطة، وإلا بالمبلغ المكتوب فيه. لا تُجمع العملات معًا.',
+    'fleet.perVehicle': 'التكلفة لكل مركبة',
+    'fleet.perKm': '{value} لكل كم',
+    'fleet.worst': 'الأعلى تكلفة لكل كيلومتر',
+    'fleet.worstNone': 'لم تقطع أي مركبة 100 كم أو أكثر مع تكلفة هذا الشهر.',
+    'fleet.renewals': 'التجديدات المستحقة',
+    'fleet.renewalsNone': 'لا شيء ينتهي خلال الأيام الستين القادمة.',
+    'fleet.renewal.insurance': 'التأمين',
+    'fleet.renewal.registration': 'تسجيل المركبة',
+    'fleet.renewal.inspection': 'الفحص الدوري',
+    'fleet.overdue': 'متأخر',
+    'fleet.report': 'التقرير الشهري للعميل',
+    'fleet.company': 'اسم الشركة في التقرير',
+    'fleet.companyRequired': 'اكتب اسم الشركة التي أُعد لها التقرير.',
+    'fleet.english': 'الإنجليزية',
+    'fleet.arabic': 'العربية',
+    'fleet.notes': 'ملاحظات للعميل',
+    'fleet.pdf': 'حفظ PDF',
+    'fleet.xlsx': 'حفظ Excel',
+    'fleet.saved': 'حُفظ التقرير.',
+    'fleet.notSaved': 'لم يُحفظ شيء.',
+    'fleet.reportFailed': 'تعذر إعداد التقرير: {message}',
+    'fleet.never':
+        'يُعد ANUM الملف وتحفظه أنت؛ لا يُرسل شيء إلى العميل. لإرساله بالبريد، أرفقه في البريد الإلكتروني حيث ينتظر الإرسال الموافقة.',
     'title': 'المركبات',
     'subtitle':
         'سياراتك ومركبات العمل: الوقود والرحلات والصيانة والتذكيرات. التكاليف تأتي من مدفوعات المالية.',
