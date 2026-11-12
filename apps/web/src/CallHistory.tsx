@@ -2,13 +2,14 @@
 // newest first with Load older, a Missed filter, and Call back. Only the two participants can
 // see a call (the API's row policies), so this lists the signed-in person's calls only.
 import { useCallback, useEffect, useState } from 'react';
-import { PhoneCall, PhoneIncoming, PhoneMissed, PhoneOutgoing, RefreshCw } from 'lucide-react';
+import { PhoneCall, PhoneIncoming, PhoneMissed, PhoneOutgoing, RefreshCw, Users } from 'lucide-react';
 import type { AppCall } from '@anum/contracts';
 import { listCalls } from './lib/appCallsApi';
-import { formatDuration, isMissed, outcomeWord } from './lib/appCalls';
+import { formatDuration, groupHistory, groupOutcome, isMissed, outcomeWord } from './lib/appCalls';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { CallButtons, useAppCalls } from './AppCalls';
+import { CallPeoplePicker } from './CallPeoplePicker';
 
 type State = { state: 'loading' } | { state: 'ready'; items: AppCall[]; cursor: string | null } | { state: 'error'; message: string };
 
@@ -16,6 +17,7 @@ export function CallHistory() {
   const calls = useAppCalls();
   const [missed, setMissed] = useState(false);
   const [state, setState] = useState<State>({ state: 'loading' });
+  const [picking, setPicking] = useState(false);
   const revision = calls?.revision ?? 0;
   const load = useCallback(async (cursor: string | null, append: boolean) => {
     if (!append) setState({ state: 'loading' });
@@ -34,8 +36,16 @@ export function CallHistory() {
 
   const filter = (value: boolean) => { if (value !== missed) setMissed(value); };
   return <section className="surface teamPanel" aria-labelledby="calls-title">
-    <h2 id="calls-title">{t('appCalls.history.title')}</h2>
-    <p className="muted">{t('appCalls.history.help')}</p>
+    <div className="callsHead">
+      <div>
+        <h2 id="calls-title">{t('appCalls.history.title')}</h2>
+        <p className="muted">{t('appCalls.history.help')}</p>
+      </div>
+      {calls && calls.config.state !== 'loading' && <button type="button" className="secondary" disabled={Boolean(calls.unavailable) || calls.inCall} onClick={() => setPicking(true)}><Users aria-hidden="true" />{t('appCalls.group.new')}</button>}
+    </div>
+    {picking && calls && <div className="appCallLayer"><CallPeoplePicker mode="start" exclude={new Set()} slots={3}
+      videoEnabled={calls.config.state === 'ready' && calls.config.config.video_enabled}
+      onClose={() => setPicking(false)} onPick={(people, media) => { setPicking(false); calls.startGroup(people, media); }} /></div>}
     {calls?.unavailable && <p className="notice callsNote" role="status">{calls.unavailable}</p>}
     {calls?.config.state === 'ready' && calls.config.config.mode === 'stun_only' && <p className="notice callsNote" role="status">{t('appCalls.stunOnly')}</p>}
     <div className="callFilters" role="group" aria-label={t('appCalls.history.filter')}>
@@ -53,7 +63,7 @@ export function CallHistory() {
       <p>{missed ? t('appCalls.history.emptyMissedText') : t('appCalls.history.emptyText')}</p>
     </div>}
     {state.state === 'ready' && state.items.length > 0 && <ul className="callHistory" aria-label={t('appCalls.history.title')}>
-      {state.items.map((call) => <CallRow key={call.id} call={call} />)}
+      {groupHistory(state.items).map((entry) => entry.roomId ? <GroupRow key={entry.key} calls={entry.calls} /> : <CallRow key={entry.key} call={entry.calls[0]} />)}
     </ul>}
     {state.state === 'ready' && state.cursor && <div className="actions">
       <button type="button" className="secondary" onClick={() => void load(state.cursor, true)}>{t('appCalls.history.loadOlder')}</button>
@@ -79,5 +89,23 @@ function CallRow({ call }: { call: AppCall }) {
       <small><span className="callWord">{word ? t(`appCalls.word.${word}` as MessageKey) : t('appCalls.phase.ringing')}</span> · {detail}</small>
     </div>
     <CallButtons person={{ user_id: call.peer_user_id, display_name: call.peer_name }} compact />
+  </li>;
+}
+
+/** One group call: the people you were connected with or rang, as one entry. */
+function GroupRow({ calls }: { calls: AppCall[] }) {
+  const word = groupOutcome(calls);
+  const names = [...new Set(calls.map((c) => c.peer_name))].join(', ');
+  const first = calls[calls.length - 1];
+  const when = formatDateTime(first.created_at, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const longest = Math.max(0, ...calls.map((c) => (c.answered_at ? c.duration_seconds ?? 0 : 0)));
+  const media = t(calls.some((c) => c.media === 'video') ? 'appCalls.videoCall' : 'appCalls.voiceCall');
+  const detail = [t('appCalls.group.title'), media, when, longest ? t('appCalls.history.lasted', { duration: formatDuration(longest) }) : null].filter(Boolean).join(' · ');
+  return <li className={`callRow ${word === 'missed' ? 'missed' : ''}`}>
+    <Users className="direction" aria-hidden="true" />
+    <div>
+      <strong><bdi>{names}</bdi></strong>
+      <small><span className="callWord">{word ? t(`appCalls.word.${word}` as MessageKey) : t('appCalls.phase.ringing')}</span> · {detail}</small>
+    </div>
   </li>;
 }

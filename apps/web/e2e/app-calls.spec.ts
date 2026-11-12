@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect as baseExpect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 import { CallRelay, type Teammate } from './support/appCallsRelay';
@@ -173,6 +174,123 @@ test('the incoming call screen in Arabic', async ({ browser }) => {
   await expect(ahmed.page.locator('html')).toHaveAttribute('dir', 'rtl');
   await incoming.getByRole('button', { name: 'رفض' }).click();
   await omar.context.close(); await ahmed.context.close();
+});
+
+const VERA: Teammate = { user_id: 'user_vera', name: 'user_vera' };
+
+test('adding a person turns the call into a group call where all three hear each other', async ({ browser }) => {
+  const relay = new CallRelay();
+  const omar = await person(browser, relay, OMAR, [AHMED, VERA], '/#team');
+  const ahmed = await person(browser, relay, AHMED, [OMAR, VERA], '/#home');
+  const vera = await person(browser, relay, VERA, [OMAR, AHMED], '/#home');
+  await openPeople(omar.page);
+  await omar.page.getByRole('button', { name: 'Call Ahmed Saleh', exact: true }).click();
+  await ahmed.page.getByRole('alertdialog', { name: 'Omar Owner' }).getByRole('button', { name: 'Answer', exact: true }).click();
+  const omarCall = omar.page.getByRole('dialog', { name: 'Ahmed Saleh' });
+  await expect(omarCall.getByTestId('call-status')).toHaveText(/^\d:\d\d$/, { timeout: 20_000 });
+
+  await omarCall.getByRole('button', { name: 'Add person' }).click();
+  const picker = omar.page.getByRole('dialog', { name: 'Add people to the call' });
+  await expect(picker).toContainText('Pick up to 2 people.');
+  // Ahmed is already in the call, so only Vera is offered.
+  await expect(picker.getByRole('list', { name: 'People in the call' }).getByRole('listitem')).toHaveCount(1);
+  await picker.getByRole('button', { name: /user_vera/ }).click();
+  await picker.getByRole('button', { name: 'Ring 1 person' }).click();
+
+  const veraRing = vera.page.getByRole('alertdialog', { name: 'Omar Owner' });
+  await expect(veraRing).toContainText('is calling you in a group call');
+  await expect(veraRing).toContainText('With Ahmed Saleh');
+  await veraRing.getByRole('button', { name: 'Answer', exact: true }).click();
+
+  for (const page of [omar.page, ahmed.page, vera.page]) {
+    const call = page.getByRole('dialog', { name: 'Group call' });
+    await expect(call).toContainText('3 people');
+    await expect(call.getByTestId('call-status')).toHaveText(/^\d:\d\d$/, { timeout: 20_000 });
+  }
+  // Every two people have their own connection: Vera answered last, so she offered to Ahmed.
+  await expect(vera.page.getByRole('list', { name: 'People in the call' })).toContainText('Ahmed Saleh · Connected', { timeout: 20_000 });
+  await expect(ahmed.page.getByRole('list', { name: 'People in the call' })).toContainText('user_vera · Connected', { timeout: 20_000 });
+  expect(relay.signals.filter((s) => s.kind === 'offer')).toHaveLength(3);
+  const axe = await new AxeBuilder({ page: vera.page }).include('.appCallLayer').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
+  expect(axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([]);
+
+  // Ahmed leaves; Omar and Vera stay connected. Then Omar leaves and the call is over for Vera.
+  await ahmed.page.getByRole('dialog', { name: 'Group call' }).getByRole('button', { name: 'Hang up' }).click();
+  await expect(omar.page.getByRole('dialog', { name: 'Group call' })).toContainText('2 people');
+  await omar.page.getByRole('dialog', { name: 'Group call' }).getByRole('button', { name: 'Hang up' }).click();
+  await expect(vera.page.getByRole('dialog', { name: 'Group call' }).getByRole('status')).toHaveText('Call ended');
+  await omar.context.close(); await ahmed.context.close(); await vera.context.close();
+});
+
+test('a voice call switches to video and a shared screen without hanging up', async ({ browser }) => {
+  const relay = new CallRelay();
+  const omar = await person(browser, relay, OMAR, [AHMED], '/#team');
+  const ahmed = await person(browser, relay, AHMED, [OMAR], '/#home');
+  // A canvas stands in for the screen picker, which a headless browser cannot show.
+  await omar.page.evaluate(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 360 });
+      const draw = canvas.getContext('2d')!;
+      setInterval(() => { draw.fillStyle = `hsl(${Date.now() % 360} 70% 50%)`; draw.fillRect(0, 0, 640, 360); }, 50);
+      return canvas.captureStream(15);
+    };
+  });
+  await openPeople(omar.page);
+  await omar.page.getByRole('button', { name: 'Call Ahmed Saleh', exact: true }).click();
+  await ahmed.page.getByRole('alertdialog', { name: 'Omar Owner' }).getByRole('button', { name: 'Answer', exact: true }).click();
+  const omarCall = omar.page.getByRole('dialog', { name: 'Ahmed Saleh' });
+  const ahmedCall = ahmed.page.getByRole('dialog', { name: 'Omar Owner' });
+  await expect(ahmedCall.getByTestId('call-status')).toHaveText(/^\d:\d\d$/, { timeout: 20_000 });
+  await expect(ahmedCall).toContainText('Voice call');
+
+  await omarCall.getByRole('button', { name: 'Turn on video' }).click();
+  await expect(omarCall.getByRole('button', { name: 'Turn camera off' })).toBeVisible();
+  const remote = ahmedCall.getByLabel('Video from Omar Owner');
+  await expect.poll(() => remote.evaluate((video: HTMLVideoElement) => video.videoWidth), { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect(ahmedCall).toContainText('Video call');
+
+  await omarCall.getByRole('button', { name: 'Share screen' }).click();
+  await expect(omarCall.getByRole('button', { name: 'Stop sharing' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(ahmedCall).toContainText('sharing their screen');
+  await expect.poll(() => remote.evaluate((video: HTMLVideoElement) => video.videoWidth), { timeout: 15_000 }).toBe(640);
+  await omarCall.getByRole('button', { name: 'Stop sharing' }).click();
+  await expect(ahmedCall).not.toContainText('sharing their screen');
+  expect(relay.media).toEqual(['user_local:camera', 'user_local:screen']);
+  // The call never restarted: one offer, one answer.
+  expect(relay.signals.filter((s) => s.kind === 'offer')).toHaveLength(1);
+  await omarCall.getByRole('button', { name: 'Hang up' }).click();
+  await omar.context.close(); await ahmed.context.close();
+});
+
+test('a new group call rings the people picked, and tells the host who declined', async ({ browser }) => {
+  const relay = new CallRelay();
+  const omar = await person(browser, relay, OMAR, [AHMED, VERA], '/#team');
+  const ahmed = await person(browser, relay, AHMED, [OMAR, VERA], '/#home');
+  const vera = await person(browser, relay, VERA, [OMAR, AHMED], '/#home');
+  await omar.page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name: 'Team calls' }).click();
+  await omar.page.getByRole('button', { name: 'New group call' }).click();
+  const picker = omar.page.getByRole('dialog', { name: 'Start a group call' });
+  const start = picker.getByRole('button', { name: 'Start voice call' });
+  await picker.getByRole('button', { name: /Ahmed Saleh/ }).click();
+  await expect(start).toBeDisabled(); // a group call needs two people besides you
+  const axe = await new AxeBuilder({ page: omar.page }).include('.appCallLayer').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
+  expect(axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([]);
+  await picker.getByRole('searchbox').fill('vera');
+  await expect(picker.getByRole('listitem')).toHaveCount(1);
+  await picker.getByRole('button', { name: /user_vera/ }).click();
+  await start.click();
+  await expect.poll(() => relay.rooms.length).toBe(1);
+  await ahmed.page.getByRole('alertdialog', { name: 'Omar Owner' }).getByRole('button', { name: 'Decline' }).click();
+  await expect(omar.page.getByRole('status').filter({ hasText: 'Ahmed Saleh declined the call.' })).toBeVisible();
+  await vera.page.getByRole('alertdialog', { name: 'Omar Owner' }).getByRole('button', { name: 'Answer', exact: true }).click();
+  const call = omar.page.getByRole('dialog', { name: 'Group call' });
+  await expect(call.getByTestId('call-status')).toHaveText(/^\d:\d\d$/, { timeout: 20_000 });
+  await call.getByRole('button', { name: 'Hang up' }).click();
+  await omar.page.getByRole('dialog', { name: 'Group call' }).getByRole('button', { name: 'Close' }).click();
+  const history = omar.page.getByRole('list', { name: 'Team calls' });
+  await expect(history.getByRole('listitem')).toHaveCount(1);
+  await expect(history).toContainText('Group call');
+  await omar.context.close(); await ahmed.context.close(); await vera.context.close();
 });
 
 for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const) {

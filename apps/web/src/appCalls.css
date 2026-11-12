@@ -70,3 +70,36 @@
   .callRow .callButtons { grid-column: 2; }
   .personActions { justify-content: flex-start; }
 }
+/* Group calls, video mid-call and screen sharing (docs/in-app-calls.md#group-calls). */
+.appCallTiles { display: grid; gap: var(--d-s2); grid-template-columns: repeat(2, minmax(0, 1fr)); inline-size: 100%; list-style: none; margin: 0; padding: 0; }
+.appCallTile {
+  align-items: center; aspect-ratio: 16 / 10; background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: var(--d-r-control);
+  display: grid; justify-items: center; min-inline-size: 0; overflow: hidden; place-content: center; position: relative;
+}
+.appCallTile .appCallAvatar { block-size: 56px; font-size: var(--text-2xl); inline-size: 56px; }
+.appCallTileVideo { background: #000; block-size: 100%; inline-size: 100%; inset: 0; object-fit: contain; position: absolute; }
+.appCallTileName {
+  background: color-mix(in srgb, var(--d-bg) 70%, transparent); border-radius: var(--d-r-control); font-size: var(--text-sm); inset-block-end: var(--d-s2);
+  inset-inline: var(--d-s2); overflow: hidden; padding: 2px var(--d-s2); position: absolute; text-align: start; text-overflow: ellipsis; white-space: nowrap;
+}
+.mirrored { transform: scaleX(-1); }
+.appCallLocal:not(.mirrored) { transform: none; }
+.appCallVideoOff { align-items: center; display: flex; inset: 0; justify-content: center; position: absolute; }
+.appCallPicker { max-inline-size: 480px; text-align: start; justify-items: stretch; }
+.appCallPicker h2 { font-size: var(--text-2xl); text-align: center; }
+.appCallSearch { inline-size: 100%; min-block-size: 44px; }
+.appCallPickList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; max-block-size: min(320px, 40dvh); overflow-y: auto; padding: 0; }
+.appCallPickRow {
+  align-items: start; background: var(--d-glass-1, transparent); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text);
+  display: grid; gap: 2px; inline-size: 100%; min-block-size: 44px; padding: var(--d-s2) var(--d-s3); text-align: start;
+}
+.appCallPickRow[aria-pressed="true"] { background: var(--d-glass-3); border-color: var(--d-ok); }
+.appCallPickRow small { color: var(--d-muted); font-size: var(--text-sm); }
+.appCallPickRow:disabled { opacity: .55; }
+.callsHead { align-items: start; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.callsHead h2 { margin-block-start: 0; }
+.callsHead button { align-items: center; display: inline-flex; gap: var(--d-s1); min-block-size: 40px; }
+@media (max-width: 640px) {
+  .appCallTiles { gap: var(--d-s1); }
+  .appCallTile .appCallAvatar { block-size: 44px; font-size: var(--text-xl); inline-size: 44px; }
+}

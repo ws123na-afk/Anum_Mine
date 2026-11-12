@@ -1,7 +1,8 @@
 // In-app calls over the live API (docs/in-app-calls.md#api). Every rule (same workspace,
 // participants only, who sends the offer) is the server's; this only calls it.
 import type {
-  AppCall, AppCallConfig, AppCallEndReason, AppCallIceCandidate, AppCallIceServers, AppCallMedia, AppCallPage, AppCallSignal,
+  AppCall, AppCallConfig, AppCallEndReason, AppCallIceCandidate, AppCallIceServers, AppCallMedia, AppCallMediaSource, AppCallPage, AppCallRoom,
+  AppCallSignal,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -14,7 +15,14 @@ export const getCallConfig = () => apiRequest<AppCallConfig>('/api/v1/app-calls/
 export const getIceServers = () => apiRequest<AppCallIceServers>('/api/v1/app-calls/ice-servers', { method: 'GET' });
 export const placeCall = (calleeUserId: string, media: AppCallMedia, clientId: string) =>
   post<AppCall>('/api/v1/app-calls', { callee_user_id: calleeUserId, media, client_id: clientId });
-export const acceptCall = (callId: string, clientId: string) => post<AppCall>(`/api/v1/app-calls/${id(callId)}/accept`, { client_id: clientId });
+// group: this tab can hold a group call (one connection per person), so it may answer one.
+export const acceptCall = (callId: string, clientId: string) => post<AppCall>(`/api/v1/app-calls/${id(callId)}/accept`, { client_id: clientId, group: true });
+export const placeGroupCall = (userIds: string[], media: AppCallMedia, clientId: string) =>
+  post<AppCallRoom>('/api/v1/app-calls/rooms', { user_ids: userIds, media, client_id: clientId });
+export const inviteToCall = (callId: string, userId: string, clientId: string) =>
+  post<AppCallRoom>(`/api/v1/app-calls/${id(callId)}/invite`, { user_id: userId, client_id: clientId });
+export const leaveGroupCall = (roomId: string, reason: 'hangup' | 'failed' = 'hangup') => post<AppCallRoom>(`/api/v1/app-calls/rooms/${id(roomId)}/leave`, { reason });
+export const turnOnVideo = (callId: string, source: AppCallMediaSource) => post<AppCall>(`/api/v1/app-calls/${id(callId)}/media`, { media: 'video', source });
 export const endCall = (callId: string, reason: AppCallEndReason = 'hangup') => post<AppCall>(`/api/v1/app-calls/${id(callId)}/end`, { reason });
 export const sendHeartbeat = (callId: string) => apiRequestVoid(`/api/v1/app-calls/${id(callId)}/heartbeat`, { method: 'POST' });
 export const sendDescription = (callId: string, kind: 'offer' | 'answer', sdp: string) => post<{ id: string }>(`/api/v1/app-calls/${id(callId)}/signals`, { kind, sdp });
@@ -31,6 +39,7 @@ export function listCalls(options: { cursor?: string | null; missed?: boolean; l
 export interface CallStreamHandlers {
   onCall(call: AppCall): void;
   onSignal(signal: AppCallSignal): void;
+  onRoom?(room: AppCallRoom): void;
   onState(state: 'connecting' | 'live' | 'offline'): void;
 }
 
@@ -59,6 +68,7 @@ export async function runCallStream(clientId: string, handlers: CallStreamHandle
         buffer = parsed.rest;
         for (const frame of parsed.frames) {
           if (frame.event === 'call') handlers.onCall(JSON.parse(frame.data) as AppCall);
+          else if (frame.event === 'room') handlers.onRoom?.(JSON.parse(frame.data) as AppCallRoom);
           else if (frame.event === 'signal') {
             const message = JSON.parse(frame.data) as AppCallSignal;
             if (seen.has(message.id)) continue;
