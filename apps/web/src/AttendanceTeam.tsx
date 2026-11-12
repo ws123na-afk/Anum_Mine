@@ -27,7 +27,7 @@ export function Avatar({ name }: { name: string }) {
   return <span className="attAvatar" aria-hidden="true">{initials(name)}</span>;
 }
 
-function stateChip(row: AttendanceTeamRow): { tone: Chip; text: string } {
+export function stateChip(row: AttendanceTeamRow): { tone: Chip; text: string } {
   const state = rowState(row);
   const past = row.status === null;
   if (state === 'on_site') return { tone: 'ok', text: t('attTeam.state.on_site') };

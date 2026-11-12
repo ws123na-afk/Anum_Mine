@@ -19,7 +19,7 @@ patterns (events replayed into state, the daily retention job, the maintenance d
 
 | Decision | Default | How to change it |
 |---|---|---|
-| Who sees a record | The person only. In any workspace (personal or business) a manager or colleague sees someone's attendance only while that person shares it with them, read only. | Sharing is per person; a workspace-wide manager view would need a new permission and an owner decision. |
+| Who sees a record | The person only. In any workspace (personal or business) a manager or colleague sees someone's attendance only while that person shares it with them, read only. | Sharing is per person. A workspace owner may turn on the [manager view](#manager-view) (off by default): then owners and organisation administrators read everyone's times, never reports or corrections, and every member is told. |
 | Raw location events | Kept 90 days, then reduced to daily totals and deleted. | `RAW_RETENTION_DAYS` in `attendance/service.py` and the matching interval in the migration's maintenance policy. |
 | Coordinates | Never stored. The phone's own geofence decides; the server learns only which named site matched and, optionally, a quality flag from the reported accuracy. | Not configurable. |
 | Pause | Location check in can be paused, resumed or turned off at any time; while paused or off, phone events are refused and nothing is stored. | Settings tab. |
@@ -95,6 +95,8 @@ All under `/api/v1/attendance`, signed in, `attendance:use`:
 | `GET /daily-reports` (search, paging), `GET/PUT/DELETE /daily-reports/{day}`, `POST /daily-reports/draft` | Daily reports and AI drafts |
 | `GET/POST /shares`, `DELETE /shares/{id}` | Sharing |
 | `GET /team?date=&limit=&offset=` | Team attendance (below): the caller and each colleague who shares with them |
+| `GET`, `PUT /workspace-settings` | Whether the [manager view](#manager-view) is on (everyone); turn it on or off (owners and organisation administrators, `expected_version`) |
+| `GET /manager?date=&limit=&offset=`, `GET /manager/export.csv?from=&to=` | The manager view and its CSV (owners and organisation administrators, only while it is on) |
 | `GET /limits` | The fixed rules the screens explain |
 
 Idempotency: every write that a client may retry carries an idempotency key (8 to 128 characters). The same key
@@ -115,9 +117,21 @@ scheduled time, attention flags, and the daily report's status (`none`, `draft`,
 the tasks done. The report status and summary are shown only for the caller and for shares that include reports;
 otherwise `report` is empty. Names come from Team people (`GET /api/v1/team/people`), which every member may read.
 
-There is no leave or absence record in Attendance, and no workspace-wide manager view: a manager sees a person here
-only after that person shares with them (Settings, Sharing). Approving or rejecting someone else's report or
+There is no leave or absence record in Attendance. Here a manager sees a person only after that person shares with them
+(Settings, Sharing); the workspace-wide view is separate and off by default ([Manager view](#manager-view)). Approving or rejecting someone else's report or
 correction is not possible: a share never allows a write, and corrections apply at once with their reason.
+
+## Manager view
+
+A workspace-wide, read-only view of everyone's attendance, **off by default** (`attendance_workspace_settings.manager_view`, migration `0179_attendance_manager_view`). Only a workspace owner or an organisation administrator (`workspace:manage` through the owner role, or `org_admin`) turns it on or off (`PUT /workspace-settings` with `expected_version`; a stale version is 409) and reads it; every person who keeps attendance may read whether it is on (`GET /workspace-settings`, with `can_manage`), and the Team attendance page tells them while it is on.
+
+- **What it shows** (`GET /manager?date=&limit=&offset=`, at most 100 a page): one row per person who keeps attendance in the workspace (a saved profile or any event), ordered by user id, in the Team view's row shape: status now, sites, first check in and its source, breaks, worked, presence, remote and scheduled time, and flags. A row's `report` is always empty for other people: daily reports and corrections are never part of the view; a report is still read only through the person's own share.
+- **Export** (`GET /manager/export.csv?from=&to=`): one CSV with `person`, `name` (Team people), `role_title` and the personal export's columns, one row per person and day, formula cells escaped, at most 92 days and 500 people per file.
+- **Off means closed:** with the switch off every manager route answers 409 with how to turn it on; turning it off closes the view at once.
+- **Database:** each unit that reads for the view sets `anum.attendance_manager`; the restrictive read policies of `attendance_profiles`, `attendance_sites`, `attendance_events` and `attendance_day_totals` admit other people's rows only when that flag is set **and** the workspace's own `manager_view` is on, so neither alone widens anything. Reports, corrections and shares keep their 0132 policies, and no write policy is widened. The switch's row is written only in such a unit (restrictive insert and update policies). The table is under forced RLS, purged with the workspace (`tenant_lifecycle_tables.py`).
+- **Audit:** turning it on or off (`attendance.manager_view`), each page read (`attendance.manager.read`, row count) and each export (`attendance.manager.export`, people and days); ids and counts only.
+- **Web:** Attendance, **Workspace** tab (`#attendance-workspace`, `AttendanceWorkspace.tsx`, a lazy chunk), shown only to people who may manage it: the switch with what it shows and keeps private and a confirm, the off state with Turn on, the roster for the page's Day with Previous and Next, the CSV export with From and To; members get a banner on Team attendance while it is on, and opening the tab's link says who can use it.
+- **Phone:** not yet (listed in [pending work](pending-work.md)).
 
 ## iPhone Shortcuts
 
@@ -228,12 +242,13 @@ Menu, **Attendance** (`/attendance`, `apps/mobile/lib/features/attendance/`, [Re
 - `tests/test_attendance_api.py`: permissions, profile versions, web and device idempotency and retries, consent and
   pause, no coordinates, device authority seam, corrections, summaries and exports, formula-safe CSV, daily reports,
   sharing, AI draft rules, retention reduction, alerts.
-- `tests/test_postgres_attendance.py`: forced RLS and policies, owner-only rows, database refusal of other people's
+- `tests/test_attendance_manager_view.py`: the manager view off by default, owner-only switch with versions, members told, paging, no reports, read only, CSV with escaped cells and range limits, the store widening only in a manager unit with the switch on.
+- `tests/test_postgres_attendance.py`: forced RLS and policies, the manager view under RLS (flag and switch both needed, never reports, corrections or writes, workspace-bound), owner-only rows, database refusal of other people's
   writes, sharing read only, idempotency under the unique key, versions, maintenance discovery, the daily job, purge.
-- Web: `apps/web/test/attendance.test.ts`, `apps/web/e2e/attendance.spec.ts` (desktop and phone, axe).
+- Web: `apps/web/test/attendance.test.ts`, `apps/web/e2e/attendance.spec.ts` (desktop and phone, axe; the Workspace tab for an owner and a member).
 
 ## Not in phase A
 
 - On the phone: sharing, sites, the profile and schedule, AI drafts, CSV and PDF exports and reading a colleague's shared record (on the web).
-- A productivity view and a workspace-wide manager view (needs an owner decision on who may see whom).
+- A productivity view. The workspace manager view is on the web only; the phone does not show it yet.
 - Real-device testing of Shortcuts.

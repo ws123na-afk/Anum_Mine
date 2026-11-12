@@ -189,6 +189,8 @@ const signal = { id: 'signal_1', kind: 'draft_edited', surface: 'email', subject
 const commerceFixture = commerceState('owner');
 const financeFixture = financeState();
 const attendanceFixture = attendanceState();
+// The signed-in owner sees the workspace attendance view, turned on, so the gate renders its roster (#attendance-workspace).
+attendanceFixture.workspace = { ...attendanceFixture.workspace, can_manage: true, manager_view: true, version: 1 };
 const vehiclesFixture = vehiclesState();
 const purchasesFixture = purchasesState();
 

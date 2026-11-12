@@ -7,8 +7,12 @@ Who can do what (checked here, on the server, for every route):
 * Reading someone else's attendance needs that person's active share naming the caller
   (``?person=<user id>``); a share never allows a change. Without one the answer is 404, the
   same as for a person with no records, so nobody can probe who keeps attendance.
-* Viewers have no Attendance. The database enforces the same rules (forced RLS, migration
-  ``0132_work_attendance``).
+* The workspace manager view (``/workspace-settings``, ``/manager``, ``/manager/export.csv``): workspace
+  owners and organisation administrators read everyone's attendance times, read only, only while an owner has
+  turned ``manager_view`` on (off by default). Daily reports and corrections are never part of it. Everyone
+  who keeps attendance may read whether it is on.
+* Viewers have no Attendance. The database enforces the same rules (forced RLS, migrations
+  ``0132_work_attendance`` and ``0179_attendance_manager_view``).
 
 This is a personal log kept by the person, never an employer-certified timesheet, and the
 exports say so. Exact coordinates are never accepted or stored.
@@ -17,6 +21,8 @@ exports say so. Exact coordinates are never accepted or stored.
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 from datetime import date, datetime, time, timedelta
 from typing import Any, Literal
 
@@ -25,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..audit import AuditRecord
 from ..authorization import Permission
-from ..dependencies import repository_context, require_permission, tenant_context
+from ..dependencies import repository_context, require_owner_or_org_admin, require_permission, tenant_context
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import engine as E
@@ -46,8 +52,9 @@ from .models import (
     Site,
     SiteKind,
     SiteVisit,
+    WorkspaceSettings,
 )
-from .store import MAX_SHARES, MAX_SITES, AttendanceStore, DuplicateError, open_attendance_store
+from .store import MAX_SHARES, MAX_SITES, AttendanceStore, DuplicateError, manager_reads, open_attendance_store
 
 router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
 
@@ -912,3 +919,155 @@ def limits(context: TenantContext = Depends(tenant_context)) -> dict[str, int]:
     _use(context)
     return {"raw_retention_days": S.RAW_RETENTION_DAYS, "device_max_age_days": S.DEVICE_MAX_AGE.days,
             "poor_accuracy_m": S.POOR_ACCURACY_M, "max_range_days": S.MAX_RANGE_DAYS}
+
+
+# ---- the workspace manager view (docs/attendance.md#manager-view) ---------------------------------------
+#
+# Off by default. When an owner turns it on, workspace owners and organisation administrators see every
+# person's attendance times in this workspace, read only: arrivals, breaks, hours, sites and flags. Daily
+# reports and corrections stay with the person and their own shares. Each unit that reads for the view sets
+# anum.attendance_manager, and the read policies also check the workspace's switch in the database.
+
+MANAGER_DENIED = ("Only workspace owners and organisation administrators see the whole workspace's attendance. "
+                  "Ask a workspace owner if you need it.")
+MANAGER_OFF = ("The workspace attendance view is off. A workspace owner can turn it on under Attendance, Workspace. "
+               "Members are told it is on.")
+MANAGER_PAGE = 100
+MANAGER_EXPORT_PEOPLE = 500
+MANAGER_EXPORT_DAYS = 92  # people times days stays bounded for one request
+
+
+def _manager(context: TenantContext) -> None:
+    _use(context)
+    require_owner_or_org_admin(context, Permission.WORKSPACE_MANAGE, MANAGER_DENIED)
+
+
+def _can_manage(context: TenantContext) -> bool:
+    try:
+        _manager(context)
+    except HTTPException:
+        return False
+    return True
+
+
+class WorkspaceSettingsView(BaseModel):
+    manager_view: bool
+    version: int
+    updated_by: str | None
+    updated_at: datetime | None
+    can_manage: bool
+
+
+class WorkspaceSettingsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manager_view: bool
+    expected_version: int = Field(ge=0)
+
+
+def _settings_view(context: TenantContext, found: WorkspaceSettings) -> WorkspaceSettingsView:
+    return WorkspaceSettingsView(manager_view=found.manager_view, version=found.version, updated_by=found.updated_by,
+                                 updated_at=found.updated_at, can_manage=_can_manage(context))
+
+
+@router.get("/workspace-settings", response_model=WorkspaceSettingsView)
+def get_workspace_settings(context: TenantContext = Depends(tenant_context)) -> WorkspaceSettingsView:
+    """Whether the manager view is on (everyone who keeps attendance may know), and who may change it."""
+    _use(context)
+    with open_attendance_store(context) as store:
+        found = store.get_workspace_settings(context)
+    return _settings_view(context, found)
+
+
+@router.put("/workspace-settings", response_model=WorkspaceSettingsView)
+def put_workspace_settings(body: WorkspaceSettingsInput, context: TenantContext = Depends(tenant_context),
+                           repository: AnumRepository = Depends(repository_context)) -> WorkspaceSettingsView:
+    _manager(context)
+    now = utc_now()
+    with manager_reads(), open_attendance_store(context) as store:
+        current = store.get_workspace_settings(context)
+        saved = WorkspaceSettings(tenant_id=context.tenant_id, workspace_id=context.workspace_id, manager_view=body.manager_view,
+                                  version=current.version, updated_by=context.user_id, updated_at=now)
+        if not store.save_workspace_settings(saved, body.expected_version):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Someone changed this setting since you opened it. Reload and try again.")
+        found = store.get_workspace_settings(context)
+    _audit(repository, context, "attendance.manager_view", f"workspace:{context.workspace_id}", {"on": body.manager_view})
+    return _settings_view(context, found)
+
+
+def _require_view_on(store: AttendanceStore, context: TenantContext) -> None:
+    if not store.get_workspace_settings(context).manager_view:
+        raise HTTPException(status.HTTP_409_CONFLICT, MANAGER_OFF)
+
+
+@router.get("/manager", response_model=TeamView)
+def manager_view(day: date | None = Query(default=None, alias="date"), limit: int = Query(default=50, ge=1, le=MANAGER_PAGE),
+                 offset: int = Query(default=0, ge=0, le=100000), context: TenantContext = Depends(tenant_context),
+                 repository: AnumRepository = Depends(repository_context)) -> TeamView:
+    """Every person who keeps attendance in this workspace, one day, a page at a time; read only."""
+    _manager(context)
+    now = utc_now()
+    with manager_reads(), open_attendance_store(context) as store:
+        _require_view_on(store, context)
+        people, total = store.list_people(context, limit=limit, offset=offset)
+        try:
+            # Reports stay private here: a row carries one only for the caller's own day.
+            rows = [_team_row(store, context, owner, False, day, now) for owner in people]
+        except S.AttendanceError as error:
+            raise _fail(error) from None
+    _audit(repository, context, "attendance.manager.read", f"workspace:{context.workspace_id}", {"rows": len(rows), "offset": offset})
+    return TeamView(day=day, generated_at=now, rows=rows, total=total)
+
+
+MANAGER_CSV_COLUMNS = ("person", "name", "role_title", *S.CSV_COLUMNS)
+
+
+def _names(context: TenantContext) -> dict[str, str]:
+    """Display names of the workspace's members, in its own short unit (never inside the attendance unit)."""
+    from ..team_work import open_team_unit
+
+    try:
+        with open_team_unit(context, require_membership=True) as unit:
+            return {p.user_id: p.display_name for p in unit.people()}
+    except HTTPException:
+        return {}
+
+
+@router.get("/manager/export.csv")
+def manager_export(start: date | None = Query(default=None, alias="from"), end: date | None = Query(default=None, alias="to"),
+                   context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+    """One CSV of everyone's days in the range (owners and organisation administrators, manager view on)."""
+    _manager(context)
+    names = _names(context)
+    now = utc_now()
+    with manager_reads(), open_attendance_store(context) as store:
+        _require_view_on(store, context)
+        end = end or S.today_for(S.profile_for(store, context, context.user_id), now)
+        start = start or end - timedelta(days=29)
+        try:
+            S.check_range(start, end)
+        except S.AttendanceError as exc:
+            raise _fail(exc) from None
+        if (end - start).days + 1 > MANAGER_EXPORT_DAYS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                f"Export at most {MANAGER_EXPORT_DAYS} days of the whole workspace at a time.")
+        people, total = store.list_people(context, limit=MANAGER_EXPORT_PEOPLE, offset=0)
+        if total > MANAGER_EXPORT_PEOPLE:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                f"More than {MANAGER_EXPORT_PEOPLE} people keep attendance here. Export a shorter range per page from the list.")
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(MANAGER_CSV_COLUMNS)
+        days = 0
+        for person in people:
+            profile = S.profile_for(store, context, person)
+            view = S.period(store, context, person, start, end, now)
+            sites = {s.id: s for s in store.list_sites(context, person)}
+            for row in csv.reader(io.StringIO(S.export_csv(view, sites))):
+                if row and row[0] != "date":
+                    writer.writerow([person, S.safe_cell(names.get(person, "")), S.safe_cell(profile.role_title or ""), *row])
+            days += len(view.days)
+    _audit(repository, context, "attendance.manager.export", f"workspace:{context.workspace_id}", {"people": len(people), "days": days})
+    name = f"attendance-workspace-{start.isoformat()}-{end.isoformat()}.csv"
+    return Response(buffer.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})

@@ -184,3 +184,14 @@ class Share(BaseModel):
     include_reports: bool = False
     created_at: datetime
     revoked_at: datetime | None = None
+
+
+class WorkspaceSettings(BaseModel):
+    """The workspace's attendance switches (docs/attendance.md#manager-view). Off until an owner turns it on."""
+
+    tenant_id: str
+    workspace_id: str
+    manager_view: bool = False
+    version: int = 0  # 0: never saved
+    updated_by: str | None = None
+    updated_at: datetime | None = None

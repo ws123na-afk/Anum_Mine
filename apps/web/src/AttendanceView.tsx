@@ -2,9 +2,9 @@
 // their record with them, read only), My timesheet (today, check in and out, week and month hours, exports), Daily
 // reports, Corrections and Sites and shifts. Built on the shared shell (FinanceShell.tsx: page head, tabs, KPI cards).
 // A personal log, never an employer-certified timesheet: the page says so.
-import { useCallback, useEffect, useId, useState } from 'react';
-import { ChevronLeft, ChevronRight, Clock3, Coffee, Download, Eye, House, LogIn, LogOut, MapPin, Plus, RefreshCw, Wifi } from 'lucide-react';
-import type { AttendanceEventKind, AttendancePeriod, AttendanceSite, AttendanceShares, AttendanceTeam, AttendanceTeamRow, AttendanceToday, TeamPerson } from '@anum/contracts';
+import { Suspense, lazy, useCallback, useEffect, useId, useState } from 'react';
+import { Building2, ChevronLeft, ChevronRight, Clock3, Coffee, Download, Eye, House, LogIn, LogOut, MapPin, Plus, RefreshCw, Wifi } from 'lucide-react';
+import type { AttendanceEventKind, AttendancePeriod, AttendanceSite, AttendanceShares, AttendanceTeam, AttendanceTeamRow, AttendanceToday, AttendanceWorkspaceSettings, TeamPerson } from '@anum/contracts';
 import * as api from './lib/attendanceApi';
 import {
   ATTENDANCE_TABS, ATTENTION, clock, dayIn, decimalHours, flagLabel, hashForTab, hours, kindLabel, newKey, nextActions, shiftDay, siteName,
@@ -18,13 +18,16 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { PageSummary, type Crumb } from './PageParts';
-import { FinancePageHead, FinanceTabs, tabPanel } from './FinanceShell';
+import { FinBanner, FinancePageHead, FinanceTabs, tabPanel } from './FinanceShell';
 import { CorrectionsPanel, DailyPanel, SettingsPanel } from './AttendanceParts';
 import {
   FeatureStrip, GlanceCard, PrivacyNote, QuickCorrectionCard, QuickReportCard, ReportDialog, ReportStatusCard, ReportsTable, RosterCard, TeamKpis,
 } from './AttendanceTeam';
 import './commerce.css';
 import './attendance.css';
+
+// The workspace manager view is its own lazy chunk (docs/attendance.md#manager-view).
+const AttendanceWorkspace = lazy(() => import('./AttendanceWorkspace'));
 
 const ICONS: Record<AttendanceEventKind, typeof LogIn> = {
   arrive: LogIn, leave: LogOut, break_start: Coffee, break_end: Coffee, remote_start: House, remote_end: House,
@@ -62,6 +65,8 @@ export function AttendanceView() {
   const [reportDay, setReportDay] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ userId: string; me: boolean; day: string; name: string } | null>(null);
   const [shares, setShares] = useState<Load<AttendanceShares>>({ kind: 'loading' });
+  const [workspace, setWorkspace] = useState<AttendanceWorkspaceSettings | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [sites, setSites] = useState<Load<AttendanceSite[]>>({ kind: 'loading' });
   const [today, setToday] = useState<Load<AttendanceToday>>({ kind: 'loading' });
   const [team, setTeam] = useState<Load<AttendanceTeam>>({ kind: 'loading' });
@@ -93,6 +98,11 @@ export function AttendanceView() {
   useEffect(() => { void loadAll(); }, [loadAll, tick]);
   useEffect(() => { void loadTeam(); }, [loadTeam, tick]);
   useEffect(() => { void loadShares(); }, [loadShares]);
+  const loadWorkspace = useCallback(async () => {
+    setWorkspaceError(null);
+    try { setWorkspace(await api.getWorkspaceSettings()); } catch (e) { setWorkspace(null); setWorkspaceError(describeError(e)); }
+  }, []);
+  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
   // Leaving a colleague's timesheet (any tab, the back button or a link) returns to the signed-in person's own record.
   useEffect(() => { if (tab !== 'timesheet') setViewing(null); }, [tab]);
   useEffect(() => { void (async () => { try { setPeople(await api.listPeople()); } catch { setPeople([]); } })(); }, []);
@@ -162,7 +172,7 @@ export function AttendanceView() {
       <select id={ids.site} value={site} onChange={(e) => setSite(e.target.value)} disabled={siteList.length === 0}>
         <option value="">{t('attTeam.allSites')}</option>{siteList.map((n) => <option key={n} value={n}>{n}</option>)}</select></div>}
   </>;
-  const visibleTabs = ATTENDANCE_TABS.filter((id) => !readOnly || (id !== 'settings' && id !== 'corrections'));
+  const visibleTabs = ATTENDANCE_TABS.filter((id) => (id === 'workspace' ? !readOnly && (workspace?.can_manage ?? false) : !readOnly || (id !== 'settings' && id !== 'corrections')));
   const tabs = <FinanceTabs idPrefix="att" label={t('att.tabs')} value={tab} onChange={pick}
     items={visibleTabs.map((id) => ({ id, label: id === 'timesheet' && viewing ? t('attTeam.tab.theirs', { name: viewing.name }) : t(`att.tab.${id}` as MessageKey) }))} />;
   const header = <FinancePageHead title={t('attTeam.title')} subtitle={t('attTeam.subtitle')} crumbs={crumbs} actions={actions} controls={controls} tabs={tabs} />;
@@ -207,6 +217,7 @@ export function AttendanceView() {
             <QuickCorrectionCard today={myToday ?? anchor} timeZone={zone} onChanged={refresh} onOpenCorrections={() => pick('corrections')} />
           </div>
         </div>}
+        {workspace?.manager_view && <FinBanner icon={<Building2 />} title={t('attMgr.banner.title')}>{t(workspace.can_manage ? 'attMgr.banner.owner' : 'attMgr.banner.member')}</FinBanner>}
         <FeatureStrip onTimesheet={() => { setViewing(null); pick('timesheet'); }} onSettings={() => pick('settings')} onDaily={() => editReport(anchor)} />
         <PrivacyNote onSettings={() => pick('settings')} />
       </>}
@@ -222,6 +233,12 @@ export function AttendanceView() {
           ? <LoadError message={t('attTeam.error', { message: team.message })} retry={() => void loadTeam()} /> : <Notice busy>{t('attTeam.loading')}</Notice>}
         onSaved={reportsChanged} />}
       {tab === 'corrections' && !readOnly && <CorrectionsPanel sites={siteRows} timeZone={zone} today={myToday ?? today.value.day} onChanged={refresh} />}
+      {tab === 'workspace' && !readOnly && (workspace
+        ? <Suspense fallback={<Notice busy>{t('attMgr.loading')}</Notice>}>
+          <AttendanceWorkspace settings={workspace} people={people} today={myToday ?? today.value.day} day={anchor} onSettings={setWorkspace} />
+        </Suspense>
+        : workspaceError ? <LoadError message={t('attMgr.error', { message: workspaceError })} retry={() => void loadWorkspace()} />
+          : <Notice busy>{t('attMgr.loading')}</Notice>)}
       {tab === 'settings' && !readOnly && <SettingsPanel sites={siteRows} shares={shares} onChanged={() => { refresh(); void loadShares(); }} />}
     </div>
     {dialog && <ReportDialog {...dialog} onClose={() => setDialog(null)} />}

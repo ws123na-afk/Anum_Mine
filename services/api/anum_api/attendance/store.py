@@ -16,17 +16,38 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime
 from threading import RLock
 from typing import Any, Protocol
 
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
-from .models import AttendanceEvent, Correction, DailyReport, DayTotal, EventStatus, Profile, Share, Site
+from .models import AttendanceEvent, Correction, DailyReport, DayTotal, EventStatus, Profile, Share, Site, WorkspaceSettings
 
 MAX_SITES = 100
 MAX_EVENTS_READ = 20_000
 MAX_SHARES = 50
+
+# Set by the manager view's read-only routes after the API checked the caller is a workspace owner or an
+# organisation administrator (docs/attendance.md#manager-view). The SQL store sets ``anum.attendance_manager``
+# for the unit; the read policies then admit everyone's profiles, sites, events and day totals, but only while
+# the workspace's ``manager_view`` is on (the database checks the switch itself). Never reports or corrections.
+_MANAGER: ContextVar[bool] = ContextVar("attendance_manager_reads", default=False)
+
+
+@contextmanager
+def manager_reads() -> Iterator[None]:
+    """Mark the units opened inside as the manager view's (read only; see ``_MANAGER``)."""
+    token = _MANAGER.set(True)
+    try:
+        yield
+    finally:
+        _MANAGER.reset(token)
+
+
+def manager_reading() -> bool:
+    return _MANAGER.get()
 
 
 class DuplicateError(ValueError):
@@ -60,6 +81,9 @@ class AttendanceStore(Protocol):
     def save_share(self, share: Share) -> Share: ...
     def revoke_share(self, context: TenantContext, share_id: str, now: datetime) -> bool: ...
     def share_for(self, context: TenantContext, owner: str) -> Share | None: ...
+    def get_workspace_settings(self, context: TenantContext) -> WorkspaceSettings: ...
+    def save_workspace_settings(self, settings: WorkspaceSettings, expected_version: int) -> bool: ...
+    def list_people(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[str], int]: ...
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
     def export(self, context: TenantContext) -> dict[str, Any]: ...
@@ -96,12 +120,16 @@ class InMemoryAttendanceStore:
             self.totals: dict[tuple[str, str, str, date], DayTotal] = {}
             self.reports: dict[str, DailyReport] = {}
             self.shares: dict[str, Share] = {}
+            self.workspace_settings: dict[tuple[str, str], WorkspaceSettings] = {}
 
-    # what the caller may read: their own rows, or a sharer's while the share is active
-    def _readable(self, item: Any, context: TenantContext, owner: str, *, reports: bool = False) -> bool:
+    # what the caller may read: their own rows, a sharer's while the share is active, or (the manager view,
+    # never reports) anyone's while the workspace's manager_view is on
+    def _readable(self, item: Any, context: TenantContext, owner: str, *, reports: bool = False, manager: bool = True) -> bool:
         if not _scope(item, context) or item.owner_user_id != owner:
             return False
         if owner == context.user_id:
+            return True
+        if manager and not reports and self._manager_view(context):
             return True
         share = self.share_for(context, owner)
         return share is not None and (share.include_reports or not reports)
@@ -183,7 +211,7 @@ class InMemoryAttendanceStore:
 
     def list_corrections(self, context: TenantContext, owner: str, *, limit: int, offset: int) -> tuple[list[Correction], int]:
         with self._lock:
-            found = sorted((c for c in self.corrections.values() if self._readable(c, context, owner)),
+            found = sorted((c for c in self.corrections.values() if self._readable(c, context, owner, manager=False)),
                            key=lambda c: (c.created_at, c.id), reverse=True)
             return [c.model_copy(deep=True) for c in found[offset:offset + limit]], len(found)
 
@@ -279,6 +307,34 @@ class InMemoryAttendanceStore:
             self.shares[share_id] = found.model_copy(update={"revoked_at": now})
             return True
 
+    def _manager_view(self, context: TenantContext) -> bool:
+        found = self.workspace_settings.get((context.tenant_id, context.workspace_id))
+        return manager_reading() and found is not None and found.manager_view
+
+    def get_workspace_settings(self, context: TenantContext) -> WorkspaceSettings:
+        with self._lock:
+            found = self.workspace_settings.get((context.tenant_id, context.workspace_id))
+            return found.model_copy() if found else WorkspaceSettings(tenant_id=context.tenant_id, workspace_id=context.workspace_id)
+
+    def save_workspace_settings(self, settings: WorkspaceSettings, expected_version: int) -> bool:
+        if not manager_reading():
+            raise PermissionError("the workspace attendance settings are written in a manager unit only")
+        with self._lock:
+            key = (settings.tenant_id, settings.workspace_id)
+            current = self.workspace_settings.get(key)
+            if (current.version if current else 0) != expected_version:
+                return False
+            self.workspace_settings[key] = settings.model_copy(update={"version": expected_version + 1})
+            return True
+
+    def list_people(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[str], int]:
+        """Everyone who keeps attendance here (a saved profile or any event) the caller may read, by user id."""
+        with self._lock:
+            people = {p.owner_user_id for p in self.profiles.values() if _scope(p, context)}
+            people |= {e.owner_user_id for e in self.events.values() if _scope(e, context)}
+            ordered = sorted(person for person in people if person == context.user_id or self._manager_view(context))
+            return ordered[offset:offset + limit], len(ordered)
+
     def share_for(self, context: TenantContext, owner: str) -> Share | None:
         with self._lock:
             for share in self.shares.values():
@@ -342,8 +398,14 @@ def open_attendance_store(context: TenantContext) -> Iterator[AttendanceStore]:
     """One unit of work in the caller's tenant, workspace and user scope."""
 
     def sql_store(session):  # type: ignore[no-untyped-def]
+        from sqlalchemy import text
+
         from ..db.attendance_repository import SqlAttendanceStore
 
+        if manager_reading():
+            # The manager view's unit (docs/attendance.md#manager-view): the read policies also check the
+            # workspace's own manager_view switch, so this flag alone widens nothing.
+            session.execute(text("select set_config('anum.attendance_manager', 'on', true)"))
         return SqlAttendanceStore(session, context)
 
     with open_scoped_store(context, attendance_store, sql_store, user_scoped=True) as store:

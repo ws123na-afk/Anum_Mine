@@ -216,6 +216,16 @@ export interface AttendanceTeamRow {
 
 export interface AttendanceTeam { day: string | null; generated_at: string; rows: AttendanceTeamRow[]; total: number }
 
+/** `GET|PUT /api/v1/attendance/workspace-settings` (docs/attendance.md#manager-view). Off until an owner turns it on. */
+export interface AttendanceWorkspaceSettings {
+  manager_view: boolean;
+  version: number;
+  updated_by: string | null;
+  updated_at: string | null;
+  /** Whether the caller (a workspace owner or organisation administrator) may change it and read the view. */
+  can_manage: boolean;
+}
+
 export interface AttendanceShare {
   id: string;
   owner_user_id: string;
