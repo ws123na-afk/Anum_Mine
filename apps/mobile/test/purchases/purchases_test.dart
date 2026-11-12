@@ -9,6 +9,10 @@ import 'package:anum_mobile/features/purchases/purchases_controller.dart';
 import 'package:anum_mobile/features/purchases/purchases_data.dart';
 import 'package:anum_mobile/features/purchases/purchases_screen.dart';
 import 'package:anum_mobile/features/purchases/purchases_strings.dart';
+import 'package:anum_mobile/features/purchases/vault_receipts.dart';
+import 'package:anum_mobile/features/records_kit/records_kit.dart';
+import 'package:anum_mobile/data/json_read.dart';
+import 'package:anum_mobile/features/vault/vault_data.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -441,6 +445,20 @@ Future<void> pumpPurchases(WidgetTester tester, PurchasesApi fake,
 void main() {
   test('catalogs match in English and Arabic', () {
     expect(PurchasesStrings.catalogsMatch, isTrue);
+  });
+
+  test('receipts search the vault and upload a private receipt', () async {
+    final vault = _FakeVault();
+    final receipts = VaultPurchaseReceipts(vault,
+        picker: (_) async => ('/tmp/noon.pdf', 'noon.pdf', 2048));
+    expect((await receipts.search('noon')).single.id, 'doc_1');
+    expect(vault.queries, ['noon']);
+    final uploaded = await receipts.upload();
+    expect(uploaded!.id, 'doc_2');
+    expect(vault.uploads, ['/tmp/noon.pdf noon.pdf noon receipt private']);
+    expect(
+        await VaultPurchaseReceipts(vault, picker: (_) async => null).upload(),
+        isNull);
   });
 
   group('repository', () {
@@ -939,4 +957,40 @@ void main() {
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
     });
   });
+}
+
+/// Only what receipts use; anything else fails the test loudly.
+class _FakeVault implements VaultRepository {
+  final queries = <String>[];
+  final uploads = <String>[];
+
+  VaultDocument _doc(String id, String title) => VaultDocument.fromJson(
+      JsonReader({'id': id, 'title': title, 'category': 'receipt'}));
+
+  @override
+  Future<RecordsChunk<VaultDocument>> list(
+      {String query = '',
+      String category = '',
+      String expiry = '',
+      bool trash = false,
+      String? token}) async {
+    queries.add(query);
+    return RecordsChunk([_doc('doc_1', 'Noon receipt')]);
+  }
+
+  @override
+  Future<VaultDocument> upload(String path,
+      {required String name,
+      required String title,
+      required String category,
+      required String accessClass,
+      bool allowDuplicate = false,
+      void Function(int sent, int total)? onProgress}) async {
+    uploads.add('$path $name $title $category $accessClass');
+    return _doc('doc_2', title);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
 }

@@ -9,6 +9,10 @@ import 'dart:async';
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/features/attendance/attendance_controller.dart';
 import 'package:anum_mobile/features/attendance/attendance_data.dart';
+import 'package:anum_mobile/features/attendance/attendance_files.dart';
+import 'package:anum_mobile/features/meetings/meetings_repository.dart';
+import 'package:anum_mobile/features/workspace/files_repository.dart'
+    show UploadCancellation;
 import 'package:anum_mobile/features/attendance/attendance_screen.dart';
 import 'package:anum_mobile/features/attendance/attendance_strings.dart';
 import 'package:anum_mobile/features/records_kit/records_kit.dart';
@@ -80,6 +84,7 @@ class AttendanceApi {
   final events = <Map<String, Object?>>[];
   final reports = <String, Map<String, Object?>>{};
   final corrections = <Map<String, Object?>>[];
+  String? draftRefusal;
   late final api = FakeApi(route);
 
   ApiResponse? route(ApiRequest r) {
@@ -154,10 +159,15 @@ class AttendanceApi {
         }
         final saved = {
           ...reportJson(day, version: ((current?['version'] as int?) ?? 0) + 1),
-          'project': r.body!['project'],
-          'tasks_done': r.body!['tasks_done'],
-          'tasks_pending': r.body!['tasks_pending'],
-          'site_visits': r.body!['site_visits'],
+          for (final key in const [
+            'project', 'tasks_done', 'tasks_pending', 'site_visits',
+            'issues', //
+            'time_spent_minutes', 'priority', 'follow_up_on', 'notes',
+            'file_ids', 'drafted_with_ai',
+          ])
+            if (r.body!.containsKey(key)) key: r.body![key],
+          'submitted_at': current?['submitted_at'] ??
+              (r.body!['submit'] == true ? '2026-11-05T15:00:00Z' : null),
         };
         reports[day] = saved;
         return ok(saved);
@@ -166,6 +176,22 @@ class AttendanceApi {
         reports.remove(day);
         return const ApiResponse(statusCode: 204);
       }
+    }
+    if (r.method == 'POST' && path == '$base/daily-reports/draft') {
+      if (draftRefusal != null) return refuse(409, draftRefusal!);
+      return ok({
+        'text': 'Packed shelves and labelled boxes (${r.body!['period']}).',
+        'period': r.body!['period'],
+        'start': '2026-11-05',
+        'end': '2026-11-05',
+        'report_days': ['2026-11-05'],
+      });
+    }
+    if (r.method == 'GET' && path == '$base/events') {
+      return okList([
+        eventJson('aev_old', 'arrive', '2026-11-02T05:00:00Z'),
+        eventJson('aev_old2', 'leave', '2026-11-02T13:00:00Z'),
+      ]);
     }
     if (r.method == 'GET' && path == '$base/corrections') {
       return ok({'items': corrections, 'total': corrections.length});
@@ -192,22 +218,62 @@ class AttendanceApi {
   }
 }
 
+class FakeFiles implements AttendanceFiles {
+  int count = 0;
+  bool fail = false;
+
+  @override
+  Future<({String id, String name})?> pickAndUpload() async {
+    if (fail) throw const ApiException(413, 'The file is larger than allowed.');
+    count += 1;
+    return (id: 'file_$count', name: 'site-photo-$count.jpg');
+  }
+}
+
 Future<void> pumpAttendance(WidgetTester tester, AttendanceApi fake,
     {Size size = phone,
     double textScale = 1,
-    Locale locale = const Locale('en')}) async {
+    Locale locale = const Locale('en'),
+    AttendanceFiles? files}) async {
   final controller = AttendanceController(
       ApiAttendanceRepository(fake.api.client()),
       now: () => DateTime(2026, 11, 5, 9));
   addTearDown(controller.dispose);
-  await pumpModule(tester, AttendanceScreen(controller: controller),
+  await pumpModule(
+      tester, AttendanceScreen(controller: controller, files: files),
       size: size, textScale: textScale, locale: locale);
 }
+
+/// Taps after typing: the keyboard goes first, as when the person scrolls
+/// to the button (a focused field would scroll itself back into view).
+Future<void> tapAfterTyping(WidgetTester tester, Finder finder) async {
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pumpAndSettle();
+  await tapVisible(tester, finder);
+}
+
+Map<String, Object?> lastReport(AttendanceApi fake) => fake.api
+    .sent('PUT', '/api/v1/attendance/daily-reports/2026-11-05')
+    .last
+    .body!;
 
 void main() {
   test('catalogs match in English and Arabic', () {
     expect(AttendanceStrings.catalogsMatch, isTrue);
     expect(const AttendanceStrings(false).hours(27000), '7 h 30 min');
+  });
+
+  test('report files upload to Files with the picked name', () async {
+    final transfer = _FakeTransfer();
+    final files = UploadAttendanceFiles(transfer,
+        picker: (_) async => ('/tmp/photo.jpg', 'photo.jpg', 10));
+    final uploaded = await files.pickAndUpload();
+    expect(uploaded, (id: 'file_9', name: 'photo.jpg'));
+    expect(transfer.sent, ['api/v1/files {name: photo.jpg} /tmp/photo.jpg']);
+    expect(
+        await UploadAttendanceFiles(transfer, picker: (_) async => null)
+            .pickAndUpload(),
+        isNull);
   });
 
   group('repository', () {
@@ -336,6 +402,128 @@ void main() {
       expectClean(tester);
     });
 
+    testWidgets('a report: checks, AI draft, files, visits, review and submit',
+        (tester) async {
+      final fake = AttendanceApi();
+      final files = FakeFiles();
+      await pumpAttendance(tester, fake, files: files);
+      await tapVisible(tester, find.byKey(const Key('attendance-write-today')));
+      // Nothing written: it says what is missing and sends nothing.
+      await tester.tap(find.byKey(const Key('form-submit')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('report-error')), findsOneWidget);
+      expect(
+          fake.api.sent('PUT', '/api/v1/attendance/daily-reports/2026-11-05'),
+          isEmpty);
+
+      await tester.enterText(
+          find.byKey(const Key('field-tasks_done')), 'Packed shelves');
+      await tester.enterText(
+          find.byKey(const Key('field-time_spent_minutes')), '2000');
+      await tester.tap(find.byKey(const Key('form-submit')));
+      await tester.pumpAndSettle();
+      expect(find.text('Time spent is whole minutes, from 0 to 1440.'),
+          findsOneWidget);
+      await tester.enterText(
+          find.byKey(const Key('field-time_spent_minutes')), '240');
+      await tester.enterText(
+          find.byKey(const Key('field-site_visits')), 'head office\nPort gate');
+
+      // The AI draft of the day is offered, then added to the notes.
+      await tapAfterTyping(tester, find.byKey(const Key('report-ai-day')));
+      expect(find.textContaining('Packed shelves and labelled boxes (day)'),
+          findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('report-ai-use')));
+
+      // A file from the phone, then a failed one that says why.
+      await tapVisible(tester, find.byKey(const Key('report-attach')));
+      expect(find.byKey(const Key('report-file-file_1')), findsOneWidget);
+      files.fail = true;
+      await tapVisible(tester, find.byKey(const Key('report-attach')));
+      expect(find.textContaining('larger than allowed'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('report-submit')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Submit the report for'), findsOneWidget);
+      expect(find.textContaining('Done: Packed shelves'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('records-confirm')));
+      await tester.pumpAndSettle();
+      final body = lastReport(fake);
+      expect(body['submit'], isTrue);
+      expect(body['time_spent_minutes'], 240);
+      expect(body['drafted_with_ai'], isTrue);
+      expect(body['notes'], contains('labelled boxes'));
+      expect(body['file_ids'], ['file_1']);
+      expect(body['site_visits'], [
+        {'name': 'head office', 'site_id': 'asite_1', 'note': null},
+        {'name': 'Port gate', 'site_id': null, 'note': null},
+      ]);
+
+      // Opened again it says it was submitted; a save keeps it submitted.
+      await tapVisible(tester, find.byKey(const Key('tab-reports')));
+      await tapVisible(tester, find.byKey(const Key('report-2026-11-05')));
+      expect(find.text('Submitted'), findsOneWidget);
+      expect(find.byKey(const Key('report-submit')), findsNothing);
+      await tester.tap(find.byKey(const Key('form-submit')));
+      await tester.pumpAndSettle();
+      expect(lastReport(fake)['expected_version'], 1);
+      expectClean(tester);
+    });
+
+    testWidgets('an AI draft that cannot run and a changed report say why',
+        (tester) async {
+      final fake = AttendanceApi()
+        ..draftRefusal = 'No AI model is connected to this workspace.'
+        ..reports['2026-11-05'] = reportJson('2026-11-05', version: 3);
+      await pumpAttendance(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('tab-reports')));
+      await tapVisible(tester, find.byKey(const Key('report-2026-11-05')));
+      expect(find.text('Draft'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('report-ai-week')));
+      expect(find.text('No AI model is connected to this workspace.'),
+          findsOneWidget);
+      fake.reports['2026-11-05'] = reportJson('2026-11-05', version: 4);
+      await tester.tap(find.byKey(const Key('form-submit')));
+      await tester.pumpAndSettle();
+      expect(find.text('This report changed in another tab. Reload it.'),
+          findsOneWidget);
+      expect(find.byKey(const Key('report-state')), findsOneWidget);
+      // Delete from the report page asks first.
+      await tester.tap(find.byKey(const Key('report-delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('records-confirm')));
+      await tester.pumpAndSettle();
+      expect(fake.reports, isEmpty);
+      expect(find.byKey(const Key('reports-empty')), findsOneWidget);
+    });
+
+    testWidgets('changes an entry of an earlier day, with its site',
+        (tester) async {
+      final fake = AttendanceApi();
+      await pumpAttendance(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('tab-corrections')));
+      await tapVisible(
+          tester, find.byKey(const Key('attendance-change-entry')));
+      final query = fake.api
+          .sent('GET', '/api/v1/attendance/events')
+          .last
+          .uri
+          .queryParameters;
+      expect(query, {'from': '2026-10-23', 'to': '2026-11-05'});
+      await tapVisible(tester, find.byKey(const Key('entry-aev_old')));
+      await tester.enterText(find.byKey(const Key('field-time')), '08:30');
+      await tester.enterText(
+          find.byKey(const Key('field-reason')), 'Arrived earlier');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      final body =
+          fake.api.sent('POST', '/api/v1/attendance/corrections').single.body!;
+      expect(body['action'], 'change');
+      expect(body['event_id'], 'aev_old');
+      expect(body['site_id'], 'asite_1');
+      expect(body['occurred_at'], startsWith('2026-11-02'));
+      expectClean(tester);
+    });
+
     testWidgets('history by week, then the earlier week', (tester) async {
       final fake = AttendanceApi();
       await pumpAttendance(tester, fake);
@@ -457,4 +645,23 @@ class _SlowWeeks implements AttendanceRepository {
       inner.saveReport(day, body);
   @override
   Future<void> deleteReport(String day) => inner.deleteReport(day);
+  @override
+  Future<List<AttendanceEvent>> events(String from, String to) =>
+      inner.events(from, to);
+  @override
+  Future<String> draftSummary(String period, String day, String language) =>
+      inner.draftSummary(period, day, language);
+}
+
+class _FakeTransfer implements MeetingUploadTransfer {
+  final sent = <String>[];
+
+  @override
+  Future<Map<String, Object?>> uploadTo(
+      String endpoint, Map<String, String> query, String path,
+      {required void Function(int sent, int total) onProgress,
+      required UploadCancellation cancellation}) async {
+    sent.add('$endpoint $query $path');
+    return {'id': 'file_9', 'name': query['name']};
+  }
 }

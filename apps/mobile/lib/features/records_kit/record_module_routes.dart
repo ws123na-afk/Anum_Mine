@@ -13,6 +13,7 @@ import '../purchases/purchases_controller.dart';
 import '../purchases/purchases_data.dart';
 import '../purchases/purchases_screen.dart';
 import '../purchases/vault_receipts.dart';
+import '../attendance/attendance_files.dart';
 import '../vault/vault_controller.dart';
 import '../vault/vault_data.dart';
 import '../vault/vault_screen.dart';
@@ -58,7 +59,10 @@ class RecordModuleRoutes {
           ),
       attendance => () => OwnedController<AttendanceController>(
             create: () => AttendanceController(ApiAttendanceRepository(api)),
-            builder: (_, c) => AttendanceScreen(controller: c),
+            builder: (_, c) => AttendanceScreen(
+                controller: c,
+                files:
+                    uploads == null ? null : UploadAttendanceFiles(uploads!)),
           ),
       vehicles => () => OwnedController<VehiclesController>(
             create: () => VehiclesController(ApiVehiclesRepository(api)),
