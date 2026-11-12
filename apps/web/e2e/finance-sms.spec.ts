@@ -7,7 +7,7 @@ import { useSavedLocale } from './support/workspaceApi';
 // shown once with the Shortcut steps, the review queue with a correction, taught formats, the banks
 // list and the Ledger dashboard, plus loading, empty, error and permission-denied states. Messages are
 // SYNTHETIC; the API is mocked at localhost:8000.
-interface SmsMock { ready?: boolean; empty?: boolean; denied?: boolean; failLedger?: boolean }
+interface SmsMock { ready?: boolean; empty?: boolean; denied?: boolean; failLedger?: boolean; learned?: boolean }
 
 async function mockApi(page: Page, options: SmsMock = {}) {
   const state = financeState({ denied: options.denied });
@@ -23,8 +23,17 @@ async function mockApi(page: Page, options: SmsMock = {}) {
     body_masked: 'SYNTHETIC. Purchase of SAR 45.50 at TEST SHOP with card ***1234 on 03/11/2026', body_kept_until: '2026-12-03T10:00:00Z',
     reason: 'format_unverified', parsed: { kind: 'card_purchase', amount: '45.50', currency: 'SAR', merchant: 'TEST SHOP', last4: '1234' }, rule: 'generic',
     entry_id: null, duplicate_of: null, observed_balance: null, observed_currency: null, attempts: 1,
+    fix: { action: 'trust_sender', sender: 'testbank', last4: null, account_id: null, account_name: null, party: null, kind: null, ref: null },
   };
   const messages = options.empty ? [] : [message];
+  // What ANUM learned (docs/finance-sms.md#learning): one notice when the mock says so.
+  let notices = options.learned ? [{ id: 'n1', kind: 'sender_trusted', sender: 'testbank', party: null, value: null, last4: null, account_id: null, account_name: null, ref: null, created_at: '2026-11-04T09:00:00Z' }] : [];
+  const learning = () => ({ enabled: true, confirm_after: 2, auto_post: settings.auto_post, auto_post_limits: [], senders: [], kinds: [], categories: [], card_proposals: [], notices, version: settings.version });
+  const summary = () => {
+    const waiting = messages.filter((m) => m.status === 'review');
+    return { total: waiting.length, scanned: waiting.length, complete: true,
+      groups: waiting.length ? [{ reason: 'format_unverified', count: waiting.length, items: [{ key: 'testbank', count: waiting.length, fix: message.fix }] }] : [] };
+  };
   const status = () => ({
     enabled: settings.enabled, ledger_kind: settings.ledger_kind, self_test_passed_at: settings.self_test_passed_at, ready: Boolean(settings.self_test_passed_at),
     ingest_path: settings.self_test_passed_at ? '/api/v1/finance/sms/ingest' : null, devices_active: devices.length, last_received_at: messages.length ? message.received_at : null,
@@ -83,6 +92,14 @@ async function mockApi(page: Page, options: SmsMock = {}) {
     }
     if (sms === '/sms/messages/fin_sms_1/post') { message.status = 'posted'; message.reason = null as unknown as string; return json({ message, entry_id: 'je1', reversed_entry_id: null, proposed_rule: null, rule_error: null }); }
     if (sms === '/sms/rules') return json([]);
+    if (sms === '/sms/learning') return json(learning());
+    if (sms === '/sms/review/summary') return json(summary());
+    if (sms === '/sms/learning/senders/trust') { settings = { ...settings, verified_senders: ['testbank'] as never[] }; return json(learning()); }
+    if (sms === '/sms/learning/senders/untrust') { notices = []; return json(learning()); }
+    if (sms === '/sms/learning/recheck') {
+      message.status = 'posted';
+      return json({ ...learning(), recheck: { recorded: 1, still_waiting: 0, more: false, message_ids: [message.id] } });
+    }
     if (sms === '/sms/banks') return json([{ key: 'al_rajhi', name: 'Al Rajhi Bank', country: 'SA', currency: 'SAR', senders: ['alrajhibank'], verified_by_anum: false, confirmed_by_you: false }]);
     if (sms === '/ledger/dashboard') return options.failLedger ? json({ detail: 'The database is not reachable' }, 503) : json(dashboard);
     if (sms === '/ledger/entries') return json({ items: entries, total: entries.length, limit: 20, offset: 0 });
@@ -122,7 +139,7 @@ test('the review queue: a message is checked, its format confirmed and recorded'
   const { sent } = await mockApi(page, { ready: true });
   await page.goto('/#finance-sms');
   await page.getByRole('navigation', { name: 'iPhone SMS sections' }).getByRole('button', { name: /Review/ }).click();
-  await expect(page.getByText('Format not confirmed yet')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.finSmsMessage').getByText(/Format not confirmed yet/)).toBeVisible({ timeout: 20_000 });
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Check this message' });
   await expect(dialog.getByLabel('Amount', { exact: true })).toHaveValue('45.50');
@@ -133,6 +150,51 @@ test('the review queue: a message is checked, its format confirmed and recorded'
   expect(post?.body).toMatchObject({ kind: 'card_purchase', amount: '45.50', currency: 'SAR', confirm_format: true });
   await page.getByRole('navigation', { name: 'iPhone SMS sections' }).getByRole('button', { name: 'Banks' }).click();
   await expect(page.getByRole('cell', { name: 'Unverified' })).toBeVisible();
+});
+
+test('why messages wait: one tap trusts the sender, and what ANUM learned can be undone', async ({ page }) => {
+  const { sent } = await mockApi(page, { ready: true, learned: true });
+  await page.goto('/#finance-sms');
+  await page.getByRole('navigation', { name: 'iPhone SMS sections' }).getByRole('button', { name: /Review/ }).click();
+  const why = page.getByRole('region', { name: 'Why is this waiting?' });
+  await expect(why).toBeVisible({ timeout: 20_000 });
+  await expect(why.getByText('Format not confirmed yet')).toBeVisible();
+  await expect(why.getByText('1 waiting')).toBeVisible();
+  // The same fix is on the message itself.
+  await expect(page.locator('.finSmsMessage').getByRole('button', { name: 'Always record messages from testbank' })).toBeVisible();
+  await why.getByRole('button', { name: 'Always record messages from testbank' }).click();
+  await expect.poll(() => sent.find((s) => s.path.endsWith('/sms/learning/senders/trust'))?.body).toEqual({ sender: 'testbank' });
+  const learned = page.getByRole('region', { name: 'What ANUM learned' });
+  await expect(learned.getByText('ANUM will now record messages from testbank on its own.')).toBeVisible();
+  await learned.getByRole('button', { name: /^Undo: ANUM will now record messages from testbank/ }).click();
+  await expect.poll(() => sent.some((s) => s.path.endsWith('/sms/learning/senders/untrust'))).toBe(true);
+  await expect(learned).toBeHidden();
+  const serious = (await new AxeBuilder({ page }).include('main').analyze()).violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+  expect(serious).toEqual([]);
+});
+
+test('re-check waiting messages records what now passes and says how many', async ({ page }) => {
+  const { sent } = await mockApi(page, { ready: true });
+  await page.goto('/#finance-sms');
+  await page.getByRole('navigation', { name: 'iPhone SMS sections' }).getByRole('button', { name: /Review/ }).click();
+  const why = page.getByRole('region', { name: 'Why is this waiting?' });
+  await why.getByRole('button', { name: 'Re-check waiting messages' }).click({ timeout: 20_000 });
+  await expect(page.getByText('Recorded: 1. Still waiting: 0.')).toBeVisible();
+  expect(sent.filter((s) => s.path.endsWith('/sms/learning/recheck') && s.method === 'POST')).toHaveLength(1);
+});
+
+test('learning settings and limits are saved with the form', async ({ page }) => {
+  const { sent } = await mockApi(page, { ready: true });
+  await page.goto('/#finance-sms');
+  await expect(page.getByRole('group', { name: 'Learning from your reviews' })).toBeVisible({ timeout: 20_000 });
+  await page.getByLabel('Trust a sender after this many messages recorded unchanged').selectOption('3');
+  await page.getByRole('button', { name: 'Add a limit' }).click();
+  await page.getByLabel('Currency', { exact: true }).fill('sar');
+  await page.getByLabel('Largest amount').fill('500');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => sent.find((s) => s.path.endsWith('/sms/settings') && s.method === 'PUT')?.body).toMatchObject({
+    learning_enabled: true, learning_confirm_after: 3, auto_post_limits: [{ currency: 'SAR', amount: '500' }],
+  });
 });
 
 test('the ledger dashboard shows the journal figures per currency and the entries balance', async ({ page }) => {
@@ -173,14 +235,18 @@ test('permission denied on iPhone SMS', async ({ page }) => {
 const VIEWPORTS = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
 for (const locale of ['en', 'ar'] as const) {
   for (const [width, height] of VIEWPORTS) {
-    for (const tab of ['sms', 'ledger'] as const) {
+    for (const tab of ['sms', 'review', 'ledger'] as const) {
       test(`responsive @gate: the ${tab} tab fits with no sideways scroll at ${width}x${height} (${locale})`, async ({ page }) => {
         await page.setViewportSize({ width, height });
         if (locale === 'ar') await useSavedLocale(page, 'ar');
-        await mockApi(page, { ready: true });
-        await page.goto(`/#finance-${tab}`);
-        const heading = tab === 'sms' ? (locale === 'ar' ? 'تحويل رسائل الآيفون' : 'iPhone SMS forwarding') : (locale === 'ar' ? 'السجل المحاسبي' : 'Ledger');
+        await mockApi(page, { ready: true, learned: tab === 'review' });
+        await page.goto(`/#finance-${tab === 'review' ? 'sms' : tab}`);
+        const heading = tab === 'ledger' ? (locale === 'ar' ? 'السجل المحاسبي' : 'Ledger') : (locale === 'ar' ? 'تحويل رسائل الآيفون' : 'iPhone SMS forwarding');
         await expect(page.getByRole('heading', { name: heading, level: 2 })).toBeVisible({ timeout: 20_000 });
+        if (tab === 'review') {
+          await page.getByRole('navigation', { name: locale === 'ar' ? 'أقسام رسائل الآيفون' : 'iPhone SMS sections' }).getByRole('button').nth(1).click();
+          await expect(page.locator('#fsms-why')).toBeVisible();
+        }
         if (tab === 'ledger') await expect(page.locator('.finSmsEntry').first()).toBeVisible();
         if (tab === 'sms') await expect(page.locator('#fsms-devices')).toBeVisible();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

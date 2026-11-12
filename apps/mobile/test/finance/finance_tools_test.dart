@@ -347,6 +347,41 @@ void main() {
           findsOneWidget);
     });
 
+    testWidgets(
+        'what ANUM learned is undone, a card proposal mapped, and why '
+        'messages wait has a one-tap fix', (tester) async {
+      final api = ToolsApi();
+      await pumpModule(tester, SmsReviewScreen(repository: api.repo()));
+      expect(find.text('What ANUM learned'), findsOneWidget);
+      expect(
+          find.text('ANUM will now record messages from examplebank on its '
+              'own.'),
+          findsOneWidget);
+      expect(find.text('Why is this waiting?'), findsOneWidget);
+      expect(find.textContaining('Always record messages from examplebank'),
+          findsWidgets);
+      await tap(tester, find.byKey(const Key('sms-notice-map-note_2')));
+      expect(lastBody(api, 'POST', '/sms/learning/cards/map'),
+          {'last4': '4321', 'account_id': 'acc_2'});
+      await clearToasts(tester);
+      await tap(tester, find.byKey(const Key('sms-notice-undo-note_1')));
+      expect(lastBody(api, 'POST', '/sms/learning/senders/untrust'),
+          {'sender': 'examplebank'});
+      await clearToasts(tester);
+      await tap(tester, find.byKey(const Key('sms-fix-trust_sender')).first);
+      expect(lastBody(api, 'POST', '/sms/learning/senders/trust'),
+          {'sender': 'examplebank'});
+      await clearToasts(tester);
+      await tap(tester, find.byKey(const Key('sms-recheck')));
+      expect(api.sent('POST', '/sms/learning/recheck'), hasLength(1));
+      expect(find.textContaining('Recorded: 1. Still waiting: 0.'),
+          findsOneWidget);
+      await clearToasts(tester);
+      // The message itself carries the same fix.
+      await tap(tester, find.byKey(const Key('sms-message-sms_1')));
+      expect(find.byKey(const Key('sms-message-fix')), findsOneWidget);
+    });
+
     testWidgets('empty and denied say what to do', (tester) async {
       final api = ToolsApi()..smsEmpty = true;
       await pumpModule(tester, SmsReviewScreen(repository: api.repo()));

@@ -690,6 +690,56 @@ class FinanceToolsStrings extends ModuleStrings {
     'worth.excluded': 'Left out: {list}',
     'worth.reason.no_cost_basis': 'no cost basis',
     'worth.reason.currency_differs': 'another currency than its account',
+    'sms.reason.above_auto_limit': "Above your limit for automatic recording",
+    'sms.reason.sender_corrected_recently': "You corrected this sender lately",
+    'sms.reason.learning_undone':
+        "Back for review: you undid what ANUM learned",
+    'sms.fix.trust_sender': "Always record messages from {sender}",
+    'sms.fix.map_card': "Map card ending {last4} to {account}",
+    'sms.fix.map_card_pick': "Map card ending {last4} to an account",
+    'sms.fix.auto_post_on': "Turn on automatic recording",
+    'sms.fix.clear_hold': "Trust {sender} again",
+    'sms.fix.remember_kind': "Treat money from {party} as {kind}",
+    'sms.fix.undo_learning':
+        "Recorded as {value} for {party} because you chose it before",
+    'sms.fix.open_settings':
+        "Change it in the web app, Finance, iPhone SMS, Setup: a limit or an Apple Wallet card",
+    'sms.fix.decide': "You decide this one: ANUM never records it on its own",
+    'sms.fix.record':
+        "Record it: after the same choice twice, ANUM does it for you",
+    'sms.fix.undo': "Undo",
+    'sms.fix.map': "Map",
+    'sms.why': "Why is this waiting?",
+    'sms.why.help':
+        "Waiting: {count}. Each reason below has the one step that lets ANUM record such messages on its own.",
+    'sms.why.count': "{count} waiting",
+    'sms.learn.title': "What ANUM learned",
+    'sms.learn.help':
+        "ANUM learns from what you record here. Undo anything it should not have learned.",
+    'sms.learn.sender_trusted':
+        "ANUM will now record messages from {sender} on its own.",
+    'sms.learn.kind_remembered':
+        "Money from {party} will be recorded as {kind}.",
+    'sms.learn.category_remembered': "{party} will be filed under {category}.",
+    'sms.learn.card_proposed':
+        "You picked {account} twice for card ending {last4}. Map the card to it?",
+    'sms.learn.dismiss': "OK",
+    'sms.learn.notNow': "Not now",
+    'sms.learn.undoLabel': "Undo: {text}",
+    'sms.learn.okLabel': "OK: {text}",
+    'sms.learn.mapLabel': "Map: {text}",
+    'sms.learn.notNowLabel': "Not now: {text}",
+    'sms.remember': "Remember this for {party} from now on",
+    'sms.fix.undo_recheck': "Recorded when waiting messages were re-checked",
+    'sms.learn.rechecked_sender':
+        "Waiting messages from {sender} recorded: {count}. Each can be undone on its row.",
+    'sms.learn.rechecked_card':
+        "Waiting messages with card ending {last4} recorded: {count}. Each can be undone on its row.",
+    'sms.learn.rechecked':
+        "Waiting messages recorded: {count}. Each can be undone on its row.",
+    'sms.recheck': "Re-check waiting messages",
+    'sms.recheck.done': "Recorded: {recorded}. Still waiting: {waiting}.",
+    'sms.recheck.more': "There are more: press Re-check again to carry on.",
   };
 
   static const _ar = <String, String>{
@@ -1340,5 +1390,50 @@ class FinanceToolsStrings extends ModuleStrings {
     'worth.excluded': 'مستبعد: {list}',
     'worth.reason.no_cost_basis': 'بلا تكلفة شراء',
     'worth.reason.currency_differs': 'بعملة غير عملة حسابه',
+    'sms.reason.above_auto_limit': "أعلى من حدك للتسجيل التلقائي",
+    'sms.reason.sender_corrected_recently': "صححت رسائل هذا المرسل مؤخرا",
+    'sms.reason.learning_undone': "عادت للمراجعة: ألغيت ما تعلمه ANUM",
+    'sms.fix.trust_sender': "سجّل رسائل {sender} دائما",
+    'sms.fix.map_card': "اربط البطاقة المنتهية بـ {last4} بحساب {account}",
+    'sms.fix.map_card_pick': "اربط البطاقة المنتهية بـ {last4} بحساب",
+    'sms.fix.auto_post_on': "شغّل التسجيل التلقائي",
+    'sms.fix.clear_hold': "ثق بـ {sender} من جديد",
+    'sms.fix.remember_kind': "اعتبر الأموال من {party} {kind}",
+    'sms.fix.undo_learning': "سُجلت {value} لـ {party} لأنك اخترت ذلك من قبل",
+    'sms.fix.open_settings':
+        "غيّرها من تطبيق الويب: المالية، رسائل الآيفون، الإعداد: حد أو بطاقة Apple Wallet",
+    'sms.fix.decide': "هذه تقررها أنت: لا يسجلها ANUM وحده أبدا",
+    'sms.fix.record': "سجّلها: بعد الاختيار نفسه مرتين يقوم ANUM بذلك عنك",
+    'sms.fix.undo': "تراجع",
+    'sms.fix.map': "اربط",
+    'sms.why': "لماذا تنتظر هذه الرسائل؟",
+    'sms.why.help':
+        "عدد الرسائل التي تنتظر: {count}. لكل سبب أدناه خطوة واحدة تجعل ANUM يسجل مثل هذه الرسائل وحده.",
+    'sms.why.count': "{count} تنتظر",
+    'sms.learn.title': "ما تعلمه ANUM",
+    'sms.learn.help':
+        "يتعلم ANUM مما تسجله هنا. ألغِ أي شيء ما كان ينبغي أن يتعلمه.",
+    'sms.learn.sender_trusted': "سيسجل ANUM رسائل {sender} وحده من الآن.",
+    'sms.learn.kind_remembered': "ستُسجل الأموال من {party} على أنها {kind}.",
+    'sms.learn.category_remembered': "سيُصنف {party} ضمن {category}.",
+    'sms.learn.card_proposed':
+        "اخترت {account} مرتين للبطاقة المنتهية بـ {last4}. هل تربط البطاقة به؟",
+    'sms.learn.dismiss': "حسنا",
+    'sms.learn.notNow': "ليس الآن",
+    'sms.learn.undoLabel': "تراجع: {text}",
+    'sms.learn.okLabel': "حسنا: {text}",
+    'sms.learn.mapLabel': "اربط: {text}",
+    'sms.learn.notNowLabel': "ليس الآن: {text}",
+    'sms.remember': "تذكّر هذا لـ {party} من الآن",
+    'sms.fix.undo_recheck': "سُجلت عند إعادة فحص الرسائل المنتظرة",
+    'sms.learn.rechecked_sender':
+        "الرسائل المنتظرة من {sender} التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+    'sms.learn.rechecked_card':
+        "الرسائل المنتظرة للبطاقة المنتهية بـ {last4} التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+    'sms.learn.rechecked':
+        "الرسائل المنتظرة التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+    'sms.recheck': "أعد فحص الرسائل المنتظرة",
+    'sms.recheck.done': "سُجلت: {recorded}. ما زالت تنتظر: {waiting}.",
+    'sms.recheck.more': "هناك المزيد: اضغط أعد الفحص مرة أخرى للمتابعة.",
   };
 }

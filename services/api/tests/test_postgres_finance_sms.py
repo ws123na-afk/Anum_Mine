@@ -292,3 +292,56 @@ def test_a_loan_repayment_keeps_both_loan_rows_under_rls(client: TestClient) -> 
     summary = api.get(f"{API}/summary", headers=ME, params={"month": "2026-11"}).json()
     assert summary["spend"] == [{"currency": "SAR", "amount": "300.00"}]
 
+
+
+def test_learning_from_reviews_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    """docs/finance-sms.md#learning: two readings recorded unchanged trust the sender; the same category twice makes an
+    approved learned finance rule; both are the person's own and undo works, under RLS as the app role."""
+    api = client
+    s = _setup(api)
+
+    def purchase(amount: str, day: int) -> str:
+        return f"SYNTHETIC. Purchase of SAR {amount} at ZEBRA MART with card **1234 on {day:02d}/11/2026 14:22"
+
+    learned: list[dict] = []
+    for amount, day in (("20.00", 1), ("21.00", 2)):
+        waiting = _send(api, s["token"], purchase(amount, day))
+        assert waiting["reason"] == "format_unverified"
+        recorded = api.post(f"{API}/sms/messages/{waiting['message_id']}/post", headers=ME, json={"category": "health"})
+        assert recorded.status_code == 200, recorded.text
+        learned += recorded.json()["learned"]
+    assert sorted(n["kind"] for n in learned) == ["category_remembered", "sender_trusted"]
+    third = _send(api, s["token"], purchase("22.00", 3))
+    assert third["status"] == "posted"
+    shown = api.get(f"{API}/sms/messages/{third['message_id']}", headers=ME).json()
+    assert shown["learned"]["value"] == "health" and shown["fix"]["action"] == "undo_learning"
+    assert api.get(f"{API}/sms/learning", headers=SOMEONE).json()["senders"] == []
+    assert _count(app_session, "finance_rules", "user_test") >= 1 and _count(app_session, "finance_rules", "user_owner") == 0
+    undo = api.post(f"{API}/sms/messages/{third['message_id']}/undo-learning", headers=ME)
+    assert undo.status_code == 200, undo.text
+    assert undo.json()["reason"] == "learning_undone" and undo.json()["learning"]["categories"] == []
+    untrust = api.post(f"{API}/sms/learning/senders/untrust", headers=ME, json={"sender": "TestBank"})
+    assert untrust.status_code == 200, untrust.text
+    assert _send(api, s["token"], purchase("23.00", 4))["reason"] == "format_unverified"
+    with app_session(tenant_context()) as session:
+        session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
+        unbalanced = session.execute(text(
+            "select entry_id from finance_postings group by entry_id, currency having sum(amount) <> 0")).all()
+        assert unbalanced == []
+
+
+def test_recheck_records_waiting_messages_once_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    """docs/finance-sms.md#re-checking-waiting-messages: trusting a sender records its waiting messages in the same
+    unit of work under the owner's lock; a second run records nothing twice; another person sees nothing."""
+    api = client
+    s = _setup(api)
+    ids = [_send(api, s["token"], f"SYNTHETIC. Purchase of SAR {a} at ZEBRA MART with card **1234 on 0{d}/11/2026 14:22")["message_id"]
+           for a, d in (("20.00", 1), ("21.00", 2))]
+    trusted = api.post(f"{API}/sms/learning/senders/trust", headers=ME, json={"sender": "TestBank"})
+    assert trusted.status_code == 200, trusted.text
+    assert trusted.json()["recheck"]["message_ids"] == ids and trusted.json()["notices"][0]["kind"] == "rechecked"
+    assert api.post(f"{API}/sms/learning/recheck", headers=ME).json()["recheck"]["recorded"] == 0
+    assert api.post(f"{API}/sms/learning/recheck", headers=SOMEONE).json()["recheck"]["recorded"] == 0
+    assert _count(app_session, "finance_journal_entries", "user_test") == 2
+    undo = api.post(f"{API}/sms/messages/{ids[1]}/undo-learning", headers=ME)
+    assert undo.status_code == 200 and undo.json()["reason"] == "learning_undone"

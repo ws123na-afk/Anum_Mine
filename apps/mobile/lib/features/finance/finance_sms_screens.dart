@@ -25,6 +25,140 @@ import 'finance_tools_strings.dart';
 String _when(BuildContext context, String? value) =>
     value == null || value.isEmpty ? '-' : recordsDateTime(context, value);
 
+/// A remembered value: a kind ("Salary") or a category ("Health").
+String _learnedValue(BuildContext context, String? value) {
+  if (value == null || value.isEmpty) return '-';
+  if (smsKinds.contains(value)) {
+    return FinanceToolsStrings.of(context).label('sms.kind', value);
+  }
+  return FinanceStrings.of(context).t('category.$value');
+}
+
+/// The one step that makes such a message automatic next time, in plain
+/// words (docs/finance-sms.md#learning; the web's `fixText`).
+String smsFixText(BuildContext context, SmsFix fix) {
+  final t = FinanceToolsStrings.of(context);
+  final sender = fix.sender ?? '-';
+  return switch (fix.action) {
+    'trust_sender' => t.t('sms.fix.trust_sender', {'sender': sender}),
+    'map_card' => fix.accountName != null
+        ? t.t('sms.fix.map_card',
+            {'last4': fix.last4 ?? '-', 'account': fix.accountName!})
+        : t.t('sms.fix.map_card_pick', {'last4': fix.last4 ?? '-'}),
+    'auto_post_on' => t.t('sms.fix.auto_post_on'),
+    'clear_hold' => t.t('sms.fix.clear_hold', {'sender': sender}),
+    'remember_kind' => t.t('sms.fix.remember_kind',
+        {'party': fix.party ?? '-', 'kind': _learnedValue(context, fix.kind)}),
+    'undo_learning' => t.t('sms.fix.undo_learning',
+        {'party': fix.party ?? '-', 'value': _learnedValue(context, fix.kind)}),
+    'undo_recheck' => t.t('sms.fix.undo_recheck'),
+    'open_settings' => t.t('sms.fix.open_settings'),
+    'decide' => t.t('sms.fix.decide'),
+    _ => t.t('sms.fix.record'),
+  };
+}
+
+/// What ANUM learned, as a sentence (the web's `noticeText`).
+String smsNoticeText(BuildContext context, SmsNotice n) {
+  final t = FinanceToolsStrings.of(context);
+  return switch (n.kind) {
+    'sender_trusted' =>
+      t.t('sms.learn.sender_trusted', {'sender': n.sender ?? '-'}),
+    'kind_remembered' => t.t('sms.learn.kind_remembered',
+        {'party': n.party ?? '-', 'kind': _learnedValue(context, n.value)}),
+    'category_remembered' => t.t('sms.learn.category_remembered',
+        {'party': n.party ?? '-', 'category': _learnedValue(context, n.value)}),
+    'rechecked' when n.sender != null => t.t('sms.learn.rechecked_sender',
+        {'count': n.value ?? '0', 'sender': n.sender!}),
+    'rechecked' when n.last4 != null => t.t('sms.learn.rechecked_card',
+        {'count': n.value ?? '0', 'last4': n.last4!}),
+    'rechecked' => t.t('sms.learn.rechecked', {'count': n.value ?? '0'}),
+    _ => t.t('sms.learn.card_proposed',
+        {'last4': n.last4 ?? '-', 'account': n.accountName ?? '-'}),
+  };
+}
+
+/// The fix of one message or reason: its words, and a button when it is one
+/// tap away. [onDone] reloads the page.
+class SmsFixLine extends StatefulWidget {
+  const SmsFixLine(
+      {required this.fix,
+      required this.repository,
+      required this.onDone,
+      this.messageId,
+      super.key});
+  final SmsFix fix;
+  final FinanceMoreRepository repository;
+  final String? messageId;
+  final Future<void> Function() onDone;
+
+  @override
+  State<SmsFixLine> createState() => _SmsFixLineState();
+}
+
+class _SmsFixLineState extends State<SmsFixLine> {
+  bool _busy = false;
+
+  Future<void> _run() async {
+    setState(() => _busy = true);
+    try {
+      await widget.repository
+          .applySmsFix(widget.fix, messageId: widget.messageId);
+      if (!mounted) return;
+      recordsToast(context, FinanceToolsStrings.of(context).t('saved'));
+      await widget.onDone();
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = FinanceToolsStrings.of(context);
+    final text = smsFixText(context, widget.fix);
+    final muted = TextStyle(color: context.palette.muted);
+    if (!widget.fix.oneTap) {
+      return Row(children: [
+        Icon(Icons.lightbulb_outline, size: 18, color: context.palette.muted),
+        const SizedBox(width: AnumSpacing.xs),
+        Expanded(child: Text(text, style: muted)),
+      ]);
+    }
+    if (widget.fix.action == 'undo_learning' ||
+        widget.fix.action == 'undo_recheck') {
+      return Wrap(
+          spacing: AnumSpacing.xs,
+          runSpacing: AnumSpacing.xs,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(text, style: muted),
+            Semantics(
+              label: t.t('sms.learn.undoLabel', {'text': text}),
+              excludeSemantics: true,
+              button: true,
+              child: OutlinedButton.icon(
+                key: Key('sms-fix-${widget.fix.action}'),
+                onPressed: _busy ? null : _run,
+                icon: const Icon(Icons.undo),
+                label: Text(t.t('sms.fix.undo')),
+              ),
+            ),
+          ]);
+    }
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: FilledButton.icon(
+        key: Key('sms-fix-${widget.fix.action}'),
+        onPressed: _busy ? null : _run,
+        icon: const Icon(Icons.lightbulb_outline),
+        label: Text(text),
+      ),
+    );
+  }
+}
+
 /// "Card purchase · AED 25.00 · Example shop" for a message or entry.
 String smsLine(BuildContext context, SmsMessage m) {
   final t = FinanceToolsStrings.of(context);
@@ -55,6 +189,9 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
   List<SmsRule>? _rules;
   String? _rulesError;
   List<FinanceAccount> _accounts = const [];
+  List<SmsNotice> _notices = const [];
+  ({int total, List<SmsReasonGroup> groups})? _summary;
+  String? _learningError;
 
   @override
   void initState() {
@@ -91,6 +228,21 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
     } on Object catch (error) {
       if (mounted) {
         setState(() => _rulesError = RecordsFailure.from(error).message);
+      }
+    }
+    try {
+      final notices = await repo.smsNotices();
+      final summary = await repo.smsReviewSummary();
+      if (mounted) {
+        setState(() {
+          _notices = notices;
+          _summary = summary;
+          _learningError = null;
+        });
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        setState(() => _learningError = RecordsFailure.from(error).message);
       }
     }
     try {
@@ -141,6 +293,155 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
     if (!saved || !mounted) return;
     recordsToast(context, answer?.isNotEmpty == true ? answer! : t.t('saved'));
     await _reload();
+  }
+
+  Future<void> _notice(SmsNotice n, String what) async {
+    final t = FinanceToolsStrings.of(context);
+    final repo = widget.repository;
+    try {
+      switch (what) {
+        case 'undo':
+          await repo.undoSmsNotice(n);
+        case 'map':
+          await repo.mapSmsCard(n);
+        default:
+          await repo.dismissSmsNotice(n.id);
+      }
+      if (!mounted) return;
+      recordsToast(context, t.t('saved'));
+      await _reload();
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    }
+  }
+
+  Future<void> _recheck() async {
+    final t = FinanceToolsStrings.of(context);
+    try {
+      final done = await widget.repository.recheckSms();
+      if (!mounted) return;
+      recordsToast(
+          context,
+          [
+            t.t('sms.recheck.done',
+                {'recorded': done.recorded, 'waiting': done.stillWaiting}),
+            if (done.more) t.t('sms.recheck.more'),
+          ].join(' '));
+      await _reload();
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    }
+  }
+
+  Widget _noticeButton(
+      String key, String label, String spoken, VoidCallback onPressed,
+      {bool filled = false}) {
+    final button = filled
+        ? FilledButton(key: Key(key), onPressed: onPressed, child: Text(label))
+        : OutlinedButton(
+            key: Key(key), onPressed: onPressed, child: Text(label));
+    return Semantics(
+        label: spoken, button: true, excludeSemantics: true, child: button);
+  }
+
+  List<Widget> _learning(BuildContext context) {
+    final t = FinanceToolsStrings.of(context);
+    final muted = TextStyle(color: context.palette.muted);
+    final summary = _summary;
+    return [
+      if (_learningError != null)
+        Text(_learningError!, style: TextStyle(color: context.palette.stop)),
+      if (_notices.isNotEmpty)
+        RecordsSection(
+            key: const Key('sms-learned'),
+            title: t.t('sms.learn.title'),
+            children: [
+              Text(t.t('sms.learn.help'), style: muted),
+              for (final n in _notices)
+                Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(smsNoticeText(context, n)),
+                      Wrap(
+                          spacing: AnumSpacing.xs,
+                          runSpacing: AnumSpacing.xs,
+                          children: n.kind == 'rechecked'
+                              ? [
+                                  _noticeButton(
+                                      'sms-notice-ok-${n.id}',
+                                      t.t('sms.learn.dismiss'),
+                                      t.t('sms.learn.okLabel',
+                                          {'text': smsNoticeText(context, n)}),
+                                      () => _notice(n, 'ok')),
+                                ]
+                              : n.kind == 'card_proposed'
+                                  ? [
+                                      _noticeButton(
+                                          'sms-notice-map-${n.id}',
+                                          t.t('sms.fix.map'),
+                                          t.t('sms.learn.mapLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'map'),
+                                          filled: true),
+                                      _noticeButton(
+                                          'sms-notice-undo-${n.id}',
+                                          t.t('sms.learn.notNow'),
+                                          t.t('sms.learn.notNowLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'undo')),
+                                    ]
+                                  : [
+                                      _noticeButton(
+                                          'sms-notice-undo-${n.id}',
+                                          t.t('sms.fix.undo'),
+                                          t.t('sms.learn.undoLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'undo')),
+                                      _noticeButton(
+                                          'sms-notice-ok-${n.id}',
+                                          t.t('sms.learn.dismiss'),
+                                          t.t('sms.learn.okLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'ok')),
+                                    ]),
+                    ]),
+            ]),
+      if (summary != null && summary.total > 0)
+        RecordsSection(
+            key: const Key('sms-why'),
+            title: t.t('sms.why'),
+            children: [
+              Text(t.t('sms.why.help', {'count': summary.total}), style: muted),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  key: const Key('sms-recheck'),
+                  onPressed: _recheck,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(t.t('sms.recheck')),
+                ),
+              ),
+              for (final g in summary.groups) ...[
+                Text(t.label('sms.reason', g.reason),
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(t.t('sms.why.count', {'count': g.count}), style: muted),
+                for (final item in g.items) ...[
+                  if (item.key != '-')
+                    Text('${ltrValue(context, item.key)} (${item.count})',
+                        style: muted),
+                  if (item.fix != null)
+                    SmsFixLine(
+                        fix: item.fix!,
+                        repository: widget.repository,
+                        onDone: _reload),
+                ],
+              ],
+            ]),
+    ];
   }
 
   Future<void> _rule(SmsRule rule, String change) async {
@@ -206,6 +507,7 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
               label: Text(t.t('sms.paste')),
             ),
           ]),
+          ..._learning(context),
           AnumHeader(title: t.t('sms.review'), subtitle: t.t('sms.reviewSub')),
           RecordsFilterChips(
             options: {
@@ -239,7 +541,10 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
                 t.t('sms.status.${m.status}'),
                 if (m.reason != null) t.label('sms.reason', m.reason!),
               ].join(' · '),
-              detail: smsLine(context, m),
+              detail: [
+                smsLine(context, m),
+                if (m.fix != null) smsFixText(context, m.fix!),
+              ].join('\n'),
               trailing: m.actionable ? const Icon(Icons.chevron_right) : null,
               onTap: m.actionable ? () => _open(m) : null,
             ),
@@ -332,6 +637,7 @@ class _SmsMessageScreenState extends State<SmsMessageScreen> {
   };
   String? _kind, _account, _counter, _category;
   bool _confirmFormat = false, _teach = false, _allowDuplicate = false;
+  bool _remember = false;
   bool _busy = false;
   String? _error, _note;
 
@@ -365,7 +671,13 @@ class _SmsMessageScreenState extends State<SmsMessageScreen> {
         if (_confirmFormat) 'confirm_format': true,
         if (_teach) 'teach': true,
         if (_allowDuplicate) 'allow_duplicate': true,
+        if (_remember && _rememberable) 'remember': true,
       };
+
+  /// Kinds ANUM remembers for one party (docs/finance-sms.md#learning).
+  bool get _rememberable =>
+      const ['salary', 'own_transfer', 'refund'].contains(_kind) &&
+      _text['merchant']!.text.trim().isNotEmpty;
 
   Future<void> _act(String what) async {
     final t = FinanceToolsStrings.of(context);
@@ -401,9 +713,11 @@ class _SmsMessageScreenState extends State<SmsMessageScreen> {
           if (mounted) {
             recordsToast(
                 context,
-                t.t(result.ruleProposed
-                    ? 'sms.recordedTaught'
-                    : 'sms.recorded'));
+                result.learned.isNotEmpty
+                    ? smsNoticeText(context, result.learned.first)
+                    : t.t(result.ruleProposed
+                        ? 'sms.recordedTaught'
+                        : 'sms.recorded'));
           }
         case 'dismiss':
           await repo.dismissSms(id);
@@ -487,6 +801,15 @@ class _SmsMessageScreenState extends State<SmsMessageScreen> {
           child: Text(m.bodyMasked.isEmpty ? t.t('sms.bodyGone') : m.bodyMasked,
               key: const Key('sms-body')),
         ),
+        if (m.fix != null)
+          SmsFixLine(
+              key: const Key('sms-message-fix'),
+              fix: m.fix!,
+              repository: widget.repository,
+              messageId: m.id,
+              onDone: () async {
+                if (mounted) Navigator.of(context).pop(true);
+              }),
         Text(t.t('sms.fieldsHelp'), style: TextStyle(color: p.muted)),
         _choice(
             'kind',
@@ -561,6 +884,17 @@ class _SmsMessageScreenState extends State<SmsMessageScreen> {
                   : (v) => setState(() => _teach = v),
               title: Text(t.t('sms.teach')),
             )),
+        if (_rememberable)
+          Material(
+              type: MaterialType.transparency,
+              child: SwitchListTile(
+                key: const Key('sms-remember'),
+                contentPadding: EdgeInsets.zero,
+                value: _remember,
+                onChanged: (v) => setState(() => _remember = v),
+                title: Text(t.t(
+                    'sms.remember', {'party': _text['merchant']!.text.trim()})),
+              )),
         if (m.status == 'duplicate')
           Material(
               type: MaterialType.transparency,

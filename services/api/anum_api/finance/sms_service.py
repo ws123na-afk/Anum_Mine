@@ -75,6 +75,7 @@ from .sms_store import (
 )
 from . import link_hooks
 from . import wallet as W
+from .sms_learning import category_by_rule, hold_reason, remembered_kind
 from .store import FinanceStore
 from .summary import today_in, zone
 
@@ -649,8 +650,25 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
             store.save_rule(rule)
             if rule.account_id and resolved.account is None and resolved.counter is None:
                 resolved = resolve(parsed, settings, accounts, account_id=rule.account_id)
+    applied = remembered_kind(settings, message.sender, parsed, accounts)
+    if applied is not None and resolved.amount is not None and target is not None:
+        # The person chose this twice for money from or to this party (docs/finance-sms.md#learning).
+        if applied.kind == P.Kind.OWN_TRANSFER:
+            own = next((a for a in accounts if a.id == applied.counter_account_id), None)
+            if own is None or own.currency != target.currency or own.id == target.id:
+                applied = None  # across currencies, or to the same account: the person decides
+            else:
+                account, counter = (own, target) if parsed.kind in P.MONEY_IN else (target, own)
+                resolved = Resolved(account, counter, resolved.amount, resolved.original_amount, resolved.original_currency, resolved.fx_rate)
+        if applied is not None:
+            parsed.kind = applied.kind
+            message.parsed = {**message.parsed, "learned": applied.record()}
     when, has_time = _when(parsed, message.received_at, tz_name)
     reason = parsed.reason or resolved.problem
+    if reason is None:
+        # A reading by a rule the person taught is theirs: a hold for corrected readings of the generic engine does not apply.
+        held_sender = None if parsed.rule.startswith("learned:") else message.sender
+        reason = hold_reason(settings, held_sender, resolved.amount, target.currency if target is not None else None, now)
     if reason is None and not settings.auto_post:
         reason = "auto_post_off"
     if resolved.amount is not None and target is not None and parsed.kind != P.Kind.UNKNOWN and parsed.reason not in ("unknown_kind", "ambiguous_kind"):
@@ -668,6 +686,16 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
     if reason is not None:
         message.status, message.reason = MessageStatus.REVIEW, reason
         return Outcome(message, notify="review")
+    if parsed.kind in (P.Kind.CARD_PURCHASE, P.Kind.TRANSFER_OUT) and settings.memory.categories and resolved.amount is not None:
+        # Mark a category the person taught by choosing it twice (an approved learned rule), so Review can offer its undo.
+        from .categories import classify_text
+        from .rules_store import owner_rules
+
+        found = classify_text(parsed.merchant or "", -resolved.amount, owner_rules(finance, context), account_id=getattr(resolved.account, "id", None),
+                              reference=parsed.reference)
+        memory = category_by_rule(settings, found.rule_id)
+        if memory is not None:
+            message.parsed = {**message.parsed, "learned": {"what": "category", "value": memory.category, "ref": str(memory.rule_id), "party": memory.party_label}}
     draft = Draft(kind=parsed.kind, resolved=resolved, merchant=parsed.merchant, category=None, occurred_at=when, has_time=has_time,
                   reference=parsed.reference, interest=parsed.interest, fee=parsed.fee if parsed.kind != P.Kind.BANK_FEE else None)
     try:
@@ -683,6 +711,60 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
         return Outcome(message)
     flagged = _is_unusual(store, context, entry)
     return Outcome(message, unusual=flagged, notify="unusual" if flagged else None)
+
+
+RECHECK_LIMIT = 200  # waiting messages one re-check records at most; the next call carries on
+RECHECK_SCAN = 2_000  # waiting messages one re-check reads at most (oldest first)
+
+
+@dataclass
+class Recheck:
+    recorded: list[str]  # message ids now recorded (posted or attached)
+    still_waiting: int  # matching messages that still wait, each with its reason
+    more: bool  # stopped at the limit: run it again to carry on
+
+
+def recheck(finance: FinanceStore, store: SmsStore, context: TenantContext, *, now: datetime, sender: str | None = None,
+            last4: str | None = None, limit: int | None = None) -> Recheck:
+    """Run waiting bank messages through the pipeline again after the person trusted a sender, mapped a card, taught a
+    kind or turned auto-post on (docs/finance-sms.md#re-checking-waiting-messages). The caller holds the owner's lock.
+
+    Only forwarded or pasted messages whose masked text is still kept are re-read. A message is kept only when it now
+    posts or attaches; anything that still waits (currency doubts, ambiguous matches, possible duplicates, above the
+    limit, a sender corrected lately) is left exactly as it was. A message the person sent back (``learning_undone``)
+    is never re-recorded. Running it twice records nothing twice: a recorded message is no longer waiting."""
+    waiting, _total = store.list_messages(context, status=MessageStatus.REVIEW.value, limit=RECHECK_SCAN, offset=0)
+    recorded: list[str] = []
+    still = 0
+    more = False
+    for message in reversed(waiting):  # oldest first, so a repeat of the same payment meets the first one as a duplicate
+        if message.source not in ("device", "paste") or not message.body_masked or message.reason == "learning_undone":
+            continue
+        if sender is not None and message.sender != sender:
+            continue
+        if last4 is not None and str(message.parsed.get("last4") or "") != last4:
+            continue
+        if len(recorded) >= (limit or RECHECK_LIMIT):
+            more = True
+            break
+        trial = message.model_copy(deep=True)
+        try:
+            outcome = process(finance, store, context, trial, trial.body_masked, now=now)
+        except Exception:  # one bad message never stops the pass; it keeps waiting as it was
+            logger.exception("finance_sms_recheck_failed")
+            still += 1
+            continue
+        if outcome.message.status not in (MessageStatus.POSTED, MessageStatus.ATTACHED):
+            still += 1
+            continue
+        done = outcome.message
+        if done.status == MessageStatus.POSTED and not isinstance(done.parsed.get("learned"), dict):
+            done.parsed = {**done.parsed, "learned": {"what": "recheck", "value": str(done.parsed.get("kind") or ""), "ref": "",
+                                                       "party": done.sender}}
+        done.updated_at = now
+        store.save_message(done)
+        recorded.append(done.id)
+    return Recheck(recorded, still, more)
 
 
 OWN_PAIR_DAYS = 2
@@ -848,6 +930,10 @@ def process_wallet(finance: FinanceStore, store: SmsStore, context: TenantContex
         return _attach(message, existing_entry, decision)
     if decision == "ambiguous":
         message.status, message.reason = MessageStatus.REVIEW, "ambiguous_match"
+        return Outcome(message, notify="review")
+    limited = hold_reason(settings, None, resolved.amount, account.currency, now)
+    if limited is not None:
+        message.status, message.reason = MessageStatus.REVIEW, limited
         return Outcome(message, notify="review")
     if not settings.auto_post:
         message.status, message.reason = MessageStatus.REVIEW, "auto_post_off"

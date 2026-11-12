@@ -13,11 +13,12 @@ import * as api from './lib/financeSmsApi';
 import { listAccounts, listImports } from './lib/financeApi';
 import { apiBaseUrl } from './lib/api';
 import { scopeLabel } from './lib/iphoneIntegrations';
-import { SMS_KINDS, SMS_STATUSES, correctionBody, correctionDefaults, ingestUrl, kindLabel, ledgerAccountLabel, reasonLabel, shortcutSteps, walletSteps, walletUrl } from './lib/financeSms';
+import { REMEMBERED_KINDS, SMS_KINDS, SMS_STATUSES, correctionBody, correctionDefaults, ingestUrl, kindLabel, ledgerAccountLabel, reasonLabel, shortcutSteps, walletSteps, walletUrl } from './lib/financeSms';
 import { categoryLabel, formatAmounts, monthLabel, shiftMonth } from './lib/finance';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
+import { FixLine, LearnedNotices, WhyWaiting } from './FinanceSmsLearning';
 import { Denied, Empty, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import './financeSms.css';
 
@@ -61,7 +62,7 @@ export function SmsPanel() {
       <Devices status={status.value} onChanged={reload} />
       <SettingsForm settings={settings.value} accounts={accountList} onSaved={reload} />
     </>}
-    {section === 'review' && <Review accounts={accountList} aiOn={settings.value.ai.enabled} onChanged={reload} />}
+    {section === 'review' && <Review accounts={accountList} aiOn={settings.value.ai.enabled} onChanged={reload} onOpenSettings={() => setSection('setup')} />}
     {section === 'rules' && <Rules accounts={accountList} />}
     {section === 'banks' && <Banks />}
     {section === 'reconcile' && <Reconcile />}
@@ -211,6 +212,9 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
   const [cards, setCards] = useState<{ card: string; last4: string; account_id: string }[]>((settings.wallet_cards ?? []).map((c) => ({ card: c.card, last4: c.last4 ?? '', account_id: c.account_id })));
   const [ai, setAi] = useState(settings.ai.enabled);
   const [consent, setConsent] = useState(false);
+  const [learn, setLearn] = useState(settings.learning?.enabled ?? true);
+  const [learnAfter, setLearnAfter] = useState(String(settings.learning?.confirm_after ?? 2));
+  const [limits, setLimits] = useState<{ currency: string; amount: string }[]>((settings.auto_post_limits ?? []).map((l) => ({ currency: l.currency, amount: l.amount })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -226,6 +230,8 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
         wallet_cards: cards.filter((c) => c.card.trim() && c.account_id).map((c) => ({ card: c.card.trim(), last4: c.last4 || null, account_id: c.account_id })),
         extra_senders: senders.split(',').map((s) => s.trim()).filter(Boolean).map((s) => ({ sender: s, bank: s.toLowerCase().slice(0, 40) })),
         ai_enabled: ai, ai_consent: ai && !settings.ai.enabled ? consent : undefined,
+        learning_enabled: learn, learning_confirm_after: Number(learnAfter),
+        auto_post_limits: limits.filter((l) => l.currency.trim() && l.amount.trim()).map((l) => ({ currency: l.currency.trim().toUpperCase(), amount: l.amount.trim() })),
       });
       setSaved(true); onSaved();
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
@@ -245,6 +251,23 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
       </div>
       <p className="muted finHelp">{t('fsms.retentionHelp')} {t('fsms.ledgerKindHelp')}</p>
       <label className="finCheck"><input type="checkbox" checked={autoPost} onChange={(e) => setAutoPost(e.target.checked)} />{t('fsms.autoPost')}</label>
+      <fieldset className="finMapping"><legend>{t('fsms.learning')}</legend>
+        <p className="muted finHelp">{t('fsms.learning.help')}</p>
+        <label className="finCheck"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />{t('fsms.learning.on')}</label>
+        <label className="cmInline"><span>{t('fsms.learning.after')}</span><select value={learnAfter} disabled={!learn} onChange={(e) => setLearnAfter(e.target.value)}>
+          {[1, 2, 3, 4, 5].map((n) => <option key={n} value={String(n)}>{n}</option>)}</select></label>
+      </fieldset>
+      <fieldset className="finMapping"><legend>{t('fsms.limits')}</legend>
+        <p className="muted finHelp">{t('fsms.limits.help')}</p>
+        {limits.map((row, index) => <div key={index} className="cmFilters finLimitRow">
+          <label className="cmInline"><span>{t('fsms.limits.currency')}</span><input value={row.currency} maxLength={3} dir="ltr" autoCapitalize="characters"
+            onChange={(e) => setLimits(limits.map((l, i) => (i === index ? { ...l, currency: e.target.value } : l)))} /></label>
+          <label className="cmInline"><span>{t('fsms.limits.amount')}</span><input value={row.amount} inputMode="decimal" dir="ltr"
+            onChange={(e) => setLimits(limits.map((l, i) => (i === index ? { ...l, amount: e.target.value } : l)))} /></label>
+          <button type="button" className="iconButton small" aria-label={t('fsms.limits.remove')} onClick={() => setLimits(limits.filter((_, i) => i !== index))}><Trash2 aria-hidden="true" /></button>
+        </div>)}
+        <button type="button" className="secondary" onClick={() => setLimits([...limits, { currency: '', amount: '' }])}><Plus aria-hidden="true" />{t('fsms.limits.add')}</button>
+      </fieldset>
       <fieldset className="finMapping"><legend>{t('fsms.map')}</legend>
         <p className="muted finHelp">{t('fsms.mapHelp')}</p>
         {rows.map((row, index) => <div key={index} className="cmFilters finLimitRow">
@@ -282,8 +305,9 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
   </section>;
 }
 
-export function Review({ accounts, aiOn, onChanged }: { accounts: FinanceAccount[]; aiOn: boolean; onChanged: () => void }) {
+export function Review({ accounts, aiOn, onChanged, onOpenSettings }: { accounts: FinanceAccount[]; aiOn: boolean; onChanged: () => void; onOpenSettings?: () => void }) {
   const [status, setStatus] = useState<FinanceSmsStatus | ''>('review');
+  const [refresh, setRefresh] = useState(0);
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<Load<FinanceSmsMessagePage>>({ kind: 'loading' });
   const [open, setOpen] = useState<FinanceSmsMessage | null>(null);
@@ -291,8 +315,11 @@ export function Review({ accounts, aiOn, onChanged }: { accounts: FinanceAccount
     api.smsMessages(status, PAGE, offset).then((value) => setPage({ kind: 'ready', value }), (e) => setPage(failed(e)));
   }, [status, offset]);
   useEffect(() => { load(); }, [load]);
-  const changed = () => { load(); onChanged(); };
+  const changed = () => { load(); setRefresh((n) => n + 1); onChanged(); };
+  const openSettings = onOpenSettings ?? (() => undefined);
   return <>
+    <LearnedNotices refresh={refresh} onChanged={changed} />
+    <WhyWaiting accounts={accounts} refresh={refresh} onChanged={changed} onOpenSettings={openSettings} />
     <Paste onDone={changed} />
     <section className="surface cmPanel" aria-labelledby="fsms-review">
       <div className="sectionHeader"><h2 id="fsms-review">{t('fsms.review')}</h2>
@@ -308,7 +335,8 @@ export function Review({ accounts, aiOn, onChanged }: { accounts: FinanceAccount
             <div><strong dir="ltr">{m.sender}</strong>
               <small>{when(m.received_at)} · {t(`fsms.status.${m.status}` as MessageKey)} · {reasonLabel(m.reason)}</small>
               <small>{kindLabel(m.parsed.kind)}{m.parsed.amount ? ` · ${m.parsed.currency ?? ''} ${m.parsed.amount}` : ''}{m.parsed.merchant ? ` · ${m.parsed.merchant}` : ''}</small>
-              {m.body_masked && <p className="finSmsBody" dir="auto">{m.body_masked}</p>}</div>
+              {m.body_masked && <p className="finSmsBody" dir="auto">{m.body_masked}</p>}
+              {m.fix && <FixLine fix={m.fix} messageId={m.id} accounts={accounts} onDone={changed} onOpenSettings={openSettings} />}</div>
             {m.status !== 'rejected' && m.status !== 'dismissed' && m.status !== 'attached' && <button type="button" className="secondary" onClick={() => setOpen(m)}>{m.status === 'posted' ? t('fsms.correct') : t('fsms.check')}</button>}
           </li>)}</ul>
           <div className="cmPager"><button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>{t('fsms.prev')}</button>
@@ -397,6 +425,8 @@ function CorrectDialog({ message, accounts, aiOn, onClose }: { message: FinanceS
       </div>
       <label className="finCheck"><input type="checkbox" checked={!!form.confirm_format} onChange={(e) => set('confirm_format', e.target.checked)} />{t('fsms.confirmFormat')}</label>
       <label className="finCheck"><input type="checkbox" checked={!!form.teach} onChange={(e) => set('teach', e.target.checked)} disabled={!message.body_masked} />{t('fsms.teach')}</label>
+      {REMEMBERED_KINDS.includes(form.kind ?? '') && (form.merchant ?? '').trim() !== '' && <label className="finCheck"><input type="checkbox" checked={!!form.remember}
+        onChange={(e) => set('remember', e.target.checked)} />{t('fsms.remember', { party: (form.merchant ?? '').trim() })}</label>}
       {message.status === 'duplicate' && <label className="finCheck"><input type="checkbox" checked={!!form.allow_duplicate} onChange={(e) => set('allow_duplicate', e.target.checked)} />{t('fsms.allowDuplicate')}</label>}
       <FormError id={errorId} text={error} />
       {note && <Notice>{note}</Notice>}

@@ -281,10 +281,21 @@ class SmsMessage {
       required this.parsed,
       this.reason,
       this.bankKey,
-      this.entryId});
+      this.entryId,
+      this.fix,
+      this.learnedWhat,
+      this.learnedValue});
   final String id, source, receivedAt, sender, bodyMasked, status;
   final String? reason, bankKey, entryId;
   final Map<String, String> parsed;
+
+  /// The one action that makes such a message automatic next time
+  /// (docs/finance-sms.md#learning).
+  final SmsFix? fix;
+
+  /// What ANUM applied from the person's earlier choices: `kind` or
+  /// `category`, and the value.
+  final String? learnedWhat, learnedValue;
 
   bool get posted => status == 'posted';
 
@@ -303,6 +314,11 @@ class SmsMessage {
         reason: r.optString('reason'),
         bankKey: r.optString('bank_key'),
         entryId: r.optString('entry_id'),
+        fix: r.optObject('fix') == null
+            ? null
+            : SmsFix.fromJson(r.object('fix')),
+        learnedWhat: r.optObject('learned')?.optString('what'),
+        learnedValue: r.optObject('learned')?.optString('value'),
         parsed: {
           for (final MapEntry(:key, :value)
               in (r.optMap('parsed') ?? const {}).entries)
@@ -311,11 +327,101 @@ class SmsMessage {
       );
 }
 
+/// The one step that stops such a message waiting (`FinanceSmsFix`).
+class SmsFix {
+  const SmsFix(
+      {required this.action,
+      this.sender,
+      this.last4,
+      this.accountId,
+      this.accountName,
+      this.party,
+      this.kind,
+      this.ref});
+  final String action;
+  final String? sender, last4, accountId, accountName, party, kind, ref;
+
+  /// Done in one tap from the phone (a card without a proposed account, a
+  /// decision, a record or a Setup change are said in words).
+  bool get oneTap => switch (action) {
+        'trust_sender' || 'auto_post_on' || 'clear_hold' => true,
+        'remember_kind' || 'undo_learning' || 'undo_recheck' => true,
+        'map_card' => accountId != null,
+        _ => false,
+      };
+
+  factory SmsFix.fromJson(JsonReader r) => SmsFix(
+        action: r.string('action'),
+        sender: r.optString('sender'),
+        last4: r.optString('last4'),
+        accountId: r.optString('account_id'),
+        accountName: r.optString('account_name'),
+        party: r.optString('party'),
+        kind: r.optString('kind'),
+        ref: r.optString('ref'),
+      );
+}
+
+/// Something ANUM learned from the person's reviews, with its undo
+/// (`FinanceSmsLearningNotice`).
+class SmsNotice {
+  const SmsNotice(
+      {required this.id,
+      required this.kind,
+      this.sender,
+      this.party,
+      this.value,
+      this.last4,
+      this.accountId,
+      this.accountName,
+      this.ref});
+  final String id, kind;
+  final String? sender, party, value, last4, accountId, accountName, ref;
+
+  factory SmsNotice.fromJson(JsonReader r) => SmsNotice(
+        id: r.string('id'),
+        kind: r.string('kind'),
+        sender: r.optString('sender'),
+        party: r.optString('party'),
+        value: r.optString('value'),
+        last4: r.optString('last4'),
+        accountId: r.optString('account_id'),
+        accountName: r.optString('account_name'),
+        ref: r.optString('ref'),
+      );
+}
+
+/// One reason messages wait, split by the sender or card they share
+/// (`FinanceSmsReviewSummary`).
+class SmsReasonGroup {
+  const SmsReasonGroup(
+      {required this.reason, required this.count, required this.items});
+  final String reason;
+  final int count;
+  final List<({String key, int count, SmsFix? fix})> items;
+
+  factory SmsReasonGroup.fromJson(JsonReader r) => SmsReasonGroup(
+        reason: r.string('reason'),
+        count: r.optInt('count') ?? 0,
+        items: r.optObjects(
+            'items',
+            (i) => (
+                  key: i.optString('key') ?? '-',
+                  count: i.optInt('count') ?? 0,
+                  fix: i.optObject('fix') == null
+                      ? null
+                      : SmsFix.fromJson(i.object('fix')),
+                )),
+      );
+}
+
 /// What a correction answered (`FinanceSmsCorrectionResult`).
 class SmsPostResult {
-  const SmsPostResult({this.ruleError, this.ruleProposed = false});
+  const SmsPostResult(
+      {this.ruleError, this.ruleProposed = false, this.learned = const []});
   final String? ruleError;
   final bool ruleProposed;
+  final List<SmsNotice> learned;
 }
 
 /// A sender format ANUM learned or was taught (`FinanceSmsRule`).
@@ -636,8 +742,80 @@ extension FinanceSmsApi on FinanceMoreRepository {
     final r = await _call('POST', '/sms/messages/${_id(id)}/post', body);
     return SmsPostResult(
         ruleError: r.optString('rule_error'),
-        ruleProposed: r.optObject('proposed_rule') != null);
+        ruleProposed: r.optObject('proposed_rule') != null,
+        learned: r.optObjects('learned', SmsNotice.fromJson));
   }
+
+  /// What ANUM learned and has not been acknowledged yet
+  /// (docs/finance-sms.md#learning).
+  Future<List<SmsNotice>> smsNotices() async =>
+      (await _call('GET', '/sms/learning'))
+          .optObjects('notices', SmsNotice.fromJson);
+
+  /// Why messages wait: counts per reason with the fix for each.
+  Future<({int total, List<SmsReasonGroup> groups})> smsReviewSummary() async {
+    final r = await _call('GET', '/sms/review/summary');
+    return (
+      total: r.optInt('total') ?? 0,
+      groups: r.optObjects('groups', SmsReasonGroup.fromJson),
+    );
+  }
+
+  /// Run one fix in one tap. [messageId] is needed for `undo_learning`.
+  Future<void> applySmsFix(SmsFix fix, {String? messageId}) async {
+    switch (fix.action) {
+      case 'trust_sender':
+        await _call(
+            'POST', '/sms/learning/senders/trust', {'sender': fix.sender});
+      case 'clear_hold':
+        await _call(
+            'POST', '/sms/learning/senders/clear-hold', {'sender': fix.sender});
+      case 'auto_post_on':
+        await _call('POST', '/sms/learning/auto-post', {'on': true});
+      case 'remember_kind':
+        await _call(
+            'POST', '/sms/learning/kinds/${_id(fix.ref ?? '')}/activate');
+      case 'map_card':
+        await _call('POST', '/sms/learning/cards/map',
+            {'last4': fix.last4, 'account_id': fix.accountId});
+      case 'undo_learning' || 'undo_recheck':
+        await _call(
+            'POST', '/sms/messages/${_id(messageId ?? '')}/undo-learning');
+    }
+  }
+
+  /// Undo what a notice says ANUM learned (for a card proposal: not now).
+  Future<void> undoSmsNotice(SmsNotice n) async {
+    switch (n.kind) {
+      case 'sender_trusted':
+        await _call(
+            'POST', '/sms/learning/senders/untrust', {'sender': n.sender});
+      case 'kind_remembered':
+        await _call('DELETE', '/sms/learning/kinds/${_id(n.ref ?? '')}');
+      case 'category_remembered':
+        await _call('DELETE', '/sms/learning/categories/${_id(n.ref ?? '')}');
+      default:
+        await _call('POST', '/sms/learning/cards/decline', {'last4': n.last4});
+    }
+  }
+
+  Future<void> mapSmsCard(SmsNotice n) => _call('POST',
+      '/sms/learning/cards/map', {'last4': n.last4, 'account_id': n.accountId});
+
+  /// Re-check every waiting message (docs/finance-sms.md#re-checking-waiting-messages):
+  /// how many were recorded, how many still wait, and whether to run it again.
+  Future<({int recorded, int stillWaiting, bool more})> recheckSms() async {
+    final r =
+        (await _call('POST', '/sms/learning/recheck')).optObject('recheck');
+    return (
+      recorded: r?.optInt('recorded') ?? 0,
+      stillWaiting: r?.optInt('still_waiting') ?? 0,
+      more: r?.optBool('more') ?? false,
+    );
+  }
+
+  Future<void> dismissSmsNotice(String id) =>
+      _call('POST', '/sms/learning/notices/${_id(id)}/dismiss');
 
   Future<void> dismissSms(String id) =>
       _call('POST', '/sms/messages/${_id(id)}/dismiss');
