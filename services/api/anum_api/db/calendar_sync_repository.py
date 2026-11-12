@@ -42,7 +42,7 @@ class CalendarConnectionRecord(Base, WorkspaceScopedMixin):
     last_error: Mapped[str | None] = mapped_column(Text)
     last_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     sync_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # The account's calendars and which sync (0182_calendar_choices).
+    # The account's calendars and which sync (0183_calendar_choices).
     calendars: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -9,18 +9,18 @@ docs/calendar.md#choosing-calendars.
   ``0092_calendar_sync``; no grant changes (the scheduler's column grant to ``anum_maintenance`` does not
   need the new column).
 
-Chained after ``0181_attendance_manager_view``.
+Chained after ``0182_command_sweep``.
 
 Expand only. The previous release never reads or writes the column (the default fills it), so for it the
-primary calendar syncs as before. Rollback: ``alembic downgrade 0181_attendance_manager_view`` drops it.
+primary calendar syncs as before. Rollback: ``alembic downgrade 0182_command_sweep`` drops it.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0182_calendar_choices"
-down_revision = "0181_attendance_manager_view"
+revision = "0183_calendar_choices"
+down_revision = "0182_command_sweep"
 branch_labels = None
 depends_on = None
 

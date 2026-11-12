@@ -217,7 +217,7 @@ def test_rls_refuses_rows_written_for_another_workspace(database_engine: Engine,
 
 
 def test_chosen_calendars_persist_and_their_copies_are_scoped(client: TestClient, database_engine: Engine, fake: FakeCalendars) -> None:
-    """0182_calendar_choices: the choice is stored on the connection and read back after a restart;
+    """0183_calendar_choices: the choice is stored on the connection and read back after a restart;
     the copies of another calendar are linked to the connection and removed when it is no longer chosen."""
     connection = _connect(client)
     url = f"/api/v1/calendar/sync/connections/{connection['id']}/calendars"
