@@ -26,7 +26,7 @@ import {
 } from './lib/commandCenter';
 import {
   HISTORY_PAGE, MAX_ATTACHMENTS, MAX_REQUEST_CHARS, QUICK_CATEGORIES, canDelete, canStart, commandLocale, commandTone, isLive, moveStep, quickTitle, removeStep,
-  stoppableTasks, confirmedDependencies, readyToContinue,
+  stoppableTasks, confirmedDependencies, stalledSteps,
 } from './lib/commands';
 import { ACTIVE_STATUSES } from './lib/tasks';
 import * as commandApi from './lib/commandApi';
@@ -143,21 +143,13 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
   // Workspace events: refresh what moves (history, open tasks, approvals) without a loading flash.
   useEffect(() => { if (live > 0) { loadHistory(true); void loadTasks(); loadSignals(); } }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---- the command the tracker follows: refreshed every few seconds while it runs, and on workspace events
-  // A step that waited for earlier steps starts once they completed (after an approval, or a run on the
-  // durable worker): the server starts only what is ready, so one call per command at a time is enough.
-  const continuing = useRef(new Set<string>());
+  // ---- the command the tracker follows: refreshed every few seconds while it runs, and on workspace events.
+  // The server starts a waiting step itself once the steps it waits for complete (docs/command.md#the-server-continues-a-command),
+  // so the page only follows; "Start the remaining steps" in the tracker covers a step the budget or the emergency stop held.
   const refreshDetail = useCallback((id: string, quiet = true) => {
     if (!quiet) setDetail({ state: 'loading' });
     commandApi.getCommand(id).then((value) => {
       setDetail({ state: 'ready', value });
-      if (!viewer && readyToContinue(value) && !continuing.current.has(id)) {
-        continuing.current.add(id);
-        void commandApi.startCommand(id).then((next) => setDetail({ state: 'ready', value: next }), (e: unknown) => {
-          if (isBudgetExceeded(e)) onBudget(budgetMessage(e));
-          setStartError(t('cmd.start.someFailed', { reason: describeError(e) }));
-        }).finally(() => continuing.current.delete(id));
-      }
       setHistory((h) => ({ ...h, items: h.items.map((item) => item.id === value.id ? { ...item, status: value.status, progress: value.progress, completedSteps: value.completedSteps, pendingApprovals: value.pendingApprovals } : item) }));
     }).catch((e: unknown) => { if (!quiet) setDetail(isPermissionDenied(e) ? { state: 'denied' } : { state: 'error', message: describeError(e) }); });
   }, [viewer]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -578,6 +570,7 @@ function TrackerPanel({ detail, historyLoading, viewer, onRetry, onOpenTask, onO
     else if (item.text) onUse(item.text);
   };
   const stoppable = view ? stoppableTasks(view) : [];
+  const stalled = view && !viewer ? stalledSteps(view) : [];
 
   return <section className="surface commandPanel trackerPanel" aria-labelledby="tracker-title" aria-busy={detail?.state === 'loading'}>
     <div className="panelHead">
@@ -613,6 +606,10 @@ function TrackerPanel({ detail, historyLoading, viewer, onRetry, onOpenTask, onO
         <p><ShieldCheck aria-hidden="true" />{t('cmd.detail.waiting', { count: view.pending.length })}</p>
         <div><button type="button" className="primaryButton smallButton" onClick={() => onGo('approvals')}>{t('command.tracker.review')}</button>
           {!viewer && <button type="button" className="secondary smallButton" disabled={busy !== null} onClick={() => void approveAll(view)}>{busy === 'approve' ? <LoaderCircle className="spin" aria-hidden="true" /> : <CircleCheck aria-hidden="true" />}{t('cmd.detail.approveAll')}</button>}</div>
+      </div>}
+      {stalled.length > 0 && <div className="approvalStrip" role="group" aria-label={t('cmd.detail.startRemaining')}>
+        <p><CircleAlert aria-hidden="true" />{t('cmd.detail.stalled', { steps: stalled.join(', ') })}</p>
+        <div><button type="button" className="primaryButton smallButton" disabled={busy !== null} onClick={() => void act('continue', () => commandApi.startCommand(view.id))}>{busy === 'continue' ? <LoaderCircle className="spin" aria-hidden="true" /> : <Play aria-hidden="true" />}{t('cmd.detail.startRemaining')}</button></div>
       </div>}
       {view.files.some((f) => f.kind === 'attachment' && f.fileId) && <div className="detailFiles"><h3>{t('cmd.detail.files')}</h3><ul>{view.files.filter((f) => f.kind === 'attachment' && f.fileId).map((file) => <li key={file.path}><button type="button" className="linkButton" onClick={() => onOpenFile(file.fileId!)}><FileText aria-hidden="true" /><span dir="auto">{file.name}</span></button></li>)}</ul></div>}
       {problem && <PanelError message={problem} />}

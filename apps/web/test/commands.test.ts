@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import type { Approval, PlanStep, Task } from '@anum/contracts';
 import {
   canDelete, canStart, commandLocale, commandTone, isLive, mapPlan, mapQuick, mapSummary, mapView, moveStep, quickTitle, removeStep, stoppableTasks, unstartedTasks,
-  confirmedDependencies, readyToContinue,
+  confirmedDependencies, stalledSteps,
 } from '../src/lib/commands.ts';
 
 const apiStep = (position: number, status: string, runId: string | null = null) => ({
@@ -92,12 +92,16 @@ describe('steps that build on each other', () => {
     // Step 1 removed: its wait disappears, the rest renumber.
     assert.deepEqual(confirmedDependencies([planned(2, [1]), planned(3, [1, 2])]), [[], [1]]);
   });
-  test('a waiting step is continued once nothing is left to wait for', () => {
-    const step = (status: string, dependsOn: number[], waitingFor: number[], runId: string | null = null) =>
-      ({ status, dependsOn, waitingFor, blockedBy: [], runId }) as never;
-    assert.equal(readyToContinue({ steps: [step('completed', [], [], 'r1'), step('created', [1], [])] }), true);
-    assert.equal(readyToContinue({ steps: [step('running', [], [], 'r1'), step('created', [1], [1])] }), false);
-    // A step with no dependency that never started is not this rule's business (Start already ran it).
-    assert.equal(readyToContinue({ steps: [step('created', [], [])] }), false);
+  test('only a ready step the server did not start is offered to start again', () => {
+    const step = (position: number, status: string, dependsOn: number[], waitingFor: number[], blockedBy: number[] = [], runId: string | null = null) =>
+      ({ position, status, dependsOn, waitingFor, blockedBy, runId }) as never;
+    // The budget held step 2 after step 1 completed: offered.
+    assert.deepEqual(stalledSteps({ steps: [step(1, 'completed', [], [], [], 'r1'), step(2, 'created', [1], [])] }), [2]);
+    // A Start that was refused before anything ran: every step without a wait is offered.
+    assert.deepEqual(stalledSteps({ steps: [step(1, 'created', [], []), step(2, 'created', [1], [1])] }), [1]);
+    // Still waiting, blocked by a failure, or something still running that the server continues from: not offered.
+    assert.deepEqual(stalledSteps({ steps: [step(1, 'running', [], [], [], 'r1'), step(2, 'created', [1], [1])] }), []);
+    assert.deepEqual(stalledSteps({ steps: [step(1, 'failed', [], [], [], 'r1'), step(2, 'created', [1], [1], [1])] }), []);
+    assert.deepEqual(stalledSteps({ steps: [step(1, 'waiting_approval', [], [], [], 'r1'), step(2, 'created', [1], [1])] }), []);
   });
 });

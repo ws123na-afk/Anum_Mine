@@ -214,6 +214,8 @@ export const homeAr: Record<keyof typeof homeEn, Message> = {
   'cmd.detail.files': 'المستندات',
   'cmd.detail.next': 'الخطوات التالية',
   'cmd.detail.saved': 'حُفظ كأمر سريع',
+  'cmd.detail.startRemaining': 'ابدأ الخطوات المتبقية',
+  'cmd.detail.stalled': 'الخطوة {steps} جاهزة لكنها لم تبدأ: أوقفتها الميزانية الشهرية أو الإيقاف الطارئ، أو أعيد تشغيل الخادم. ابدأها مرة أخرى بعد حل ذلك.',
   'cmd.detail.stop': 'إيقاف',
   'cmd.detail.report': 'تنزيل التقرير',
   'cmd.detail.delete': 'إزالة من السجل',

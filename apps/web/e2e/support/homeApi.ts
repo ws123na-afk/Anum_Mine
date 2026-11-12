@@ -57,7 +57,13 @@ export const previewPlan = (text: string) => ({
   approvals_required: 1, blocked: 0,
 });
 
-export interface HomeMockState { pins: Record<string, unknown>[]; quick: Record<string, unknown>[]; commands: Record<string, unknown>[]; created: unknown[]; runs: string[]; approved: unknown[] }
+export interface HomeMockState {
+  pins: Record<string, unknown>[]; quick: Record<string, unknown>[]; commands: Record<string, unknown>[]; created: unknown[]; runs: string[]; approved: unknown[];
+  /** POST /commands/{id}/start calls, by command id. */
+  starts: string[];
+  /** Like the API: a waiting step starts on its own once its earlier steps completed. Off: the budget held it. */
+  serverContinues: boolean;
+}
 
 export function createHomeMock() {
   const state: HomeMockState = {
@@ -67,8 +73,22 @@ export function createHomeMock() {
       { id: 'quick_2', title: 'Plan my week', text: 'Plan my week from my open tasks', category: 'personal', position: 0, use_count: 0, last_used_at: null, created_at: iso(-9000), updated_at: iso(-9000) },
     ],
     commands: [doneCommand()],
-    created: [], runs: [], approved: [],
+    created: [], runs: [], approved: [], starts: [], serverContinues: true,
   };
+  // Starts (and, in the mock, completes) every step whose earlier steps all completed; returns their task ids.
+  function startReady(command: Record<string, unknown>): string[] {
+    const before = command.steps as Record<string, unknown>[];
+    const doneBefore = new Set(before.filter((s) => s.status === 'completed').map((s) => s.position as number));
+    const ready = before.filter((s) => s.status === 'created' && ((s.depends_on as number[] | undefined) ?? []).every((p) => doneBefore.has(p)));
+    const results: Record<number, string> = { 1: 'Three urgent emails today.', 2: 'Meeting drafted for tomorrow at 10:00.' };
+    const steps = before.map((s) => ready.includes(s) ? { ...s, status: 'completed', progress: 1, run_id: `run_${s.task_id as string}`, result: results[s.position as number] ?? 'Done.' } : s);
+    const doneNow = new Set(steps.filter((s) => s.status === 'completed').map((s) => s.position as number));
+    const withWaits = steps.map((s) => ({ ...s, waiting_for: ((s.depends_on as number[] | undefined) ?? []).filter((p) => !doneNow.has(p)) }));
+    state.runs.push(...ready.map((s) => s.task_id as string));
+    const done = doneNow.size;
+    Object.assign(command, { steps: withWaits, completed_steps: done, progress: done / steps.length, status: done === steps.length ? 'completed' : 'running' });
+    return ready.map((s) => s.task_id as string);
+  }
   async function handle(route: Route, path: string, method: string): Promise<boolean> {
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }).then(() => true);
     const body = () => route.request().postDataJSON() as Record<string, unknown>;
@@ -94,23 +114,15 @@ export function createHomeMock() {
       state.commands.unshift(command);
       return json(command, 201);
     }
-    // POST /commands/{id}/start: one pass, like the API when an earlier step is still running on the durable
-    // worker: steps with nothing left to wait for complete; the others wait, and the page calls start again.
+    // POST /commands/{id}/start: one pass, like the API: steps with nothing left to wait for complete; the
+    // others wait, and the server starts them once their earlier steps completed (seen on the next read).
     const start = /^\/api\/v1\/commands\/([^/]+)\/start$/.exec(path);
     if (start && method === 'POST') {
       const command = state.commands.find((c) => c.id === start[1]);
       if (!command) return json({ detail: 'Command not found' }, 404);
-      const before = command.steps as Record<string, unknown>[];
-      const doneBefore = new Set(before.filter((s) => s.status === 'completed').map((s) => s.position as number));
-      const ready = before.filter((s) => s.status === 'created' && ((s.depends_on as number[] | undefined) ?? []).every((p) => doneBefore.has(p)));
-      const results: Record<number, string> = { 1: 'Three urgent emails today.', 2: 'Meeting drafted for tomorrow at 10:00.' };
-      const steps = before.map((s) => ready.includes(s) ? { ...s, status: 'completed', progress: 1, run_id: `run_${s.task_id as string}`, result: results[s.position as number] ?? 'Done.' } : s);
-      const doneNow = new Set(steps.filter((s) => s.status === 'completed').map((s) => s.position as number));
-      const withWaits = steps.map((s) => ({ ...s, waiting_for: ((s.depends_on as number[] | undefined) ?? []).filter((p) => !doneNow.has(p)) }));
-      state.runs.push(...ready.map((s) => s.task_id as string));
-      const done = doneNow.size;
-      Object.assign(command, { steps: withWaits, completed_steps: done, progress: done / steps.length, status: done === steps.length ? 'completed' : 'running' });
-      return json({ started: ready.map((s) => s.task_id), refused: {}, command });
+      state.starts.push(start[1]);
+      const ready = startReady(command);
+      return json({ started: ready, refused: {}, command });
     }
     const run = /^\/api\/v1\/tasks\/(task_cmd_\d+)\/run$/.exec(path);
     if (run && method === 'POST') {
@@ -127,7 +139,14 @@ export function createHomeMock() {
     const next = /^\/api\/v1\/commands\/([^/]+)\/next-steps$/.exec(path);
     if (next) return json([{ id: 'next_1', kind: 'command', label: 'Draft replies to the urgent emails', text: 'Draft replies to the urgent emails' }, { id: 'next_save', kind: 'save_quick_command', label: 'Save as a quick command', text: null }]);
     const one = /^\/api\/v1\/commands\/([^/]+)$/.exec(path);
-    if (one && method === 'GET') { const command = state.commands.find((c) => c.id === one[1]); return command ? json(command) : json({ detail: 'Command not found' }, 404); }
+    if (one && method === 'GET') {
+      const command = state.commands.find((c) => c.id === one[1]);
+      if (!command) return json({ detail: 'Command not found' }, 404);
+      // The server continued the command meanwhile: a step whose earlier steps completed has run.
+      const steps = command.steps as Record<string, unknown>[];
+      if (state.serverContinues && command.id === 'cmd_new' && steps.some((s) => s.status === 'completed')) startReady(command);
+      return json(command);
+    }
     if (one && method === 'DELETE') { state.commands = state.commands.filter((c) => c.id !== one[1]); await route.fulfill({ status: 204 }); return true; }
     if (path === '/api/v1/quick-commands' && method === 'GET') return json(state.quick);
     if (path === '/api/v1/quick-commands' && method === 'POST') { const q = { id: `quick_${state.quick.length + 1}`, position: 9, use_count: 0, last_used_at: null, created_at: iso(), updated_at: iso(), ...body() }; state.quick.push(q); return json(q, 201); }

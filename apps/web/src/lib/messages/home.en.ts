@@ -216,6 +216,8 @@ export const homeEn = {
   'cmd.detail.files': 'Documents',
   'cmd.detail.next': 'Next steps',
   'cmd.detail.saved': 'Saved as a quick command',
+  'cmd.detail.startRemaining': 'Start the remaining steps',
+  'cmd.detail.stalled': 'Step {steps} is ready but did not start: the monthly budget or the emergency stop held it, or the server restarted. Start it again when that is resolved.',
   'cmd.detail.stop': 'Stop',
   'cmd.detail.report': 'Download report',
   'cmd.detail.delete': 'Remove from history',

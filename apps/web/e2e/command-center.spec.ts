@@ -142,7 +142,7 @@ test('a step that builds on an earlier one waits for it, then starts with its re
   await plan.getByRole('button', { name: 'Start' }).click();
 
   const detail = tracker(page).filter({ hasText: 'steps done' });
-  // The first call starts only the email step; the page sees the meeting is ready and starts it.
+  // Start starts only the email step; the server starts the meeting once it completed. The page only follows.
   await expect(detail.getByText('Meeting drafted for tomorrow at 10:00.')).toBeVisible();
   await expect(detail.getByText('2 of 2 steps done')).toBeVisible();
   expect((state.created[0] as { steps: unknown[] }).steps).toEqual([
@@ -150,6 +150,23 @@ test('a step that builds on an earlier one waits for it, then starts with its re
     { instruction: 'Schedule a meeting with the team tomorrow at 10 AM', depends_on: [1] },
   ]);
   expect(state.runs).toEqual(['task_cmd_1', 'task_cmd_2']);
+  expect(state.starts).toEqual(['cmd_new']);
+  await expect(detail.getByRole('button', { name: 'Start the remaining steps' })).toHaveCount(0);
+});
+
+test('a ready step the server did not start can be started again from the tracker', async ({ page }) => {
+  const state = await openCommand(page);
+  state.serverContinues = false; // the monthly budget held the meeting step after the email step completed
+  await page.getByLabel('Your command').fill('Check my emails, find today\'s urgent items, then schedule a meeting with the team tomorrow at 10 AM');
+  await page.getByRole('button', { name: 'Show the plan' }).click();
+  await page.getByRole('region', { name: 'Here is what ANUM will do' }).getByRole('button', { name: 'Start' }).click();
+  const detail = tracker(page).filter({ hasText: 'steps done' });
+  await expect(detail.getByText('1 of 2 steps done')).toBeVisible();
+  await expect(detail.getByText('Step 2 is ready but did not start', { exact: false })).toBeVisible();
+  await detail.getByRole('button', { name: 'Start the remaining steps' }).click();
+  await expect(detail.getByText('2 of 2 steps done')).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Start the remaining steps' })).toHaveCount(0);
+  expect(state.starts).toEqual(['cmd_new', 'cmd_new']);
 });
 
 test('moving a step above the one it waits for drops that wait', async ({ page }) => {
