@@ -34,6 +34,7 @@ from .models import (
     AccessGrant,
     CategoryRecord,
     DeviceRecord,
+    DismissalRecord,
     DocumentQuery,
     DocumentRecord,
     ExtractionRecord,
@@ -106,6 +107,9 @@ class VaultStore(Protocol):
     def add_link(self, context: TenantContext, record: LinkRecord) -> LinkRecord: ...
     def delete_link(self, context: TenantContext, document_id: str, link_id: str) -> bool: ...
     def links_to(self, context: TenantContext, target_type: str, target_ids: list[str]) -> list[tuple[LinkRecord, DocumentRecord]]: ...
+    def dismissals(self, context: TenantContext, document_id: str) -> list[DismissalRecord]: ...
+    def add_dismissal(self, context: TenantContext, record: DismissalRecord) -> DismissalRecord: ...
+    def delete_dismissal(self, context: TenantContext, document_id: str, kind: str, target_id: str) -> bool: ...
     def add_extraction(self, context: TenantContext, record: ExtractionRecord) -> ExtractionRecord: ...
     def save_extraction(self, context: TenantContext, record: ExtractionRecord) -> ExtractionRecord: ...
     def extraction(self, context: TenantContext, extraction_id: str) -> ExtractionRecord | None: ...
@@ -155,6 +159,7 @@ class InMemoryVaultStore:
         self._documents: dict[tuple[str, str, str], DocumentRecord] = {}
         self._access: dict[tuple[str, str, str, str], AccessGrant] = {}
         self._links: dict[tuple[str, str, str], LinkRecord] = {}
+        self._dismissals: dict[tuple[str, str, str], DismissalRecord] = {}
         self._extractions: dict[tuple[str, str, str], ExtractionRecord] = {}
         self._events: list[tuple[str, str, AccessEvent]] = []
         self._devices: dict[tuple[str, str, str], DeviceRecord] = {}
@@ -162,7 +167,7 @@ class InMemoryVaultStore:
 
     def clear(self) -> None:
         with self._lock:
-            for item in (self._settings, self._categories, self._documents, self._access, self._links, self._extractions, self._devices):
+            for item in (self._settings, self._categories, self._documents, self._access, self._links, self._dismissals, self._extractions, self._devices):
                 item.clear()
             self._events.clear()
 
@@ -234,7 +239,7 @@ class InMemoryVaultStore:
             if row is None or not self._visible(context, row):
                 return False
             del self._documents[key]
-            for store in (self._access, self._links, self._extractions):
+            for store in (self._access, self._links, self._dismissals, self._extractions):
                 for item_key in [k for k, v in store.items() if k[:2] == self._ws(context) and getattr(v, "document_id", None) == document_id]:
                     del store[item_key]
             self._events = [(t, w, e) for t, w, e in self._events if not ((t, w) == self._ws(context) and e.document_id == document_id)]
@@ -336,6 +341,27 @@ class InMemoryVaultStore:
                 if doc is not None and doc.status == "active" and self._visible(context, doc):
                     out.append((link.model_copy(), doc.model_copy(deep=True)))
             return sorted(out, key=lambda pair: (pair[0].created_at, pair[0].id))
+
+    def dismissals(self, context: TenantContext, document_id: str) -> list[DismissalRecord]:
+        with self._lock:
+            rows = [d for (t, w, _), d in self._dismissals.items() if (t, w) == self._ws(context) and d.document_id == document_id]
+            return sorted((d.model_copy() for d in rows), key=lambda r: (r.created_at, r.id))
+
+    def add_dismissal(self, context: TenantContext, record: DismissalRecord) -> DismissalRecord:
+        with self._lock:
+            for found in self.dismissals(context, record.document_id):
+                if (found.kind, found.target_id) == (record.kind, record.target_id):
+                    return found
+            self._dismissals[(*self._ws(context), record.id)] = record.model_copy()
+            return record
+
+    def delete_dismissal(self, context: TenantContext, document_id: str, kind: str, target_id: str) -> bool:
+        with self._lock:
+            for key, found in list(self._dismissals.items()):
+                if key[:2] == self._ws(context) and (found.document_id, found.kind, found.target_id) == (document_id, kind, target_id):
+                    del self._dismissals[key]
+                    return True
+            return False
 
     def add_extraction(self, context: TenantContext, record: ExtractionRecord) -> ExtractionRecord:
         with self._lock:
@@ -725,6 +751,29 @@ class SqlVaultStore:
         result = self.session.execute(text(
             "delete from vault_document_links where tenant_id = :t and workspace_id = :w and document_id = :d and id = :id"),
             self._p(context, d=document_id, id=link_id))
+        return bool(result.rowcount)
+
+    def dismissals(self, context: TenantContext, document_id: str) -> list[DismissalRecord]:
+        rows = self.session.execute(text(
+            "select id, document_id, kind, target_id, label, dismissed_by, created_at from vault_match_dismissals "
+            "where tenant_id = :t and workspace_id = :w and document_id = :d order by created_at, id"), self._p(context, d=document_id)).all()
+        return [DismissalRecord.model_validate(dict(row._mapping)) for row in rows]
+
+    def add_dismissal(self, context: TenantContext, record: DismissalRecord) -> DismissalRecord:
+        self.session.execute(text(
+            "insert into vault_match_dismissals (tenant_id, workspace_id, id, document_id, kind, target_id, label, dismissed_by, created_at) "
+            "values (:t, :w, :id, :d, :kind, :target, :label, :by, :at) on conflict (tenant_id, workspace_id, document_id, kind, target_id) do nothing"),
+            self._p(context, id=record.id, d=record.document_id, kind=record.kind, target=record.target_id, label=record.label,
+                    by=record.dismissed_by, at=record.created_at))
+        for found in self.dismissals(context, record.document_id):
+            if (found.kind, found.target_id) == (record.kind, record.target_id):
+                return found
+        return record
+
+    def delete_dismissal(self, context: TenantContext, document_id: str, kind: str, target_id: str) -> bool:
+        result = self.session.execute(text(
+            "delete from vault_match_dismissals where tenant_id = :t and workspace_id = :w and document_id = :d and kind = :kind and target_id = :target"),
+            self._p(context, d=document_id, kind=kind, target=target_id))
         return bool(result.rowcount)
 
     def links_to(self, context: TenantContext, target_type: str, target_ids: list[str]) -> list[tuple[LinkRecord, DocumentRecord]]:

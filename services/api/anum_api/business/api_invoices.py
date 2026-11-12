@@ -35,6 +35,7 @@ from .invoice_models import (
     InvoiceLine,
     InvoicePayment,
     InvoiceRefund,
+    RefundRequest,
     InvoiceStatus,
     LineSource,
     PaymentMethod,
@@ -54,6 +55,7 @@ from .invoice_pdf import (
     render_invoice_pdf,
     render_receipt_pdf,
 )
+from .invoice_refund_requests import refresh_requests, refund_options
 from .invoice_refunds import payment_refunds, refunds_of
 from .invoice_send import next_reminder_due, open_link, open_link_url, payment_by_key, refresh_messages
 from .invoice_print import render_invoice
@@ -149,6 +151,8 @@ class Can(BaseModel):
     remind: bool
     # Make a Moyasar payment page for the balance (needs the owner's Moyasar on).
     payment_link: bool
+    # Ask for a refund of a card payment from ANUM (it waits for an owner's approval, docs/business.md#refunds-from-anum).
+    refund: bool = False
 
 
 class InvoiceListItem(BaseModel):
@@ -189,6 +193,9 @@ class InvoiceView(Invoice):
     payments: list[InvoicePayment] = Field(default_factory=list)
     # Refunds made in the Stripe or Moyasar dashboard, synced from the provider (docs/business.md#refunds-made-in-the-provider-dashboard).
     refunds: list[InvoiceRefund] = Field(default_factory=list)
+    # Refunds asked for from ANUM, newest first (docs/business.md#refunds-from-anum), and what each card payment can still give back.
+    refund_requests: list[RefundRequest] = Field(default_factory=list)
+    refundable: dict[str, Money] = Field(default_factory=dict)
     credit_notes: list[CreditNote] = Field(default_factory=list)
     payment_notices: list[PaymentNotice] = Field(default_factory=list)
     approval_state: ApprovalState = "none"
@@ -237,6 +244,7 @@ def _can(context: TenantContext, invoice: Invoice) -> Can:
         remind=writer and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0 and invoice.due_date is not None
         and invoice.due_date < utc_now().date(),
         payment_link=writer and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0,
+        refund=writer and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
     )
 
 
@@ -262,9 +270,12 @@ def invoice_view(store: BusinessStore, repository: AnumRepository, context: Tena
     account_name, project_name = _names(store, invoice)
     checked = invoice.model_copy(update={"seller": invoice.seller or profile})
     messages = refresh_messages(store, repository, context, invoice.id)
+    payments = payments_of(store, invoice.id)
+    refund_requests = refresh_requests(store, repository, context, invoice.id)
     return InvoiceView(
+        refund_requests=refund_requests, refundable={key: Decimal(value) for key, value in refund_options(store, invoice, payments).items()},
         messages=messages, next_reminder=next_reminder_due(invoice, messages, utc_now().date()), payment_link=open_link(store, invoice),
-        **invoice.model_dump(), account_name=account_name, project_name=project_name, payments=payments_of(store, invoice.id),
+        **invoice.model_dump(), account_name=account_name, project_name=project_name, payments=payments,
         refunds=refunds_of(store, invoice.id), credit_notes=credit_notes_of(store, invoice.id), payment_notices=notices_of(store, invoice.id),
         approval_state=state, approval=approval if state == "pending" else None,
         issues=problems(checked) if invoice.status in OPEN_INVOICE_STATES else [], can=_can(context, invoice), **payment_state(invoice, utc_now().date()),
@@ -893,6 +904,9 @@ def remove_payment(invoice_id: str, payment_id: str, context: TenantContext = De
             raise http_error(409, f"The invoice is {invoice.status.value}; its payments no longer change.")
         if payment_refunds(store, payment.id):
             raise http_error(409, "This card payment has refunds made in the provider's dashboard recorded against it, so it stays as their history. "
+                                  "Issue a credit note if the customer no longer owes the money.")
+        if store.first("refund_requests", payment_id=payment.id) is not None:
+            raise http_error(409, "A refund of this card payment was asked for from ANUM, so the payment stays as that request's history. "
                                   "Issue a credit note if the customer no longer owes the money.")
         store.delete("invoice_payments", payment_id)
         update: dict[str, Any] = {"amount_paid": money(invoice.amount_paid - payment.amount), "updated_at": now}

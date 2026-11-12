@@ -142,6 +142,18 @@ class LinkRecord(BaseModel):
     created_at: datetime
 
 
+class DismissalRecord(BaseModel):
+    """A receipt match the person said is wrong (docs/documents.md#receipt-matches): not proposed again until restored."""
+
+    id: str
+    document_id: str
+    kind: Literal["payment", "purchase"]
+    target_id: str
+    label: str = ""
+    dismissed_by: str
+    created_at: datetime
+
+
 class ExtractionRecord(BaseModel):
     id: str
     document_id: str

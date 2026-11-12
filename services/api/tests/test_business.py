@@ -755,4 +755,13 @@ def test_every_state_changing_route_is_audited_without_contact_details_or_text(s
     call("POST", f"/invoice-schedules/{ended['id']}/end", json={"version": ended["version"]})
     call("PUT", "/invoice-automation", json={"auto_reminders": True, "email_scheduled": False})
     call("POST", "/invoice-automation/run")
+    # A provider refund of a payment ANUM never recorded, checked and opened again (docs/business.md#refunds-anum-could-not-match).
+    from anum_api.business.invoice_models import RefundReview
+    from anum_api.business.store import business_store as reviews
+
+    review = RefundReview(id="binrev_audit", tenant_id=TENANT, workspace_id=WORKSPACE, provider="stripe", provider_refund_id="re_audit",
+                          provider_payment_id="pi_audit", currency="AED", amount=25, created_at=utc_now(), updated_at=utc_now())
+    reviews.scoped(TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_biz", roles=["owner"])).add("refund_reviews", review)
+    call("POST", f"/refund-reviews/{review.id}/check", json={"note": "Asked us not to"})
+    call("POST", f"/refund-reviews/{review.id}/reopen")
     probe.assert_covered()

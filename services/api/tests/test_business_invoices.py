@@ -562,6 +562,17 @@ def test_every_state_changing_invoice_route_is_audited_without_content(monkeypat
     late = scoped.get("invoices", first["id"])
     scoped.save("invoices", late.model_copy(update={"due_date": utc_now().date() - timedelta(days=3)}))
     call("POST", f"/invoices/{first['id']}/reminders", json={})
+    # A refund of a card payment asked for from ANUM, then withdrawn (docs/business.md#refunds-from-anum).
+    from anum_api.business.invoice_models import InvoicePayment, PaymentMethod
+
+    card = InvoicePayment(id="binpay_audit_card", tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], invoice_id=first["id"], amount=100,
+                          paid_on=business_today(), method=PaymentMethod.CARD, recorded_by="system:moyasar", provider="moyasar", provider_payment_id="pay_audit_1",
+                          created_at=utc_now(), updated_at=utc_now())
+    scoped.add("invoice_payments", card)
+    asked = probe.call("POST", f"{BASE}/invoices/{first['id']}/payments/{card.id}/refund-requests", {**OWNER, "Idempotency-Key": "refund-audit-0001"},
+                       sent=sent_text, json={"amount": 40, "reason": "Price correction"}).json()
+    call("POST", f"/invoices/{first['id']}/refund-requests/{asked['request']['id']}/cancel")
+    scoped.delete("invoice_payments", card.id)
     call("POST", f"/invoices/{first['id']}/void", json={"reason": "Reissue"})
     spare = call("POST", "/invoices", json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}).json()
     call("DELETE", f"/invoices/{spare['id']}")

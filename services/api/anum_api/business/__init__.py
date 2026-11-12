@@ -24,6 +24,7 @@ from .api import router as _records_router
 from .api_changes import router as _changes_router
 from .api_deals import router as _deals_router
 from .api_invoice_money import router as _invoice_money_router
+from .api_invoice_refunds import router as _invoice_refunds_router
 from .api_invoice_schedules import router as _invoice_schedules_router
 from .api_invoice_send import router as _invoice_send_router
 from .api_invoices import router as _invoices_router
@@ -45,6 +46,7 @@ router.include_router(_outreach_router)
 router.include_router(_changes_router)
 router.include_router(_invoices_router)
 router.include_router(_invoice_money_router)
+router.include_router(_invoice_refunds_router)
 router.include_router(_invoice_send_router)
 router.include_router(_invoice_schedules_router)
 router.include_router(_portal_admin_router)

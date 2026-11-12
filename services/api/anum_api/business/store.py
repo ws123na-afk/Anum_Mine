@@ -30,6 +30,8 @@ from .invoice_models import (
     InvoiceSchedule,
     InvoicePayment,
     InvoiceRefund,
+    RefundRequest,
+    RefundReview,
     PaymentLink,
     PaymentNotice,
     PortalAccess,
@@ -110,6 +112,9 @@ KINDS: dict[str, type[BaseModel]] = {
     # Refunds synced from the card provider and the portal's emailed code sign-in (migration 0177_business_refunds_otp).
     "invoice_refunds": InvoiceRefund,
     "portal_sign_ins": PortalSignIn,
+    # Refunds started from ANUM and provider refunds of payments ANUM never recorded (migration 0178_refund_requests_vault).
+    "refund_requests": RefundRequest,
+    "refund_reviews": RefundReview,
 }
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
