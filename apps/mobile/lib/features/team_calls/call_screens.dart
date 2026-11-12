@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../src/theme/anum_type.dart';
 import '../../src/widgets/anum_components.dart';
 import 'call_controller.dart';
+import 'call_media.dart';
 import 'call_models.dart';
 import 'call_strings.dart';
 
@@ -49,7 +50,26 @@ class AppCallOverlay extends StatelessWidget {
             return Stack(children: [
               child,
               if (controller.phase != TeamCallPhase.idle)
-                Positioned.fill(child: TeamCallScreen(controller: controller)),
+                Positioned.fill(
+                    child: controller.picking
+                        ? Material(
+                            color: Theme.of(context).colorScheme.surface,
+                            child: SafeArea(
+                                child: Align(
+                                    alignment: Alignment.topCenter,
+                                    child: ConstrainedBox(
+                                        constraints:
+                                            const BoxConstraints(maxWidth: 560),
+                                        // The call layer sits above the
+                                        // navigator, so the search field
+                                        // gets its own Overlay.
+                                        child: Overlay(initialEntries: [
+                                          OverlayEntry(
+                                              builder: (_) =>
+                                                  TeamCallPeoplePicker(
+                                                      controller: controller))
+                                        ])))))
+                        : TeamCallScreen(controller: controller)),
               if (notice != null)
                 Positioned(
                   left: 16,
@@ -171,6 +191,7 @@ class TeamCallScreen extends StatelessWidget {
       case TeamCallPhase.connected:
         return formatCallDuration(controller.elapsed);
       case TeamCallPhase.ended:
+        if (controller.endedGroup) return s.t('word.completed');
         final word = call?.word;
         return s.t('word.${(word ?? CallWord.completed).name}');
     }
@@ -178,7 +199,7 @@ class TeamCallScreen extends StatelessWidget {
 
   String? _endDetail(TeamCallText s) {
     final call = controller.call;
-    if (call == null) return null;
+    if (call == null || controller.endedGroup) return null;
     final name = call.peerName;
     return switch (call.word) {
       CallWord.declinedByPeer => s.f('ended.declinedByPeer', {'name': name}),
@@ -197,7 +218,11 @@ class TeamCallScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = TeamCallText.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final name = controller.peer?.name ?? controller.call?.peerName ?? '';
+    final phase0 = controller.phase;
+    final group = controller.group && phase0 != TeamCallPhase.incoming;
+    final name = group
+        ? s.t('group.title')
+        : controller.peer?.name ?? controller.call?.peerName ?? '';
     final video = controller.media == CallMediaKind.video;
     final phase = controller.phase;
     final remote = controller.session?.remoteView();
@@ -223,18 +248,19 @@ class TeamCallScreen extends StatelessWidget {
             color: red,
             onPressed: controller.decline),
       ] else if (phase == TeamCallPhase.ended) ...[
-        _RoundButton(
-            icon: Icons.call,
-            label: s.t('callAgain'),
-            color: green,
-            onPressed: controller.peer == null
-                ? null
-                : () {
-                    final person = controller.peer!;
-                    final again = video;
-                    controller.dismiss();
-                    controller.place(person, video: again);
-                  }),
+        if (!controller.endedGroup)
+          _RoundButton(
+              icon: Icons.call,
+              label: s.t('callAgain'),
+              color: green,
+              onPressed: controller.peer == null
+                  ? null
+                  : () {
+                      final person = controller.peer!;
+                      final again = video;
+                      controller.dismiss();
+                      controller.place(person, video: again);
+                    }),
         _RoundButton(
             icon: Icons.close,
             label: s.t('close'),
@@ -258,7 +284,21 @@ class TeamCallScreen extends StatelessWidget {
               label: controller.camera ? s.t('cameraOff') : s.t('cameraOn'),
               selected: !controller.camera,
               onPressed:
-                  controller.session == null ? null : controller.toggleCamera),
+                  controller.session == null ? null : controller.toggleCamera)
+        else if (controller.config?.videoEnabled ?? false)
+          _RoundButton(
+              icon: Icons.videocam_outlined,
+              label: s.t('video.turnOn'),
+              onPressed: controller.canTurnOnVideo
+                  ? () => controller.turnOnVideo()
+                  : null),
+        _RoundButton(
+            icon: Icons.person_add_alt_1,
+            label: s.t('group.add'),
+            onPressed:
+                phase == TeamCallPhase.connected && controller.freeSlots > 0
+                    ? controller.openPicker
+                    : null),
         _RoundButton(
             icon: Icons.call_end,
             label: s.t('hangUp'),
@@ -282,27 +322,37 @@ class TeamCallScreen extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: scheme.onPrimary)),
           );
-          final media = video && remote != null && phase != TeamCallPhase.ended
-              ? AspectRatio(
-                  aspectRatio: 3 / 4,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Stack(fit: StackFit.expand, children: [
-                      ColoredBox(color: Colors.black, child: remote),
-                      if (local != null)
-                        PositionedDirectional(
-                          end: 12,
-                          bottom: 12,
-                          width: 96,
-                          height: 128,
-                          child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: local),
-                        ),
-                    ]),
-                  ),
-                )
-              : avatar;
+          final tiles = group && phase != TeamCallPhase.ended
+              ? _GroupTiles(controller: controller)
+              : null;
+          final Widget media = tiles ??
+              ((video && remote != null && phase != TeamCallPhase.ended)
+                  ? AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Stack(fit: StackFit.expand, children: [
+                          ColoredBox(color: Colors.black, child: remote),
+                          if (local != null)
+                            PositionedDirectional(
+                              end: 12,
+                              bottom: 12,
+                              width: 96,
+                              height: 128,
+                              child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: local),
+                            ),
+                        ]),
+                      ),
+                    )
+                  : group
+                      ? CircleAvatar(
+                          radius: 48,
+                          backgroundColor: scheme.primary,
+                          child: Icon(Icons.groups,
+                              size: 48, color: scheme.onPrimary))
+                      : avatar);
           return SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
@@ -325,7 +375,9 @@ class TeamCallScreen extends StatelessWidget {
                     Semantics(
                       liveRegion: true,
                       child: Text(
-                          '${s.t(video ? 'videoCall' : 'voiceCall')} · ${_status(s)}',
+                          '${group && phase != TeamCallPhase.ended ? s.f('group.count', {
+                                  'count': controller.liveCalls.length + 1
+                                }) : phase == TeamCallPhase.incoming && controller.group ? s.t('group.incoming') : s.t(video ? 'videoCall' : 'voiceCall')} · ${_status(s)}',
                           key: const ValueKey('call-status'),
                           textAlign: TextAlign.center,
                           style: Theme.of(context)
@@ -347,6 +399,199 @@ class TeamCallScreen extends StatelessWidget {
             ),
           );
         }),
+      ),
+    );
+  }
+}
+
+/// One tile per person of a group call: their picture, or their initials,
+/// and how their connection is doing.
+class _GroupTiles extends StatelessWidget {
+  const _GroupTiles({required this.controller});
+  final AppCallsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = TeamCallText.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final people = <({String name, String status, Widget? view})>[];
+    String word(CallLinkState state, CallStatus status) =>
+        status == CallStatus.ringing
+            ? s.t('ringing')
+            : switch (state) {
+                CallLinkState.connected => s.t('connected'),
+                CallLinkState.reconnecting => s.t('reconnecting'),
+                _ => s.t('connecting'),
+              };
+    final primary = controller.call;
+    if (primary != null && controller.liveCalls.contains(primary)) {
+      people.add((
+        name: primary.peerName,
+        status: word(
+            controller.phase == TeamCallPhase.connected
+                ? CallLinkState.connected
+                : CallLinkState.connecting,
+            primary.status),
+        view: controller.session?.remoteView(),
+      ));
+    }
+    for (final link in controller.links.values.where((l) => l.live)) {
+      people.add((
+        name: link.call.peerName,
+        status: word(link.state, link.call.status),
+        view: link.session?.remoteView(),
+      ));
+    }
+    return Semantics(
+      label: s.t('group.people'),
+      container: true,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        alignment: WrapAlignment.center,
+        children: [
+          for (final person in people)
+            SizedBox(
+              width: 150,
+              height: 112,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: ColoredBox(
+                  color: scheme.surfaceContainerHighest,
+                  child: Stack(fit: StackFit.expand, children: [
+                    person.view ??
+                        Center(
+                          child: CircleAvatar(
+                            radius: 24,
+                            backgroundColor: scheme.primary,
+                            child: Text(_initials(person.name),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: scheme.onPrimary)),
+                          ),
+                        ),
+                    PositionedDirectional(
+                      start: 6,
+                      end: 6,
+                      bottom: 6,
+                      child: Text('${person.name} · ${person.status}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelMedium),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The people picker of "Add person", shown in place of the call screen (the
+/// call layer sits above the app's navigator): searchable; you and the people
+/// already in the call are left out; the server checks membership again.
+class TeamCallPeoplePicker extends StatefulWidget {
+  const TeamCallPeoplePicker({required this.controller, super.key});
+  final AppCallsController controller;
+
+  @override
+  State<TeamCallPeoplePicker> createState() => _TeamCallPeoplePickerState();
+}
+
+class _TeamCallPeoplePickerState extends State<TeamCallPeoplePicker> {
+  List<CallPerson>? _people;
+  String? _error;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _error = null);
+    try {
+      final people = await widget.controller.repository.people();
+      if (mounted) setState(() => _people = people);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = readableError(error));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = TeamCallText.of(context);
+    final c = widget.controller;
+    final inCall = {
+      c.selfUserId,
+      for (final live in c.liveCalls) live.peerUserId,
+      for (final member in c.room?.members ?? const <CallRoomMember>[])
+        if (member.active) member.userId,
+    };
+    final words = _query.trim().toLowerCase();
+    final candidates = (_people ?? const <CallPerson>[])
+        .where((p) => !inCall.contains(p.userId))
+        .where((p) => words.isEmpty || p.name.toLowerCase().contains(words))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return Padding(
+      padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: 16 + MediaQuery.viewInsetsOf(context).bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+              header: true,
+              child: Text(s.t('group.addTitle'),
+                  style: Theme.of(context).textTheme.titleLarge)),
+          const SizedBox(height: 4),
+          Text(s.f('group.pickHint', {'count': c.freeSlots})),
+          const SizedBox(height: 12),
+          if (_error != null) ...[
+            Text(s.f('group.peopleFailed', {'message': _error!})),
+            TextButton(onPressed: _load, child: Text(s.t('retry'))),
+          ] else if (_people == null)
+            const Center(child: CircularProgressIndicator())
+          else ...[
+            TextField(
+              decoration: InputDecoration(
+                  labelText: s.t('group.search'),
+                  prefixIcon: const Icon(Icons.search)),
+              onChanged: (value) => setState(() => _query = value),
+            ),
+            const SizedBox(height: 8),
+            if (candidates.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(_query.isEmpty
+                    ? s.t('group.nobodyLeft')
+                    : s.t('group.noMatch')),
+              )
+            else
+              Flexible(
+                child: ListView(shrinkWrap: true, children: [
+                  for (final person in candidates)
+                    ListTile(
+                      leading: const Icon(Icons.person_add_alt_1),
+                      title: Text(person.name),
+                      onTap: () {
+                        c.closePicker();
+                        c.invite(person);
+                      },
+                    ),
+                ]),
+              ),
+          ],
+          TextButton(
+              onPressed: c.closePicker, child: Text(s.t('group.cancel'))),
+        ],
       ),
     );
   }
@@ -601,6 +846,8 @@ class _CallTile extends StatelessWidget {
     final word = call.word;
     final parts = [
       s.t(call.incoming ? 'incomingCall' : 'outgoingCall'),
+      // One row per person of a group call, each marked as such.
+      if (call.roomId != null) s.t('group.title'),
       s.t(call.video ? 'videoCall' : 'voiceCall'),
       when,
       if (call.answeredAt != null && call.durationSeconds != null)

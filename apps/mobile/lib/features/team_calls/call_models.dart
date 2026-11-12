@@ -38,6 +38,7 @@ class AppCall {
     this.durationSeconds,
     this.onThisDevice,
     this.answeredElsewhere = false,
+    this.roomId,
   });
 
   final String id;
@@ -53,6 +54,9 @@ class AppCall {
   final int? durationSeconds;
   final bool? onThisDevice;
   final bool answeredElsewhere;
+
+  /// The group call this pair call belongs to (docs/in-app-calls.md#group-calls).
+  final String? roomId;
 
   bool get video => media == CallMediaKind.video;
 
@@ -76,6 +80,7 @@ class AppCall {
         durationSeconds: r.optInt('duration_seconds'),
         onThisDevice: r.optBool('on_this_device'),
         answeredElsewhere: r.optBool('answered_elsewhere') ?? false,
+        roomId: r.optString('room_id'),
       );
 
   /// A cancelled or busy ring is a missed call for the callee.
@@ -165,6 +170,87 @@ class CallSignal {
       candidates: payload?.optObjects('candidates', (c) => c.json) ?? const [],
     );
   }
+}
+
+/// One person of a group call as the API reports them.
+class CallRoomMember {
+  const CallRoomMember(
+      {required this.userId,
+      required this.name,
+      required this.state,
+      required this.isYou});
+  final String userId;
+  final String name;
+
+  /// invited, joined, left, declined, missed, busy, cancelled or failed.
+  final String state;
+  final bool isYou;
+
+  bool get active => state == 'joined' || state == 'invited';
+}
+
+/// A group call (up to [maxPeople] at once; every two people have a pair call).
+class CallRoom {
+  const CallRoom(
+      {required this.id,
+      required this.live,
+      required this.media,
+      required this.members,
+      required this.maxPeople});
+  final String id;
+  final bool live;
+  final CallMediaKind media;
+  final List<CallRoomMember> members;
+  final int maxPeople;
+
+  /// How many more people fit, you included in the count.
+  int get freeSlots {
+    final active = members.where((m) => m.active).length;
+    return active >= maxPeople ? 0 : maxPeople - active;
+  }
+
+  static CallRoom fromJson(JsonReader r) => CallRoom(
+        id: r.string('id'),
+        live: r.string('status') == 'live',
+        media: r.string('media') == 'video'
+            ? CallMediaKind.video
+            : CallMediaKind.audio,
+        maxPeople: r.optInt('max_people') ?? 4,
+        members: r.optObjects(
+            'members',
+            (m) => CallRoomMember(
+                userId: m.string('user_id'),
+                name: m.string('name'),
+                state: m.string('state'),
+                isYou: m.optBool('is_you') ?? false)),
+      );
+}
+
+/// What the other side says about its own media over the data channel.
+class CallPeerMedia {
+  const CallPeerMedia(
+      {required this.camera, required this.screen, required this.muted});
+  final bool camera;
+  final bool screen;
+  final bool muted;
+
+  /// Parsed strictly; anything else is ignored.
+  static CallPeerMedia? parse(String text) {
+    if (text.length > 200) return null;
+    try {
+      final value = jsonDecode(text);
+      if (value is! Map) return null;
+      final camera = value['camera'], screen = value['screen'];
+      final muted = value['muted'];
+      if (camera is! bool || screen is! bool || muted is! bool) return null;
+      return CallPeerMedia(camera: camera, screen: screen, muted: muted);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  String encode() =>
+      jsonEncode({'camera': camera, 'screen': screen, 'muted': muted});
 }
 
 class CallPerson {

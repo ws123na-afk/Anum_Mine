@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import '../calls/calls_controller.dart';
 import '../calls/calls_repository.dart';
 import '../calls/calls_screen.dart';
+import '../calls/provider_voice.dart';
 import '../contacts/contacts_controller.dart';
 import '../contacts/contacts_repository.dart';
 import '../contacts/contacts_screen.dart';
@@ -95,7 +96,11 @@ class WorkspaceToolRoutes {
     } else if (uri.path == mailCenter) {
       screen = MailCenterScreen(controller: mailCenterController);
     } else if (uri.path == calls) {
-      screen = CallsScreen(controller: callsController);
+      // providerVoice stays the default (no provider SDK linked yet), so
+      // calls go through the phone's dialer; docs/calls.md.
+      screen = CallsScreen(
+          controller: callsController,
+          prepareProviderCall: prepareProviderCallOver(api));
     } else if (uri.path == contacts) {
       screen = ContactsScreen(
           controller: contactsController, repository: contactsRepository);

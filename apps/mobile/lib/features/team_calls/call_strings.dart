@@ -95,6 +95,26 @@ class TeamCallText {
     'incomingCall': 'Incoming',
     'outgoingCall': 'Outgoing',
     'loading': 'Loading',
+    'connected': 'Connected',
+    'group.title': 'Group call',
+    'group.count': '{count} people',
+    'group.people': 'People in the call',
+    'group.add': 'Add person',
+    'group.addTitle': 'Add a person to the call',
+    'group.pickHint':
+        'You can add {count} more. A group call holds up to 4 people, you included.',
+    'group.search': 'Search teammates',
+    'group.nobodyLeft':
+        'Everyone else in this workspace is already in the call.',
+    'group.noMatch': 'No teammate matches the search.',
+    'group.cancel': 'Cancel',
+    'group.peopleFailed': 'Teammates could not be loaded: {message}',
+    'group.addFailed': 'The person could not be added: {message}',
+    'group.incoming': 'Group call',
+    'video.turnOn': 'Turn on video',
+    'video.refused': 'Video could not be turned on: {message}',
+    'video.peerCannot':
+        'Someone in the call uses an older ANUM app that cannot receive video in this call. They still hear you.',
   };
 
   static const ar = <String, String>{
@@ -173,5 +193,24 @@ class TeamCallText {
     'incomingCall': 'واردة',
     'outgoingCall': 'صادرة',
     'loading': 'جارٍ التحميل',
+    'connected': 'متصل',
+    'group.title': 'مكالمة جماعية',
+    'group.count': 'عدد المشاركين: {count}',
+    'group.people': 'المشاركون في المكالمة',
+    'group.add': 'إضافة شخص',
+    'group.addTitle': 'إضافة شخص إلى المكالمة',
+    'group.pickHint':
+        'يمكنك إضافة {count} آخرين. تتسع المكالمة الجماعية لأربعة أشخاص بمن فيهم أنت.',
+    'group.search': 'ابحث عن زميل',
+    'group.nobodyLeft': 'كل الآخرين في مساحة العمل هذه موجودون في المكالمة.',
+    'group.noMatch': 'لا يوجد زميل يطابق البحث.',
+    'group.cancel': 'إلغاء',
+    'group.peopleFailed': 'تعذر تحميل الزملاء: {message}',
+    'group.addFailed': 'تعذرت إضافة الشخص: {message}',
+    'group.incoming': 'مكالمة جماعية',
+    'video.turnOn': 'تشغيل الفيديو',
+    'video.refused': 'تعذر تشغيل الفيديو: {message}',
+    'video.peerCannot':
+        'أحد المشاركين يستخدم نسخة قديمة من تطبيق ANUM لا تستقبل الفيديو في هذه المكالمة. ما زال يسمعك.',
   };
 }

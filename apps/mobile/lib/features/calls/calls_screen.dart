@@ -9,6 +9,7 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'calls_controller.dart';
+import 'provider_voice.dart';
 import 'calls_models.dart';
 import 'calls_repository.dart';
 
@@ -47,9 +48,16 @@ class CallsScreen extends StatefulWidget {
     this.pickContact = pickDeviceContact,
     this.now = DateTime.now,
     this.openApprovals,
+    this.providerVoice = const UnsupportedProviderVoice(),
+    this.prepareProviderCall,
     super.key,
   });
   final CallsController controller;
+
+  /// The voice provider's SDK on this phone (none is linked yet, so calls go
+  /// through the phone's dialer; docs/calls.md#calls-through-anum-from-the-phone).
+  final ProviderVoiceClient providerVoice;
+  final PrepareProviderCall? prepareProviderCall;
   final PhoneDialer dialer;
   final ContactPicker pickContact;
   final DateTime Function() now;
@@ -102,8 +110,59 @@ class _CallsScreenState extends State<CallsScreen>
     }
   }
 
-  /// Open the phone's dialer and remember the call, to log it on return.
+  /// Calls through ANUM when this build has the provider's SDK and the
+  /// workspace has calls through ANUM on; the phone's dialer otherwise.
   Future<void> _dial(String phone, CallContact? contact) async {
+    final prepare = widget.prepareProviderCall;
+    final setup = c.setup;
+    if (widget.providerVoice.supported &&
+        prepare != null &&
+        (setup?.browserCalls ?? false)) {
+      final l = AnumLocalizations.of(context);
+      final viaProvider = await showModalBottomSheet<bool>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(title: Text(l.t('calls.provider.call.choose'))),
+            ListTile(
+                leading: const Icon(Icons.support_agent),
+                title: Text(l.t('calls.provider.call.title')),
+                onTap: () => Navigator.of(context).pop(true)),
+            ListTile(
+                leading: const Icon(Icons.phone),
+                title: Text(l.t('calls.provider.call.viaPhone')),
+                onTap: () => Navigator.of(context).pop(false)),
+          ]),
+        ),
+      );
+      if (!mounted || viaProvider == null) return;
+      if (viaProvider) {
+        final controller = ProviderCallController(
+            client: widget.providerVoice, prepare: prepare);
+        await showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          isDismissible: false,
+          builder: (_) => ProviderCallSheet(
+              controller: controller,
+              phone: phone,
+              contactId: contact?.id,
+              contactName: contact?.name,
+              recordingOn: setup?.recording ?? false),
+        );
+        if (controller.active) await controller.hangUp();
+        controller.dispose();
+        unawaited(c.load());
+        return;
+      }
+    }
+    await _dialWithPhone(phone, contact);
+  }
+
+  /// Open the phone's dialer and remember the call, to log it on return.
+  Future<void> _dialWithPhone(String phone, CallContact? contact) async {
     final uri = telUri(phone);
     final l = AnumLocalizations.of(context);
     if (uri == null) {
