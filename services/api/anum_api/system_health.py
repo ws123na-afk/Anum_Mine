@@ -398,7 +398,8 @@ def _owners(repository: Any, context: TenantContext) -> list[str]:
     return sorted({m.user_id for m in repository.list_memberships(context) if m.active and m.role.lower() == "owner"})
 
 
-def _notify(context: TenantContext, kind: str, title: str, body: str, action: str, metadata: dict[str, Any]) -> int:
+def _notify(context: TenantContext, kind: str, title: str, body: str, action: str, metadata: dict[str, Any],
+            when: datetime | None = None) -> int:
     from .events import CanonicalEventName, create_event
     from .notifications import create_notification
     from .team_work import open_team_unit
@@ -414,7 +415,7 @@ def _notify(context: TenantContext, kind: str, title: str, body: str, action: st
             ).event)
         unit.repository.record_audit(AuditRecord(
             id=new_id("audit"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, actor=SYSTEM_ACTOR,
-            action=action, target=API_TARGET, outcome="success", correlation_id=new_id("correlation"), created_at=utc_now(),
+            action=action, target=API_TARGET, outcome="success", correlation_id=new_id("correlation"), created_at=when or utc_now(),
             metadata={**metadata, "recipients": len(owners)},
         ))
     return len(owners)
@@ -443,7 +444,7 @@ def run_health_check(now: datetime | None = None) -> dict[str, Any]:
     if _latest(context, action=NOTICE_SENT, target=API_TARGET, since=day_start) is not None:
         return {"overall": report["overall"], "notified": 0}
     red = [item["key"] for item in report["items"] if item["state"] == "red"]
-    told = _notify(context, NOTICE_KIND, text[0], text[1], NOTICE_SENT, {"red": red, "day": day_start.date().isoformat()})
+    told = _notify(context, NOTICE_KIND, text[0], text[1], NOTICE_SENT, {"red": red, "day": day_start.date().isoformat()}, now)
     return {"overall": report["overall"], "notified": told}
 
 
@@ -461,7 +462,7 @@ def record_start(now: datetime | None = None) -> bool:
         _audit(context, RESTARTED, {"previous_start": previous.isoformat()}, now)
         _notify(context, RESTART_KIND, "ANUM restarted without a clean shutdown",
                 f"The API that started at {previous:%Y-%m-%d %H:%M} UTC stopped without shutting down and started again at "
-                f"{now:%Y-%m-%d %H:%M} UTC. {FIX['restarts']}", "system.restart_notice_sent", {"previous_start": previous.isoformat()})
+                f"{now:%Y-%m-%d %H:%M} UTC. {FIX['restarts']}", "system.restart_notice_sent", {"previous_start": previous.isoformat()}, now)
     _audit(context, STARTED, {"started_at": STARTED_AT.isoformat()}, now)
     return unexpected
 
