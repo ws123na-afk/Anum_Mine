@@ -310,6 +310,7 @@ x-user-roles: owner,member
 - [Deploying on Render](docs/deploy-render.md)
 - [Deploying on one Oracle Cloud VM](docs/deploy-oracle.md)
 - [Monitoring the Oracle VM](docs/monitoring-oracle.md)
+- [System health: backups, AI model, disk, memory, email, jobs, errors and restarts for the owner](docs/system-health.md)
 - [Observability](docs/observability.md)
 - [Runbooks](docs/runbooks.md)
 - [Development standards](docs/development-standards.md)

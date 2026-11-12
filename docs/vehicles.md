@@ -4,7 +4,7 @@ Module 1 of the five-module expansion (owner spec, 4 November 2026). A person ke
 
 **The Finance ledger is the single financial truth.** Nothing in Vehicles posts money. A fuel entry, a service record or a vehicle's purchase holds quantities, odometer values and details, and points at a canonical Finance transaction through [`finance_links`](finance-links.md) (dimension `vehicle`). A SAR 150 fuel payment reported by Apple Pay and by the bank SMS is one canonical transaction; linking it to a vehicle, and allocating it to a business as well, adds no entry, posting or transaction.
 
-Code: `services/api/anum_api/vehicles/` (`models.py`, `store.py`, `service.py`, `analytics.py`, `api.py`, `devices.py`, `jobs.py`), `db/vehicles_repository.py`, migration `0135_vehicles`; web `apps/web/src/VehiclesView.tsx`, `VehicleParts.tsx`, `lib/vehicles.ts`, `lib/vehiclesApi.ts`, `lib/messages/vehicles.{en,ar}.ts`; contracts `packages/contracts/src/vehicles.ts`. Help: [English](help/vehicles.md), [Arabic](help/vehicles.ar.md).
+Code: `services/api/anum_api/vehicles/` (`models.py`, `store.py`, `service.py`, `analytics.py`, `api.py`, `devices.py`, `jobs.py`, and for a client fleet `fleet_import.py`, `fleet.py`, `fleet_report.py`, `fleet_api.py`), `db/vehicles_repository.py`, migration `0135_vehicles`; web `apps/web/src/VehiclesView.tsx`, `VehicleParts.tsx`, `lib/vehicles.ts`, `lib/vehiclesApi.ts`, `lib/messages/vehicles.{en,ar}.ts`; contracts `packages/contracts/src/vehicles.ts`. Help: [English](help/vehicles.md), [Arabic](help/vehicles.ar.md).
 
 ## Who can do what
 
@@ -13,6 +13,8 @@ Code: `services/api/anum_api/vehicles/` (`models.py`, `store.py`, `service.py`, 
 | See business vehicles and their records (`vehicle:read`) | yes | yes | no |
 | Add vehicles, log fuel, trips, service and readings (`vehicle:write`) | yes | yes | no |
 | Change or delete a business vehicle someone else added, or their records (`vehicle:manage`) | yes | no | no |
+| Import a fleet from Excel or CSV (`vehicle:write` and `vehicle:manage`) | yes | no | no |
+| Fleet costs and the monthly client report (`vehicle:read`) | yes | yes | no |
 | Link a payment (also `finance:manage`) | own payments | own payments | no |
 
 - A **personal** vehicle and every record of it are visible only to its owner, whatever their role (row policy). Another member gets 404 for it, the same as for a vehicle that does not exist.
@@ -122,21 +124,59 @@ iOS may delay automations while the phone is locked or in Low Power Mode, and Ca
 | `GET /api/v1/vehicles/allocations`, `POST`, `DELETE /costs/{fuel_entry,service_record}/{id}/allocation` | plus `business:read`; a business vehicle's cost from this business's allocations the caller made ([Business allocations](#business-allocations)) |
 | `GET /api/v1/vehicles/{id}/export.csv` | the vehicle's log; cells that start with `=`, `+`, `-` or `@` are escaped |
 | `POST /api/v1/vehicles/device/sessions` | the iPhone (above) |
+| `GET /api/v1/vehicles/fleet/costs`, `POST /fleet/report`, `POST /fleet/import/preview`, `/fleet/import/apply` | [Fleet](#fleet) |
 
 Refusals answer `{"detail": "<plain words>", "code": "<code>"}` with figures where they help. Audit rows hold ids and codes only, never a registration, VIN, place or amount.
 
 ## Web page
 
-`#vehicles` (`src/VehiclesView.tsx`, `src/VehicleParts.tsx`, figures in `src/lib/ops.ts`): the page head with Add vehicle, a month picker and the tabs **Overview**, **Vehicles** (`#vehicles-list`) and **Settings** (`#vehicles-settings`).
+`#vehicles` (`src/VehiclesView.tsx`, `src/VehicleParts.tsx`, figures in `src/lib/ops.ts`): the page head with Add vehicle, a month picker and the tabs **Overview**, **Vehicles** (`#vehicles-list`), **Fleet costs** (`#vehicles-costs`), **Import** (`#vehicles-import`) and **Settings** (`#vehicles-settings`); the tabs wrap onto a second row on a phone. Fleet costs and Import are described under [Fleet](#fleet).
 
 - **Overview**: active vehicles, kilometres this month and spend this month (each against the month before), and services or renewals due soon with the records waiting for a payment. The fleet table (vehicle, registration, odometer, this month's spend, the next service or renewal, status: overdue, due in N days or in service) with search on the server and status, ownership and country filters; up to 100 vehicles, with a link to the full list beyond. The selected vehicle's panel: latest odometer, next due, fuel economy in km per litre, this month's cost, litres and kilometres over six months (`/report` `usage`), the maintenance timeline (last service and what is due), its papers (registration, insurance, inspection with their dates), its newest fuel, service and trip records, Open vehicle, Export CSV, and Record fuel, Log trip and Add service (the same forms as the vehicle page) and Upload document (the document vault). Below the table: what is coming up and spend by month.
 - A vehicle opens its own page: Fuel, Trips, Service, Odometer, Report and Details. `#vehicles?vehicle=<id>` opens that page by link (the search palette uses it); leaving the page drops the link from the address. A vehicle that is gone or not visible shows the page's load error with the way back.
 
-Not built: fleet-wide Fuel and mileage, Service and Documents tabs (each vehicle's page has them) and a fleet-wide export (each vehicle exports its own log).
+Not built: fleet-wide Fuel and mileage, Service and Documents tabs (each vehicle's page has them) and a fleet-wide CSV export of every record (each vehicle exports its own log; the monthly report's Excel file has the month's figures per vehicle).
 
 ## Mobile
 
 Menu, **Vehicles** (`/vehicles`, `apps/mobile/lib/features/vehicles/`, [Record modules](mobile.md#record-modules)): the list with search, active or archived, paging and the reminders due (`GET /reminders`); a vehicle with its details, due items, and its fuel, trips and service records, each paged; adding a vehicle, a fuel entry, a trip with its start and end odometer and times, a service record (with the next due date or kilometres), and an odometer reading. Each add sends one `Idempotency-Key` per form, so a retry after a lost answer is stored once. The `odometer_decrease` refusal is shown with the server's sentence (the reading and date it conflicts with) and an **Add a correction** button that opens the reading form with the typed kilometres and the correction switch on; the correction needs a reason. **Link a payment** lists the person's own Finance payments (`GET /payments`) and links one to a fuel entry or service record; linking adds no money. People who may not change a vehicle see why. From 840 px the list and the selected vehicle sit side by side. Trip places (from, to) and the CSV export stay on the web. Tests: `apps/mobile/test/vehicles/vehicles_test.dart`. On a business vehicle a fuel or service record also offers **Use a business allocation** (the same picker, this business's allocations the caller made) and shows such a cost as a business allocation, or that it was taken back in Finance.
+
+## Fleet
+
+Running a client's fleet in ANUM, the pilot the [product review](audits/2026-11-12-product-review.md) chose (owner decision, 12 November 2026): import the client's vehicles and records from their spreadsheets, see cost per vehicle and per km each month, and hand the client one monthly report. A client fleet lives in its own business workspace; every figure below covers **business vehicles only**, never a person's own car.
+
+### Fleet import
+
+**Vehicles, Import** (owners; `vehicle:write` and `vehicle:manage`, because a file brings many records in at once). Code `vehicles/fleet_import.py`, routes `POST /api/v1/vehicles/fleet/import/preview` and `/apply`.
+
+- **One kind per file:** `vehicles`, `fuel`, `service` (every service kind: maintenance, oil, tyres, repairs, fines, tolls, insurance, registration...) or `odometer` readings. Import the vehicles first; record rows name their vehicle by registration (spaces and dashes ignored, an optional Country column tells apart the same plate in SA and AE).
+- **Files:** CSV (UTF-8, comma, semicolon or tab, a header row) or Excel `.xlsx`, read with the contacts import's checked reader (`contacts/import_files.py`: bounded zip, macros and old `.xls` refused, the first sheet only, a formula never evaluated: its saved value is read as text). At most 5,000 rows, 60 columns and 5 MB (the request body allows 7 MB for the base64).
+- **Columns** are suggested from English or Arabic header words (Plate No, رقم اللوحة, Litres, اللترات, Odometer, قراءة العداد, Insurance expiry, انتهاء التأمين...); an exact word wins over a contained one. The caller can choose every column; a required field without a column is `422 invalid_mapping`. The web offers a CSV template per kind.
+- **Values:** numbers with thousands separators, a decimal comma, a currency prefix or Arabic-Indic digits; dates as `2026-03-31`, `31/03/2026` (or month first when the caller says so), or an Excel day number; fuel and vehicle types and service kinds from English or Arabic words (an unknown service word is `other`). Rows default to the country chosen for the file and the vehicle's currency.
+- **Checks per row**, the same as the forms (the API's own input models and rules): registration, VIN, ranges, dates not in the future. Problems are returned as codes (for the client to word in English or Arabic) and an English sentence.
+- **Row status:** `new`; `exists` (a vehicle with the registration; a fuel entry on the same day with the same litres and total; a service record on the same day of the same kind and total; the same odometer reading); `duplicate_in_file`; `imported` (this same row was imported before, from any file: the record's idempotency key is derived from its content); `invalid`. Actions: vehicles `create`, `update` (fills the given fields, never registration or country) or `skip`; records `create` or `skip` (a duplicate may be added on purpose).
+- **The odometer never goes down:** the readings a file would write are checked per vehicle in time order against the vehicle's readings and the file's other rows; a row that would break the order is `invalid` with the reading it conflicts with. On apply the readings are written directly (the store, and in PostgreSQL the trigger `vehicle_odometer_monotonic`, refuse a decrease), never one query per row.
+- **All or nothing:** apply needs the preview's fingerprint (same file, kind, mapping, country and date order; `409 stale_preview` otherwise), re-checks everything against the workspace as it is now, refuses the whole file when a chosen row is not allowed (`409 rows_refused`, naming the rows), and writes everything in one unit of work: a row the database refuses rolls the whole import back. A workspace keeps at most 500 active vehicles (`409 too_many`).
+- **What it writes:** business vehicles added by the importer (with a first odometer reading at the file's odometer date); fuel entries and service records with their pump or receipt totals as the record's figures. Nothing is posted to Finance. Audit `vehicle.fleet_import` with the kind and counts only; the file is not stored.
+
+### Fleet costs
+
+**Vehicles, Fleet costs** (`GET /api/v1/vehicles/fleet/costs?month=YYYY-MM`, `vehicle:read`; pure functions in `vehicles/fleet.py`):
+
+- **One cost per record:** its active linked payment or business allocation when it has one (`linked`), otherwise the figure written on it, the pump or receipt total (`recorded`), which is how an imported client fleet carries its costs. This is the fleet view's rule; the vehicle's own Report and the Overview still count linked payments only (above). The month's totals say how much came from each.
+- **Categories:** fuel; service (maintenance, oil, battery, repair, inspection, warranty); tyres (service records of kind tyres); other (insurance, registration, fines, tolls, parking, washes, other).
+- **Per vehicle:** kilometres (the module's distance rule, in the month of the later reading), L/100 km from full-to-full chains ending in the month, cost per category and currency, cost per km in the vehicle's currency, the month before.
+- **Fleet:** totals per currency, never added across currencies; cost per km divides a currency's cost by the kilometres of the vehicles kept in that currency. Twelve months to the chosen month. The **highest cost per km**: up to five vehicles per currency that drove at least 100 km. **Renewals due:** insurance, registration and inspection expired or expiring within 60 days of the later of the month's end and today.
+- **Tyre planning, read only:** when the workspace has a synced Tyre planning snapshot ([Tyre planning](tyre-planning.md)) and the caller has `tyre:read`, each Tyre planning vehicle whose label, fleet number or id matches a registration or nickname shows its tyre costs in the month and the tyres due for removal within 60 days. Shown beside the figures, never added to them; the Tyre Pulse source is never written. Otherwise `tyres.status` says why: `denied`, `not_connected` or `not_synced`.
+- Archived vehicles appear only for a month they were used in.
+
+### Monthly fleet report
+
+`POST /api/v1/vehicles/fleet/report {month, language: en|ar, format: pdf|xlsx, company_name, notes}` (`vehicle:read`; `vehicles/fleet_report.py`): made on the server from the fleet costs above, so the figures are the page's figures: the company name and period, the date prepared, vehicles, kilometres and litres, totals per currency against the month before with the linked and recorded shares and how costs are counted, cost per vehicle, the highest cost per km, the twelve months, the renewals due, the Tyre planning section when there is one, and the owner's notes (up to 4,000 characters). The PDF uses the shared writer (`pdf_writer.py`, Arabic shaped with the embedded Noto Sans Arabic); an Arabic report is right to left throughout (laid out from the right margin, tables mirrored). The Excel file (`xlsx_writer.py`, dependency-free) has Summary, Vehicles, Last 12 months, Renewals, Tyres (when there is a snapshot) and Notes sheets, numbers as numbers, text never as a formula, and opens right to left in Arabic. An empty month says so. `Content-Disposition: attachment`, `no-store`; audit `vehicle.fleet_report` with month, format and language only.
+
+The report is **never sent** from here: the person downloads it (web) or saves it through the system save dialog (phone). To email it, they attach it in [Email](email.md), where sending waits for an owner's approval. The notes are not stored: they travel with each download request.
+
+Web: `src/VehiclesFleet.tsx` (lazy chunk), `src/lib/fleet.ts`, `src/lib/fleetApi.ts`; tabs `#vehicles-costs` and `#vehicles-import`. Phone: Vehicles, Fleet costs (`apps/mobile/lib/features/vehicles/fleet_costs.dart`): the month, per vehicle, highest cost per km, renewals and the report saved as PDF or Excel in English or Arabic; the import is web only. Tests: `services/api/tests/test_vehicles_fleet.py`, `tests/test_postgres_vehicles_fleet.py`, web `test/fleet.test.ts` and `e2e/vehicles-fleet.spec.ts`, phone `apps/mobile/test/vehicles/fleet_costs_test.dart`.
 
 ## Storage, privacy and deletion
 
@@ -151,4 +191,5 @@ The privacy export includes the person's own vehicles, their records on business
 ## Not built here
 
 - On the phone: editing or archiving a vehicle, trip places, recording a cost as cash, preferences and the analytics (on the web).
-- Tyre Pulse fleet vehicles stay a read-only snapshot in the Tyre module; there is no link from a Tyre Pulse vehicle to an ANUM vehicle yet.
+- Tyre Pulse fleet vehicles stay a read-only snapshot in the Tyre module; Fleet costs matches them to ANUM vehicles by label, fleet number or registration for display only, with no stored link.
+- Fleet: the import on the phone; saving the report's notes between visits; sending the report from Vehicles (it goes through Email with its approval); trips in the import; multi-sheet workbooks (one sheet, one kind per file).

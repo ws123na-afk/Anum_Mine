@@ -466,7 +466,8 @@ def push_text(kind: PushKind, language: str | None) -> tuple[str, str]:
 # (docs/ANUM_MINE_HQ_RECEPTION.md#host-notification) is one: owner rule, no autonomous email,
 # SMS or push.
 IN_APP_ONLY_KINDS = frozenset({"visitor_arrived", "budget_alert", "approval_reminder", "attendance_missed_check", "document_expiry", "vehicle_reminder",
-                               "purchase_reminder", "finance_loan_due", "finance_suggestions", "finance_exceptions"})
+                               "purchase_reminder", "finance_loan_due", "finance_suggestions", "finance_exceptions",
+                               "system_health", "system_restart"})
 
 EVENT_KINDS: dict[str, PushKind] = {
     "approval.requested": PushKind.APPROVAL_REQUIRED,

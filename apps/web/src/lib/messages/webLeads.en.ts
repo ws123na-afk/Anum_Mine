@@ -58,6 +58,8 @@ export const webLeadsEn = {
   'ntf.kind.work_overdue': 'Overdue work',
   'ntf.kind.calendar_reminder': 'Calendar reminders',
   'ntf.kind.approval_reminder': 'Approval reminders',
+  'ntf.kind.system_health': 'System health',
+  'ntf.kind.system_restart': 'Unexpected restart',
   'ntf.kind.budget_alert': 'Model budget',
   'ntf.kind.agent_controls': 'Agent controls',
   'ntf.kind.skill_signing': 'Skill signing',

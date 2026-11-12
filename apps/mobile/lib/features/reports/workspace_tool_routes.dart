@@ -8,6 +8,7 @@ import '../calls/provider_voice.dart';
 import '../contacts/contacts_controller.dart';
 import '../contacts/contacts_repository.dart';
 import '../contacts/contacts_screen.dart';
+import '../calendar/calendar_connections.dart';
 import '../calendar/calendar_controller.dart';
 import '../calendar/calendar_repository.dart';
 import '../calendar/calendar_screen.dart';
@@ -79,7 +80,11 @@ class WorkspaceToolRoutes {
     } else if (segments.length == 2 && segments.first == 'reports') {
       screen = ReportDetailScreen(repository: library, id: segments[1]);
     } else if (uri.path == calendar) {
-      screen = CalendarScreen(controller: calendarController);
+      screen = CalendarScreen(
+          controller: calendarController,
+          connections: () => CalendarConnectionsController(
+              ApiCalendarConnectionsRepository(api),
+              openUrl: (uri) => calendarOpenUrl(uri)));
     } else if (segments.length == 3 &&
         segments[0] == 'calendar' &&
         segments[1] == 'events') {

@@ -2,7 +2,7 @@
 // search and filters beside the selected vehicle's panel, what is due and spend by month), Vehicles (search, archived,
 // paging) and Settings (trip places, default vehicle, reminders, the iPhone Shortcut). A vehicle opens its own page: Fuel, Trips, Service, Odometer, Report and Details. Costs are links to the
 // person's Finance payments, never new money: the page says so wherever a payment is shown.
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CalendarClock, CarFront, ChevronLeft, ChevronRight, Download, FileUp, Fuel, Gauge, Lock, Plus, Route, Search, ShieldCheck, Smartphone, Wallet, Wrench } from 'lucide-react';
 import type { Vehicle, VehicleFuelEntry, VehicleOverview, VehiclePage, VehiclePreferences, VehicleRecordKind, VehicleReport, VehicleServiceRecord, VehicleTrip } from '@anum/contracts';
 import * as api from './lib/vehiclesApi';
@@ -22,6 +22,10 @@ import { UsageChart } from './OpsParts';
 import { RecordForm, VehicleDetail, VehicleForm } from './VehicleParts';
 import './commerce.css';
 import './vehicles.css';
+
+// Fleet costs, the monthly client report and the fleet import (docs/vehicles.md#fleet): their own chunk.
+const FleetCostsPanel = lazy(() => import('./VehiclesFleet').then((m) => ({ default: m.FleetCostsPanel })));
+const FleetImportPanel = lazy(() => import('./VehiclesFleet').then((m) => ({ default: m.FleetImportPanel })));
 
 function useVehicleTab(): [VehicleTab, (next: VehicleTab) => void] {
   const [tab, setTab] = useState<VehicleTab>(() => tabFromHash(typeof location === 'undefined' ? '' : location.hash));
@@ -64,7 +68,7 @@ export function VehiclesView() {
   const tabs = VEHICLE_TABS.map((id) => ({ id, label: t(`veh.tab.${id}` as MessageKey) }));
   const head = <FinancePageHead title={viewLabel('vehicles')} subtitle={t('veh.subtitle')} crumbs={openId || tab !== 'overview' ? crumbs : undefined}
     actions={denied ? undefined : <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('veh.add')}</button>}
-    controls={!denied && !openId && tab === 'overview' ? <PeriodPicker month={month} onChange={setMonth} max={thisMonth} /> : undefined}
+    controls={!denied && !openId && (tab === 'overview' || tab === 'costs') ? <PeriodPicker month={month} onChange={setMonth} max={thisMonth} /> : undefined}
     tabs={denied || openId ? undefined : <FinanceTabs label={t('veh.tabs')} items={tabs} value={tab} onChange={pick} idPrefix="veh" />} />;
   const added = (vehicle: Vehicle) => { setAdding(false); refresh(); setOpenId(vehicle.id); };
   if (denied) return <div className="cmLayout vehLayout opsPage">{head}<VehiclesDenied /></div>;
@@ -75,6 +79,10 @@ export function VehiclesView() {
       : <div {...tabPanel('veh', tab)}>
         {tab === 'overview' && <OverviewPanel key={`${tick}:${month}`} month={month} onOpen={setOpenId} onAdd={() => setAdding(true)} onDenied={() => setDenied(true)} onList={() => pick('list')} />}
         {tab === 'list' && <ListPanel key={tick} onOpen={setOpenId} onAdd={() => setAdding(true)} onDenied={() => setDenied(true)} />}
+        {(tab === 'costs' || tab === 'import') && <Suspense fallback={<Notice busy>{t('veh.loading')}</Notice>}>
+          {tab === 'costs' && <FleetCostsPanel key={`${tick}:${month}`} month={month} onOpen={setOpenId} onImport={() => pick('import')} onAdd={() => setAdding(true)} onDenied={() => setDenied(true)} />}
+          {tab === 'import' && <FleetImportPanel onDone={refresh} />}
+        </Suspense>}
         {tab === 'settings' && <SettingsPanel onDenied={() => setDenied(true)} />}
       </div>}
   </div>;

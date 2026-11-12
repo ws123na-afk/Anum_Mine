@@ -90,7 +90,7 @@ test('dashboard, forecasts with search and paging, plan, alerts and reports', as
   await expect(page.getByText('Report generated.')).toBeVisible();
   await expect(page.locator('.tyreReport')).toContainText('Tyres fitted');
   await page.locator('.tyreReport').getByRole('button', { name: 'Send' }).click();
-  await expect(page.getByText(/No email or WhatsApp integration is connected/)).toBeVisible();
+  await expect(page.getByText(/Reports cannot be sent from here yet/)).toBeVisible();
   expect(state.requests).toContain('POST /alerts/a1/acknowledge');
 });
 
@@ -139,3 +139,28 @@ for (const locale of ['en', 'ar'] as const) {
     if (locale === 'ar') await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   });
 }
+
+test('a member sends a report by email or WhatsApp; it waits for an approval', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  const state = await mockTyre(page, { role: 'member', channels: ['email', 'whatsapp'] });
+  await page.goto('/#tyre');
+  await page.getByRole('tab', { name: 'Reports' }).click();
+  await page.getByRole('button', { name: 'Generate', exact: true }).click();
+  await expect(page.locator('.tyreReport')).toContainText('Tyres fitted');
+  const report = page.locator('.tyreReport');
+  await report.getByRole('button', { name: 'Send' }).click();
+  const channel = report.getByLabel('Send by');
+  await expect(channel.locator('option')).toHaveText(['Email', 'WhatsApp']);
+  await channel.selectOption('whatsapp');
+  await expect(report.getByText(/only to someone who wrote to your WhatsApp number/)).toBeVisible();
+  await report.getByLabel('To').fill('fleet@example.com');
+  await report.getByRole('button', { name: 'Request sending' }).click();
+  await expect(report.getByRole('alert')).toContainText('international format');
+  await channel.selectOption('email');
+  await report.getByRole('button', { name: 'Request sending' }).click();
+  await expect(report.locator('.tyreDeliveries')).toContainText('Waiting for approval');
+  await expect(report.locator('.tyreDeliveries')).toContainText('Email → fleet@example.com');
+  expect(state.requests).toContain('POST /reports/r1/deliver');
+  const scan = await new AxeBuilder({ page }).include('.tyreReport').analyze();
+  expect(scan.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+});

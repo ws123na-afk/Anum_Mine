@@ -7,6 +7,7 @@ import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'attendance_controller.dart';
 import 'attendance_data.dart';
+import 'attendance_report_screen.dart';
 import 'attendance_strings.dart';
 
 const eventKinds = [
@@ -28,8 +29,11 @@ String _hhmm(DateTime at) =>
 /// manual check in and out, the days by week, daily reports and
 /// corrections with a reason. Everything here is the person's own record.
 class AttendanceScreen extends StatefulWidget {
-  const AttendanceScreen({required this.controller, super.key});
+  const AttendanceScreen({required this.controller, this.files, super.key});
   final AttendanceController controller;
+
+  /// Attaching files to a daily report (the workspace's Files); null hides it.
+  final AttendanceFiles? files;
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -82,6 +86,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 required: true, initial: isoDay(at)),
             RecordsInput.time('time', s.t('time'),
                 required: true, initial: _hhmm(at)),
+            if (c.sites.isNotEmpty)
+              RecordsInput.choice('site_id', s.t('site'),
+                  initial: event?.siteId != null &&
+                          c.sites.any((x) => x.id == event!.siteId)
+                      ? event!.siteId
+                      : _noSite,
+                  options: {
+                    _noSite: s.t('noSite'),
+                    for (final site in c.sites) site.id: site.name,
+                  }),
           ],
           RecordsInput.text('reason', s.t('reason'),
               required: true, maxLength: 500),
@@ -92,7 +106,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           if (action != 'void') ...{
             'kind': v['kind'],
             'occurred_at': instantOf(v['day']! as String, v['time'] as String?),
-            if (event?.siteId != null) 'site_id': event!.siteId,
+            'site_id': c.sites.isEmpty
+                ? event?.siteId
+                : (v['site_id'] == _noSite ? null : v['site_id']),
           },
           'reason': v['reason'],
         }),
@@ -102,67 +118,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _report(String day, {AttendanceReport? existing}) async {
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => AttendanceReportScreen(
+              repository: c.repository,
+              day: day,
+              existing: existing,
+              sites: c.sites,
+              files: widget.files,
+              save: c.saveReport,
+              remove: c.deleteReport,
+            )));
+    if (saved == true) await c.reports.load(query: c.reports.query);
+  }
+
+  static const _noSite = '-';
+
+  /// Picks one of the person's entries of the last 14 days to change or
+  /// remove (the web's list), then opens the correction for it.
+  Future<void> _pickEntry(String action) async {
     final s = AttendanceStrings.of(context);
-    AttendanceReport? report = existing;
-    if (report == null) {
-      try {
-        report = await c.repository.report(day);
-      } on Object catch (error) {
-        if (mounted) recordsToast(context, RecordsFailure.from(error).message);
-        return;
-      }
+    final today = c.today?.day ?? isoDay(DateTime.now());
+    final end = parseDay(today) ?? DateTime.now();
+    final picked = await showRecordsSheet<AttendanceEvent>(
+        context,
+        (_) => _EntryPicker(
+              title: s.t(action == 'void' ? 'pickRemove' : 'pickChange'),
+              load: () => c.repository.events(
+                  isoDay(end.subtract(const Duration(days: 13))), today),
+              siteName: {for (final site in c.sites) site.id: site.name},
+            ));
+    if (picked != null && mounted) {
+      await _correct(action: action, event: picked);
     }
-    if (!mounted) return;
-    List<String> lines(Object? text) => [
-          for (final line in ((text as String?) ?? '').split('\n'))
-            if (line.trim().isNotEmpty) line.trim()
-        ];
-    final saved = await openRecordsForm(
-      context,
-      RecordsForm(
-        title: s.t('reportFor', {'day': recordsDate(context, day)}),
-        submitLabel: KitStrings.of(context).t('save'),
-        fields: [
-          RecordsInput.text('project', s.t('project'),
-              initial: report?.project, maxLength: 160),
-          RecordsInput.multiline('tasks_done', s.t('tasksDone'),
-              initial: report?.tasksDone.join('\n')),
-          RecordsInput.multiline('tasks_pending', s.t('tasksPending'),
-              initial: report?.tasksPending.join('\n')),
-          RecordsInput.multiline('issues', s.t('issues'),
-              initial: report?.issues, maxLength: 4000),
-          RecordsInput.number('time_spent_minutes', s.t('timeSpent'),
-              initial: report?.timeSpentMinutes?.toString()),
-          RecordsInput.choice('priority', s.t('priority'),
-              initial: report?.priority ?? 'normal',
-              options: {
-                for (final p in ['low', 'normal', 'high', 'urgent'])
-                  p: s.label('priority', p)
-              }),
-          RecordsInput.date('follow_up_on', s.t('followUp'),
-              initial: report?.followUpOn),
-          RecordsInput.multiline('notes', s.t('notes'),
-              initial: report?.notes, maxLength: 8000),
-        ],
-        onSubmit: (v) => c.saveReport(day, {
-          'project': v['project'],
-          'tasks_done': lines(v['tasks_done']),
-          'tasks_pending': lines(v['tasks_pending']),
-          'site_visits': report?.siteVisits ?? const <Object?>[],
-          'issues': v['issues'],
-          'time_spent_minutes': v['time_spent_minutes'] == null
-              ? null
-              : double.parse(v['time_spent_minutes']! as String).round(),
-          'priority': v['priority'],
-          'follow_up_on': v['follow_up_on'],
-          'notes': v['notes'],
-          'file_ids': report?.fileIds ?? const <String>[],
-          'drafted_with_ai': report?.draftedWithAi ?? false,
-          'expected_version': report?.version,
-        }),
-      ),
-    );
-    if (saved && mounted) recordsToast(context, s.t('reportSaved'));
   }
 
   Future<void> _deleteReport(AttendanceReport report) async {
@@ -539,15 +526,26 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return AnumPage(onRefresh: list.load, children: [
       Text(s.t('correctionsHelp'),
           style: TextStyle(color: context.palette.muted)),
-      Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: FilledButton.icon(
+      Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
+        FilledButton.icon(
           key: const Key('attendance-add-missing'),
           onPressed: _correct,
           icon: const Icon(Icons.add),
           label: Text(s.t('addMissing')),
         ),
-      ),
+        OutlinedButton.icon(
+          key: const Key('attendance-change-entry'),
+          onPressed: () => _pickEntry('change'),
+          icon: const Icon(Icons.edit_calendar_outlined),
+          label: Text(s.t('changeEntry')),
+        ),
+        OutlinedButton.icon(
+          key: const Key('attendance-remove-entry'),
+          onPressed: () => _pickEntry('void'),
+          icon: const Icon(Icons.remove_circle_outline),
+          label: Text(s.t('removeEntry')),
+        ),
+      ]),
       if (list.phase != RecordsPhase.ready)
         RecordsStateView(
             phase: list.phase, failure: list.failure, onRetry: list.load)
@@ -578,5 +576,80 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         RecordsMore(list: list),
       ],
     ]);
+  }
+}
+
+/// The person's entries of the last 14 days, newest first, to pick one.
+class _EntryPicker extends StatefulWidget {
+  const _EntryPicker(
+      {required this.title, required this.load, required this.siteName});
+  final String title;
+  final Future<List<AttendanceEvent>> Function() load;
+  final Map<String, String> siteName;
+
+  @override
+  State<_EntryPicker> createState() => _EntryPickerState();
+}
+
+class _EntryPickerState extends State<_EntryPicker> {
+  List<AttendanceEvent>? events;
+  RecordsFailure? failure;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      events = null;
+      failure = null;
+    });
+    try {
+      final found = await widget.load();
+      if (mounted) setState(() => events = found.reversed.toList());
+    } on Object catch (e) {
+      if (mounted) setState(() => failure = RecordsFailure.from(e));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AttendanceStrings.of(context);
+    final found = events;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(widget.title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: AnumSpacing.xs),
+        if (failure != null)
+          RecordsStateView(
+              phase: failure!.denied ? RecordsPhase.denied : RecordsPhase.error,
+              failure: failure,
+              onRetry: _load)
+        else if (found == null)
+          const Padding(
+              padding: EdgeInsets.all(AnumSpacing.md),
+              child: Center(child: CircularProgressIndicator()))
+        else if (found.isEmpty)
+          Text(s.t('pickEmpty'),
+              key: const Key('entries-empty'),
+              style: TextStyle(color: context.palette.muted))
+        else
+          for (final event in found)
+            AnumRow(
+              key: Key('entry-${event.id}'),
+              icon: Icons.schedule,
+              title: s.label('kind', event.kind),
+              subtitle: [
+                recordsDateTime(context, event.occurredAt),
+                if (widget.siteName[event.siteId] case final String name) name,
+              ].join(' · '),
+              onTap: () => Navigator.of(context).pop(event),
+            ),
+      ],
+    );
   }
 }

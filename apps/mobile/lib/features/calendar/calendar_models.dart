@@ -299,6 +299,54 @@ class CalendarEvent {
 }
 
 /// One connected Google or Microsoft calendar (docs/calendar.md#sync).
+/// One calendar of a connected account and whether it syncs
+/// (docs/calendar.md#choosing-calendars). The primary one always syncs both
+/// ways; the others chosen are read into ANUM only.
+class CalendarChoice {
+  const CalendarChoice({
+    required this.id,
+    required this.name,
+    this.primary = false,
+    this.selected = false,
+    this.canEdit = false,
+    this.color,
+  });
+
+  final String id, name;
+  final bool primary, selected, canEdit;
+  final String? color;
+
+  factory CalendarChoice.fromJson(JsonReader j) => CalendarChoice(
+        id: j.string('id'),
+        name: j.optString('name') ?? j.string('id'),
+        primary: j.optBool('primary') ?? false,
+        selected: j.optBool('selected') ?? false,
+        canEdit: j.optBool('can_edit') ?? false,
+        color: j.optString('color'),
+      );
+}
+
+/// A provider the server can connect, or the settings it is missing.
+class SyncProviderSetup {
+  const SyncProviderSetup({
+    required this.provider,
+    required this.name,
+    this.configured = false,
+    this.missing = const [],
+  });
+
+  final String provider, name;
+  final bool configured;
+  final List<String> missing;
+
+  factory SyncProviderSetup.fromJson(JsonReader j) => SyncProviderSetup(
+        provider: j.string('provider'),
+        name: j.optString('name') ?? j.string('provider'),
+        configured: j.optBool('configured') ?? false,
+        missing: j.optStrings('missing') ?? const [],
+      );
+}
+
 class SyncConnection {
   const SyncConnection({
     required this.id,
@@ -309,6 +357,8 @@ class SyncConnection {
     this.lastSyncAt,
     this.lastError,
     this.eventsSynced = 0,
+    this.calendars = const [],
+    this.calendarErrors = const [],
   });
 
   final String id, provider, providerName, email, status;
@@ -316,8 +366,20 @@ class SyncConnection {
   final String? lastError;
   final int eventsSynced;
 
+  /// The account's calendars as last listed, with which sync.
+  final List<CalendarChoice> calendars;
+
+  /// Chosen calendars the last pass could not read ("name: reason").
+  final List<String> calendarErrors;
+
   bool get healthy => status == 'connected';
   bool get needsReconnect => status == 'reauth_required';
+
+  /// The other calendars that sync read only, besides the primary one.
+  List<CalendarChoice> get extraCalendars => [
+        for (final c in calendars)
+          if (c.selected && !c.primary) c
+      ];
 
   factory SyncConnection.fromJson(JsonReader j) => SyncConnection(
         id: j.string('id'),
@@ -329,15 +391,23 @@ class SyncConnection {
             j.optString('last_sync_at') == null ? null : j.date('last_sync_at'),
         lastError: j.optString('last_error'),
         eventsSynced: j.optInt('events_synced') ?? 0,
+        calendars: j.optObjects('calendars', CalendarChoice.fromJson),
+        calendarErrors:
+            j.optObject('last_summary')?.optStrings('calendar_errors') ??
+                const [],
       );
 }
 
 /// What sync looks like to this person: the connections, and whether they
 /// may sync or change them (owners).
 class CalendarSyncStatus {
-  const CalendarSyncStatus(this.connections, {this.canManage = false});
+  const CalendarSyncStatus(this.connections,
+      {this.canManage = false, this.providers = const []});
   final List<SyncConnection> connections;
   final bool canManage;
+
+  /// The providers this server can connect (empty when not read).
+  final List<SyncProviderSetup> providers;
 
   /// New events go to the oldest connection that works.
   SyncConnection? get target {

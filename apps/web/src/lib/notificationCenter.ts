@@ -9,6 +9,7 @@ export const KNOWN_KINDS = [
   'calendar_reminder', 'approval_reminder', 'budget_alert', 'agent_controls', 'skill_signing', 'document_expiry',
   'vehicle_reminder', 'purchase_reminder', 'attendance_missed_check', 'visitor_arrived', 'missed_call',
   'finance_daily_report', 'finance_weekly_advice', 'finance_loan_due', 'finance_suggestions', 'finance_exceptions', 'finance_sms',
+  'system_health', 'system_restart',
 ] as const;
 
 export const NOTIFICATIONS_PAGE = 20;
@@ -31,6 +32,7 @@ export function notificationHash(n: Pick<UserNotification, 'kind' | 'work_item_i
     calendar_reminder: '#calendar', approval_reminder: '#approvals', budget_alert: '#budgets', agent_controls: '#agentControls',
     skill_signing: '#skills', document_expiry: '#vault', vehicle_reminder: '#vehicles', purchase_reminder: '#purchases',
     attendance_missed_check: '#attendance', visitor_arrived: '#office', missed_call: '#calls',
+    system_health: '#platformBilling-health', system_restart: '#platformBilling-health',
   };
   return byKind[n.kind] ?? null;
 }
