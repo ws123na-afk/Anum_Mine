@@ -179,6 +179,11 @@ class CommandApproval {
   bool get pending => status == 'pending';
 }
 
+List<int> _positions(JsonReader j, String key) => [
+      for (final value in j.optList(key) ?? const <Object?>[])
+        if (value is num) value.toInt()
+    ];
+
 class CommandStepView {
   const CommandStepView({
     required this.position,
@@ -195,6 +200,8 @@ class CommandStepView {
     this.startedAt,
     this.finishedAt,
     this.approvals = const [],
+    this.waitingFor = const [],
+    this.blockedBy = const [],
   });
 
   factory CommandStepView.fromJson(JsonReader j) => CommandStepView(
@@ -212,6 +219,8 @@ class CommandStepView {
         startedAt: j.optDate('started_at'),
         finishedAt: j.optDate('finished_at'),
         approvals: j.optObjects('approvals', CommandApproval.fromJson),
+        waitingFor: _positions(j, 'waiting_for'),
+        blockedBy: _positions(j, 'blocked_by'),
       );
 
   final int position;
@@ -231,6 +240,13 @@ class CommandStepView {
   final DateTime? startedAt;
   final DateTime? finishedAt;
   final List<CommandApproval> approvals;
+
+  /// Earlier steps it waits for that have not completed yet; the server starts
+  /// it once they have (docs/command.md#the-server-continues-a-command).
+  final List<int> waitingFor;
+
+  /// Earlier steps it needs that failed or were cancelled: it does not start.
+  final List<int> blockedBy;
 
   bool get terminal =>
       const {'completed', 'failed', 'cancelled', 'missing'}.contains(status);
@@ -458,4 +474,14 @@ class CommandAttachment {
   const CommandAttachment({required this.fileId, required this.name});
   final String fileId;
   final String name;
+}
+
+/// The answer of `POST /api/v1/commands/{id}/start`.
+class CommandStart {
+  const CommandStart({required this.command, this.refused = const {}});
+
+  final CommandView command;
+
+  /// Why a step could not start, by task id.
+  final Map<String, String> refused;
 }

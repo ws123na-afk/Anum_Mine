@@ -15,8 +15,9 @@ abstract interface class CommandRepository {
     String? quickCommandId,
   });
 
-  /// `POST /api/v1/tasks/{id}/run` for one step.
-  Future<void> runTask(String taskId);
+  /// `POST /api/v1/commands/{id}/start`: starts every step that can start now.
+  /// The server starts the steps that wait for others once those completed.
+  Future<CommandStart> startCommand(String commandId);
 
   /// `POST /api/v1/tasks/bulk {"action": "cancel"}`.
   Future<void> cancelTasks(List<String> taskIds);
@@ -85,9 +86,18 @@ class ApiCommandRepository implements CommandRepository {
       })));
 
   @override
-  Future<void> runTask(String taskId) async {
-    await api.request(
-        'POST', '/api/v1/tasks/${Uri.encodeComponent(taskId)}/run');
+  Future<CommandStart> startCommand(String commandId) async {
+    final j = JsonReader.of(await api.request(
+        'POST', '/api/v1/commands/${Uri.encodeComponent(commandId)}/start'));
+    final refused = j.optObject('refused');
+    return CommandStart(
+      command: CommandView.fromJson(j.object('command')),
+      refused: {
+        for (final entry
+            in (refused?.json ?? const <String, Object?>{}).entries)
+          if (entry.value is String) entry.key: entry.value! as String
+      },
+    );
   }
 
   @override

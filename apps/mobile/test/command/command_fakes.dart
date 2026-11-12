@@ -59,7 +59,10 @@ Map<String, Object?> approvalJson(String id, String taskId) => {
     };
 
 Map<String, Object?> stepViewJson(int position, String agent, String status,
-        {String? result, List<Map<String, Object?>> approvals = const []}) =>
+        {String? result,
+        List<Map<String, Object?>> approvals = const [],
+        List<int> waitingFor = const [],
+        List<int> blockedBy = const []}) =>
     {
       'position': position,
       'title': 'Step $position title',
@@ -84,6 +87,9 @@ Map<String, Object?> stepViewJson(int position, String agent, String status,
       'started_at': null,
       'finished_at': null,
       'approvals': approvals,
+      'depends_on': [...waitingFor, ...blockedBy],
+      'waiting_for': waitingFor,
+      'blocked_by': blockedBy,
     };
 
 Map<String, Object?> viewJson(String status, List<Map<String, Object?>> steps,
@@ -154,7 +160,12 @@ class FakeCommandRepository implements CommandRepository {
   Object? suggestionsError;
   Object? previewError;
   Object? createError;
-  Map<String, Object> runErrors = {};
+
+  /// Thrown by `startCommand` (for example the monthly budget, 402).
+  Object? startError;
+
+  /// What `startCommand` answers: refusals by task id, and the view.
+  Map<String, String> refused = {};
   CommandPlan plan = CommandPlan.fromJson(JsonReader(planJson([
     planStepJson(1, 'email', 'Check my emails', tool: 'search_email'),
     planStepJson(2, 'action', 'Send the summary to the team',
@@ -167,7 +178,7 @@ class FakeCommandRepository implements CommandRepository {
   List<CommandView> views = [];
   final previews = <String>[];
   final creates = <Map<String, Object?>>[];
-  final runs = <String>[];
+  final starts = <String>[];
   final cancels = <List<String>>[];
   final approvals = <String>[];
   List<NextStep> next = [
@@ -217,10 +228,10 @@ class FakeCommandRepository implements CommandRepository {
   }
 
   @override
-  Future<void> runTask(String taskId) async {
-    runs.add(taskId);
-    final error = runErrors[taskId];
-    if (error != null) throw error;
+  Future<CommandStart> startCommand(String commandId) async {
+    starts.add(commandId);
+    if (startError != null) throw startError!;
+    return CommandStart(command: await load(commandId), refused: refused);
   }
 
   @override
