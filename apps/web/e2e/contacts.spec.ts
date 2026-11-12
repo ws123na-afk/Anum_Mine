@@ -150,18 +150,19 @@ test('empty, paging, permission denied and error states', async ({ page }) => {
 const SHEET = 'Full name,Company,Mobile,Email,Do not contact\nSara Ahmed,Tyre Co,+971501234567,,\nRana Saleh,,0507770000,,email\nR. Saleh,,+971507770000,,\nBad Number,,12,,\n';
 
 async function chooseSheet(page: import('@playwright/test').Page, name = 'people.csv', text = SHEET) {
-  await page.getByLabel('CSV file', { exact: true }).setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(text) });
+  await page.getByLabel('File to import (CSV, Excel or vCard)', { exact: true }).setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(text) });
 }
 
 test('owners import a CSV file: preview, columns, a decision per row, all or nothing', async ({ page }) => {
   const mock = await open(page, {}, 'contacts-import');
-  await expect(page.getByRole('tab', { name: 'Import from CSV' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Import people from a CSV file' })).toBeVisible();
-  // Not a CSV file: said at once, nothing sent.
-  await chooseSheet(page, 'people.xlsx');
-  await expect(page.getByRole('alert').filter({ hasText: 'Choose a CSV file (.csv).' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Import people', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Import people from a file' })).toBeVisible();
+  // Not a file ANUM reads (an old Excel file): said at once, nothing sent.
+  await chooseSheet(page, 'people.xls');
+  await expect(page.getByRole('alert').filter({ hasText: 'Choose a CSV (.csv), Excel (.xlsx) or vCard (.vcf) file.' })).toBeVisible();
+  expect(mock.calls.some((c) => c.path === '/api/v1/contacts/import/preview')).toBe(false);
   await chooseSheet(page);
-  const section = page.getByRole('region', { name: 'Import people from a CSV file' });
+  const section = page.getByRole('region', { name: 'Import people from a file' });
   await expect(section.getByText('File: people.csv')).toBeVisible();
   await expect(section.getByRole('heading', { name: 'What the import would do: 4 rows' })).toBeVisible();
   const preview = mock.calls.find((c) => c.path === '/api/v1/contacts/import/preview')!;
@@ -202,12 +203,35 @@ test('owners import a CSV file: preview, columns, a decision per row, all or not
   await expect(page).toHaveURL(/#contacts-duplicates$/);
 });
 
+test('an Excel workbook is sent as base64 and a vCard file as text, through the same preview and import', async ({ page }) => {
+  const mock = await open(page, {}, 'contacts-import');
+  const workbook = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0xff, 0x10]);
+  await page.getByLabel('File to import (CSV, Excel or vCard)', { exact: true }).setInputFiles({
+    name: 'people.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: workbook });
+  const section = page.getByRole('region', { name: 'Import people from a file' });
+  await expect(section.getByText('File: people.xlsx')).toBeVisible();
+  await expect(section.getByRole('heading', { name: 'What the import would do: 4 rows' })).toBeVisible();
+  expect(mock.calls.find((c) => c.path === '/api/v1/contacts/import/preview')!.body).toEqual({ format: 'xlsx', file_base64: workbook.toString('base64'), file_name: 'people.xlsx' });
+  await section.getByRole('button', { name: 'Import', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Import these people?' }).getByRole('button', { name: 'Import' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /^Imported:/ })).toBeVisible();
+  const applied = mock.calls.find((c) => c.path === '/api/v1/contacts/import/apply')!.body as Record<string, unknown>;
+  expect([applied.format, applied.file_base64, applied.csv]).toEqual(['xlsx', workbook.toString('base64'), undefined]);
+
+  await section.getByRole('button', { name: 'Choose another file' }).click();
+  const cards = 'BEGIN:VCARD\nVERSION:3.0\nFN:Rana Saleh\nTEL:+971507770000\nEND:VCARD\n';
+  await page.getByLabel('File to import (CSV, Excel or vCard)', { exact: true }).setInputFiles({ name: 'contacts.vcf', mimeType: 'text/vcard', buffer: Buffer.from(cards) });
+  await expect(section.getByText('File: contacts.vcf')).toBeVisible();
+  await expect.poll(() => mock.calls.filter((c) => c.path === '/api/v1/contacts/import/preview').length).toBe(2);
+  expect(mock.calls.filter((c) => c.path === '/api/v1/contacts/import/preview').at(-1)!.body).toEqual({ format: 'vcf', csv: cards, file_name: 'contacts.vcf' });
+});
+
 test('members are told who imports, and a refused file says why', async ({ page }) => {
   await open(page, { role: 'member' }, 'contacts-import');
   await expect(page.getByText(/Only workspace owners import into the directory/)).toBeVisible();
-  await expect(page.getByLabel('CSV file', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('File to import (CSV, Excel or vCard)', { exact: true })).toHaveCount(0);
   await page.goto('/#contacts');
-  await expect(page.getByRole('tab', { name: 'Import from CSV' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Import people', exact: true })).toHaveCount(0);
 
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await page.goto('about:blank');

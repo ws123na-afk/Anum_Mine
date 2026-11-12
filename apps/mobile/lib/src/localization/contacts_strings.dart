@@ -146,6 +146,57 @@ const contactsEn = <String, String>{
   'contacts.fact.consent_records.withdrawn': 'Consent record: withdrawn',
   'contacts.fact.suppression.blocked': 'Opt-out list: {detail}',
   'contacts.fact.directory.blocked': 'Contacts: do not contact ({detail})',
+  'contacts.import.open': 'Import people',
+  'contacts.import.title': 'Import people',
+  'contacts.import.intro':
+      'Choose a CSV file, an Excel workbook (.xlsx) or a vCard file (.vcf) exported from a phone or another address book. ANUM shows what it would do before anything is saved, and saves all of it or nothing.',
+  'contacts.import.limits':
+      'Up to 2,000 people per file. Excel: the first sheet only, at most 2 MB, formulas are not worked out and a workbook with macros is refused. vCard: one row per contact, row 2 is the first. Numbers need their country code unless they are UAE numbers (05x).',
+  'contacts.import.choose': 'Choose a file',
+  'contacts.import.another': 'Choose another file',
+  'contacts.import.file': 'File: {name}',
+  'contacts.import.reading':
+      'Reading the file and checking it against the directory...',
+  'contacts.import.owners':
+      'Only workspace owners import into the directory, because a file brings many people\'s personal data in at once. Ask a workspace owner to import it.',
+  'contacts.import.failed': 'The file was not imported: {message}',
+  'contacts.import.err.type':
+      'Choose a CSV (.csv), Excel (.xlsx) or vCard (.vcf) file. Save an old Excel file (.xls) as .xlsx or CSV first.',
+  'contacts.import.err.empty': 'That file is empty.',
+  'contacts.import.err.too_large':
+      'That file is too large: at most 2 MB for Excel and 4 MB for CSV or vCard. Split it and choose a part.',
+  'contacts.import.err.not_text':
+      'That file is not UTF-8 text. Save it again as CSV (UTF-8) or export the contacts again as vCard.',
+  'contacts.import.columnsTitle': 'Choose the columns on the web',
+  'contacts.import.columnsWeb':
+      'ANUM could not tell which column holds the name, numbers or addresses ({columns}). Open Contacts, Import people on the web, where you choose each column, or rename the first row (Name, Phone, Email) and choose the file again.',
+  'contacts.import.summary': 'What the import would do: {rows} rows',
+  'contacts.import.status.new': 'New person',
+  'contacts.import.status.match': 'Already in the directory',
+  'contacts.import.status.possible_duplicate':
+      'Possible duplicate (added with a merge proposal)',
+  'contacts.import.status.duplicate_in_file': 'Repeated in the file (skipped)',
+  'contacts.import.status.invalid': 'Cannot be imported (skipped)',
+  'contacts.import.totals': 'Add {create}, update {update}, skip {skip}.',
+  'contacts.import.columns': 'Columns ANUM used',
+  'contacts.import.columnLine': '{field}: {column}',
+  'contacts.import.field.name': 'Name',
+  'contacts.import.field.organisation': 'Organisation',
+  'contacts.import.field.phones': 'Phone numbers',
+  'contacts.import.field.emails': 'E-mail addresses',
+  'contacts.import.field.notes': 'Notes',
+  'contacts.import.field.do_not_contact': 'Do not contact',
+  'contacts.import.problems': 'Rows that cannot be imported',
+  'contacts.import.problemLine': 'Row {row}: {problem}',
+  'contacts.import.webForMore':
+      'The phone imports every row as ANUM suggests. To choose other columns or another action for a row, import the file on the web.',
+  'contacts.import.apply': 'Import',
+  'contacts.import.applying': 'Importing...',
+  'contacts.import.confirmTitle': 'Import these people?',
+  'contacts.import.confirmText':
+      'ANUM adds {create} new people, updates {update} existing people and skips {skip} rows. Everything is saved together, or nothing is if anything changed since this check. Do-not-contact marks already in the directory are kept.',
+  'contacts.import.done':
+      'Imported: {created} added, {updated} updated, {skipped} skipped, {marks} do-not-contact marks added, {proposals} possible duplicates to decide.',
 };
 
 const contactsAr = <String, String>{
@@ -293,4 +344,54 @@ const contactsAr = <String, String>{
   'contacts.fact.consent_records.withdrawn': 'سجل الموافقة: مسحوبة',
   'contacts.fact.suppression.blocked': 'قائمة الانسحاب: {detail}',
   'contacts.fact.directory.blocked': 'جهات الاتصال: عدم التواصل ({detail})',
+  'contacts.import.open': 'استيراد أشخاص',
+  'contacts.import.title': 'استيراد أشخاص',
+  'contacts.import.intro':
+      'اختر ملف CSV أو مصنف Excel (.xlsx) أو ملف vCard (.vcf) مُصدَّرًا من هاتف أو من دفتر عناوين آخر. يعرض ANUM ما سيفعله قبل حفظ أي شيء، ويحفظ كل شيء أو لا شيء.',
+  'contacts.import.limits':
+      'حتى 2,000 شخص في الملف الواحد. Excel: الورقة الأولى فقط، بحد أقصى 2 ميغابايت، ولا تُحسب الصيغ، ويُرفض المصنف الذي يحتوي على وحدات ماكرو. vCard: صف لكل جهة اتصال، والصف 2 هو الأول. تحتاج الأرقام إلى رمز الدولة ما لم تكن أرقامًا إماراتية (05x).',
+  'contacts.import.choose': 'اختيار ملف',
+  'contacts.import.another': 'اختيار ملف آخر',
+  'contacts.import.file': 'الملف: {name}',
+  'contacts.import.reading': 'جارٍ قراءة الملف ومقارنته بالدليل...',
+  'contacts.import.owners':
+      'لا يستورد إلى الدليل إلا مالكو مساحة العمل، لأن الملف يُدخل بيانات شخصية لأشخاص كثيرين دفعة واحدة. اطلب من مالك مساحة العمل استيراده.',
+  'contacts.import.failed': 'لم يُستورد الملف: {message}',
+  'contacts.import.err.type':
+      'اختر ملف CSV (.csv) أو Excel (.xlsx) أو vCard (.vcf). احفظ ملف Excel القديم (.xls) بصيغة .xlsx أو CSV أولًا.',
+  'contacts.import.err.empty': 'هذا الملف فارغ.',
+  'contacts.import.err.too_large':
+      'هذا الملف كبير جدًا: 2 ميغابايت على الأكثر لملف Excel و4 ميغابايت لملف CSV أو vCard. قسّمه واختر جزءًا منه.',
+  'contacts.import.err.not_text':
+      'هذا الملف ليس نصًا بترميز UTF-8. احفظه مرة أخرى بصيغة CSV (UTF-8) أو صدّر جهات الاتصال مرة أخرى بصيغة vCard.',
+  'contacts.import.columnsTitle': 'اختر الأعمدة على الويب',
+  'contacts.import.columnsWeb':
+      'لم يتمكن ANUM من معرفة العمود الذي يحتوي على الاسم أو الأرقام أو العناوين ({columns}). افتح جهات الاتصال، استيراد أشخاص على الويب حيث تختار كل عمود، أو غيّر أسماء الصف الأول (Name وPhone وEmail) واختر الملف مرة أخرى.',
+  'contacts.import.summary': 'ما سيفعله الاستيراد: {rows} صف',
+  'contacts.import.status.new': 'شخص جديد',
+  'contacts.import.status.match': 'موجود في الدليل',
+  'contacts.import.status.possible_duplicate':
+      'تكرار محتمل (يُضاف مع اقتراح دمج)',
+  'contacts.import.status.duplicate_in_file': 'مكرر في الملف (يُتخطّى)',
+  'contacts.import.status.invalid': 'لا يمكن استيراده (يُتخطّى)',
+  'contacts.import.totals': 'إضافة {create}، تحديث {update}، تخطّي {skip}.',
+  'contacts.import.columns': 'الأعمدة التي استخدمها ANUM',
+  'contacts.import.columnLine': '{field}: {column}',
+  'contacts.import.field.name': 'الاسم',
+  'contacts.import.field.organisation': 'المؤسسة',
+  'contacts.import.field.phones': 'أرقام الهاتف',
+  'contacts.import.field.emails': 'عناوين البريد الإلكتروني',
+  'contacts.import.field.notes': 'ملاحظات',
+  'contacts.import.field.do_not_contact': 'عدم التواصل',
+  'contacts.import.problems': 'صفوف لا يمكن استيرادها',
+  'contacts.import.problemLine': 'الصف {row}: {problem}',
+  'contacts.import.webForMore':
+      'يستورد الهاتف كل صف كما يقترح ANUM. لاختيار أعمدة أخرى أو إجراء آخر لصف ما، استورد الملف على الويب.',
+  'contacts.import.apply': 'استيراد',
+  'contacts.import.applying': 'جارٍ الاستيراد...',
+  'contacts.import.confirmTitle': 'استيراد هؤلاء الأشخاص؟',
+  'contacts.import.confirmText':
+      'يضيف ANUM {create} شخصًا جديدًا، ويحدّث {update} شخصًا موجودًا، ويتخطّى {skip} صفًا. يُحفظ كل شيء معًا، أو لا يُحفظ شيء إذا تغيّر أي شيء منذ هذا الفحص. تبقى علامات عدم التواصل الموجودة في الدليل.',
+  'contacts.import.done':
+      'تم الاستيراد: أُضيف {created}، وحُدّث {updated}، وتُخطّي {skipped}، وأُضيفت {marks} علامات عدم تواصل، و{proposals} تكرارات محتملة تنتظر القرار.',
 };

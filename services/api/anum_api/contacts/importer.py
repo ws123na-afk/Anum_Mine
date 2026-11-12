@@ -35,7 +35,7 @@ from enum import StrEnum
 from typing import Any
 
 from fastapi import status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..schemas import TenantContext, new_id, utc_now
 from .models import (
@@ -52,6 +52,7 @@ from .models import (
 from .store import ContactsStore
 
 MAX_FILE_CHARS = 2_000_000
+MAX_WORKBOOK_BASE64 = 2_700_000  # a 2 MB workbook in base64 (import_files.MAX_WORKBOOK_BYTES)
 MAX_ROWS = 2000
 MAX_COLUMNS = 60
 MAX_HEADER = 120
@@ -108,10 +109,18 @@ class ImportMapping(BaseModel):
         return [*self.name, *(c for c in (self.organisation, self.notes, self.do_not_contact) if c), *self.phones, *self.emails]
 
 
+class ImportFormat(StrEnum):
+    CSV = "csv"
+    XLSX = "xlsx"
+    VCF = "vcf"
+
+
 class ImportFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    csv: str = Field(min_length=1, max_length=MAX_FILE_CHARS, description="The file's text")
+    format: ImportFormat = Field(default=ImportFormat.CSV, description="csv and vcf send the text in csv; xlsx sends the workbook in file_base64")
+    csv: str = Field(default="", max_length=MAX_FILE_CHARS, description="The file's text (CSV or vCard)")
+    file_base64: str = Field(default="", max_length=MAX_WORKBOOK_BASE64, description="An Excel workbook (.xlsx), base64")
     file_name: str = Field(default="", max_length=200)
     mapping: ImportMapping | None = Field(default=None, description="Omitted: ANUM suggests one from the headers")
 
@@ -119,6 +128,19 @@ class ImportFile(BaseModel):
     @classmethod
     def _name(cls, value: str) -> str:
         return " ".join(value.split())[:200]
+
+    @model_validator(mode="after")
+    def _one_file(self) -> ImportFile:
+        if self.format == ImportFormat.XLSX:
+            if not self.file_base64 or self.csv:
+                raise ValueError("An Excel file is sent in file_base64 (and csv is left empty).")
+        elif not self.csv or self.file_base64:
+            raise ValueError("A CSV or vCard file is sent as text in csv (and file_base64 is left empty).")
+        return self
+
+    def content(self) -> str:
+        """What the file is, as sent: the text, or the workbook's base64 (also what the fingerprint covers)."""
+        return self.file_base64 if self.format == ImportFormat.XLSX else self.csv
 
 
 class RowDecision(BaseModel):
@@ -214,6 +236,34 @@ def _fold(text: str) -> str:
     return " ".join(text.replace("_", " ").replace("-", " ").split()).casefold()
 
 
+def check_columns(header: list[str] | None) -> list[str]:
+    """The header row's column names, tidied, or 422 when they cannot name the columns (any file format)."""
+    if not header or not any(cell.strip() for cell in header):
+        raise _error(status.HTTP_422_UNPROCESSABLE_CONTENT, "The file is empty. The first row must name the columns (Name, Phone, Email...).")
+    columns = [" ".join(cell.split())[:MAX_HEADER] for cell in header]
+    if len(columns) > MAX_COLUMNS:
+        raise _error(status.HTTP_422_UNPROCESSABLE_CONTENT, f"The file has {len(columns)} columns; ANUM reads at most {MAX_COLUMNS}.")
+    if len({c.casefold() for c in columns if c}) != len([c for c in columns if c]):
+        raise _error(status.HTTP_422_UNPROCESSABLE_CONTENT, "Two columns have the same name. Rename one in the first row and choose the file again.")
+    return columns
+
+
+def load_table(payload: ImportFile) -> tuple[list[str], list[tuple[int, list[str]]], str]:
+    """The file's table whatever its format: CSV text, an Excel workbook (base64) or vCard text."""
+    from . import import_files
+
+    if payload.format == ImportFormat.XLSX:
+        header, rows, kind = import_files.read_workbook(import_files.decode_workbook(payload.content()), max_rows=MAX_ROWS, max_columns=MAX_COLUMNS)
+    elif payload.format == ImportFormat.VCF:
+        header, rows, kind = import_files.read_vcards(payload.content(), max_rows=MAX_ROWS)
+    else:
+        return read_table(payload.content())
+    columns = check_columns(header)
+    if not rows:
+        raise _error(status.HTTP_422_UNPROCESSABLE_CONTENT, "The file has a header row but no people under it.")
+    return columns, rows, kind
+
+
 def read_table(text: str) -> tuple[list[str], list[tuple[int, list[str]]], str]:
     """The header, the rows (each with its record number in the file, the header being 1; blank
     records are left out but keep their number) and the separator. 422 with the reason when it is
@@ -226,13 +276,7 @@ def read_table(text: str) -> tuple[list[str], list[tuple[int, list[str]]], str]:
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
     try:
         header = next(reader, None)
-        if not header or not any(cell.strip() for cell in header):
-            raise _error(status.HTTP_422_UNPROCESSABLE_CONTENT, "The file is empty. The first row must name the columns (Name, Phone, Email...).")
-        columns = [" ".join(cell.split())[:MAX_HEADER] for cell in header]
-        if len(columns) > MAX_COLUMNS:
-            raise _error(status.HTTP_422_UNPROCESSABLE_CONTENT, f"The file has {len(columns)} columns; ANUM reads at most {MAX_COLUMNS}.")
-        if len({c.casefold() for c in columns if c}) != len([c for c in columns if c]):
-            raise _error(status.HTTP_422_UNPROCESSABLE_CONTENT, "Two columns have the same name. Rename one in the first row and choose the file again.")
+        columns = check_columns(header)
         rows: list[tuple[int, list[str]]] = []
         for number, cells in enumerate(reader, start=2):
             if not any(cell.strip() for cell in cells):
@@ -371,9 +415,11 @@ def parse_rows(columns: list[str], rows: list[tuple[int, list[str]]], mapping: I
     return out
 
 
-def fingerprint(text: str, mapping: ImportMapping) -> str:
-    """The same file read with the same mapping (apply refuses a preview of another file)."""
-    return hashlib.sha256(f"{text.lstrip(chr(0xFEFF))}\x1e{mapping.model_dump_json()}".encode()).hexdigest()
+def fingerprint(text: str, mapping: ImportMapping, kind: ImportFormat = ImportFormat.CSV) -> str:
+    """The same file, read as the same format, with the same mapping (apply refuses a preview of another file).
+    A CSV file's fingerprint is the same as before Excel and vCard files were read."""
+    tail = "" if kind == ImportFormat.CSV else f"\x1e{kind.value}"
+    return hashlib.sha256(f"{text.lstrip(chr(0xFEFF))}\x1e{mapping.model_dump_json()}{tail}".encode()).hexdigest()
 
 
 def _identifiers(row: _Row) -> list[tuple[IdentifierKind, str, str]]:
@@ -422,20 +468,20 @@ def classify(store: ContactsStore, rows: list[_Row]) -> list[RowView]:
 
 
 def preview(store: ContactsStore, payload: ImportFile) -> ImportPreview:
-    columns, table, delimiter = read_table(payload.csv)
+    columns, table, delimiter = load_table(payload)
     suggested = payload.mapping is None
     mapping = payload.mapping or suggest_mapping(columns)
     if suggested and not mapping.columns():
         # Nothing recognisable: the caller chooses the columns (the preview still lists them).
         return ImportPreview(columns=columns, mapping=mapping, suggested=True, rows=[], counts=ImportCounts(rows=len(table)),
-                             fingerprint=fingerprint(payload.csv, mapping), delimiter=delimiter)
+                             fingerprint=fingerprint(payload.content(), mapping, payload.format), delimiter=delimiter)
     _check_mapping(mapping, columns)
     rows = classify(store, parse_rows(columns, table, mapping))
     counts = ImportCounts(rows=len(rows))
     for row in rows:
         setattr(counts, row.status.value, getattr(counts, row.status.value) + 1)
     return ImportPreview(columns=columns, mapping=mapping, suggested=suggested, rows=rows, counts=counts,
-                         fingerprint=fingerprint(payload.csv, mapping), delimiter=delimiter)
+                         fingerprint=fingerprint(payload.content(), mapping, payload.format), delimiter=delimiter)
 
 
 def apply(store: ContactsStore, context: TenantContext, payload: ImportApply) -> ImportResult:
@@ -444,9 +490,9 @@ def apply(store: ContactsStore, context: TenantContext, payload: ImportApply) ->
     PostgreSQL unit of work rolls back if anything fails while writing)."""
     from .service import _add_identifiers
 
-    if payload.fingerprint != fingerprint(payload.csv, payload.mapping):
+    if payload.fingerprint != fingerprint(payload.content(), payload.mapping, payload.format):
         raise _error(status.HTTP_409_CONFLICT, "The file or the columns changed since the preview. Preview the file again, then import.")
-    columns, table, _delimiter = read_table(payload.csv)
+    columns, table, _delimiter = load_table(payload)
     _check_mapping(payload.mapping, columns)
     parsed = {row.number: row for row in parse_rows(columns, table, payload.mapping)}
     views = {view.row: view for view in classify(store, list(parsed.values()))}

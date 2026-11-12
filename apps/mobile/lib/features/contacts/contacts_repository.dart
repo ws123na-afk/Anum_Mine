@@ -1,5 +1,6 @@
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
+import 'contacts_import.dart';
 import 'contacts_models.dart';
 
 /// The Contacts directory API (docs/contacts.md#api). The server checks who
@@ -37,6 +38,14 @@ abstract interface class ContactsRepository {
   /// The whole directory as CSV through the system save dialog (owners);
   /// false when the dialog was closed.
   Future<bool> exportCsv(String dialogTitle);
+
+  /// What importing a CSV, Excel or vCard file would do (owners); nothing is
+  /// written.
+  Future<ImportPlan> previewImport(ImportFile file);
+
+  /// Imports the previewed file with ANUM's suggestion for every row, all of
+  /// it or nothing (owners); the API's 409 says what changed.
+  Future<ImportOutcome> applyImport(ImportFile file, ImportPlan plan);
 }
 
 class ApiContactsRepository implements ContactsRepository {
@@ -104,6 +113,22 @@ class ApiContactsRepository implements ContactsRepository {
   Future<bool> exportCsv(String dialogTitle) =>
       api.download('GET', '$_base/export',
           fileName: 'contacts.csv', dialogTitle: dialogTitle);
+
+  @override
+  Future<ImportPlan> previewImport(ImportFile file) async =>
+      ImportPlan.fromJson(JsonReader(await api
+          .request('POST', '$_base/import/preview', body: file.body())));
+
+  @override
+  Future<ImportOutcome> applyImport(ImportFile file, ImportPlan plan) async =>
+      ImportOutcome.fromJson(
+          JsonReader(await api.request('POST', '$_base/import/apply', body: {
+        ...file.body(),
+        'mapping': plan.mapping,
+        'fingerprint': plan.fingerprint,
+        // A row left out takes ANUM's suggestion (docs/contacts.md).
+        'decisions': const <Object?>[],
+      })));
 
   @override
   Future<void> clearDoNotContact(

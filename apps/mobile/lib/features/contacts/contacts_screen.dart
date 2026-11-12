@@ -6,6 +6,7 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'contacts_controller.dart';
+import 'contacts_import.dart';
 import 'contacts_manage.dart';
 import 'contacts_models.dart';
 import 'contacts_repository.dart';
@@ -14,12 +15,20 @@ import 'contacts_repository.dart';
 /// Phone calls, Business and WhatsApp contacts. Search, the list 25 at a time,
 /// and a person page with the channel facts and the do-not-contact controls;
 /// Add person, Possible duplicates (merge or dismiss), Edit, Merge with,
-/// Delete (owners) and Export CSV (owners).
+/// Delete (owners), Export CSV (owners) and Import people (owners: a CSV,
+/// Excel or vCard file, `contacts_import.dart`).
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen(
-      {required this.controller, required this.repository, super.key});
+      {required this.controller,
+      required this.repository,
+      this.importPicker,
+      super.key});
   final ContactsController controller;
   final ContactsRepository repository;
+
+  /// The file picker of Import people (the system picker when null; tests
+  /// pass their own).
+  final ImportFilePicker? importPicker;
 
   @override
   State<ContactsScreen> createState() => _ContactsScreenState();
@@ -114,6 +123,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   icon: const Icon(Icons.download_outlined),
                   label: Text(l.t(
                       c.exporting ? 'contacts.exporting' : 'contacts.export'))),
+            if (c.canManage)
+              OutlinedButton.icon(
+                  key: const Key('contacts-import'),
+                  onPressed: () => unawaited(_import(context)),
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: Text(l.t('contacts.import.open'))),
           ]),
       if (c.exportNotice != null)
         Semantics(
@@ -188,6 +203,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _import(BuildContext context) async {
+    final controller = ContactsImportController(widget.repository,
+        picker: widget.importPicker);
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => ContactsImportScreen(controller: controller)));
+    final imported = controller.outcome != null;
+    controller.dispose();
+    if (imported) unawaited(widget.controller.load());
   }
 
   Future<void> _open(BuildContext context, Person person) async {
