@@ -25,8 +25,11 @@ their own, and the tool's blocking work runs in a worker thread, never on the ev
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
+
+from sqlalchemy.exc import IntegrityError
 
 from ..agent_tools import ToolCall, ToolDefinition, ToolResult
 from ..repository import AnumRepository
@@ -43,7 +46,7 @@ from .invoice_models import (
 from .invoice_refunds import PROVIDER_NAMES, ProviderRefund, apply_card_refunds, apply_moyasar_refunds, payment_refunds
 from .models import money
 from .service import audit, http_error, record_activity
-from .store import BusinessStore, Query, open_business_store
+from .store import BusinessStore, Query, UniqueViolation, open_business_store
 
 REFUND_TOOL = "business.refund_card_payment"
 CARD_PROVIDERS = ("moyasar", "stripe")
@@ -156,7 +159,7 @@ def _provider_or_refusal(tenant_id: str, provider: str) -> Any:
 def request_refund(context: TenantContext, repository: AnumRepository, invoice_id: str, payment_id: str, *, amount: Decimal, reason: str,
                    idempotency_key: str) -> tuple[RefundRequest, bool]:
     """Ask for a refund; it waits for an owner's approval. Returns the request and whether it is a replay of the same key."""
-    from .tools import request_approval
+    from .tools import retire_approval
 
     amount = money(amount)
     with open_business_store(context) as store:
@@ -177,6 +180,26 @@ def request_refund(context: TenantContext, repository: AnumRepository, invoice_i
         provider = payment.provider
     _provider_or_refusal(context.tenant_id, provider)
     now = utc_now()
+    asked: list[tuple[str, str]] = []  # (task id, approval id) of the approval this call planned
+    try:
+        return _write_request(context, repository, invoice_id, payment_id, amount, reason, idempotency_key, provider, now, asked), False
+    except (IntegrityError, UniqueViolation):
+        # Another request with the same key was written between the check above and this insert (two submits at
+        # once). This unit was rolled back; the approval it planned lapses, and the key's rules decide the answer.
+        for task_id, approval_id in asked:
+            retire_approval(repository, context, task_id, approval_id)
+        with open_business_store(context) as store:
+            existing = store.first("refund_requests", idempotency_key=idempotency_key)
+        if existing is not None and existing.payment_id == payment_id and existing.invoice_id == invoice_id and existing.amount == amount:
+            return existing, True
+        raise http_error(409, "That form was already sent for a different refund. Reload the invoice and try again.") from None
+
+
+def _write_request(context: TenantContext, repository: AnumRepository, invoice_id: str, payment_id: str, amount: Decimal, reason: str,
+                   idempotency_key: str, provider: str, now: datetime, asked: list[tuple[str, str]]) -> RefundRequest:
+    """One unit of work: re-check under the payment's lock, plan the approval and write the request."""
+    from .tools import request_approval
+
     with open_business_store(context) as store:
         invoice = store.get("invoices", invoice_id)
         payment = store.get("invoice_payments", payment_id, for_update=True)  # one request at a time per payment
@@ -198,6 +221,7 @@ def request_refund(context: TenantContext, repository: AnumRepository, invoice_i
         title = f"Refund {invoice.currency.value} {amount} of a card payment on invoice {invoice.number or invoice.id}"
         task, approval = request_approval(repository, context, arguments_of(request, invoice, payment, client), title, tool=REFUND_TOOL,
                                           prompt=f"{title} through {PROVIDER_NAMES[provider]}.")
+        asked.append((task.id, approval.id))
         request = request.model_copy(update={"approval_id": approval.id, "task_id": task.id, "payload_hash": approval.payload_hash})
         store.add("refund_requests", request)
         record_activity(store, context, "invoice_refund_requested", f"{title} is waiting for an owner's approval.",
@@ -205,7 +229,7 @@ def request_refund(context: TenantContext, repository: AnumRepository, invoice_i
                         metadata={"invoice_id": invoice.id, "payment_id": payment.id, "request_id": request.id, "approval_id": approval.id})
     audit(repository, context, "business.invoice.refund_requested", invoice_id,
           metadata={"request_id": request.id, "payment_id": payment_id, "approval_id": approval.id, "provider": provider})
-    return request, False
+    return request
 
 
 def cancel_request(context: TenantContext, repository: AnumRepository, invoice_id: str, request_id: str) -> RefundRequest:

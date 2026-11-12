@@ -11,7 +11,9 @@ from typing import Any
 
 import pytest
 
-from test_business import BASE, MEMBER, OTHER_TENANT, OWNER, VIEWER, approve, ok
+from anum_api.business.store import Query, business_store
+
+from test_business import BASE, CONTEXT as CONTEXT_OF_TEST, MEMBER, OTHER_TENANT, OWNER, VIEWER, approve, ok
 from test_business_invoice_refunds import invoice, moyasar_refund_event, paid_by_stripe, stripe_refund_event
 from test_business_invoice_send import (  # noqa: F401 - fixtures
     arabic_invoice,
@@ -182,3 +184,47 @@ def test_a_refund_of_a_payment_anum_never_recorded_waits_for_an_owner_to_check(f
     reopened = ok(client.post(f"{BASE}/refund-reviews/{review['id']}/reopen", headers=OWNER))
     assert reopened["status"] == "open" and reopened["checked_at"] is None
     assert client.post(f"{BASE}/refund-reviews/binrev_missing/check", headers=OWNER, json={}).status_code == 404
+
+
+def _race(monkeypatch: pytest.MonkeyPatch, payment_id: str, invoice_id: str, amount: str) -> None:
+    """Another submit with the same key is written between this request's key check and its insert."""
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from anum_api.business import invoice_refund_requests as module
+    from anum_api.business.invoice_models import Currency, RefundRequest
+    from test_business import CONTEXT
+
+    real = module._provider_or_refusal
+
+    def winner_first(tenant_id: str, provider: str) -> Any:
+        adapter = real(tenant_id, provider)
+        now = datetime.now(timezone.utc)
+        business_store.scoped(CONTEXT).add("refund_requests", RefundRequest(
+            id="binrfq_winner", tenant_id=CONTEXT.tenant_id, workspace_id=CONTEXT.workspace_id, invoice_id=invoice_id, payment_id=payment_id,
+            provider="stripe", currency=Currency.AED, amount=Decimal(amount), reason="Returned item", idempotency_key="refund-race-0001",
+            requested_by="member_biz", created_at=now, updated_at=now))
+        return adapter
+
+    monkeypatch.setattr(module, "_provider_or_refusal", winner_first)
+
+
+def test_two_submits_with_one_key_at_once_answer_the_first_request_not_a_500(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent, _ = paid_by_stripe(fake_stripe, monkeypatch)
+    payment = invoice(sent["id"])["payments"][0]
+    _race(monkeypatch, payment["id"], sent["id"], "300")
+    answer = ok(ask(sent["id"], payment["id"], 300, key="refund-race-0001"), 200)
+    assert answer["request"]["id"] == "binrfq_winner"
+    # The loser's planned approval lapsed; only the winner's request exists.
+    rows, _ = business_store.scoped(CONTEXT_OF_TEST).find("refund_requests", Query(where={"idempotency_key": "refund-race-0001"}, limit=10))
+    assert [row.id for row in rows] == ["binrfq_winner"]
+    planned = [a["status"] for a in ok(client.get("/api/v1/approvals", headers=OWNER)) if a.get("action") == "business.refund_card_payment"]
+    assert planned and "pending" not in planned
+
+
+def test_two_submits_with_one_key_for_different_refunds_answer_409(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent, _ = paid_by_stripe(fake_stripe, monkeypatch)
+    payment = invoice(sent["id"])["payments"][0]
+    _race(monkeypatch, payment["id"], sent["id"], "500")
+    refused = ask(sent["id"], payment["id"], 300, key="refund-race-0001")
+    assert refused.status_code == 409 and "different refund" in refused.text

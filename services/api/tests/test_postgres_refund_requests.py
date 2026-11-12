@@ -88,3 +88,44 @@ def test_a_refund_of_an_unknown_payment_is_kept_once_for_review(client: TestClie
     assert _rows(app_session, "select status, checked_by from business_refund_reviews") == [("checked", "user_test")]
     assert _rows(app_session, "select count(*) from business_refund_reviews", workspace=WORKSPACE_A) == [(0,)]
     assert _rows(app_session, "select count(*) from business_refund_reviews", workspace=WORKSPACE_B, tenant=TENANT_B) == [(0,)]
+
+
+def test_one_key_submitted_twice_at_once_hits_the_unique_key_and_answers_cleanly(client: TestClient, monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+                                                                                 app_session: Callable[..., Iterator[Session]]) -> None:
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from anum_api.business.invoice_models import Currency, RefundRequest
+    from anum_api.business.store import open_business_store
+    from anum_api.schemas import TenantContext
+
+    account = _account(client)
+    sent = _sent_invoice(client, account["id"])
+    metadata = {"anum_kind": "business_invoice", "anum_tenant_id": TENANT_A, "anum_workspace_id": WORKSPACE_A2, "anum_business_invoice_id": sent["id"]}
+    assert apply_card_payment("stripe", TENANT_A, metadata, "pi_pg_race", "paid", 100000, "SAR") == "paid"
+    payment = _ok(client.get(f"{API}/invoices/{sent['id']}", headers=ME))["payments"][0]
+    winner = {"key": "", "amount": Decimal("0")}
+
+    def winner_first(tenant_id: str, provider: str) -> FakeStripeAdapter:
+        # The other submit commits its row between this request's key check and its insert.
+        context = TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A2, user_id="colleague", roles=["member"])
+        now = datetime.now(timezone.utc)
+        with open_business_store(context) as store:
+            store.add("refund_requests", RefundRequest(
+                id=f"binrfq_{winner['key']}", tenant_id=TENANT_A, workspace_id=WORKSPACE_A2, invoice_id=sent["id"], payment_id=payment["id"],
+                provider="stripe", currency=Currency.SAR, amount=winner["amount"], reason="Synthetic return", idempotency_key=winner["key"],
+                requested_by="colleague", created_at=now, updated_at=now))
+        return FakeStripeAdapter()
+
+    monkeypatch.setattr(invoice_refund_requests, "_provider_or_refusal", winner_first)
+    url = f"{API}/invoices/{sent['id']}/payments/{payment['id']}/refund-requests"
+    # Same payment and amount: the database's unique key stops the second row and the first request is the answer.
+    winner.update(key="pg-race-0001", amount=Decimal("400"))
+    same = _ok(client.post(url, headers={**ME, "Idempotency-Key": "pg-race-0001"}, json={"amount": 400, "reason": "Synthetic return"}))
+    assert same["request"]["id"] == "binrfq_pg-race-0001"
+    # The same key racing for a different amount is a clean 409, never a 500.
+    winner.update(key="pg-race-0002", amount=Decimal("100"))
+    other = client.post(url, headers={**ME, "Idempotency-Key": "pg-race-0002"}, json={"amount": 300, "reason": "Synthetic return"})
+    assert other.status_code == 409 and "different refund" in other.text
+    assert _rows(app_session, "select idempotency_key, amount from business_refund_requests order by idempotency_key") == [
+        ("pg-race-0001", 400), ("pg-race-0002", 100)]
