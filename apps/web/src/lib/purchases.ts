@@ -3,7 +3,7 @@
 // refund is never income: it lowers what a purchase cost.
 import type {
   Purchase, PurchaseDetail, PurchaseDueItem, PurchaseMoney, PurchaseMoneyLink, PurchaseReturn, PurchaseReturnReason, PurchaseReturnStatus,
-  PurchaseShipmentStatus, PurchaseStatus,
+  PurchaseShipmentStatus, PurchaseStatus, PurchaseTracking,
 } from '@anum/contracts';
 import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
@@ -191,6 +191,15 @@ export function carrierKey(carrier: string | null | undefined): string | null {
   const name = (carrier ?? '').trim().toLowerCase();
   if (!name) return null;
   return Object.keys(CARRIER_PAGES).find((key) => name === key || name.startsWith(`${key} `)) ?? null;
+}
+
+/** The tracking link to show: the server's detection (named or from the number), else the known-carrier link. */
+export function trackingLinks(shipment: { carrier: string | null; tracking_number: string | null; tracking?: PurchaseTracking }): { url: string; name: string }[] {
+  const tracking = shipment.tracking;
+  if (tracking?.url) return [{ url: tracking.url, name: tracking.carrier_name ?? shipment.carrier ?? '' }];
+  if (tracking && tracking.candidates.length > 0) return tracking.candidates.map((c) => ({ url: c.url, name: c.carrier_name }));
+  const url = carrierUrl(shipment.carrier, shipment.tracking_number);
+  return url ? [{ url, name: shipment.carrier ?? carrierKey(shipment.carrier) ?? '' }] : [];
 }
 
 export function carrierUrl(carrier: string | null | undefined, code: string | null | undefined): string | null {

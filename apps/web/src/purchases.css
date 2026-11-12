@@ -209,3 +209,9 @@
 .purLayout > *, .purWorkspace > * { min-width: 0; }
 .purTracker { position: relative; } /* keeps its visually hidden labels inside the scrolling wrapper */
 @media (max-width: 640px) { .purTracker .purOptional { display: none; } .purTracker { min-width: 460px; } }
+
+/* Courier tracking (docs/purchases.md#courier-tracking): every carrier a shared number fits, and the provider status. */
+.purCandidates ul { display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); list-style: none; margin: var(--d-s2) 0 0; padding: 0; }
+.purTrackStatus { display: grid; gap: var(--d-s2); justify-items: start; margin-block-start: var(--d-s3); }
+.purTrackStatus p { margin: 0; overflow-wrap: anywhere; }
+.purTrackStatus button { min-height: 44px; }

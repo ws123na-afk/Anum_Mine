@@ -4,6 +4,7 @@ import type {
   FinanceAccount, PurchaseCashInput, PurchaseDetail, PurchaseEvent, PurchaseFilter, PurchaseInput, PurchaseLinkInput, PurchaseMoveInput,
   PurchaseListFilters, PurchaseOverview, PurchasePage, PurchasePatch, PurchaseShareResult, PurchasePaymentCandidate, PurchasePaymentResult, PurchasePreferences, PurchaseRefundResult,
   PurchaseReturn, PurchaseReturnInput, PurchaseReturnPatch, PurchaseShipment, PurchaseShipmentInput, Purchase, PurchaseFromMailInput, PurchaseFromMailResult,
+  PurchaseTrackingView,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -53,6 +54,8 @@ export const listReturns = (open: boolean, offset: number, limit = 20) => get<Pu
 export const addShipment = (purchaseId: string, body: PurchaseShipmentInput) => send<PurchaseShipment>('POST', `/${id(purchaseId)}/shipments`, body);
 export const updateShipment = (shipmentId: string, body: PurchaseShipmentInput & { version: number }) => send<PurchaseShipment>('PATCH', `/shipments/${id(shipmentId)}`, body);
 export const deleteShipment = (shipmentId: string) => apiRequestVoid(`${BASE}/shipments/${id(shipmentId)}`, { method: 'DELETE' });
+/** The carrier's status from the configured tracking provider (docs/purchases.md#courier-tracking). */
+export const shipmentTracking = (shipmentId: string) => get<PurchaseTrackingView>(`/shipments/${id(shipmentId)}/tracking`);
 
 export const createReturn = (purchaseId: string, body: PurchaseReturnInput, key: string) => send<PurchaseReturn>('POST', `/${id(purchaseId)}/returns`, body, key);
 export const updateReturn = (returnId: string, body: PurchaseReturnPatch) => send<PurchaseReturn>('PATCH', `/returns/${id(returnId)}`, body);

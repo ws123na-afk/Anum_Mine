@@ -306,6 +306,37 @@ test('tracker: seller filter, import order, and the drawer with a carrier update
   await noSeriousAxe(page);
 });
 
+test('courier tracking: a number several carriers use lists each, and a configured provider gives the status', async ({ page }) => {
+  const { state, sent } = await mockApi(page);
+  const shipment = (state.purchases.find((p) => p.id === 'pur_noon')!.shipments as Record<string, unknown>[])[0];
+  Object.assign(shipment, { carrier: null, tracking_number: '1234567891', tracking: {
+    number: '1234567891', carrier: null, carrier_name: null, url: null, detected_from: null, status_provider: 'off',
+    candidates: [
+      { carrier: 'dhl', carrier_name: 'DHL Express', url: 'https://www.dhl.com/global-en/home/tracking/tracking-express.html?submit=1&tracking-id=1234567891', confidence: 'likely' },
+      { carrier: 'aramex', carrier_name: 'Aramex', url: 'https://www.aramex.com/us/en/track/results?ShipmentNumber=1234567891', confidence: 'possible' },
+    ] } });
+  await page.goto('/#purchases-list');
+  await page.getByRole('button', { name: /^Example Market Example Market/ }).click();
+  const drawer = page.locator('.purDrawer');
+  await expect(drawer.getByText('This number fits more than one carrier. Open the one that sent it:')).toBeVisible();
+  await expect(drawer.getByRole('link', { name: 'View on DHL Express' })).toHaveAttribute('href', /tracking-id=1234567891$/);
+  await expect(drawer.getByRole('link', { name: 'View on Aramex' })).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(drawer.getByRole('button', { name: 'Check status' })).toHaveCount(0);
+  await noSeriousAxe(page);
+  await drawer.getByRole('button', { name: 'Close order details' }).click();
+
+  // The operator configured a provider: the named carrier's status is one press away.
+  Object.assign(shipment, { carrier: 'UPS', tracking_number: '1Z999AA10123456784', tracking: {
+    number: '1Z999AA10123456784', carrier: 'ups', carrier_name: 'UPS', url: 'https://www.ups.com/track?tracknum=1Z999AA10123456784', detected_from: 'name',
+    candidates: [], status_provider: 'example' } });
+  await page.getByRole('button', { name: /^Example Market Example Market/ }).click();
+  await expect(drawer.getByRole('link', { name: 'View on UPS' })).toBeVisible();
+  await drawer.getByRole('button', { name: 'Check status' }).click();
+  await expect(drawer.getByText('Out for delivery')).toBeVisible();
+  expect(sent.some((r) => r.method === 'GET' && r.path === '/api/v1/purchases/shipments/purs_1/tracking')).toBe(true);
+  await noOverflow(page, 'tracking drawer');
+});
+
 test('Export follows the list: with archived shown it exports the archived purchases', async ({ page }) => {
   await mockApi(page);
   await page.goto('/#purchases-list');

@@ -45,6 +45,12 @@ class PurchasesStrings extends ModuleStrings {
     'items': 'Items',
     'itemLine': '{quantity} × {description}',
     'shipments': 'Shipments and tracking',
+    'trackOn': 'Track on {carrier}',
+    'detectedCarrier': '{carrier} (from the tracking number)',
+    'severalCarriers':
+        'This number fits more than one carrier. Open the one that sent it:',
+    'trackOpenFailed':
+        'The tracking page could not be opened. Copy the number and search it on the carrier site.',
     'shipmentsEmpty':
         'No shipment yet. Add one with the carrier and tracking number.',
     'addShipment': 'Add shipment',
@@ -178,6 +184,12 @@ class PurchasesStrings extends ModuleStrings {
     'shipmentsEmpty': 'لا توجد شحنة بعد. أضف شحنة مع شركة الشحن ورقم التتبع.',
     'addShipment': 'إضافة شحنة',
     'carrier': 'شركة الشحن',
+    'trackOn': 'تتبع على {carrier}',
+    'detectedCarrier': '{carrier} (من رقم التتبع)',
+    'severalCarriers':
+        'هذا الرقم يناسب أكثر من شركة شحن. افتح الشركة التي أرسلته:',
+    'trackOpenFailed':
+        'تعذر فتح صفحة التتبع. انسخ الرقم وابحث عنه في موقع شركة الشحن.',
     'tracking': 'رقم التتبع',
     'shippedOn': 'تاريخ الشحن',
     'expectedOn': 'الموعد المتوقع',

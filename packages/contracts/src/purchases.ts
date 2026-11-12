@@ -87,6 +87,43 @@ export interface PurchaseShipment {
   note: string | null;
   version: number;
   can_edit: boolean;
+  /** The carrier and its public tracking link, detected on the server (docs/purchases.md#courier-tracking). */
+  tracking?: PurchaseTracking;
+}
+
+/** One carrier a tracking number may belong to, with its public tracking page. */
+export interface PurchaseCarrierLink {
+  carrier: string;
+  carrier_name: string;
+  url: string;
+  confidence: 'certain' | 'likely' | 'possible';
+}
+
+export interface PurchaseTracking {
+  number: string | null;
+  carrier: string | null;
+  carrier_name: string | null;
+  url: string | null;
+  detected_from: 'name' | 'number' | null;
+  /** Every carrier the number fits; several when the format is shared (ten digits: DHL Express and Aramex). */
+  candidates: PurchaseCarrierLink[];
+  /** The configured status provider, or "off" (links only). */
+  status_provider: string;
+}
+
+export interface PurchaseTrackingStatus {
+  state: 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception' | 'unknown';
+  description: string;
+  checked_at: string;
+  events: { at: string | null; description: string; location: string | null }[];
+}
+
+/** `GET /api/v1/purchases/shipments/{id}/tracking`. */
+export interface PurchaseTrackingView {
+  shipment_id: string;
+  tracking: PurchaseTracking;
+  status: PurchaseTrackingStatus | null;
+  status_error: string | null;
 }
 
 export interface PurchaseReturnLine {

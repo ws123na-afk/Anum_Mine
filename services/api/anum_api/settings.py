@@ -380,6 +380,11 @@ class Settings(BaseSettings):
     ocr_service_url: str = ""
     ocr_service_token: str = ""
     ocr_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+    # Purchases courier status (docs/purchases.md#courier-tracking): a tracking data provider
+    # registered in anum_api.purchases.carriers.PROVIDERS and its API key. Either empty, or a name
+    # that is not registered: status is off and the screens show the carriers' tracking links only.
+    purchases_tracking_provider: str = Field(default="", max_length=40)
+    purchases_tracking_api_key: str = Field(default="", repr=False)
     # Uploads per iPhone Shortcut token per hour (counted in each API process).
     vault_device_uploads_per_hour: int = Field(default=60, ge=1, le=1000)
     # The action browser (docs/action-browser.md): the `web.act` tool, which signs in, fills forms

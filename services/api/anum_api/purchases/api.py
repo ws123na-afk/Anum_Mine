@@ -33,6 +33,8 @@ from ..dependencies import has_permission, repository_context, require_permissio
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import service as S
+from .carriers import ProviderError, TrackingStatus, configured_provider
+from .carriers import detect as detect_carrier
 from .models import (
     AWAITING_DELIVERY,
     OPEN_RETURN,
@@ -144,6 +146,8 @@ def item_view(item: Item) -> dict[str, Any]:
 def shipment_view(context: TenantContext, purchase: Purchase, shipment: Shipment) -> dict[str, Any]:
     data = shipment.model_dump(mode="json", exclude=HIDDEN)
     data["can_edit"] = S.can_edit_row(context, purchase, shipment)
+    # The carrier and its public tracking link (docs/purchases.md#courier-tracking); nothing is fetched.
+    data["tracking"] = detect_carrier(shipment.tracking_number, shipment.carrier).model_dump(mode="json")
     return data
 
 
@@ -601,6 +605,41 @@ def add_shipment(store: PurchaseStore, context: TenantContext, purchase: Purchas
                 source=source, now=now)
     _after_shipment(store, context, purchase, shipment, source)
     return shipment
+
+
+class TrackingView(BaseModel):
+    """A shipment's carrier, tracking links and, when a status provider is configured, its status."""
+
+    shipment_id: str
+    tracking: dict[str, Any]
+    status: TrackingStatus | None = None
+    status_error: str | None = None
+
+
+@router.get("/shipments/{shipment_id}/tracking", response_model=TrackingView)
+@refusals
+def shipment_tracking(shipment_id: str, context: TenantContext = Depends(tenant_context)) -> Any:
+    """The carrier's tracking link (always) and its status from the configured provider (when one is set)."""
+    _read(context)
+    with open_purchase_store(context) as store:
+        shipment = store.get_shipment(context, shipment_id) if S.SAFE_ID.match(shipment_id) else None
+        if shipment is None:
+            raise S.not_found("Shipment")
+        S.get_purchase(store, context, shipment.purchase_id)  # the purchase's own visibility rule
+    # The provider is called with no database unit open (it may take seconds).
+    tracking = detect_carrier(shipment.tracking_number, shipment.carrier)
+    view = TrackingView(shipment_id=shipment.id, tracking=tracking.model_dump(mode="json"))
+    provider = configured_provider()
+    if provider is None or tracking.carrier is None or tracking.number is None:
+        return view
+    if not provider.supports(tracking.carrier):
+        view.status_error = f"The tracking provider does not cover {tracking.carrier_name}. Use the carrier's tracking page."
+        return view
+    try:
+        view.status = provider.status(tracking.carrier, tracking.number)
+    except ProviderError as exc:
+        view.status_error = str(exc)[:300] or "The tracking provider did not answer. Use the carrier's tracking page."
+    return view
 
 
 @router.patch("/shipments/{shipment_id}", response_model=None)

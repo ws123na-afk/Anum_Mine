@@ -1,19 +1,19 @@
 // The purchase tracker (docs/purchases.md#web), on the shared shell (FinanceShell.tsx): the filter bar, the tracker table,
 // the delivery and refund task queue, Import order and the order drawer. Every figure and row comes from the API; tracking
-// shows the number and status the person typed or shared (there is no carrier integration), with the carrier's own public
-// page as a plain link where the carrier is known. A refund lowers what a purchase cost; it is never income.
+// shows the number and status the person typed or shared, the carrier detected from its name or number with the carrier's
+// own public page as a plain link, and a status only when the operator configured a tracking provider. A refund lowers what a purchase cost; it is never income.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   Camera, Check, CircleAlert, Copy, ExternalLink, FileText, History, Link2, MoreHorizontal, PackageOpen, Pencil, Receipt, RotateCcw, Search, Truck,
   Undo2, Upload, X,
 } from 'lucide-react';
-import type { Purchase, PurchaseDetail, PurchaseDueItem, PurchasePage, PurchaseReturn, PurchaseShipment, VaultDocument } from '@anum/contracts';
+import type { Purchase, PurchaseDetail, PurchaseDueItem, PurchasePage, PurchaseReturn, PurchaseShipment, PurchaseTrackingView, VaultDocument } from '@anum/contracts';
 import * as api from './lib/purchasesApi';
 import * as vaultApi from './lib/vaultApi';
 import {
-  DATE_RANGES, FILTERS, PAGE_SIZE, PAYMENT_FILTERS, SOURCE_FILTERS, NO_FILTERS, carrierKey, carrierUrl, chipTone, currentReturn, dueLabel, dueWhen,
+  DATE_RANGES, FILTERS, PAGE_SIZE, PAYMENT_FILTERS, SOURCE_FILTERS, NO_FILTERS, chipTone, currentReturn, dueLabel, dueWhen,
   filterLabel, filtersActive, linkState, maskTracking, methodLabel, newKey, purchaseName, rangeStart, reasonLabel, refundLeft, refundMatch, returnStatusLabel,
-  rowTitle, shipmentLabel, statusLabel, taskAction, today, trackerSteps, type DateRange, type TrackerFilters,
+  rowTitle, shipmentLabel, statusLabel, taskAction, today, trackerSteps, trackingLinks, type DateRange, type TrackerFilters,
 } from './lib/purchases';
 import { documentHash } from './lib/vault';
 import { formatAmount } from './lib/finance';
@@ -329,20 +329,36 @@ function Stepper({ purchase }: { purchase: PurchaseDetail }) {
 
 function Tracking({ shipment }: { shipment: PurchaseShipment }) {
   const [copied, setCopied] = useState(false);
-  const url = carrierUrl(shipment.carrier, shipment.tracking_number);
-  const carrier = carrierKey(shipment.carrier);
+  const [status, setStatus] = useState<Load<PurchaseTrackingView> | null>(null);
+  const links = trackingLinks(shipment);
+  const tracking = shipment.tracking;
+  const several = !tracking?.url && links.length > 1;
+  const providerOn = tracking !== undefined && tracking.status_provider !== 'off' && tracking.carrier !== null && tracking.number !== null;
+  async function check() {
+    setStatus({ kind: 'loading' });
+    try { setStatus({ kind: 'ready', value: await api.shipmentTracking(shipment.id) }); } catch (e) { setStatus(failed(e)); }
+  }
+  const view = status?.kind === 'ready' ? status.value : null;
   return <FinCard title={t('pur.drawer.tracking')} icon={<Truck />} className="purDrawerCard"
-    actions={url ? <a href={url} target="_blank" rel="noopener noreferrer" className="purExternal">{t('pur.drawer.viewOn', { carrier: shipment.carrier ?? carrier ?? '' })}<ExternalLink aria-hidden="true" /></a> : undefined}>
+    actions={!several && links[0] ? <a href={links[0].url} target="_blank" rel="noopener noreferrer" className="purExternal">{t('pur.drawer.viewOn', { carrier: links[0].name })}<ExternalLink aria-hidden="true" /></a> : undefined}>
     <dl className="purFacts">
       <dt>{t('pur.drawer.trackingCode')}</dt>
       <dd>{shipment.tracking_number ? <><bdi dir="ltr" className="purMono">{maskTracking(shipment.tracking_number)}</bdi> <span className="muted">{t('pur.drawer.masked')}</span>
         <button type="button" className="purIcon" aria-label={t('pur.drawer.copyTracking')} onClick={() => void copyText(shipment.tracking_number!).then((ok) => setCopied(ok))}><Copy aria-hidden="true" /></button>
         {copied && <span role="status" className="muted">{t('pur.drawer.copied')}</span>}</> : '-'}</dd>
-      <dt>{t('pur.ship.carrier')}</dt><dd dir="auto">{shipment.carrier ?? '-'}</dd>
+      <dt>{t('pur.ship.carrier')}</dt><dd dir="auto">{shipment.carrier ?? tracking?.carrier_name ?? '-'}{!shipment.carrier && tracking?.detected_from === 'number' ? <> <span className="muted">{t('pur.track.fromNumber')}</span></> : null}</dd>
       <dt>{t('pur.drawer.latest')}</dt><dd>{shipmentLabel(shipment.status)}{shipment.note ? <> · <bdi dir="auto">{shipment.note}</bdi></> : null}</dd>
       <dt>{shipment.delivered_on ? t('pur.ship.delivered') : t('pur.ship.expected')}</dt><dd>{shortDay(shipment.delivered_on ?? shipment.expected_on)}</dd>
     </dl>
-    <p className="muted purNote">{t('pur.drawer.trackingRule')}</p>
+    {several && <div className="purCandidates"><p className="muted purNote">{t('pur.track.several')}</p>
+      <ul>{links.map((link) => <li key={link.url}><a href={link.url} target="_blank" rel="noopener noreferrer" className="purExternal">{t('pur.drawer.viewOn', { carrier: link.name })}<ExternalLink aria-hidden="true" /></a></li>)}</ul></div>}
+    {providerOn && <div className="purTrackStatus">
+      <button type="button" className="secondary" disabled={status?.kind === 'loading'} onClick={() => void check()}>{status?.kind === 'loading' ? t('pur.track.checking') : t('pur.track.check')}</button>
+      {(status?.kind === 'error' || status?.kind === 'denied') && <p className="muted" role="alert">{t('pur.track.failed', { message: status.message })}</p>}
+      {view?.status_error && <p className="muted" role="status">{view.status_error}</p>}
+      {view?.status && <p role="status"><strong>{t(`pur.track.state.${view.status.state}` as MessageKey)}</strong>{view.status.description ? <> · <bdi dir="auto">{view.status.description}</bdi></> : null} <span className="muted">{t('pur.track.checkedAt', { when: stamp(view.status.checked_at) })}</span></p>}
+    </div>}
+    <p className="muted purNote">{t(providerOn ? 'pur.track.providerRule' : 'pur.drawer.trackingRule')}</p>
   </FinCard>;
 }
 

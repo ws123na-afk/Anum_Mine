@@ -226,6 +226,13 @@ export function purchasesReply(state: PurchasesState, method: string, url: URL, 
     return page(rows);
   }
 
+  const trackingRoute = sub.match(/^\/shipments\/([^/]+)\/tracking$/);
+  if (trackingRoute && method === 'GET') {
+    const s = state.purchases.flatMap((p) => p.shipments as Row[]).find((x) => x.id === trackingRoute[1]);
+    if (!s) return refused(404, 'Shipment not found.', 'not_found');
+    const status = { state: 'out_for_delivery', description: 'With the courier', checked_at: stamp, events: [] };
+    return { status: 200, body: { shipment_id: s.id, tracking: s.tracking ?? null, status, status_error: null } };
+  }
   const shipment = sub.match(/^\/shipments\/([^/]+)$/);
   if (shipment) {
     const p = state.purchases.find((x) => (x.shipments as Row[]).some((s) => s.id === shipment[1]));
