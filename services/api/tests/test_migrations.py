@@ -1016,6 +1016,27 @@ def test_app_calls_migration_is_expand_only_and_participants_only() -> None:
     assert "for select to anum_maintenance" in upgrade and "status = 'ended' and ended_at <= now() - interval '7 days'" in upgrade
 
 
+def test_app_call_rooms_migration_is_expand_only_and_members_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0179_app_call_rooms.py").read_text(encoding="utf-8")
+    assert 'revision = "0179_app_call_rooms"' in revision_text and len("0179_app_call_rooms") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    assert upgrade.count("op.create_table(") == 1 and '"app_call_rooms"' in upgrade
+    assert "enable row level security" in upgrade and "force row level security" in upgrade
+    assert "create policy tenant_isolation_app_call_rooms" in upgrade
+    assert "create policy members_only_app_call_rooms" in upgrade and "= any(member_user_ids)" in upgrade
+    assert "create policy inserter_only_app_call_rooms" in upgrade and upgrade.count("as restrictive") == 2
+    assert "host_user_id = nullif(current_setting('anum.user_id', true), '')" in upgrade
+    # The restrictive members policy admits the tenant purger, which has its own purge policy.
+    assert "or current_user = 'anum_tenant_purger'" in upgrade and "create policy lifecycle_purge_app_call_rooms" in upgrade
+    # Expand only: one new table, one nullable column on app_calls, nothing dropped or widened.
+    assert 'op.add_column("app_calls", sa.column("room_id", sa.string(80), nullable=true))' in upgrade
+    assert 'ondelete="set null"' in upgrade
+    assert "op.drop" not in upgrade and "drop " not in upgrade and "alter_column" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
+    assert upgrade.count("grant ") == 1
+
+
 def test_calls_migration_is_expand_only_with_forced_rls_and_narrow_discovery() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0071_calls.py").read_text(encoding="utf-8")

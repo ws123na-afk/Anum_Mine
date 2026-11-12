@@ -55,6 +55,7 @@ TABLES_IN_DELETE_ORDER = (
     "demo_records",
     "app_call_signals",
     "app_calls",
+    "app_call_rooms",
     "call_ai_requests",
     "call_provider_accounts",
     "call_opt_outs",

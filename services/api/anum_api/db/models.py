@@ -17,7 +17,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import UserDefinedType
 
@@ -1928,11 +1928,41 @@ class AppCallRecord(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    # Migration 0179_app_call_rooms: the group call this pair belongs to.
+    room_id: Mapped[str | None] = mapped_column(String(80))
 
     __table_args__ = (
         _workspace_fk("app_calls"),
+        ForeignKeyConstraint(["room_id"], ["app_call_rooms.id"], name="fk_app_calls_room", ondelete="SET NULL"),
         Index("ix_app_calls_scope_caller", "tenant_id", "workspace_id", "caller_user_id", "created_at"),
         Index("ix_app_calls_scope_callee", "tenant_id", "workspace_id", "callee_user_id", "created_at"),
+        Index("ix_app_calls_room", "tenant_id", "workspace_id", "room_id"),
+    )
+
+
+class AppCallRoomRecord(Base):
+    """A group call: who was invited and who is in it (migration ``0179_app_call_rooms``).
+
+    Visible to its members only: a restrictive policy checks ``anum.user_id`` against
+    ``member_user_ids``, and only the host inserts the row.
+    """
+
+    __tablename__ = "app_call_rooms"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    workspace_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    host_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    media: Mapped[str] = mapped_column(String(8), nullable=False)
+    status: Mapped[str] = mapped_column(String(8), nullable=False)
+    member_user_ids: Mapped[list[str]] = mapped_column(ARRAY(String(160)), nullable=False)
+    members: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        _workspace_fk("app_call_rooms"),
+        Index("ix_app_call_rooms_scope", "tenant_id", "workspace_id", "created_at"),
     )
 
 
