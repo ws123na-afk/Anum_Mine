@@ -31,7 +31,7 @@ export function RecurringInvoices({ setup, onOpenInvoice }: { setup: BusinessSet
   return <section className="bzSection" aria-label={t('rinv.title')}>
     <AutomationCard />
     <div className="bzToolbar">
-      <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(query.trim()); }}>
+      <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(query.trim()); refresh(); }}>
         <label className="visuallyHidden" htmlFor={searchId}>{t('rinv.search')}</label>
         <input id={searchId} type="search" value={query} placeholder={t('rinv.search')} onChange={(event) => { setQuery(event.target.value); if (!event.target.value) setSearch(''); }} />
         <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
