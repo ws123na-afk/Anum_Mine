@@ -43,6 +43,33 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- fail "ANUM_FCM_SERVICE_ACCOUNT_JSON carries the Firebase service account's private key: put it in the secrets.app Secret (listed in secrets.app.optional), never in config or extraEnv (rendered into a ConfigMap). The API refuses a value that is not a service-account JSON key at startup" -}}
 {{- end -}}
 {{- end -}}
+{{- /* Document vault OCR (docs/documents.md#the-ocr-service): the token is a secret, and the
+     Deployment needs its own image (the API image built with ANUM_OCR=1). */ -}}
+{{- if trim (toString (default "" (get $all "ANUM_OCR_SERVICE_TOKEN"))) -}}
+{{- fail "ANUM_OCR_SERVICE_TOKEN is the OCR service's token: keep it in the ocr.tokenSecret Secret, never in config or extraEnv (rendered into a ConfigMap)" -}}
+{{- end -}}
+{{- $ocrUrl := trim (toString (default "" (get $all "ANUM_OCR_SERVICE_URL"))) -}}
+{{- if and $ocrUrl (not (regexMatch "^https?://[^/\\s]+" $ocrUrl)) -}}
+{{- fail (printf "ANUM_OCR_SERVICE_URL=%q must be an http or https URL of the OCR service" $ocrUrl) -}}
+{{- end -}}
+{{- if .Values.ocr.enabled -}}
+{{- if not (trim (toString .Values.ocr.image.repository)) -}}
+{{- fail "ocr.image.repository is required when ocr.enabled: the API image built with --build-arg ANUM_OCR=1 (docs/deployment.md#document-ocr)" -}}
+{{- end -}}
+{{- if or (not (trim (toString .Values.ocr.tokenSecret.name))) (not (trim (toString .Values.ocr.tokenSecret.key))) -}}
+{{- fail "ocr.tokenSecret.name and ocr.tokenSecret.key must name the Secret with the OCR token" -}}
+{{- end -}}
+{{- $conc := int .Values.ocr.concurrency -}}
+{{- if or (lt $conc 1) (gt $conc 4) -}}
+{{- fail (printf "ocr.concurrency=%v must be 1 to 4 (each call runs one Tesseract process)" .Values.ocr.concurrency) -}}
+{{- end -}}
+{{- if not (and .Values.ocr.resources .Values.ocr.resources.limits .Values.ocr.resources.limits.memory .Values.ocr.resources.limits.cpu) -}}
+{{- fail "ocr.resources.limits.cpu and ocr.resources.limits.memory are required: an image can hold up to 40 megapixels" -}}
+{{- end -}}
+{{- if and $ocrUrl (not (contains (printf "%s-ocr" (include "anum.fullname" .)) $ocrUrl)) -}}
+{{- fail "config.ANUM_OCR_SERVICE_URL points elsewhere while ocr.enabled: leave it empty so the API calls this release's OCR Service, or turn ocr.enabled off" -}}
+{{- end -}}
+{{- end -}}
 {{- if not $c.ANUM_OIDC_AUDIENCE -}}
 {{- fail "config.ANUM_OIDC_AUDIENCE is required" -}}
 {{- end -}}

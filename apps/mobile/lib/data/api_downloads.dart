@@ -33,6 +33,10 @@ abstract interface class ApiDownloads {
   /// closed.
   Future<bool> save(String method, String path,
       {JsonMap? body, required String fileName, required String dialogTitle});
+
+  /// Fetches [path] with the session's headers and answers its bytes, held
+  /// in memory only (the action browser's live picture); nothing is saved.
+  Future<Uint8List> fetch(String path, {int maxBytes = 8 * 1024 * 1024});
 }
 
 class HttpApiDownloads implements ApiDownloads {
@@ -95,6 +99,34 @@ class HttpApiDownloads implements ApiDownloads {
       );
     }, timeout: timeout);
     return saveBytes(named ?? safeFileName(fileName), bytes, dialogTitle);
+  }
+
+  @override
+  Future<Uint8List> fetch(String path, {int maxBytes = 8 * 1024 * 1024}) async {
+    final session = await sessions.read();
+    if (session == null || session.isExpired) {
+      throw const ApiException(401, 'Authentication required');
+    }
+    return guardTransfer(() async {
+      final request = http.Request(
+          'GET', baseUri.resolve(path.replaceFirst(RegExp(r'^/'), '')))
+        ..headers.addAll(sessionHeaders(session))
+        ..followRedirects = false;
+      final response = await _client.send(request);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final text = await response.stream.bytesToString();
+        throw ApiException.fromResponse(
+            ApiResponse(statusCode: response.statusCode, body: _json(text)));
+      }
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in response.stream) {
+        builder.add(chunk);
+        if (builder.length > maxBytes) {
+          throw ApiException(413, tooLargeMessage(maxBytes));
+        }
+      }
+      return builder.takeBytes();
+    }, timeout: timeout);
   }
 
   static JsonMap? _json(String text) {

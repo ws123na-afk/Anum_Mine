@@ -11,12 +11,12 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Integer, SmallInteger, String, Text, delete, func, or_, select, update
+from sqlalchemy import Boolean, Date, DateTime, Integer, SmallInteger, String, Text, delete, func, or_, select, union, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.attendance.models import AttendanceEvent, Correction, DailyReport, DayTotal, EventStatus, Profile, Share, Site
+from anum_api.attendance.models import AttendanceEvent, Correction, DailyReport, DayTotal, EventStatus, Profile, Share, Site, WorkspaceSettings
 from anum_api.attendance.store import MAX_EVENTS_READ, DuplicateError, export_records
 from anum_api.schemas import TenantContext
 
@@ -158,6 +158,19 @@ class AttendanceShareRecord(Base, _Owned):
 
 def _fields(record: Any, model: type) -> dict[str, Any]:
     return {name: getattr(record, name) for name in model.model_fields if hasattr(record, name)}
+
+
+class AttendanceWorkspaceSettingsRecord(Base):
+    """Migration ``0181_attendance_manager_view``: one row per workspace, written only in a manager unit."""
+
+    __tablename__ = "attendance_workspace_settings"
+
+    tenant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    manager_view: Mapped[bool] = mapped_column(Boolean)
+    version: Mapped[int] = mapped_column(Integer)
+    updated_by: Mapped[str] = mapped_column(String(160))
+    updated_at: Mapped[datetime] = mapped_column(TS)
 
 
 class SqlAttendanceStore:
@@ -403,6 +416,47 @@ class SqlAttendanceStore:
 
     _RECORDS = (AttendanceShareRecord, AttendanceDailyReportRecord, AttendanceDayTotalRecord, AttendanceCorrectionRecord,
                 AttendanceEventRecord, AttendanceSiteRecord, AttendanceProfileRecord)
+
+    # workspace settings and the manager view (migration 0181_attendance_manager_view) -----------------
+
+    def get_workspace_settings(self, context: TenantContext) -> WorkspaceSettings:
+        row = self.session.scalar(select(AttendanceWorkspaceSettingsRecord).where(
+            AttendanceWorkspaceSettingsRecord.tenant_id == context.tenant_id,
+            AttendanceWorkspaceSettingsRecord.workspace_id == context.workspace_id))
+        if row is None:
+            return WorkspaceSettings(tenant_id=context.tenant_id, workspace_id=context.workspace_id)
+        return WorkspaceSettings(tenant_id=row.tenant_id, workspace_id=row.workspace_id, manager_view=row.manager_view, version=row.version,
+                                 updated_by=row.updated_by, updated_at=row.updated_at)
+
+    def save_workspace_settings(self, settings: WorkspaceSettings, expected_version: int) -> bool:
+        ctx = TenantContext(tenant_id=settings.tenant_id, workspace_id=settings.workspace_id, user_id=settings.updated_by or "")
+        self._ready(ctx)
+        values = {"manager_view": settings.manager_view, "updated_by": settings.updated_by, "updated_at": settings.updated_at or func.now()}
+        if expected_version == 0:
+            result = self.session.execute(insert(AttendanceWorkspaceSettingsRecord)
+                                          .values(tenant_id=settings.tenant_id, workspace_id=settings.workspace_id, version=1, **values)
+                                          .on_conflict_do_nothing().returning(AttendanceWorkspaceSettingsRecord.version))
+            return result.first() is not None
+        result = self.session.execute(
+            update(AttendanceWorkspaceSettingsRecord)
+            .where(AttendanceWorkspaceSettingsRecord.tenant_id == settings.tenant_id,
+                   AttendanceWorkspaceSettingsRecord.workspace_id == settings.workspace_id,
+                   AttendanceWorkspaceSettingsRecord.version == expected_version)
+            .values(**values, version=expected_version + 1)
+        )
+        return result.rowcount == 1  # type: ignore[attr-defined]
+
+    def list_people(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[str], int]:
+        """Everyone keeping attendance here whose rows the policies let this unit read (own, or the manager view)."""
+        people = union(
+            select(AttendanceProfileRecord.owner_user_id.label("person")).where(
+                AttendanceProfileRecord.tenant_id == context.tenant_id, AttendanceProfileRecord.workspace_id == context.workspace_id),
+            select(AttendanceEventRecord.owner_user_id.label("person")).where(
+                AttendanceEventRecord.tenant_id == context.tenant_id, AttendanceEventRecord.workspace_id == context.workspace_id),
+        ).subquery()
+        total = int(self.session.scalar(select(func.count()).select_from(people)) or 0)
+        rows = self.session.scalars(select(people.c.person).order_by(people.c.person).limit(limit).offset(offset))
+        return list(rows), total
 
     def count_everything(self, context: TenantContext) -> int:
         return sum(int(self.session.scalar(select(func.count()).select_from(record).where(

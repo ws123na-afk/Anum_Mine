@@ -406,6 +406,81 @@ void main() {
       expectClean(tester);
     });
 
+    testWidgets('a shipment offers its carrier tracking pages', (tester) async {
+      final fake = PurchasesApi();
+      fake.shipments
+        ..add({
+          'id': 'purs_ups',
+          'status': 'in_transit',
+          'carrier': null,
+          'tracking_number': '1Z999AA10123456784',
+          'tracking': {
+            'carrier': 'ups',
+            'carrier_name': 'UPS',
+            'url': 'https://www.ups.com/track?tracknum=1Z999AA10123456784',
+            'detected_from': 'number',
+            'candidates': <Object?>[],
+            'status_provider': 'off',
+          },
+        })
+        ..add({
+          'id': 'purs_ten',
+          'status': 'in_transit',
+          'carrier': null,
+          'tracking_number': '1234567891',
+          'tracking': {
+            'carrier': null,
+            'carrier_name': null,
+            'url': null,
+            'detected_from': null,
+            'candidates': [
+              {
+                'carrier': 'dhl',
+                'carrier_name': 'DHL Express',
+                'url': 'https://www.dhl.com/x?tracking-id=1234567891',
+                'confidence': 'likely'
+              },
+              {
+                'carrier': 'aramex',
+                'carrier_name': 'Aramex',
+                'url': 'https://www.aramex.com/x?ShipmentNumber=1234567891',
+                'confidence': 'possible'
+              },
+              {
+                'carrier': 'smsa',
+                'carrier_name': 'SMSA Express',
+                'url': 'javascript:alert(1)',
+                'confidence': 'possible'
+              },
+            ],
+            'status_provider': 'off',
+          },
+        });
+      final opened = <Uri>[];
+      final original = purchasesOpenUrl;
+      addTearDown(() => purchasesOpenUrl = original);
+      purchasesOpenUrl = (uri) async {
+        opened.add(uri);
+        return uri.host != 'www.dhl.com';
+      };
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      expect(find.text('In transit · UPS (from the tracking number)'),
+          findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('track-purs_ups-UPS')));
+      expect(opened.single.toString(),
+          'https://www.ups.com/track?tracknum=1Z999AA10123456784');
+      // Shared format: one button per carrier, and never a non-https link.
+      expect(find.textContaining('fits more than one carrier'), findsOneWidget);
+      expect(find.byKey(const Key('track-purs_ten-Aramex')), findsOneWidget);
+      expect(
+          find.byKey(const Key('track-purs_ten-SMSA Express')), findsNothing);
+      await tapVisible(
+          tester, find.byKey(const Key('track-purs_ten-DHL Express')));
+      expect(find.textContaining('could not be opened'), findsOneWidget);
+      expectClean(tester);
+    });
+
     testWidgets('links the payment and the refund from Finance',
         (tester) async {
       final fake = PurchasesApi()..returns.add(returnJson('pret_1'));

@@ -104,6 +104,35 @@ def with_aed_peg(published: PublishedRates) -> dict[str, tuple[Decimal, str]]:
     return found
 
 
+# Gulf currencies fixed to the US dollar by their central banks (books only, docs/business-books.md#automatic-exchange-rates).
+# The Kuwaiti dinar is not here: since 2007 it follows an undisclosed basket, so no fixed rate exists. The Egyptian
+# pound and the Pakistani rupee float and the ECB does not publish them, so they stay typed by hand.
+USD_PEGS: dict[str, tuple[Decimal, str]] = {
+    "AED": (AED_PER_USD, "CBUAE"),
+    "SAR": (Decimal("3.75"), "SAMA"),
+    "QAR": (Decimal("3.64"), "QCB"),
+    "BHD": (Decimal("0.376"), "CBB"),
+    "OMR": (Decimal("0.3845"), "CBO"),
+}
+
+
+def peg_source(code: str) -> str:
+    """The source of a rate derived from EUR/USD and a dollar peg, naming the peg and its central bank."""
+    per_usd, bank = USD_PEGS[code]
+    return f"ECB EUR/USD x {bank} peg {per_usd} {code} per USD"
+
+
+def with_usd_pegs(published: PublishedRates) -> dict[str, tuple[Decimal, str]]:
+    """Each ECB quote with its source, plus every pegged Gulf currency the ECB does not publish (from EUR/USD x its peg)."""
+    found = {code: (rate, ECB_SOURCE) for code, rate in published.rates.items()}
+    usd = published.rates.get("USD")
+    if usd is not None:
+        for code, (per_usd, _bank) in USD_PEGS.items():
+            if code not in found:
+                found[code] = ((usd * per_usd).quantize(RATE_PLACES), peg_source(code))
+    return found
+
+
 # -- conversion ----------------------------------------------------------------------------------
 
 

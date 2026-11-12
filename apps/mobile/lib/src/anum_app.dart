@@ -665,8 +665,10 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
         appLock.paused();
+        appCalls.setForeground(false);
       case AppLifecycleState.resumed:
         appLock.resumed();
+        appCalls.setForeground(true);
       case AppLifecycleState.inactive:
       case AppLifecycleState.detached:
         break;

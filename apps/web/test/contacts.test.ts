@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import {
   blockedChannels, channelLabel, contactsHash, draftOf, emptyPersonDraft, exportName, factText, linkKindLabel, looksLikeEmail, looksLikePhone,
   parseContactsHash, personBody, reasonText, sourceLabel, splitValues, type PersonView,
-  importDecisions, importFileProblem, importIssues, importRowsShown, importStatusLabel, importTotals, type ImportRow,
+  bytesToBase64, importDecisions, importFileBody, importFileProblem, importFormatOf, importIssues, importRowsShown, importStatusLabel, importTotals, type ImportRow,
 } from '../src/lib/contacts.ts';
 import { viewFromHash } from '../src/lib/shell.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -66,6 +66,21 @@ describe('contacts directory', () => {
 });
 
 describe('import from a CSV file', () => {
+  test('the format comes from the extension, else the browser type, and the body carries the file in its field', () => {
+    assert.equal(importFormatOf({ name: 'People.XLSX', type: '' }), 'xlsx');
+    assert.equal(importFormatOf({ name: 'a.vcard', type: '' }), 'vcf');
+    assert.equal(importFormatOf({ name: 'a.txt', type: '' }), 'csv');
+    assert.equal(importFormatOf({ name: 'noext', type: 'text/vcard' }), 'vcf');
+    assert.equal(importFormatOf({ name: 'noext', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'xlsx');
+    assert.equal(importFormatOf({ name: 'a.pdf', type: 'text/csv' }), null);
+    assert.deepEqual(importFileBody({ name: 'p.csv', format: 'csv', content: 'Name\n' }), { csv: 'Name\n', file_name: 'p.csv' });
+    assert.deepEqual(importFileBody({ name: 'c.vcf', format: 'vcf', content: 'BEGIN:VCARD' }), { format: 'vcf', csv: 'BEGIN:VCARD', file_name: 'c.vcf' });
+    assert.deepEqual(importFileBody({ name: 'p.xlsx', format: 'xlsx', content: 'UEs=' }), { format: 'xlsx', file_base64: 'UEs=', file_name: 'p.xlsx' });
+    const bytes = new Uint8Array(100_000).map((_, i) => i % 256);
+    assert.equal(bytesToBase64(bytes), Buffer.from(bytes).toString('base64'));
+    assert.equal(bytesToBase64(new Uint8Array([0x50, 0x4b])), 'UEs=');
+  });
+
   const row = (n: number, extra: Partial<ImportRow> = {}): ImportRow => ({
     row: n, name: `Person ${n}`, organisation: '', phones: [`+97150000000${n}`], emails: [], do_not_contact: [], status: 'new', action: 'create',
     actions: ['create', 'skip'], target_id: null, matches: [], duplicate_of: null, problems: [], ...extra,
@@ -105,7 +120,12 @@ describe('import from a CSV file', () => {
 
   test('a file is checked before it is read', () => {
     assert.equal(importFileProblem({ name: 'people.csv', size: 10, type: 'text/csv' }), null);
-    assert.match(importFileProblem({ name: 'people.xlsx', size: 10, type: 'application/vnd.ms-excel' }) ?? '', /Choose a CSV file/);
+    assert.equal(importFileProblem({ name: 'people.xlsx', size: 10, type: 'application/vnd.ms-excel' }), null);
+    assert.equal(importFileProblem({ name: 'contacts.vcf', size: 10, type: 'text/vcard' }), null);
+    assert.match(importFileProblem({ name: 'people.xls', size: 10, type: 'application/vnd.ms-excel' }) ?? '', /Choose a CSV \(\.csv\), Excel \(\.xlsx\) or vCard/);
+    assert.match(importFileProblem({ name: 'people.xlsm', size: 10, type: '' }) ?? '', /Choose a CSV/);
+    assert.match(importFileProblem({ name: 'people.xlsx', size: 2_000_001, type: '' }) ?? '', /larger than 2 MB/);
+    assert.equal(importFileProblem({ name: 'contacts.vcf', size: 3_000_000, type: '' }), null);
     assert.match(importFileProblem({ name: 'people.csv', size: 0, type: 'text/csv' }) ?? '', /empty/);
     assert.match(importFileProblem({ name: 'people.csv', size: 9_000_000, type: 'text/csv' }) ?? '', /too large/);
   });

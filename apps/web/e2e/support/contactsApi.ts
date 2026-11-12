@@ -89,7 +89,7 @@ export async function mockContacts(page: Page, options: ContactsMockOptions = {}
     if (path === '/api/v1/contacts/import/preview') {
       if (!owner) return json(envelope('forbidden', 'Only workspace owners can do this (clear a do-not-contact mark, delete a person, import or export the directory).'), 403);
       const body = request.postDataJSON() as Json;
-      if (String(body.csv).trim().split('\n').length < 2) return json(envelope('validation_error', 'The file has a header row but no people under it.'), 422);
+      if (!body.file_base64 && String(body.csv).trim().split('\n').length < 2) return json(envelope('validation_error', 'The file has a header row but no people under it.'), 422);
       return json(importPreview(body.mapping as Json | undefined));
     }
     if (path === '/api/v1/contacts/import/apply') {

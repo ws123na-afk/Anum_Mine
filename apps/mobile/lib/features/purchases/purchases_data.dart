@@ -123,6 +123,13 @@ class PurchaseItem {
   final String? unitPrice;
 }
 
+/// A carrier's public tracking page for one shipment (docs/purchases.md#courier-tracking).
+class TrackingLink {
+  const TrackingLink(this.carrierName, this.url);
+  final String carrierName;
+  final Uri url;
+}
+
 class PurchaseShipment {
   const PurchaseShipment({
     required this.id,
@@ -133,20 +140,55 @@ class PurchaseShipment {
     this.expectedOn,
     this.deliveredOn,
     this.note,
+    this.detectedCarrier,
+    this.links = const [],
+    this.severalCarriers = false,
   });
-  factory PurchaseShipment.fromJson(JsonReader j) => PurchaseShipment(
-        id: j.string('id'),
-        status: j.string('status'),
-        carrier: j.optString('carrier'),
-        trackingNumber: j.optString('tracking_number'),
-        shippedOn: j.optString('shipped_on'),
-        expectedOn: j.optString('expected_on'),
-        deliveredOn: j.optString('delivered_on'),
-        note: j.optString('note'),
-      );
+  factory PurchaseShipment.fromJson(JsonReader j) {
+    final tracking = j.optObject('tracking');
+    // Only the https links the server built; anything else is not offered.
+    TrackingLink? link(String? name, String? url) {
+      final uri = url == null ? null : Uri.tryParse(url);
+      return name == null || uri == null || uri.scheme != 'https'
+          ? null
+          : TrackingLink(name, uri);
+    }
+
+    final named =
+        link(tracking?.optString('carrier_name'), tracking?.optString('url'));
+    final candidates = [
+      for (final c in tracking?.optObjects('candidates', (c) => c) ??
+          const <JsonReader>[])
+        if (link(c.optString('carrier_name'), c.optString('url')) case final l?)
+          l
+    ];
+    return PurchaseShipment(
+      id: j.string('id'),
+      status: j.string('status'),
+      carrier: j.optString('carrier'),
+      trackingNumber: j.optString('tracking_number'),
+      shippedOn: j.optString('shipped_on'),
+      expectedOn: j.optString('expected_on'),
+      deliveredOn: j.optString('delivered_on'),
+      note: j.optString('note'),
+      detectedCarrier: tracking?.optString('detected_from') == 'number'
+          ? tracking?.optString('carrier_name')
+          : null,
+      links: named != null ? [named] : candidates,
+      severalCarriers: named == null && candidates.length > 1,
+    );
+  }
   final String id, status;
   final String? carrier, trackingNumber, shippedOn, expectedOn, deliveredOn;
   final String? note;
+
+  /// The carrier read from the tracking number when none was named.
+  final String? detectedCarrier;
+
+  /// The carrier's tracking page, or one per candidate when the number's
+  /// format is shared by several carriers ([severalCarriers]).
+  final List<TrackingLink> links;
+  final bool severalCarriers;
 }
 
 class PurchaseReturn {

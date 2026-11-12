@@ -3,10 +3,11 @@
 An owner opts a business in and chooses the currencies it follows. Once a day the job reads the
 European Central Bank's euro reference rates (the same free source and strict parser as Finance,
 ``finance/fx.py``) and stores, in the business's own book rates, ``1 EUR = rate X`` for each followed
-currency with the ECB's date and the source ``ECB``. The UAE dirham is not in the ECB list; it is
-derived from EUR to USD and the Central Bank of the UAE's fixed peg (3.6725 dirhams a dollar), as
-``fx.with_aed_peg`` does, and its source says so. Any other currency the ECB does not publish (for
-example SAR or KWD) is listed as unavailable and gets no rate: ANUM never invents one.
+currency with the ECB's date and the source ``ECB``. The Gulf currencies fixed to the US dollar by
+their central banks are not in the ECB list; each is derived from EUR to USD and its peg
+(``fx.USD_PEGS``: AED 3.6725 CBUAE, SAR 3.75 SAMA, QAR 3.64 QCB, BHD 0.376 CBB, OMR 0.3845 CBO), and its
+source names the peg. Any other currency the ECB does not publish (KWD follows a basket, EGP and PKR
+float) is listed as unavailable and gets no rate: ANUM never invents one.
 
 * A rate an owner typed always wins: the job never stores a rate for a pair and day that already has
   one (either way round), and an owner's rate for a pair and day replaces a fetched one.
@@ -32,6 +33,12 @@ logger = logging.getLogger("anum_api.business.books_rates_auto")
 
 SOURCE = "ECB"
 PEG_SOURCE = "ECB, AED from EUR/USD at the CBUAE peg 3.6725 AED per USD"
+
+
+def peg_source(code: str) -> str:
+    """The books' source for a rate derived from a dollar peg, for example the SAMA peg for SAR."""
+    per_usd, bank = fx.USD_PEGS[code]
+    return f"ECB, {code} from EUR/USD at the {bank} peg {per_usd} {code} per USD"
 MAX_CURRENCIES = 12
 REFRESH_EVERY_SECONDS = 600  # an owner's "Fetch now" at most every ten minutes per business
 
@@ -58,8 +65,13 @@ def fetch(today: date) -> Published:
         published = fx.parse_ecb(text, today)
     except (connectors.ConnectorError, fx.FxError) as exc:
         raise FeedError(str(exc)) from None
-    return Published(as_of=published.as_of, quotes={code: (rate, PEG_SOURCE if source == fx.PEG_SOURCE else SOURCE)
-                                                     for code, (rate, source) in fx.with_aed_peg(published).items()})
+    return published_quotes(published)
+
+
+def published_quotes(published: fx.PublishedRates) -> Published:
+    """The ECB's quotes with the books' sources, plus the pegged Gulf currencies derived from EUR/USD."""
+    return Published(as_of=published.as_of, quotes={code: (rate, SOURCE if source == fx.ECB_SOURCE else peg_source(code))
+                                                     for code, (rate, source) in fx.with_usd_pegs(published).items()})
 
 
 def followed(feed: RateFeed, base_currency: str | None) -> list[str]:
@@ -101,4 +113,4 @@ def record_failure(store: BooksStore, feed: RateFeed, message: str, now: datetim
                expected_version=feed.version)
 
 
-__all__ = ["FeedError", "MAX_CURRENCIES", "PEG_SOURCE", "Published", "REFRESH_EVERY_SECONDS", "SOURCE", "apply", "fetch", "followed", "record_failure"]
+__all__ = ["FeedError", "MAX_CURRENCIES", "PEG_SOURCE", "Published", "REFRESH_EVERY_SECONDS", "SOURCE", "apply", "fetch", "peg_source", "published_quotes", "followed", "record_failure"]

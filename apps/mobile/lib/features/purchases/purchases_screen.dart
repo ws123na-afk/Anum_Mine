@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../auth/welcome_screens.dart' show openExternalUrl;
 import '../records_kit/payment_picker.dart';
 import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
@@ -559,7 +560,11 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                                 : AnumTone.info,
                         title: [
                           s.label('ship', sh.status),
-                          if (sh.carrier != null) sh.carrier!,
+                          if (sh.carrier != null)
+                            sh.carrier!
+                          else if (sh.detectedCarrier != null)
+                            s.t('detectedCarrier',
+                                {'carrier': sh.detectedCarrier!}),
                         ].join(' · '),
                         subtitle: sh.trackingNumber == null
                             ? null
@@ -571,6 +576,9 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                             '${s.t('expectedOn')} ${recordsDate(context, sh.expectedOn)}',
                         ].join(' · ').nullIfEmpty,
                       ),
+                  for (final sh in detail.shipments)
+                    if (sh.links.isNotEmpty)
+                      _TrackingLinks(shipment: sh, strings: s),
                 ],
               ),
               RecordsSection(
@@ -657,6 +665,48 @@ class _Timeline extends StatelessWidget {
           RecordsMore(list: list),
         ],
       ],
+    );
+  }
+}
+
+/// Opens a carrier's tracking page in the browser; replaced in tests.
+@visibleForTesting
+Future<bool> Function(Uri uri) purchasesOpenUrl = openExternalUrl;
+
+/// The carrier's public tracking page for one shipment, or one button per
+/// carrier when the number's format is shared (docs/purchases.md#courier-tracking).
+/// ANUM reads nothing from these pages.
+class _TrackingLinks extends StatelessWidget {
+  const _TrackingLinks({required this.shipment, required this.strings});
+  final PurchaseShipment shipment;
+  final PurchasesStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = strings;
+    return Padding(
+      key: Key('shipment-links-${shipment.id}'),
+      padding: const EdgeInsetsDirectional.only(
+          start: AnumSpacing.xl, bottom: AnumSpacing.xs),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (shipment.severalCarriers)
+          Text(s.t('severalCarriers'),
+              style: TextStyle(
+                  color: context.palette.muted, fontSize: AnumType.sm)),
+        Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xxs, children: [
+          for (final link in shipment.links)
+            TextButton.icon(
+              key: Key('track-${shipment.id}-${link.carrierName}'),
+              onPressed: () async {
+                if (!await purchasesOpenUrl(link.url) && context.mounted) {
+                  recordsToast(context, s.t('trackOpenFailed'));
+                }
+              },
+              icon: const Icon(Icons.open_in_new, size: 18),
+              label: Text(s.t('trackOn', {'carrier': link.carrierName})),
+            ),
+        ]),
+      ]),
     );
   }
 }

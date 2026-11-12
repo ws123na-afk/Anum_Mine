@@ -229,19 +229,39 @@ def test_the_daily_job_stores_ecb_rates_with_their_date_and_source_and_never_inv
     data = feed(currencies=["USD", "GBP", "SAR", "KWD"])
     assert data["followed"] == ["AED", "GBP", "KWD", "SAR", "USD"]
     result = books_jobs.run()
-    assert result["feeds"] == 1 and result["rates_added"] == 3 and ecb["calls"] == 1
+    assert result["feeds"] == 1 and result["rates_added"] == 4 and ecb["calls"] == 1
     stored = {(r["base"], r["quote"]): r for r in rates(origin="ecb")}
-    assert set(stored) == {("EUR", "USD"), ("EUR", "GBP"), ("EUR", "AED")}
+    assert set(stored) == {("EUR", "USD"), ("EUR", "GBP"), ("EUR", "AED"), ("EUR", "SAR")}
     assert stored[("EUR", "USD")]["source"] == "ECB" and stored[("EUR", "USD")]["as_of"] == today().isoformat()
     assert stored[("EUR", "AED")]["rate"] == "4.03975" and "CBUAE peg 3.6725" in stored[("EUR", "AED")]["source"]
     status = client.get(f"{API}/rates/auto", headers=MEMBER).json()
-    assert status["last_as_of"] == today().isoformat() and status["last_error"] == "" and status["unavailable"] == ["KWD", "SAR"]
+    assert status["last_as_of"] == today().isoformat() and status["last_error"] == "" and status["unavailable"] == ["KWD"]
     # Running again the same day adds nothing; the report converts with them and names the source.
     assert books_jobs.run()["rates_added"] == 0
     assert bill(vendor()["id"], subtotal="110", tax="0", currency="USD").status_code == 201
     data = report()
     assert data["pnl"]["operating_expenses"]["total"] == "403.98"  # 110 USD = 100 EUR = 403.975 AED, rounded half to even once
     assert {c["source"] for c in data["conversions"]} == {"ECB; ECB, AED from EUR/USD at the CBUAE peg 3.6725 AED per USD"}
+
+
+def test_pegged_gulf_currencies_come_from_eur_usd_and_their_peg_and_floating_ones_stay_typed(ecb: dict) -> None:
+    """SAR, QAR, BHD and OMR are fixed to the dollar by their central banks: derived and their source names the peg.
+    KWD follows a basket, EGP and PKR float and the ECB publishes none of them: no rate, listed as unavailable."""
+    setup_books(base_currency="SAR", country="SA")
+    feed(currencies=["AED", "QAR", "BHD", "OMR", "KWD", "EGP", "PKR"])
+    assert books_jobs.run()["rates_added"] == 5
+    stored = {r["quote"]: r for r in rates(origin="ecb")}
+    assert {code: stored[code]["rate"] for code in stored} == {"SAR": "4.125", "AED": "4.03975", "QAR": "4.004", "BHD": "0.4136", "OMR": "0.42295"}
+    assert stored["SAR"]["source"] == "ECB, SAR from EUR/USD at the SAMA peg 3.75 SAR per USD"
+    assert stored["QAR"]["source"] == "ECB, QAR from EUR/USD at the QCB peg 3.64 QAR per USD"
+    assert stored["BHD"]["source"] == "ECB, BHD from EUR/USD at the CBB peg 0.376 BHD per USD"
+    assert stored["OMR"]["source"] == "ECB, OMR from EUR/USD at the CBO peg 0.3845 OMR per USD"
+    assert client.get(f"{API}/rates/auto", headers=OWNER).json()["unavailable"] == ["EGP", "KWD", "PKR"]
+    # A bill in dirhams converts to riyals through the euro with both pegs named: 807.95 AED = 200 EUR = 825.00 SAR.
+    assert bill(vendor()["id"], subtotal="807.95", tax="0", currency="AED").status_code == 201
+    data = report()
+    assert data["pnl"]["operating_expenses"]["total"] == "825.00"
+    assert all("peg" in c["source"] for c in data["conversions"])
 
 
 def test_a_rate_an_owner_types_always_wins_over_a_fetched_one_for_the_same_day(ecb: dict) -> None:

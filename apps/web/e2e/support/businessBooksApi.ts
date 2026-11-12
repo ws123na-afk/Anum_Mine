@@ -493,7 +493,7 @@ export function booksReply(state: BooksState, method: string, url: URL, body: Js
     if (!owner) return ownersOnly();
     const failed = state.feedFails;
     state.feed = { ...state.feed, last_attempt_at: '2026-11-04T08:00:00Z', ...(failed ? { last_error: 'The source answered 503. ANUM will try again later.' }
-      : { last_success_at: '2026-11-04T08:00:00Z', last_as_of: '2026-11-03', last_error: '', unavailable: ['SAR'] }) };
+      : { last_success_at: '2026-11-04T08:00:00Z', last_as_of: '2026-11-03', last_error: '', unavailable: ['KWD'] }) };
     return ok({ ...state.feed, followed: ['USD'], source: 'ECB', source_url: '', can_manage: true, added: failed ? 0 : 1 });
   }
   if (path === '/rates') {

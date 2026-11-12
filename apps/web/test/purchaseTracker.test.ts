@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { PurchaseDetail, PurchaseReturn } from '@anum/contracts';
 import {
-  NO_FILTERS, carrierUrl, chipTone, currentReturn, dueWhen, filtersActive, maskTracking, rangeStart, refundMatch, rowTitle, taskAction, trackerSteps,
+  NO_FILTERS, carrierUrl, chipTone, trackingLinks, currentReturn, dueWhen, filtersActive, maskTracking, rangeStart, refundMatch, rowTitle, taskAction, trackerSteps,
 } from '../src/lib/purchases.ts';
 import { setLocale } from '../src/lib/i18n.ts';
 import { purchasesAr } from '../src/lib/messages/purchases.ar.ts';
@@ -38,6 +38,20 @@ describe('purchase tracker', () => {
     assert.equal(carrierUrl('Example Courier', 'TRK12345678'), null);
     assert.equal(carrierUrl('DHL', null), null);
     assert.equal(carrierUrl('DHL', 'x y<script>'), null, 'only plain tracking numbers go into a link');
+  });
+
+  test('the server detection wins, several candidates give one link each, and the local list is the fallback', () => {
+    const base = { carrier: null, tracking_number: '1234567891' };
+    const candidates = [
+      { carrier: 'dhl', carrier_name: 'DHL Express', url: 'https://www.dhl.com/x?tracking-id=1234567891', confidence: 'likely' as const },
+      { carrier: 'aramex', carrier_name: 'Aramex', url: 'https://www.aramex.com/x?ShipmentNumber=1234567891', confidence: 'possible' as const },
+    ];
+    const tracking = { number: '1234567891', carrier: null, carrier_name: null, url: null, detected_from: null, candidates, status_provider: 'off' };
+    assert.deepEqual(trackingLinks({ ...base, tracking }).map((l) => l.name), ['DHL Express', 'Aramex']);
+    const named = { ...tracking, carrier: 'ups', carrier_name: 'UPS', url: 'https://www.ups.com/track?tracknum=1Z', detected_from: 'number' as const };
+    assert.deepEqual(trackingLinks({ ...base, tracking: named }), [{ url: 'https://www.ups.com/track?tracknum=1Z', name: 'UPS' }]);
+    assert.equal(trackingLinks({ carrier: 'DHL', tracking_number: 'S3K7Q9' })[0]?.name, 'DHL');
+    assert.deepEqual(trackingLinks({ carrier: 'Example Courier', tracking_number: 'TRK12345678' }), []);
   });
 
   test('each task kind offers one real action', () => {

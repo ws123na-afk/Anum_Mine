@@ -4,7 +4,11 @@
 // and layouts from 320 px at 200% text to 1440 px in English and Arabic.
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:anum_mobile/features/contacts/contacts_controller.dart';
+import 'package:anum_mobile/features/contacts/contacts_import.dart';
 import 'package:anum_mobile/features/contacts/contacts_models.dart';
 import 'package:anum_mobile/features/contacts/contacts_repository.dart';
 import 'package:anum_mobile/features/contacts/contacts_screen.dart';
@@ -258,13 +262,90 @@ class FakeContacts implements ContactsRepository {
     if (exportError != null) throw exportError!;
     return exportSaved;
   }
+
+  /// The import's answers: the preview's rows, and what apply refuses.
+  List<JsonMap> importRows = [
+    {'row': 2, 'status': 'match', 'action': 'update', 'problems': <String>[]},
+    {'row': 3, 'status': 'new', 'action': 'create', 'problems': <String>[]},
+    {
+      'row': 4,
+      'status': 'invalid',
+      'action': 'skip',
+      'problems': [
+        "'12' is not a phone number with its country code (+971...)."
+      ]
+    },
+  ];
+  Object? applyError;
+  final importBodies = <JsonMap>[];
+
+  @override
+  Future<ImportPlan> previewImport(ImportFile file) async {
+    importBodies.add(file.body());
+    calls.add('PREVIEW ${file.format}');
+    if (!owner) {
+      throw const ApiException(403,
+          'Only workspace owners import into the directory. Ask a workspace owner to import it.');
+    }
+    final counts = <String, int>{
+      'rows': importRows.length,
+      for (final s in const [
+        'new',
+        'match',
+        'possible_duplicate',
+        'duplicate_in_file',
+        'invalid'
+      ])
+        s: importRows.where((r) => r['status'] == s).length,
+    };
+    return ImportPlan.fromJson(JsonReader({
+      'columns': ['Full name', 'Mobile', 'Notes'],
+      'mapping': importRows.isEmpty
+          ? {
+              'name': <String>[],
+              'organisation': null,
+              'notes': null,
+              'phones': <String>[],
+              'emails': <String>[],
+              'do_not_contact': null
+            }
+          : {
+              'name': ['Full name'],
+              'organisation': null,
+              'notes': 'Notes',
+              'phones': ['Mobile'],
+              'emails': <String>[],
+              'do_not_contact': null
+            },
+      'suggested': true,
+      'rows': importRows,
+      'counts': counts,
+      'fingerprint': 'f' * 64,
+      'delimiter': ',',
+    }));
+  }
+
+  @override
+  Future<ImportOutcome> applyImport(ImportFile file, ImportPlan plan) async {
+    calls.add('APPLY ${file.format} ${plan.fingerprint.length}');
+    if (applyError != null) throw applyError!;
+    return ImportOutcome.fromJson(JsonReader({
+      'created': plan.create,
+      'updated': plan.update,
+      'skipped': plan.skip,
+      'marks_added': 0,
+      'proposals_created': 0,
+      'rows': plan.create + plan.update + plan.skip,
+    }));
+  }
 }
 
 Future<void> pump(WidgetTester tester, FakeContacts repo,
     {Size size = const Size(390, 844),
     double textScale = 1,
     Locale locale = const Locale('en'),
-    ContactsController? controller}) async {
+    ContactsController? controller,
+    ImportFilePicker? picker}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -285,7 +366,9 @@ Future<void> pump(WidgetTester tester, FakeContacts repo,
             disableAnimations: true, textScaler: TextScaler.linear(textScale)),
         child: child!),
     home: ContactsScreen(
-        controller: controller ?? ContactsController(repo), repository: repo),
+        controller: controller ?? ContactsController(repo),
+        repository: repo,
+        importPicker: picker),
   ));
   await tester.pump();
   await tester.pump(const Duration(seconds: 1));
@@ -629,6 +712,181 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('channel-phone')));
         expect(find.byKey(const Key('channel-phone')), findsOneWidget);
       }
+    }
+  });
+
+  test('an import file is read by its format and sent in its own field', () {
+    expect(importFormatOf('People.XLSX'), 'xlsx');
+    expect(importFormatOf('c.vcf'), 'vcf');
+    expect(importFormatOf('a.txt'), 'csv');
+    expect(importFormatOf('old.xls'), isNull);
+    final csv = readImportFile(
+        'p.csv', Uint8List.fromList(utf8.encode('Name\nRana\n')));
+    expect(csv.body(), {'csv': 'Name\nRana\n', 'file_name': 'p.csv'});
+    final vcf =
+        readImportFile('c.vcf', Uint8List.fromList(utf8.encode('BEGIN:VCARD')));
+    expect(vcf.body(),
+        {'format': 'vcf', 'csv': 'BEGIN:VCARD', 'file_name': 'c.vcf'});
+    final xlsx = readImportFile('p.xlsx', Uint8List.fromList([0x50, 0x4b]));
+    expect(xlsx.body(),
+        {'format': 'xlsx', 'file_base64': 'UEs=', 'file_name': 'p.xlsx'});
+    for (final (name, bytes, code) in [
+      ('old.xls', Uint8List(4), 'type'),
+      ('p.csv', Uint8List(0), 'empty'),
+      ('p.xlsx', Uint8List(importMaxWorkbookBytes + 1), 'too_large'),
+      ('p.csv', Uint8List.fromList([0xff, 0xfe, 0x00]), 'not_text'),
+    ]) {
+      expect(
+          () => readImportFile(name, bytes),
+          throwsA(
+              isA<FormatException>().having((e) => e.message, 'code', code)),
+          reason: name);
+    }
+    for (final key
+        in contactsEn.keys.where((k) => k.startsWith('contacts.import.'))) {
+      expect(contactsAr[key], isNotNull, reason: key);
+    }
+  });
+
+  testWidgets('owners import a file: pick, the preview summary, confirm, done',
+      (tester) async {
+    final repo = FakeContacts();
+    final workbook = Uint8List.fromList([0x50, 0x4b, 0x03, 0x04]);
+    await pump(tester, repo,
+        size: const Size(800, 2400),
+        picker: () async => (name: 'people.xlsx', bytes: workbook));
+    await tester.ensureVisible(find.byKey(const Key('contacts-import')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('contacts-import')));
+    await tester.pumpAndSettle();
+    expect(find.text('Import people'), findsWidgets);
+    await tester.ensureVisible(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    expect(repo.importBodies.single, {
+      'format': 'xlsx',
+      'file_base64': base64Encode(workbook),
+      'file_name': 'people.xlsx'
+    });
+    expect(find.text('File: people.xlsx'), findsOneWidget);
+    expect(find.text('What the import would do: 3 rows'), findsOneWidget);
+    expect(find.text('Add 1, update 1, skip 1.'), findsOneWidget);
+    expect(find.text('Name: Full name'), findsOneWidget);
+    expect(find.text('Phone numbers: Mobile'), findsOneWidget);
+    expect(find.textContaining("Row 4: '12' is not a phone number"),
+        findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('contacts-import-apply')));
+    await tester.tap(find.byKey(const Key('contacts-import-apply')));
+    await tester.pumpAndSettle();
+    expect(find.text('Import these people?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('contacts-import-confirm')));
+    await tester.pumpAndSettle();
+    expect(repo.calls, contains('APPLY xlsx 64'));
+    expect(find.textContaining('Imported: 1 added, 1 updated, 1 skipped'),
+        findsOneWidget);
+    // Back on the list, which loads again.
+    final before = repo.calls.where((c) => c.startsWith('GET people')).length;
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(
+        repo.calls.where((c) => c.startsWith('GET people')).length, before + 1);
+  });
+
+  testWidgets(
+      'a refused file, a file whose columns ANUM cannot tell, a changed directory and a member',
+      (tester) async {
+    final repo = FakeContacts();
+    var pick = (name: 'people.xls', bytes: Uint8List(4));
+    await pump(tester, repo,
+        size: const Size(800, 2400), picker: () async => pick);
+    await tester.ensureVisible(find.byKey(const Key('contacts-import')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('contacts-import')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    expect(
+        find.textContaining(
+            'Choose a CSV (.csv), Excel (.xlsx) or vCard (.vcf) file.'),
+        findsOneWidget);
+    expect(repo.calls.where((c) => c.startsWith('PREVIEW')), isEmpty);
+    // A file whose first row names nothing ANUM knows: the columns are chosen on the web.
+    repo.importRows = [];
+    pick =
+        (name: 'odd.csv', bytes: Uint8List.fromList(utf8.encode('A,B\nx,y\n')));
+    await tester.ensureVisible(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose the columns on the web'), findsOneWidget);
+    expect(find.byKey(const Key('contacts-import-apply')), findsNothing);
+    // The directory changed since the preview: the API's words, the preview kept.
+    repo.importRows = [
+      {'row': 2, 'status': 'new', 'action': 'create', 'problems': <String>[]}
+    ];
+    pick = (
+      name: 'c.vcf',
+      bytes:
+          Uint8List.fromList(utf8.encode('BEGIN:VCARD\nFN:Rana\nEND:VCARD\n'))
+    );
+    repo.applyError = const ApiException(409,
+        'Nothing was imported. Row 2: the person to update no longer holds this number. Preview the file again.');
+    await tester.ensureVisible(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('contacts-import-choose')));
+    await tester.pumpAndSettle();
+    expect(repo.importBodies.last['format'], 'vcf');
+    await tester.ensureVisible(find.byKey(const Key('contacts-import-apply')));
+    await tester.tap(find.byKey(const Key('contacts-import-apply')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('contacts-import-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Nothing was imported. Row 2'), findsOneWidget);
+    expect(find.byKey(const Key('contacts-import-apply')), findsOneWidget);
+
+    // A member sees no Import people; an owner refused by the server is told who imports.
+    final member = FakeContacts()..owner = false;
+    await pump(tester, member);
+    expect(find.byKey(const Key('contacts-import')), findsNothing);
+  });
+
+  testWidgets(
+      'the import screen fits from 320 px at 200% text to 1440 px, English and Arabic',
+      (tester) async {
+    for (final (size, scale, locale) in [
+      (const Size(320, 640), 2.0, const Locale('ar')),
+      (const Size(390, 844), 1.0, const Locale('en')),
+      (const Size(1440, 900), 1.0, const Locale('ar')),
+    ]) {
+      final repo = FakeContacts();
+      await pump(tester, repo,
+          size: size,
+          textScale: scale,
+          locale: locale,
+          picker: () async => (
+                name: 'people.csv',
+                bytes: Uint8List.fromList(utf8.encode('Name\nA\n'))
+              ));
+      await tester.scrollUntilVisible(
+          find.byKey(const Key('contacts-import')), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('contacts-import')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+          find.byKey(const Key('contacts-import-choose')), 200,
+          scrollable: find.byType(Scrollable).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('contacts-import-choose')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: '$size $locale');
+      await tester.scrollUntilVisible(
+          find.byKey(const Key('contacts-import-counts')), 200,
+          scrollable: find.byType(Scrollable).last);
+      expect(tester.takeException(), isNull, reason: '$size $locale');
     }
   });
 }

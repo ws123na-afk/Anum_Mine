@@ -302,6 +302,28 @@ const callsEn = <String, String>{
   'calls.optOuts.source.speech': 'Said stop on a call',
   'calls.optOuts.source.owner': 'Added by a person',
   'calls.optOuts.source.inbound': 'Asked on a call in',
+  'calls.provider.call.title': 'Call through ANUM',
+  'calls.provider.call.choose': 'How do you want to call?',
+  'calls.provider.call.viaPhone': 'Call with this phone (free)',
+  'calls.provider.call.cost':
+      'The call goes through the workspace\'s voice provider, which charges per minute. The other side sees the business number.',
+  'calls.provider.call.record': 'Record this call',
+  'calls.provider.call.confirm':
+      'The other side will hear the recording notice, and recording this call is lawful.',
+  'calls.provider.call.consent':
+      'Confirm that the other side will hear the recording notice and that recording is lawful, or turn recording off.',
+  'calls.provider.call.number':
+      'Calls through ANUM need a full international number, for example +971501234567.',
+  'calls.provider.call.failed': 'The call could not start: {message}',
+  'calls.provider.call.start': 'Call',
+  'calls.provider.call.mute': 'Mute',
+  'calls.provider.call.unmute': 'Unmute',
+  'calls.provider.call.hangUp': 'Hang up',
+  'calls.provider.call.state.connecting': 'Connecting',
+  'calls.provider.call.state.ringing': 'Ringing',
+  'calls.provider.call.state.connected': 'Connected',
+  'calls.provider.call.state.ended': 'Call ended',
+  'calls.provider.call.state.failed': 'Could not connect',
 };
 
 const callsAr = <String, String>{
@@ -600,4 +622,26 @@ const callsAr = <String, String>{
   'calls.optOuts.source.speech': 'قال توقف في مكالمة',
   'calls.optOuts.source.owner': 'أضافه شخص',
   'calls.optOuts.source.inbound': 'طلب ذلك في مكالمة واردة',
+  'calls.provider.call.title': 'الاتصال عبر ANUM',
+  'calls.provider.call.choose': 'كيف تريد الاتصال؟',
+  'calls.provider.call.viaPhone': 'الاتصال من هذا الهاتف (مجانا)',
+  'calls.provider.call.cost':
+      'تمر المكالمة عبر مزود الاتصال الصوتي لمساحة العمل، ويحتسب أجرها بالدقيقة. يرى الطرف الآخر رقم النشاط التجاري.',
+  'calls.provider.call.record': 'تسجيل هذه المكالمة',
+  'calls.provider.call.confirm':
+      'سيسمع الطرف الآخر تنبيه التسجيل، وتسجيل هذه المكالمة مسموح قانونا.',
+  'calls.provider.call.consent':
+      'أكد أن الطرف الآخر سيسمع تنبيه التسجيل وأن التسجيل مسموح قانونا، أو أوقف التسجيل.',
+  'calls.provider.call.number':
+      'يتطلب الاتصال عبر ANUM رقما دوليا كاملا، مثل +971501234567.',
+  'calls.provider.call.failed': 'تعذر بدء المكالمة: {message}',
+  'calls.provider.call.start': 'اتصال',
+  'calls.provider.call.mute': 'كتم الصوت',
+  'calls.provider.call.unmute': 'إلغاء الكتم',
+  'calls.provider.call.hangUp': 'إنهاء المكالمة',
+  'calls.provider.call.state.connecting': 'جار الاتصال',
+  'calls.provider.call.state.ringing': 'يرن',
+  'calls.provider.call.state.connected': 'متصل',
+  'calls.provider.call.state.ended': 'انتهت المكالمة',
+  'calls.provider.call.state.failed': 'تعذر الاتصال',
 };

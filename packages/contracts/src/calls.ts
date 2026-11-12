@@ -22,7 +22,24 @@ export interface AppCall {
   /** Stream only: whether this device is the one bound to the call. */
   on_this_device?: boolean | null;
   answered_elsewhere: boolean;
+  /** The group call this pair call belongs to, or null for a call between two people. */
+  room_id?: string | null;
 }
+
+export type AppCallMemberState = 'invited' | 'joined' | 'left' | 'declined' | 'missed' | 'busy' | 'cancelled' | 'failed';
+export interface AppCallRoomMember { user_id: string; name: string; state: AppCallMemberState; is_you: boolean }
+/** A group call (docs/in-app-calls.md#group-calls): every two people have their own pair call. */
+export interface AppCallRoom {
+  id: string;
+  media: AppCallMedia;
+  status: 'live' | 'ended';
+  host_user_id: string;
+  members: AppCallRoomMember[];
+  max_people: number;
+  created_at: string;
+  ended_at: string | null;
+}
+export type AppCallMediaSource = 'camera' | 'screen';
 
 export interface AppCallPage { items: AppCall[]; next_cursor: string | null }
 

@@ -248,18 +248,26 @@ class DeskTextField extends StatefulWidget {
       required this.onChanged,
       this.maxLength,
       this.ltr = false,
+      this.initial = '',
+      this.number = false,
       super.key});
   final String label;
   final ValueChanged<String> onChanged;
   final int? maxLength;
   final bool ltr;
 
+  /// The text the field starts with.
+  final String initial;
+
+  /// A decimal number: the number keyboard, left to right.
+  final bool number;
+
   @override
   State<DeskTextField> createState() => _DeskTextFieldState();
 }
 
 class _DeskTextFieldState extends State<DeskTextField> {
-  final _text = TextEditingController();
+  late final _text = TextEditingController(text: widget.initial);
 
   @override
   void dispose() {
@@ -271,8 +279,11 @@ class _DeskTextFieldState extends State<DeskTextField> {
   Widget build(BuildContext context) => TextField(
         controller: _text,
         maxLength: widget.maxLength,
-        autocorrect: !widget.ltr,
-        textDirection: widget.ltr ? TextDirection.ltr : null,
+        autocorrect: !widget.ltr && !widget.number,
+        keyboardType: widget.number
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : null,
+        textDirection: widget.ltr || widget.number ? TextDirection.ltr : null,
         onChanged: widget.onChanged,
         decoration: InputDecoration(labelText: widget.label),
       );

@@ -13,26 +13,32 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, delete, func, or_, select, text, tuple_
+from sqlalchemy import and_, any_, delete, func, literal, or_, select, text, tuple_
 from sqlalchemy.orm import Session
 
 from anum_api.app_calls import (
     MISSED_OUTCOMES,
     AppCall,
+    AppCallRoom,
     CallMedia,
     CallOutcome,
     CallSignal,
     CallStatus,
+    RoomMember,
+    RoomStatus,
     SignalKind,
     forget,
 )
 from anum_api.maintenance import SessionFactory, discover, scoped_unit
 from anum_api.schemas import TenantContext
 
-from .models import AppCallRecord, AppCallSignalRecord
+from .models import AppCallRecord, AppCallRoomRecord, AppCallSignalRecord
 from .scope import require_workspace
 
-_MUTABLE = ("callee_client_id", "status", "outcome", "ended_by_user_id", "answered_at", "ended_at", "heartbeat_at", "duration_seconds")
+_MUTABLE = (
+    "callee_client_id", "status", "outcome", "ended_by_user_id", "answered_at", "ended_at", "heartbeat_at", "duration_seconds",
+    "media", "room_id",
+)
 
 
 def _plain(value: Any) -> Any:
@@ -57,7 +63,32 @@ def _call(record: AppCallRecord) -> AppCall:
         ended_at=record.ended_at,
         heartbeat_at=record.heartbeat_at,
         duration_seconds=record.duration_seconds,
+        room_id=record.room_id,
     )
+
+
+def _room(record: AppCallRoomRecord) -> AppCallRoom:
+    return AppCallRoom(
+        id=record.id,
+        host_user_id=record.host_user_id,
+        media=CallMedia(record.media),
+        status=RoomStatus(record.status),
+        members=[RoomMember.model_validate(member) for member in record.members],
+        created_at=record.created_at,
+        ended_at=record.ended_at,
+    )
+
+
+def _room_values(room: AppCallRoom) -> dict[str, Any]:
+    return {
+        "host_user_id": room.host_user_id,
+        "media": room.media.value,
+        "status": room.status.value,
+        "member_user_ids": room.member_user_ids,
+        "members": [member.model_dump(mode="json") for member in room.members],
+        "created_at": room.created_at,
+        "ended_at": room.ended_at,
+    }
 
 
 def _signal(record: AppCallSignalRecord) -> CallSignal:
@@ -223,7 +254,69 @@ class SqlAlchemyCallStore:
         self.session.flush()
         return True
 
+    # -- group calls ------------------------------------------------------------------
+
+    @staticmethod
+    def _room_scope(context: TenantContext) -> Any:
+        return and_(
+            AppCallRoomRecord.tenant_id == context.tenant_id,
+            AppCallRoomRecord.workspace_id == context.workspace_id,
+            literal(context.user_id) == any_(AppCallRoomRecord.member_user_ids),
+        )
+
+    def _room_record(self, context: TenantContext, room_id: str, *, for_update: bool = False) -> AppCallRoomRecord | None:
+        statement = select(AppCallRoomRecord).where(self._room_scope(context), AppCallRoomRecord.id == room_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return self.session.scalar(statement)
+
+    def insert_room(self, context: TenantContext, room: AppCallRoom) -> AppCallRoom:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        self.session.add(AppCallRoomRecord(id=room.id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, **_room_values(room)))
+        self.session.flush()
+        return room
+
+    def get_room(self, context: TenantContext, room_id: str, *, for_update: bool = False) -> AppCallRoom | None:
+        record = self._room_record(context, room_id, for_update=for_update)
+        return _room(record) if record is not None else None
+
+    def save_room(self, context: TenantContext, room: AppCallRoom) -> AppCallRoom:
+        record = self._room_record(context, room.id)
+        if record is None:
+            raise LookupError(room.id)
+        for name, value in _room_values(room).items():
+            setattr(record, name, value)
+        self.session.flush()
+        return room
+
+    def rooms(self, context: TenantContext, room_ids: list[str]) -> list[AppCallRoom]:
+        statement = select(AppCallRoomRecord).where(self._room_scope(context), AppCallRoomRecord.id.in_(list(dict.fromkeys(room_ids))))
+        return [_room(record) for record in self.session.scalars(statement.order_by(AppCallRoomRecord.created_at, AppCallRoomRecord.id))]
+
+    def my_rooms(self, context: TenantContext) -> list[AppCallRoom]:
+        statement = select(AppCallRoomRecord).where(self._room_scope(context))
+        return [_room(record) for record in self.session.scalars(statement.order_by(AppCallRoomRecord.created_at, AppCallRoomRecord.id))]
+
+    def delete_room(self, context: TenantContext, room_id: str) -> bool:
+        result = self.session.execute(delete(AppCallRoomRecord).where(self._room_scope(context), AppCallRoomRecord.id == room_id))
+        return bool(getattr(result, "rowcount", 0))
+
     def purge(self, context: TenantContext, before: datetime) -> int:
+        doomed_rooms = (
+            select(AppCallRecord.room_id)
+            .where(
+                self._scope(context),
+                AppCallRecord.created_at < before,
+                AppCallRecord.status == CallStatus.ENDED.value,
+                AppCallRecord.room_id.is_not(None),
+            )
+            .scalar_subquery()
+        )
+        self.session.execute(
+            delete(AppCallRoomRecord).where(
+                self._room_scope(context), AppCallRoomRecord.status == RoomStatus.ENDED.value, AppCallRoomRecord.id.in_(doomed_rooms)
+            )
+        )
         result = self.session.execute(
             delete(AppCallRecord).where(
                 self._scope(context), AppCallRecord.created_at < before, AppCallRecord.status == CallStatus.ENDED.value
@@ -245,7 +338,20 @@ _OLD_CALLS = text(
     limit :limit
     """
 )
-# Re-checks the age; signals go with their call (ON DELETE CASCADE).
+# Re-checks the age; signals go with their call (ON DELETE CASCADE). A group call these
+# calls belonged to goes first (its other pairs keep their rows with room_id set to null
+# until their own turn); the caller is one of its members, so the row policy admits it.
+_DELETE_OLD_ROOMS = text(
+    """
+    delete from app_call_rooms
+    where tenant_id = :tenant_id and workspace_id = :workspace_id and status = 'ended'
+      and id in (
+        select room_id from app_calls
+        where tenant_id = :tenant_id and workspace_id = :workspace_id and id = any(:ids)
+          and room_id is not null and status = 'ended' and ended_at <= now() - make_interval(days => :days)
+      )
+    """
+)
 _DELETE_OLD = text(
     """
     with doomed as (
@@ -306,6 +412,8 @@ def purge_old_calls(
         for (tenant_id, workspace_id, user_id), ids in scopes.items():
             params = {"tenant_id": tenant_id, "workspace_id": workspace_id, "ids": ids, "days": retention_days}
             with scoped_unit(session_factory, tenant_id, workspace_id, user_id=user_id) as session:
+                if not dry_run:
+                    session.execute(_DELETE_OLD_ROOMS, params)
                 counted = session.execute(_COUNT_OLD if dry_run else _DELETE_OLD, params).one()
                 if dry_run:
                     session.rollback()

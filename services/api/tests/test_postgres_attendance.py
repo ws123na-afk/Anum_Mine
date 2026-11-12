@@ -250,4 +250,61 @@ def test_privacy_delete_and_purge_role_cover_attendance(client: TestClient, app_
         grants = connection.execute(text(
             "select table_name from information_schema.role_table_grants where grantee = 'anum_tenant_purger' "
             "and privilege_type = 'DELETE' and table_name like 'attendance_%'")).scalars().all()
-    assert set(grants) == set(TABLES)
+    # The workspace switch of 0181_attendance_manager_view is purged with the workspace too.
+    assert set(grants) == {*TABLES, "attendance_workspace_settings"}
+
+
+def _manager_count(app_session: Callable[..., Iterator[Session]], table: str, user_id: str, flag: bool) -> int:
+    with app_session(tenant_context(TENANT_A, WORKSPACE_A)) as session:
+        session.execute(text("select set_config('anum.user_id', :u, true)"), {"u": user_id})
+        if flag:
+            session.execute(text("select set_config('anum.attendance_manager', 'on', true)"))
+        return int(session.execute(text(f"select count(*) from {table}")).scalar_one())  # nosec B608
+
+
+def test_manager_view_widens_reads_only_with_the_flag_and_the_switch(client: TestClient, app_session, database_engine: Engine) -> None:  # type: ignore[no-untyped-def]
+    """Migration 0181_attendance_manager_view (docs/attendance.md#manager-view) under RLS."""
+    members(database_engine, (TENANT_A, WORKSPACE_A, ME["x-user-id"], "member"), (TENANT_A, WORKSPACE_A, BOSS["x-user-id"], "owner"))
+    seed(client)
+    boss = BOSS["x-user-id"]
+    with database_engine.connect() as connection:
+        forced = connection.execute(text("select relrowsecurity and relforcerowsecurity from pg_class where relname = 'attendance_workspace_settings'")).scalar_one()
+        assert forced
+    # Off: neither the flag alone nor the owner role reads anyone's rows.
+    for table in ("attendance_events", "attendance_profiles", "attendance_sites", "attendance_day_totals"):
+        assert _manager_count(app_session, table, boss, flag=True) == 0, table
+    assert client.get(f"{API}/manager", headers=BOSS).status_code == 409
+    # Writing the switch outside a manager unit is refused by the database itself.
+    with pytest.raises(DBAPIError):
+        with app_session(tenant_context(TENANT_A, WORKSPACE_A)) as session:
+            session.execute(text("insert into attendance_workspace_settings (tenant_id, workspace_id, manager_view, updated_by) "
+                                 "values (:t, :w, true, 'user_intruder')"), {"t": TENANT_A, "w": WORKSPACE_A})
+    assert client.put(f"{API}/workspace-settings", json={"manager_view": True, "expected_version": 0}, headers=ME).status_code == 403
+    on = client.put(f"{API}/workspace-settings", json={"manager_view": True, "expected_version": 0}, headers=BOSS)
+    assert on.status_code == 200, on.text
+    assert client.get(f"{API}/workspace-settings", headers=ME).json()["manager_view"] is True
+    # On: the flag widens profiles, sites, events and day totals; never reports, corrections or shares; never writes.
+    assert _manager_count(app_session, "attendance_events", boss, flag=True) == 2
+    assert _manager_count(app_session, "attendance_sites", boss, flag=True) == 1
+    assert _manager_count(app_session, "attendance_events", boss, flag=False) == 0
+    assert _manager_count(app_session, "attendance_daily_reports", boss, flag=True) == 0
+    assert _manager_count(app_session, "attendance_corrections", boss, flag=True) == 0
+    with app_session(tenant_context(TENANT_A, WORKSPACE_A)) as session:
+        session.execute(text("select set_config('anum.user_id', :u, true)"), {"u": boss})
+        session.execute(text("select set_config('anum.attendance_manager', 'on', true)"))
+        assert session.execute(text("update attendance_events set note = 'boss'")).rowcount == 0
+        assert session.execute(text("delete from attendance_sites")).rowcount == 0
+    # Another workspace's switch does not open this one, and this one's opens nothing elsewhere.
+    with app_session(tenant_context(TENANT_A, WORKSPACE_A2)) as session:
+        session.execute(text("select set_config('anum.user_id', :u, true)"), {"u": boss})
+        session.execute(text("select set_config('anum.attendance_manager', 'on', true)"))
+        assert session.execute(text("select count(*) from attendance_events")).scalar_one() == 0
+    page = client.get(f"{API}/manager", headers=BOSS)
+    assert page.status_code == 200, page.text
+    assert {r["user_id"] for r in page.json()["rows"]} == {ME["x-user-id"]} and page.json()["rows"][0]["report"] is None
+    export = client.get(f"{API}/manager/export.csv", headers=BOSS)
+    assert export.status_code == 200 and ME["x-user-id"] in export.text
+    assert client.get(f"{API}/manager", headers=ME).status_code == 403
+    off = client.put(f"{API}/workspace-settings", json={"manager_view": False, "expected_version": 1}, headers=BOSS)
+    assert off.status_code == 200
+    assert _manager_count(app_session, "attendance_events", boss, flag=True) == 0

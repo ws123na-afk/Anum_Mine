@@ -27,6 +27,10 @@ export interface AttendanceState {
   /** Colleagues who share their record with the signed-in person (read only), with their reports when shared. */
   colleagues: Row[];
   colleagueReports: Record<string, Row[]>;
+  /** The workspace manager view's switch (docs/attendance.md#manager-view); can_manage for owners. */
+  workspace: { manager_view: boolean; version: number; updated_by: string | null; updated_at: string | null; can_manage: boolean };
+  /** Extra people who keep attendance, seen only through the manager view (paging). */
+  others: Row[];
 }
 
 const site = (id: string, name: string, kind = 'workplace') => ({ id, name, kind, address_label: null, radius_m: 150, archived: false, created_at: stamp, updated_at: stamp });
@@ -66,6 +70,9 @@ export function attendanceState({ empty = false, denied = false, failToday = fal
         scheduled_seconds: 8 * H, reports_shared: true, report: { status: 'submitted', updated_at: at(0, 9), submitted_at: at(0, 9), summary: 'Supplier follow ups' } }),
       teamRow('user_field', { role_title: 'Field coordinator', scheduled_seconds: 8 * H }),
     ],
+    workspace: { manager_view: false, version: 0, updated_by: null, updated_at: null, can_manage: false },
+    others: empty ? [] : Array.from({ length: 26 }, (_, i) => teamRow(`user_crew_${String(i + 1).padStart(2, '0')}`, {
+      role_title: 'Site crew', first_check_in: at(0, 7), first_check_in_source: 'device', worked_seconds: 4 * H, site_names: ['Head office'] })),
     colleagueReports: empty ? {} : { user_manager: [{ id: 'att_rep_m1', day: dubaiDay(0), project: null, tasks_done: ['Supplier follow ups'], tasks_pending: ['Vendor meeting'],
       site_visits: [], issues: 'Waiting for a quote', time_spent_minutes: null, priority: 'normal', follow_up_on: null, notes: null, file_ids: [], drafted_with_ai: false,
       version: 1, created_at: stamp, updated_at: stamp, submitted_at: at(0, 9) }] },
@@ -136,6 +143,20 @@ function attendanceOwnReply(state: AttendanceState, method: string, url: URL, bo
       report: mineToday ? { status: mineToday.submitted_at ? 'submitted' : 'draft', updated_at: mineToday.updated_at, submitted_at: mineToday.submitted_at ?? null, summary: (mineToday.tasks_done as string[]).join('; ') } : { status: 'none', updated_at: null, submitted_at: null, summary: null } });
     const rows = [me, ...state.colleagues];
     return { status: 200, body: { day: url.searchParams.get('date'), generated_at: new Date().toISOString(), rows, total: rows.length } };
+  }
+  if (sub === '/workspace-settings') {
+    if (method === 'GET') return { status: 200, body: state.workspace };
+    if (!state.workspace.can_manage) return { status: 403, body: { error: { code: 'forbidden', message: 'Only workspace owners and organisation administrators see the whole workspace\'s attendance.', details: [] } } };
+    if (b.expected_version !== state.workspace.version) return { status: 409, body: { error: { code: 'conflict', message: 'Someone changed this setting since you opened it. Reload and try again.', details: [] } } };
+    state.workspace = { ...state.workspace, manager_view: Boolean(b.manager_view), version: state.workspace.version + 1, updated_by: 'user_local', updated_at: new Date().toISOString() };
+    return { status: 200, body: state.workspace };
+  }
+  if (method === 'GET' && sub === '/manager') {
+    if (!state.workspace.can_manage) return { status: 403, body: { error: { code: 'forbidden', message: 'Only workspace owners and organisation administrators see the whole workspace\'s attendance.', details: [] } } };
+    if (!state.workspace.manager_view) return { status: 409, body: { error: { code: 'conflict', message: 'The workspace attendance view is off.', details: [] } } };
+    const everyone = [teamRow('user_local', { me: true, role_title: state.profile.role_title }), ...state.colleagues.map((r) => ({ ...r, report: null, reports_shared: false })), ...state.others];
+    const limit = Number(url.searchParams.get('limit') ?? 50), offset = Number(url.searchParams.get('offset') ?? 0);
+    return { status: 200, body: { day: url.searchParams.get('date'), generated_at: new Date().toISOString(), rows: everyone.slice(offset, offset + limit), total: everyone.length } };
   }
   if (method === 'GET' && sub === '/profile') return { status: 200, body: state.profile };
   if (method === 'PUT' && sub === '/profile') {

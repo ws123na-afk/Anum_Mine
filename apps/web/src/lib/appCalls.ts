@@ -1,7 +1,7 @@
 // In-app calls between teammates (docs/in-app-calls.md): the pure parts, with no browser API, so
 // `node --test` runs them: device ids, the call screen's phase, outcome wording, durations, the
 // SSE frame parser and the microphone/camera error kinds.
-import type { AppCall, AppCallOutcome } from '@anum/contracts';
+import type { AppCall, AppCallOutcome, AppCallRoom } from '@anum/contracts';
 
 /** A random device id for this tab (base64url, 22 characters); the API binds a call to it. */
 export function newClientId(random: (bytes: Uint8Array<ArrayBuffer>) => Uint8Array<ArrayBuffer> = (b) => crypto.getRandomValues(b)): string {
@@ -108,4 +108,57 @@ export function initialsOf(name: string): string {
   if (!words.length) return '?';
   const letters = words.length === 1 ? [...words[0]].slice(0, 2) : [[...words[0]][0], [...words[words.length - 1]][0]];
   return letters.join('').toUpperCase();
+}
+
+// ---------------------------------------------------------------- group calls (docs/in-app-calls.md#group-calls)
+
+export const GROUP_MAX_PEOPLE = 4;
+
+/** People of a group call still in it or being rung, other than you. */
+export function activeOthers(room: Pick<AppCallRoom, 'members'> | null): AppCallRoom['members'] {
+  return (room?.members ?? []).filter((m) => !m.is_you && (m.state === 'joined' || m.state === 'invited'));
+}
+
+/** How many more people can be added: a group holds `max_people` at once, you included. */
+export function freeSlots(room: Pick<AppCallRoom, 'members' | 'max_people'> | null, othersWithoutRoom = 1): number {
+  if (!room) return GROUP_MAX_PEOPLE - 1 - othersWithoutRoom;
+  const active = room.members.filter((m) => m.state === 'joined' || m.state === 'invited').length;
+  return Math.max(0, room.max_people - active);
+}
+
+export interface HistoryEntry { key: string; calls: AppCall[]; roomId: string | null }
+
+/** History rows of one group call (consecutive rows with the same room) become one entry. */
+export function groupHistory(items: AppCall[]): HistoryEntry[] {
+  const entries: HistoryEntry[] = [];
+  for (const call of items) {
+    const last = entries[entries.length - 1];
+    if (call.room_id && last && last.roomId === call.room_id) last.calls.push(call);
+    else entries.push({ key: call.id, calls: [call], roomId: call.room_id ?? null });
+  }
+  return entries;
+}
+
+/** The outcome of a group call as one person saw it: completed if any of their connections was. */
+export function groupOutcome(calls: Pick<AppCall, 'direction' | 'outcome'>[]): OutcomeWord | null {
+  const words = calls.map(outcomeWord);
+  if (words.includes('completed')) return 'completed';
+  return words.find((w) => w !== null) ?? null;
+}
+
+/** Whether this browser can share a screen (Chromium, Firefox, Safari, WebView2; not every desktop web view). */
+export function canShareScreen(mediaDevices: Partial<MediaDevices> | undefined = typeof navigator === 'undefined' ? undefined : navigator.mediaDevices): boolean {
+  return typeof mediaDevices?.getDisplayMedia === 'function';
+}
+
+/** What one side sends over the data channel about its own media. */
+export interface PeerMediaState { camera: boolean; screen: boolean; muted: boolean }
+
+export function parsePeerState(data: unknown): PeerMediaState | null {
+  if (typeof data !== 'string' || data.length > 200) return null;
+  try {
+    const value = JSON.parse(data) as Record<string, unknown>;
+    if (typeof value.camera !== 'boolean' || typeof value.screen !== 'boolean' || typeof value.muted !== 'boolean') return null;
+    return { camera: value.camera, screen: value.screen, muted: value.muted };
+  } catch { return null; }
 }

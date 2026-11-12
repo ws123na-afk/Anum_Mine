@@ -120,7 +120,7 @@ class FinanceToolsStrings extends ModuleStrings {
     'sms.lastError': 'Last problem',
     'sms.waiting': 'Waiting for review',
     'sms.setupOnWeb':
-        'Turning forwarding on, the safety check, connecting an iPhone and its Shortcut are done in Finance, iPhone SMS on the web: the token is shown once there.',
+        'Forwarding is not set up yet: press Set up forwarding to run the safety check, turn forwarding on and connect your iPhone.',
     'sms.paste': 'Paste a message',
     'sms.pasteHelp':
         'Paste a bank message you received to check it here. ANUM masks account and card numbers before it keeps the text.',
@@ -794,7 +794,7 @@ class FinanceToolsStrings extends ModuleStrings {
     'sms.lastError': 'آخر مشكلة',
     'sms.waiting': 'بانتظار المراجعة',
     'sms.setupOnWeb':
-        'تشغيل التحويل وفحص الأمان وربط جهاز iPhone واختصاره تتم من المالية، رسائل SMS من iPhone على الويب: يظهر الرمز هناك مرة واحدة.',
+        'لم يُعدّ التحويل بعد: اضغط إعداد التحويل لتشغيل فحص الأمان وتشغيل التحويل وربط جهاز iPhone.',
     'sms.paste': 'لصق رسالة',
     'sms.pasteHelp':
         'الصق رسالة بنك وصلتك لمراجعتها هنا. يخفي ANUM أرقام الحسابات والبطاقات قبل حفظ النص.',

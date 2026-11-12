@@ -20,6 +20,11 @@ class CallChanged extends CallStreamEvent {
   final AppCall call;
 }
 
+class RoomChanged extends CallStreamEvent {
+  const RoomChanged(this.room);
+  final CallRoom room;
+}
+
 class SignalReceived extends CallStreamEvent {
   const SignalReceived(this.signal);
   final CallSignal signal;
@@ -38,6 +43,15 @@ abstract interface class CallRepository {
   Future<void> sendCandidates(
       String callId, List<Map<String, Object?>> candidates);
   Future<CallPage> history({String? cursor, bool missed = false});
+
+  /// Adds a teammate to a call in progress (it becomes a group call).
+  Future<CallRoom> invite(String callId, String userId, String clientId);
+
+  /// Leaves a group call; the others stay connected.
+  Future<CallRoom> leave(String roomId, {String reason = 'hangup'});
+
+  /// Records that this voice call now sends video (`source`: camera).
+  Future<AppCall> turnOnVideo(String callId, {String source = 'camera'});
 
   /// `GET /api/v1/calls/stream?client_id=`: ends when the connection does.
   Stream<CallStreamEvent> stream(String clientId);
@@ -92,7 +106,8 @@ class ApiCallRepository implements CallRepository {
   Future<AppCall> accept(String callId, String clientId) async =>
       AppCall.fromJson(JsonReader(await api.request(
           'POST', '$_base/${_id(callId)}/accept',
-          body: {'client_id': clientId})));
+          // This app holds one connection per person, so it can join group calls.
+          body: {'client_id': clientId, 'group': true})));
 
   @override
   Future<AppCall> end(String callId, String reason) async => AppCall.fromJson(
@@ -128,6 +143,26 @@ class ApiCallRepository implements CallRepository {
   }
 
   @override
+  Future<CallRoom> invite(
+          String callId, String userId, String clientId) async =>
+      CallRoom.fromJson(JsonReader(await api.request(
+          'POST', '$_base/${_id(callId)}/invite',
+          body: {'user_id': userId, 'client_id': clientId})));
+
+  @override
+  Future<CallRoom> leave(String roomId, {String reason = 'hangup'}) async =>
+      CallRoom.fromJson(JsonReader(await api.request(
+          'POST', '$_base/rooms/${_id(roomId)}/leave',
+          body: {'reason': reason})));
+
+  @override
+  Future<AppCall> turnOnVideo(String callId,
+          {String source = 'camera'}) async =>
+      AppCall.fromJson(JsonReader(await api.request(
+          'POST', '$_base/${_id(callId)}/media',
+          body: {'media': 'video', 'source': source})));
+
+  @override
   Stream<CallStreamEvent> stream(String clientId) {
     late final StreamController<CallStreamEvent> output;
     http.Client? client;
@@ -159,6 +194,8 @@ class ApiCallRepository implements CallRepository {
           try {
             if (event.event == 'call') {
               output.add(CallChanged(AppCall.fromJson(JsonReader(fields))));
+            } else if (event.event == 'room') {
+              output.add(RoomChanged(CallRoom.fromJson(JsonReader(fields))));
             } else if (event.event == 'signal') {
               output
                   .add(SignalReceived(CallSignal.fromJson(JsonReader(fields))));

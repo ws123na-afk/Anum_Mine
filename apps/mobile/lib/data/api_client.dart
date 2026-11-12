@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'api_downloads.dart';
 import 'api_models.dart';
 import 'session_store.dart';
@@ -117,6 +119,21 @@ class AnumApiClient {
     }
     return saver.save(method, path,
         body: body, fileName: fileName, dialogTitle: dialogTitle);
+  }
+
+  /// [ApiDownloads.fetch] through [downloads]: an authenticated GET whose
+  /// answer is bytes (an image), held in memory only. The app lock's guard
+  /// applies as for every other request.
+  Future<Uint8List> bytes(String path) async {
+    final refusal = await guard?.call('GET', path);
+    if (refusal != null) {
+      throw ApiException(403, refusal, code: 'app_lock_required');
+    }
+    final fetcher = downloads;
+    if (fetcher == null) {
+      throw const ApiException(0, 'Pictures are not available here.');
+    }
+    return fetcher.fetch(path);
   }
 
   static Uri _normalizeBaseUri(Uri value) {

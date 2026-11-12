@@ -12,9 +12,9 @@ import { describeError } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { viewLabel } from './lib/shell';
 import {
-  CHANNELS, CONTACT_TABS, IMPORT_MAX_ROWS, IMPORT_PAGE, IMPORT_STATUSES, emptyMapping, importActionLabel, importDecisions, importFieldLabel, importFileProblem,
+  CHANNELS, CONTACT_TABS, IMPORT_MAX_ROWS, IMPORT_PAGE, IMPORT_STATUSES, emptyMapping, importActionLabel, bytesToBase64, importDecisions, importFieldLabel, importFileProblem, importFormatOf,
   importIssues, importRowsShown, importStatusLabel, importTotals,
-  type ImportAction, type ImportChoice, type ImportMapping, type ImportPreview, type ImportResult, type ImportRow, type ImportStatus, DNC_FILTERS, NO_FILTERS, PAGE_SIZE, SORTS, SOURCES, blockedChannels, channelLabel, contactsHash, dncFilterLabel, draftOf,
+  type ImportAction, type ImportChoice, type ImportMapping, type ImportPreview, type ImportResult, type ImportRow, type ImportSource, type ImportStatus, DNC_FILTERS, NO_FILTERS, PAGE_SIZE, SORTS, SOURCES, blockedChannels, channelLabel, contactsHash, dncFilterLabel, draftOf,
   emptyPersonDraft, factText, filtered, linkKindLabel, parseContactsHash, personBody, reasonLabel, reasonText, sortLabel, sourceLabel, tabLabel,
   type Channel, type ChannelSummary, type ContactChannel, type ContactTab, type PeopleFilters, type PersonDetail, type PersonDraft, type PersonView, type ProposalView,
 } from './lib/contacts';
@@ -439,7 +439,7 @@ function ImportRowView({ row, choice, busy, onChoose }: { row: ImportRow; choice
 
 function ImportTab({ canImport, onImported, go }: { canImport: boolean; onImported: () => void; go: (tab: ContactTab) => void }) {
   const fileId = useId();
-  const [file, setFile] = useState<{ name: string; text: string } | null>(null);
+  const [file, setFile] = useState<ImportSource | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [mapping, setMapping] = useState<ImportMapping>(emptyMapping());
   const [choices, setChoices] = useState<Record<number, ImportChoice>>({});
@@ -453,10 +453,10 @@ function ImportTab({ canImport, onImported, go }: { canImport: boolean; onImport
   const input = useRef<HTMLInputElement>(null);
   if (!canImport) return <section className="surface ctList" aria-label={t('ct.tab.import')}><Notice>{t('ct.import.ownersOnly')}</Notice></section>;
 
-  const check = async (text: string, name: string, chosen: ImportMapping | null) => {
+  const check = async (source: ImportSource, chosen: ImportMapping | null) => {
     setBusy(chosen ? 'checking' : 'reading'); setError(null); setResult(null);
     try {
-      const next = await api.previewImport(text, name, chosen);
+      const next = await api.previewImport(source, chosen);
       setPreview(next); setMapping(next.mapping); setChoices({}); setShown(IMPORT_PAGE);
     } catch (e) { setError(describeError(e)); } finally { setBusy(null); }
   };
@@ -465,11 +465,14 @@ function ImportTab({ canImport, onImported, go }: { canImport: boolean; onImport
     if (!picked) return;
     const problem = importFileProblem(picked);
     if (problem) { setError(problem); return; }
+    const format = importFormatOf(picked) ?? 'csv';
     setBusy('reading');
-    let text: string;
-    try { text = await picked.text(); } catch (e) { setBusy(null); setError(t('ct.import.err.read', { error: describeError(e) })); return; }
-    setFile({ name: picked.name, text });
-    await check(text, picked.name, null);
+    let content: string;
+    try { content = format === 'xlsx' ? bytesToBase64(new Uint8Array(await picked.arrayBuffer())) : await picked.text(); }
+    catch (e) { setBusy(null); setError(t('ct.import.err.read', { error: describeError(e) })); return; }
+    const source: ImportSource = { name: picked.name, format, content };
+    setFile(source);
+    await check(source, null);
   };
   const reset = () => { setFile(null); setPreview(null); setError(null); setResult(null); setChoices({}); if (input.current) input.current.value = ''; };
   const decisions = preview ? importDecisions(preview.rows, choices) : [];
@@ -479,7 +482,7 @@ function ImportTab({ canImport, onImported, go }: { canImport: boolean; onImport
     if (!preview || !file) return;
     setBusy('importing'); setError(null);
     try {
-      const done = await api.applyImport(file.text, file.name, preview, decisions);
+      const done = await api.applyImport(file, preview, decisions);
       setConfirming(false); setResult(done); setPreview(null); setFile(null); onImported();
     } catch (e) { setConfirming(false); setError(describeError(e)); } finally { setBusy(null); }
   };
@@ -488,7 +491,7 @@ function ImportTab({ canImport, onImported, go }: { canImport: boolean; onImport
     <p className="muted">{t('ct.import.intro')}</p>
     <p className="muted">{t('ct.import.limits', { rows: formatNumber(IMPORT_MAX_ROWS) })}</p>
     {!file && <label className="field ctImportFile" htmlFor={fileId}><span>{t('ct.import.choose')}</span>
-      <input id={fileId} ref={input} type="file" accept=".csv,text/csv" disabled={busy !== null} onChange={(e) => void choose(e.target.files?.[0])} /></label>}
+      <input id={fileId} ref={input} type="file" accept=".csv,.txt,.xlsx,.vcf,text/csv,text/vcard,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busy !== null} onChange={(e) => void choose(e.target.files?.[0])} /></label>}
     {file && <div className="actions ctImportFileName"><span dir="auto"><FileUp aria-hidden="true" />{t('ct.import.file', { name: file.name })}</span>
       <button type="button" className="secondary" disabled={busy !== null} onClick={reset}>{t('ct.import.another')}</button></div>}
     {busy === 'reading' && <Notice busy>{t('ct.import.reading')}</Notice>}
@@ -512,7 +515,7 @@ function ImportTab({ canImport, onImported, go }: { canImport: boolean; onImport
               {preview.columns.filter(Boolean).map((column) => <option key={column} value={column}>{column}</option>)}
             </select></label>)}
         </div>
-        <div className="actions"><button type="button" className="secondary" onClick={() => void check(file.text, file.name, mapping)}>
+        <div className="actions"><button type="button" className="secondary" onClick={() => void check(file, mapping)}>
           <RefreshCw aria-hidden="true" />{busy === 'checking' ? t('ct.import.checking') : t('ct.import.check')}</button></div>
       </fieldset>
       {preview.rows.length > 0 && <>

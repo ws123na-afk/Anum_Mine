@@ -129,3 +129,32 @@ def test_records_are_the_owners_alone_and_lending_is_a_transfer(client: TestClie
         store.delete_everything(ctx)
     with open_personal_store(ctx) as store:
         assert store.count_everything(ctx) == 0
+
+
+def test_a_person_without_a_finance_account_is_found_for_loan_reminders(client: TestClient, database_engine: Engine) -> None:
+    """Migration 0179_loan_reminder_discovery: ``anum_maintenance`` reads who has an open loan with reminders on, and
+    nothing about the loan itself; the reminder is then sent as the application role in the person's own scope."""
+    with database_engine.begin() as connection:
+        connection.execute(text("delete from user_notifications where kind = :k"), {"k": J.NOTICE_KIND})
+    assert client.get(f"{API}/accounts", headers=ME).json() == []  # no finance account at all
+    made = client.post(f"{API}/people-loans", headers=ME, json={"direction": "lent", "person": "Friend G", "amount": "120", "lent_on": "2026-10-01",
+                                                                "due_on": "2026-11-10", "remind_days_before": 3})
+    assert made.status_code == 201, made.text
+    client.post(f"{API}/people-loans", headers=COLLEAGUE, json={"direction": "lent", "person": "Friend H", "amount": "80", "lent_on": "2026-10-01",
+                                                                "due_on": "2026-11-10", "remind": False})
+    assert J.discover_loan_people() == [(TENANT_A, WORKSPACE_A, "user_test")]
+    assert (TENANT_A, WORKSPACE_A, "user_test") in J.people_to_remind()
+    assert J.run(now=datetime(2026, 11, 8, 8, tzinfo=UTC))["reminders"] == 1
+    with database_engine.connect() as connection:
+        sent = connection.execute(text("select user_id, title from user_notifications where kind = :k"), {"k": J.NOTICE_KIND}).all()
+    assert [tuple(row) for row in sent] == [("user_test", "Money owed to you is due")]
+    with database_engine.connect() as connection:
+        with connection.begin():
+            connection.execute(text("set local role anum_maintenance"))
+            for column in ("person", "amount", "notes", "currency"):
+                with pytest.raises(DBAPIError):
+                    with connection.begin_nested():
+                        connection.execute(text(f"select {column} from finance_person_loans"))
+            with pytest.raises(DBAPIError):
+                with connection.begin_nested():
+                    connection.execute(text("update finance_person_loans set remind = false"))

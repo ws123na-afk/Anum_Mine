@@ -158,14 +158,50 @@ export interface ImportDecision { row: number; action: ImportAction; target_id: 
 
 export const emptyMapping = (): ImportMapping => ({ name: [], organisation: null, notes: null, phones: [], emails: [], do_not_contact: null });
 
-/** The text of a chosen file, or the reason it cannot be imported. */
-export function importFileProblem(file: { name: string; size: number; type: string }): string | null {
-  // The extension decides; a name without one falls back to the type the browser gives.
+/** The formats the API reads (`contacts/importer.py`, `contacts/import_files.py`). */
+export type ImportFormat = 'csv' | 'xlsx' | 'vcf';
+/** The API reads an Excel workbook of at most this many bytes. */
+export const IMPORT_MAX_WORKBOOK_BYTES = 2_000_000;
+
+/** The format of a chosen file: the extension decides; a name without one falls back to the type the browser gives. */
+export function importFormatOf(file: { name: string; type: string }): ImportFormat | null {
   const extension = /\.([^./\\]+)$/.exec(file.name)?.[1]?.toLowerCase();
-  if (extension ? !['csv', 'txt'].includes(extension) : !/csv|text\/plain/i.test(file.type)) return t('ct.import.err.type');
-  if (file.size === 0) return t('ct.import.err.empty');
-  if (file.size > IMPORT_MAX_CHARS * 2) return t('ct.import.err.size');
+  if (extension) {
+    if (extension === 'csv' || extension === 'txt') return 'csv';
+    if (extension === 'xlsx') return 'xlsx';
+    if (extension === 'vcf' || extension === 'vcard') return 'vcf';
+    return null;
+  }
+  if (/spreadsheetml\.sheet/i.test(file.type)) return 'xlsx';
+  if (/vcard/i.test(file.type)) return 'vcf';
+  if (/csv|text\/plain/i.test(file.type)) return 'csv';
   return null;
+}
+
+/** The reason a chosen file cannot be imported, before it is read, or null. */
+export function importFileProblem(file: { name: string; size: number; type: string }): string | null {
+  const format = importFormatOf(file);
+  if (!format) return t('ct.import.err.type');
+  if (file.size === 0) return t('ct.import.err.empty');
+  if (format === 'xlsx' ? file.size > IMPORT_MAX_WORKBOOK_BYTES : file.size > IMPORT_MAX_CHARS * 2) return t(format === 'xlsx' ? 'ct.import.err.workbookSize' : 'ct.import.err.size');
+  return null;
+}
+
+/** A file read for the import: its text (CSV, vCard) or the workbook's bytes as base64 (Excel). */
+export interface ImportSource { name: string; format: ImportFormat; content: string }
+
+/** The request body that carries the file: CSV as before (`csv`), vCard text in `csv` with its format, Excel in `file_base64`. */
+export function importFileBody(source: ImportSource): Record<string, string> {
+  if (source.format === 'xlsx') return { format: 'xlsx', file_base64: source.content, file_name: source.name };
+  if (source.format === 'vcf') return { format: 'vcf', csv: source.content, file_name: source.name };
+  return { csv: source.content, file_name: source.name };
+}
+
+/** Bytes as base64, in chunks so a large workbook never overflows the call stack. */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let text = '';
+  for (let start = 0; start < bytes.length; start += 0x8000) text += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
+  return btoa(text);
 }
 
 /** Every row's action as the owner left it (the suggestion unless they chose another), sent with the import. */

@@ -141,13 +141,15 @@ def test_fetched_rates_land_in_the_business_books_and_a_typed_rate_replaces_one(
            "<Cube currency='GBP' rate='0.8500'/><Cube currency='INR' rate='92.000'/><Cube currency='CHF' rate='0.9500'/></Cube></Cube>")
     monkeypatch.setattr(connectors, "finance_transport", httpx.MockTransport(lambda request: httpx.Response(200, text=xml)))
     _setup(client, currency="AED")
-    assert client.put(f"{API}/rates/auto", headers=ME, json={"enabled": True, "currencies": ["USD", "SAR"], "version": None}).status_code == 200
+    assert client.put(f"{API}/rates/auto", headers=ME, json={"enabled": True, "currencies": ["USD", "SAR", "KWD"], "version": None}).status_code == 200
     result = books_jobs.run()
-    assert result["rates_added"] == 2 and result["failed"] == 0, result
+    # AED and SAR come from EUR/USD at their dollar pegs; KWD has no published peg and stays manual.
+    assert result["rates_added"] == 3 and result["failed"] == 0, result
     rows = _rows(app_session, "select base, quote, origin, source, created_by from business_book_rates order by quote")
-    assert [(r[0], r[1], r[2]) for r in rows] == [("EUR", "AED", "ecb"), ("EUR", "USD", "ecb")] and rows[1][3] == "ECB" and rows[0][4] == "system:books"
+    assert [(r[0], r[1], r[2]) for r in rows] == [("EUR", "AED", "ecb"), ("EUR", "SAR", "ecb"), ("EUR", "USD", "ecb")]
+    assert rows[2][3] == "ECB" and "SAMA" in rows[1][3] and rows[0][4] == "system:books"
     feed = client.get(f"{API}/rates/auto", headers=COLLEAGUE).json()
-    assert feed["unavailable"] == ["SAR"] and feed["last_as_of"] == today.isoformat()
+    assert feed["unavailable"] == ["KWD"] and feed["last_as_of"] == today.isoformat()
     typed = client.post(f"{API}/rates", headers=ME, json={"base": "EUR", "quote": "USD", "rate": "1.2", "as_of": today.isoformat(), "source": "Synthetic"})
     assert typed.status_code == 201, typed.text
     assert [(r[0], float(r[1])) for r in _rows(app_session, "select origin, rate from business_book_rates where quote = 'USD'")] == [("manual", 1.2)]

@@ -3,6 +3,8 @@
 // ranges, labels and shares, the controller's paging and CSV export, every
 // state of the card, and layouts from 320 to 1024 wide at 2x text in English
 // and Arabic.
+import 'dart:typed_data';
+
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_downloads.dart';
 import 'package:anum_mobile/data/api_models.dart';
@@ -112,6 +114,10 @@ class _Usage {
 
 class _Downloads implements ApiDownloads {
   final calls = <String>[];
+
+  @override
+  Future<Uint8List> fetch(String path, {int maxBytes = 0}) async =>
+      throw UnimplementedError();
   bool saved = true;
   Object? error;
 

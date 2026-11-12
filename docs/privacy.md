@@ -101,7 +101,7 @@ Removed, in one transaction (after the mailbox revocations below):
 - the caller's in-app team notifications and their team member profile in this workspace (`user_notifications`, `team_member_profiles`, migration `0039_team_work`; counted as `team_notifications` and `team_profile`);
 - the caller's **private** custom agents and their memories (sharing `private`; counted as `private_agents` and `private_agent_memories`, [Agents](agents.md#privacy)). Tasks those agents ran are workspace records and stay, without the agent.
 
-- the caller's call setup messages (`app_call_signals`), and their side of every in-app call (`app_calls`, migration `0073_app_calls`): their user id becomes an unlinkable tombstone and their name "Deleted user", so the other participant's history stays readable; a call whose other side was already deleted is removed. These run in their own short units of work, the rewrite inside the other participant's RLS context ([In-app calls](in-app-calls.md#privacy)).
+- the caller's call setup messages (`app_call_signals`), and their side of every in-app call (`app_calls`, migration `0073_app_calls`): their user id becomes an unlinkable tombstone and their name "Deleted user", so the other participant's history stays readable; a call whose other side was already deleted is removed. In each group call (`app_call_rooms`, migration `0180_app_call_rooms`) their place is rewritten the same way (one tombstone per group call, shared with its pair calls) inside another member's context, and a group nobody else is left in is removed. These run in their own short units of work, the rewrite inside the other participant's RLS context ([In-app calls](in-app-calls.md#privacy)).
 
 Kept, and counted in the response and on the page:
 

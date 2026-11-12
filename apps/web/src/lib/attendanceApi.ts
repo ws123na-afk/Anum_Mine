@@ -3,7 +3,8 @@
 import type {
   AttendanceCorrection, AttendanceCorrectionInput, AttendanceDailyReport, AttendanceDailyReportInput, AttendanceDay, AttendanceDraft,
   AttendanceEvent, AttendanceEventKind, AttendancePage, AttendancePeriod, AttendanceProfile, AttendanceProfileInput, AttendanceRecordResult,
-  AttendanceShare, AttendanceShares, AttendanceSite, AttendanceSiteInput, AttendanceSiteVisit, AttendanceTeam, AttendanceToday, TeamPerson,
+  AttendanceShare, AttendanceShares, AttendanceSite, AttendanceSiteInput, AttendanceSiteVisit, AttendanceTeam, AttendanceToday, AttendanceWorkspaceSettings,
+  TeamPerson,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -65,6 +66,21 @@ export async function downloadReport(format: 'csv' | 'pdf', from: string, to: st
   const response = await fetch(`${apiBaseUrl}${BASE}/export.${format}${query({ from, to, person })}`, { headers: await authHeaders() });
   if (!response.ok) throw await apiErrorFromResponse(response);
   const name = fileNameFromDisposition(response.headers.get('content-disposition'), `attendance-${from}-${to}.${format}`);
+  return saveBlob(await response.blob(), name);
+}
+
+/** The workspace manager view's switch (docs/attendance.md#manager-view): every member may read it. */
+export const getWorkspaceSettings = () => get<AttendanceWorkspaceSettings>('/workspace-settings');
+export const saveWorkspaceSettings = (managerView: boolean, expectedVersion: number) =>
+  send<AttendanceWorkspaceSettings>('PUT', '/workspace-settings', { manager_view: managerView, expected_version: expectedVersion });
+/** Everyone who keeps attendance in the workspace, one day, a page at a time (owners and organisation administrators). */
+export const getManagerView = (date: string | null, limit: number, offset: number) => get<AttendanceTeam>(`/manager${query({ date, limit, offset })}`);
+
+/** Downloads the whole workspace's days as one CSV and returns the saved file name. */
+export async function downloadManagerCsv(from: string, to: string): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}${BASE}/manager/export.csv${query({ from, to })}`, { headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  const name = fileNameFromDisposition(response.headers.get('content-disposition'), `attendance-workspace-${from}-${to}.csv`);
   return saveBlob(await response.blob(), name);
 }
 

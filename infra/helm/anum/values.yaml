@@ -494,6 +494,50 @@ backup:
       cpu: "1"
       memory: 1Gi
 
+# ---------------------------------------------------------------------------
+# Document vault OCR (docs/documents.md#the-ocr-service): local Tesseract (English and
+# Arabic) in its own Deployment, mirroring the compose `ocr` profile. Off by default.
+# When on, the chart gives the API ANUM_OCR_SERVICE_URL (this Service) and
+# ANUM_OCR_SERVICE_TOKEN (from the token Secret below). The pod holds no ANUM secret
+# but that token, has no egress at all (no internet, no database), only the API pods may
+# reach it, and it runs read-only without capabilities, one call at a time.
+# ---------------------------------------------------------------------------
+ocr:
+  enabled: false
+  # The API image built with `--build-arg ANUM_OCR=1` (adds tesseract-ocr, -eng, -ara);
+  # it runs `python -m anum_api.vault.ocr_service`. Its own repository: the deploy
+  # workflows do not build or sign it yet (docs/deployment.md#document-ocr).
+  image:
+    repository: ""
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  # Existing Secret with the token (32+ characters) the API sends and the service checks.
+  # Never in config or extraEnv (the chart refuses ANUM_OCR_SERVICE_TOKEN there).
+  tokenSecret:
+    name: anum-ocr
+    key: ANUM_OCR_SERVICE_TOKEN
+  replicas: 1
+  # Calls served at once per pod (ANUM_OCR_CONCURRENCY); the compose stack uses 1.
+  concurrency: 1
+  uid: 10001
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  service:
+    port: 8091
+  pdb:
+    enabled: false
+    minAvailable: 1
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 serviceAccount:
   # One ServiceAccount per workload, none of them mounts an API token.
   annotations: {}

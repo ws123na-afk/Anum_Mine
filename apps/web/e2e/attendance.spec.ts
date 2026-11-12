@@ -10,6 +10,7 @@ import { useSavedLocale } from './support/workspaceApi';
 async function mockApi(page: Page, options: Parameters<typeof attendanceState>[0] & { role?: 'owner' | 'member' | 'viewer'; failCheck?: number } = {}) {
   const role = options.role ?? 'member';
   const state = attendanceState(options);
+  state.workspace.can_manage = role === 'owner';
   const sent: { method: string; path: string; body: unknown }[] = [];
   let failures = options.failCheck ?? 0;
   await page.route('http://localhost:8000/**', async (route) => {
@@ -27,6 +28,7 @@ async function mockApi(page: Page, options: Parameters<typeof attendanceState>[0
     const body = request.postData() ? request.postDataJSON() : null;
     if (path.startsWith('/api/v1/attendance')) sent.push({ method: request.method(), path, body });
     if (path === '/api/v1/attendance/check' && failures > 0) { failures -= 1; return route.abort('failed'); }
+    if (path === '/api/v1/attendance/manager/export.csv') return route.fulfill({ status: 200, contentType: 'text/csv', headers: { 'content-disposition': 'attachment; filename="attendance-workspace.csv"' }, body: 'person,name,role_title,date\n' });
     if (path.startsWith('/api/v1/attendance/export.')) return route.fulfill({ status: 200, contentType: 'text/csv', headers: { 'content-disposition': 'attachment; filename="attendance-week.csv"' }, body: 'date,time_zone\n' });
     const reply = attendanceReply(state, request.method(), url, body);
     if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
@@ -247,4 +249,39 @@ test('the Arabic team view is right to left', async ({ page }) => {
   await expect(page.getByRole('tab', { name: 'حضور الفريق', selected: true })).toBeVisible();
   await expect(page.getByRole('table', { name: 'قائمة الحضور' })).toBeVisible();
   await noSeriousAxe(page);
+});
+
+test('workspace view: off by default, an owner turns it on, pages through everyone and exports a CSV; members are told', async ({ page }) => {
+  const { state, sent } = await mockApi(page, { role: 'owner' });
+  await page.goto('/#attendance');
+  await tab(page, 'Workspace').click();
+  await expect(page).toHaveURL(/#attendance-workspace$/);
+  await expect(page.getByRole('heading', { name: 'The workspace view is off' })).toBeVisible();
+  await page.getByRole('button', { name: 'Turn on the workspace view' }).first().click();
+  const confirm = page.getByRole('alertdialog', { name: 'Turn on the workspace view?' });
+  await confirm.getByRole('button', { name: 'Turn on the workspace view' }).click();
+  expect(sent.find((r) => r.method === 'PUT' && r.path === '/api/v1/attendance/workspace-settings')?.body).toEqual({ manager_view: true, expected_version: 0 });
+  const roster = page.getByRole('table', { name: /Workspace attendance for/ });
+  await expect(roster.getByRole('rowheader', { name: /Layla Manager/ })).toBeVisible();
+  await expect(page.getByText('29 people keep attendance')).toBeVisible();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByText('26 to 29 of 29')).toBeVisible();
+  await expect(roster.getByRole('rowheader', { name: /user_crew_26/ })).toBeVisible();
+  const download = page.waitForRequest((r) => r.url().includes('/api/v1/attendance/manager/export.csv'));
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  const url = new URL((await download).url());
+  expect(url.searchParams.get('from')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  await expect(page.getByText(/^Saved attendance-workspace/)).toBeVisible();
+  await noSeriousAxe(page);
+  expect(state.workspace.manager_view).toBe(true);
+});
+
+test('workspace view: members have no Workspace tab and see that the view is on', async ({ page }) => {
+  const { state } = await mockApi(page);
+  state.workspace.manager_view = true;
+  await page.goto('/#attendance');
+  await expect(page.getByText('The workspace attendance view is on')).toBeVisible();
+  await expect(tab(page, 'Workspace')).toHaveCount(0);
+  await page.goto('/#attendance-workspace');
+  await expect(page.getByRole('heading', { name: 'Only owners see the whole workspace' })).toBeVisible();
 });

@@ -12,10 +12,13 @@ import '../workspace/workspace_models.dart'
 /// the workspace's browser runs (`GET /api/v1/action-browser/runs`), one
 /// run's step log (`GET /sessions/{id}`), the approvals it waits for (the
 /// ordinary approvals API, decided with the payload hash the person was
-/// shown) and Stop. Saved logins and cards, the live picture and the
-/// owner's input for a "Needs you" step stay on the web, and a step that
-/// needs the card security code is approved there: no credential or card
-/// data is read or typed on the phone.
+/// shown) and Stop; for owners also the live picture (`GET /sessions/{id}/
+/// frame`, masked by the browser service, held in memory only), their own
+/// input for a "Needs you" step (`POST /sessions/{id}/input`) and the saved
+/// logins and cards (`/credentials`): names and masked hints only, a secret
+/// is typed once into a hidden field, sent, and never stored on the phone or
+/// shown back. A step that needs the card security code is still approved on
+/// the web, where the code is typed.
 
 const actionBrowserTool = 'web.act';
 
@@ -43,6 +46,10 @@ class BrowserRun {
       required this.savedItems,
       required this.stepCount,
       required this.canStop,
+      this.live = false,
+      this.canWatch = false,
+      this.logins = const [],
+      this.cards = const [],
       this.waiting,
       this.currentUrl,
       this.message = '',
@@ -58,6 +65,18 @@ class BrowserRun {
   final int savedItems;
   final int stepCount;
   final bool canStop;
+
+  /// A browser is open for this run now (a picture can be taken).
+  final bool live;
+
+  /// The caller is an owner: sees the live picture and gives input.
+  final bool canWatch;
+
+  /// The saved items' handles the run may use (never their values).
+  final List<String> logins, cards;
+
+  /// Waiting for the owner's own hands on the page ("Needs you").
+  bool get needsYou => status == 'waiting' && waiting == 'handoff';
   final DateTime? createdAt, endedAt;
   final List<BrowserStep> steps;
 
@@ -90,6 +109,10 @@ class BrowserRun {
             (j.optList('cards')?.length ?? 0),
         stepCount: j.optInt('step_count') ?? 0,
         canStop: j.optBool('can_stop') ?? false,
+        live: j.optBool('live') ?? false,
+        canWatch: j.optBool('can_watch') ?? false,
+        logins: j.optStrings('logins') ?? const [],
+        cards: j.optStrings('cards') ?? const [],
         waiting: j.optString('waiting'),
         currentUrl: j.optString('current_url'),
         message: j.optString('message') ?? '',
@@ -166,6 +189,137 @@ class BrowserStepFacts {
   bool get handoff => kindKey == 'ab.kind_handoff';
 }
 
+/// The live picture's page size (docs/action-browser.md#the-live-picture).
+const browserFrameWidth = 1280.0, browserFrameHeight = 800.0;
+
+/// A point on the shown picture as a point on the page, or null outside it
+/// (`toPagePoint` on the web). The picture is never mirrored in Arabic.
+({int x, int y})? browserPagePoint(
+    double dx, double dy, double width, double height) {
+  if (width <= 0 || height <= 0) return null;
+  final x = (dx / width * browserFrameWidth).round();
+  final y = (dy / height * browserFrameHeight).round();
+  if (x < 0 || y < 0 || x > browserFrameWidth || y > browserFrameHeight) {
+    return null;
+  }
+  return (x: x, y: y);
+}
+
+/// The keys the owner may press on the page (`OWNER_KEYS` on the web).
+const browserOwnerKeys = [
+  'Enter',
+  'Tab',
+  'Backspace',
+  'Escape',
+  'ArrowUp',
+  'ArrowDown'
+];
+
+/// A saved login or card as the API lists it: the handle, the site and a
+/// masked hint. The secret parts never come back.
+class BrowserCredential {
+  const BrowserCredential(
+      {required this.id,
+      required this.kind,
+      required this.handle,
+      required this.hint,
+      this.site,
+      this.updatedAt});
+  final String id, kind, handle, hint;
+  final String? site;
+  final DateTime? updatedAt;
+
+  bool get isLogin => kind == 'login';
+
+  factory BrowserCredential.fromJson(JsonReader j) => BrowserCredential(
+      id: j.string('id'),
+      kind: j.optString('kind') ?? 'login',
+      handle: j.optString('handle') ?? '',
+      hint: j.optString('hint') ?? '',
+      site: j.optString('site'),
+      updatedAt: j.optDate('updated_at'));
+}
+
+/// What a login or card form sends; empty secret fields keep the saved ones.
+class CredentialDraft {
+  CredentialDraft(
+      {required this.kind,
+      this.handle = '',
+      this.site = '',
+      this.username = '',
+      this.password = '',
+      this.name = '',
+      this.number = '',
+      this.expiry = ''});
+  final String kind;
+  String handle, site, username, password, name, number, expiry;
+
+  /// The catalog key of the first problem (`credentialProblem` on the web),
+  /// or null when it may be sent.
+  String? problem({required bool editing}) {
+    if (!RegExp(r'^[a-z0-9][a-z0-9-]{0,39}$').hasMatch(handle.trim())) {
+      return 'ab.handleRule';
+    }
+    if (kind == 'login') {
+      if (!editing && site.trim().isEmpty) return 'ab.siteNeeded';
+      if (!editing && (username.trim().isEmpty || password.isEmpty)) {
+        return 'ab.loginNeeded';
+      }
+      return null;
+    }
+    final digits = number.replaceAll(RegExp(r'[\s-]'), '');
+    if ((!editing || digits.isNotEmpty) && !luhn(digits)) {
+      return 'ab.cardNumberBad';
+    }
+    if ((!editing || expiry.trim().isNotEmpty) &&
+        !RegExp(r'^(0[1-9]|1[0-2])/\d{2}$').hasMatch(expiry.trim())) {
+      return 'ab.expiryBad';
+    }
+    if (!editing && name.trim().isEmpty) return 'ab.nameNeeded';
+    return null;
+  }
+
+  /// The request body (`credentialBody` on the web): only filled parts.
+  Map<String, Object?> body() {
+    final out = <String, Object?>{
+      'kind': kind,
+      'handle': handle.trim().toLowerCase()
+    };
+    void add(String key, String value, {bool keepSpaces = false}) {
+      if (value.trim().isNotEmpty) out[key] = keepSpaces ? value : value.trim();
+    }
+
+    add('site', site);
+    add('username', username);
+    add('password', password, keepSpaces: true);
+    add('name', name);
+    add('number', number);
+    add('expiry', expiry);
+    return out;
+  }
+
+  /// Forgets every secret typed into this draft.
+  void forgetSecrets() {
+    password = '';
+    number = '';
+  }
+}
+
+/// The Luhn check of a card number of 12 to 19 digits.
+bool luhn(String digits) {
+  if (!RegExp(r'^\d{12,19}$').hasMatch(digits)) return false;
+  var sum = 0;
+  for (var i = 0; i < digits.length; i++) {
+    var n = int.parse(digits[digits.length - 1 - i]);
+    if (i.isOdd) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+  }
+  return sum % 10 == 0;
+}
+
 class BrowserRunPage {
   const BrowserRunPage({required this.items, this.nextOffset});
   final List<BrowserRun> items;
@@ -180,6 +334,19 @@ abstract interface class ActionBrowserRepository {
   /// Pending web.act approvals of [taskId].
   Future<List<WorkspaceApproval>> approvals(String taskId);
   Future<void> decide(WorkspaceApproval approval, {required bool approve});
+
+  /// The live picture (JPEG bytes), or null when the session has none now.
+  Future<Uint8List?> frame(String sessionId);
+
+  /// The owner's own click, text, key or scroll, only while it needs them.
+  Future<void> input(String sessionId, Map<String, Object> event);
+
+  Future<List<BrowserCredential>> credentials();
+
+  /// Creates ([id] null) or changes a saved login or card.
+  Future<BrowserCredential> saveCredential(
+      String? id, Map<String, Object?> body);
+  Future<void> deleteCredential(String id);
 }
 
 class ApiActionBrowserRepository implements ActionBrowserRepository {
@@ -227,6 +394,46 @@ class ApiActionBrowserRepository implements ActionBrowserRepository {
         '/api/v1/approvals/${Uri.encodeComponent(approval.id)}/'
             '${approve ? 'approve' : 'reject'}',
         body: body.isEmpty ? null : body);
+  }
+
+  String _session(String id) => '$_base/sessions/${Uri.encodeComponent(id)}';
+
+  @override
+  Future<Uint8List?> frame(String sessionId) async {
+    try {
+      return await api.bytes('${_session(sessionId)}/frame');
+    } on ApiException catch (e) {
+      if (e.statusCode == 409) return null; // no browser open right now
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> input(String sessionId, Map<String, Object> event) async {
+    await api.request('POST', '${_session(sessionId)}/input', body: event);
+  }
+
+  @override
+  Future<List<BrowserCredential>> credentials() async {
+    // A JSON list arrives as {"data": [...]} (HttpApiTransport).
+    return JsonReader(await api.request('GET', '$_base/credentials'))
+        .optObjects('data', BrowserCredential.fromJson);
+  }
+
+  @override
+  Future<BrowserCredential> saveCredential(
+          String? id, Map<String, Object?> body) async =>
+      BrowserCredential.fromJson(JsonReader(await api.request(
+          id == null ? 'POST' : 'PUT',
+          id == null
+              ? '$_base/credentials'
+              : '$_base/credentials/${Uri.encodeComponent(id)}',
+          body: body)));
+
+  @override
+  Future<void> deleteCredential(String id) async {
+    await api.request(
+        'DELETE', '$_base/credentials/${Uri.encodeComponent(id)}');
   }
 }
 
@@ -363,6 +570,55 @@ class BrowserRunController extends ChangeNotifier {
     await load();
   }
 
+  // -- the live picture and the owner's input (owners only) -----------------
+
+  /// The last picture of the page, held in memory only (never written).
+  Uint8List? picture;
+  bool pictureFailed = false;
+  bool _framing = false;
+
+  /// The page's answer to the last input: a catalog key and its message.
+  String? inputError;
+
+  /// Reads the live picture once; the screen calls it on a timer while the
+  /// run has a browser open and the screen is shown.
+  Future<void> loadFrame() async {
+    final current = run;
+    if (_framing || current == null || !current.live || !current.canWatch) {
+      if (current != null && !current.live && picture != null) {
+        picture = null;
+        notifyListeners();
+      }
+      return;
+    }
+    _framing = true;
+    try {
+      final next = await repository.frame(current.id);
+      picture = next;
+      pictureFailed = false;
+    } on Object {
+      pictureFailed = true;
+    }
+    _framing = false;
+    notifyListeners();
+  }
+
+  /// Sends a click, text, key or scroll to the page while the run needs the
+  /// owner ("Needs you"); the server refuses it at any other time.
+  Future<void> send(Map<String, Object> event) async {
+    final current = run;
+    if (current == null || !current.needsYou) return;
+    inputError = null;
+    notifyListeners();
+    try {
+      await repository.input(current.id, event);
+    } on Object catch (e) {
+      inputError = _message(e);
+    }
+    notifyListeners();
+    await loadFrame();
+  }
+
   Future<void> stop() async {
     final current = run;
     if (current == null || busy != null) return;
@@ -378,5 +634,86 @@ class BrowserRunController extends ChangeNotifier {
     }
     busy = null;
     notifyListeners();
+  }
+}
+
+enum CredentialsPhase { loading, ready, denied, error }
+
+/// The workspace's saved logins and cards (owners only). The list carries
+/// handles, sites and masked hints; a secret goes from a form to the API
+/// once and is never kept here.
+class CredentialsController extends ChangeNotifier {
+  CredentialsController(this.repository);
+  final ActionBrowserRepository repository;
+
+  CredentialsPhase phase = CredentialsPhase.loading;
+  String? error;
+  List<BrowserCredential> items = const [];
+  String? busy;
+
+  /// A catalog key with the handle, for the saved or deleted message.
+  String? noteKey;
+  String? noteHandle;
+  String? noteRaw;
+
+  Future<void> load() async {
+    phase = items.isEmpty ? CredentialsPhase.loading : phase;
+    error = null;
+    notifyListeners();
+    try {
+      items = await repository.credentials();
+      phase = CredentialsPhase.ready;
+    } on ApiException catch (e) {
+      phase = e.isPermissionDenied
+          ? CredentialsPhase.denied
+          : CredentialsPhase.error;
+      error = e.readable;
+    } on Object catch (e) {
+      phase = CredentialsPhase.error;
+      error = _message(e);
+    }
+    notifyListeners();
+  }
+
+  /// Sends [draft]; null when saved, else a catalog key or the API's
+  /// sentence for the form. The draft's secrets are forgotten either way.
+  Future<String?> save(CredentialDraft draft,
+      {BrowserCredential? existing}) async {
+    final problem = draft.problem(editing: existing != null);
+    if (problem != null) return problem;
+    busy = 'save';
+    notifyListeners();
+    try {
+      final saved = await repository.saveCredential(existing?.id, draft.body());
+      noteKey = 'ab.saved';
+      noteHandle = saved.handle;
+      noteRaw = null;
+      return null;
+    } on Object catch (e) {
+      return _message(e);
+    } finally {
+      draft.forgetSecrets();
+      busy = null;
+      notifyListeners();
+      await load();
+    }
+  }
+
+  Future<void> delete(BrowserCredential item) async {
+    if (busy != null) return;
+    busy = item.id;
+    noteRaw = null;
+    notifyListeners();
+    try {
+      await repository.deleteCredential(item.id);
+      noteKey = 'ab.removed';
+      noteHandle = item.handle;
+    } on Object catch (e) {
+      noteKey = null;
+      noteRaw = _message(e);
+    }
+    busy = null;
+    notifyListeners();
+    await load();
   }
 }

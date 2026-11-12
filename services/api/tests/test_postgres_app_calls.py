@@ -220,3 +220,106 @@ def test_the_daily_retention_job_discovers_old_calls_as_maintenance(
     assert report["app_calls"] == {"retention_days": 365, "dry_run": False, "calls": 1}
     with database_engine.connect() as connection:
         assert connection.execute(text("select id from app_calls")).scalars().all() == [recent["id"]]
+
+
+# --------------------------------------------------------------------------- group calls (0180_app_call_rooms)
+
+DEVICE_C = "device-carol-0000001"
+
+
+def _group(client: TestClient, people: tuple[str, ...] = ("bob", "carol")) -> dict:  # type: ignore[type-arg]
+    response = client.post("/api/v1/app-calls/rooms", headers=headers("alice"), json={"user_ids": list(people), "client_id": DEVICE_A})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _ring_of(user: str, device: str) -> str:
+    calls = [c for c in read_snapshot(ctx(user), device).calls if c.status.value == "ringing" and c.callee_user_id == user]
+    assert len(calls) == 1
+    return calls[0].id
+
+
+def test_a_group_call_is_visible_to_its_members_only_and_forms_a_mesh(
+    client: TestClient, app_session: Callable[..., Iterator[Session]]
+) -> None:
+    room = _group(client)
+    for user, device in (("bob", DEVICE_B), ("carol", DEVICE_C)):
+        answered = client.post(
+            f"/api/v1/app-calls/{_ring_of(user, device)}/accept", headers=headers(user), json={"client_id": device, "group": True}
+        )
+        assert answered.status_code == 200, answered.text
+    for user in ("alice", "bob", "carol"):
+        assert _visible(app_session, ctx(user), "app_call_rooms") == 1
+    # Three people, three pair calls; each person sees their own two.
+    assert _visible(app_session, ctx("bob"), "app_calls") == 2
+    carol_to_bob = next(c for c in read_snapshot(ctx("carol"), DEVICE_C).calls if c.caller_user_id == "carol")
+    assert carol_to_bob.room_id == room["id"] and carol_to_bob.callee_client_id == DEVICE_B
+    sent = client.post(f"/api/v1/app-calls/{carol_to_bob.id}/signals", headers=headers("carol"), json={"kind": "offer", "sdp": OFFER})
+    assert sent.status_code == 202
+    assert [s.kind.value for s in read_snapshot(ctx("bob"), DEVICE_B).signals] == ["offer"]
+    # Nobody outside the group: not a teammate, not another workspace or tenant.
+    assert _visible(app_session, ctx("dave", workspace_id=WORKSPACE_A2), "app_call_rooms") == 0
+    assert _visible(app_session, ctx("erin", tenant_id=TENANT_B, workspace_id=WORKSPACE_B), "app_call_rooms") == 0
+    assert client.get(f"/api/v1/app-calls/rooms/{room['id']}", headers=headers("bob")).json()["status"] == "live"
+    video = client.post(f"/api/v1/app-calls/{carol_to_bob.id}/media", headers=headers("carol"), json={"source": "screen"})
+    assert video.status_code == 200 and video.json()["media"] == "video"
+    left = client.post(f"/api/v1/app-calls/rooms/{room['id']}/leave", headers=headers("alice"), json={})
+    assert left.status_code == 200 and left.json()["status"] == "live"
+    done = client.post(f"/api/v1/app-calls/rooms/{room['id']}/leave", headers=headers("carol"), json={}).json()
+    assert done["status"] == "ended"
+
+
+def test_the_room_policies_refuse_forged_groups(
+    client: TestClient, app_session: Callable[..., Iterator[Session]]
+) -> None:
+    insert_room = text(
+        "insert into app_call_rooms (id, tenant_id, workspace_id, host_user_id, media, status, member_user_ids, members) "
+        "values (:id, :tenant, :workspace, :host, 'audio', 'live', :members, '[]'::jsonb)"
+    )
+
+    def forge(context: TenantContext, **values: object) -> None:
+        with app_session(context) as session:
+            session.execute(text("select set_config('anum.user_id', :user_id, true)"), {"user_id": context.user_id})
+            session.execute(insert_room, values)
+
+    # Carol may not start a group in alice's name, nor one she is not part of, nor in another tenant.
+    with pytest.raises(DBAPIError):
+        forge(ctx("carol"), id="room_forged_1", tenant=TENANT_A, workspace=WORKSPACE_A, host="alice", members=["alice", "carol"])
+    with pytest.raises(DBAPIError):
+        forge(ctx("carol"), id="room_forged_2", tenant=TENANT_A, workspace=WORKSPACE_A, host="carol", members=["alice", "bob"])
+    with pytest.raises(DBAPIError):
+        forge(ctx("alice"), id="room_forged_3", tenant=TENANT_B, workspace=WORKSPACE_B, host="alice", members=["alice"])
+    room = _group(client)
+    # A member cannot drop herself out of the row (it would vanish from her own view) or move it.
+    with app_session(ctx("bob")) as session:
+        session.execute(text("select set_config('anum.user_id', 'bob', true)"))
+        with pytest.raises(DBAPIError):
+            session.execute(text("update app_call_rooms set member_user_ids = array['alice'] where id = :id"), {"id": room["id"]})
+    with app_session(ctx("bob")) as session:
+        session.execute(text("select set_config('anum.user_id', 'bob', true)"))
+        with pytest.raises(DBAPIError):
+            session.execute(text("update app_call_rooms set tenant_id = :tenant"), {"tenant": TENANT_B})
+
+
+def test_delete_my_data_and_retention_cover_group_calls(
+    client: TestClient, app_session: Callable[..., Iterator[Session]], database_engine: Engine
+) -> None:
+    from anum_api.app_calls import purge_retention
+
+    room = _group(client)
+    client.post(f"/api/v1/app-calls/{_ring_of('bob', DEVICE_B)}/accept", headers=headers("bob"), json={"client_id": DEVICE_B, "group": True})
+    deleted = client.post("/api/v1/privacy/delete", headers=headers("alice"), json={"confirm": "DELETE MY DATA"})
+    assert deleted.status_code == 200, deleted.text
+    assert _visible(app_session, ctx("alice"), "app_call_rooms") == 0
+    seen = client.get(f"/api/v1/app-calls/rooms/{room['id']}", headers=headers("bob")).json()
+    assert seen["members"][0]["name"] == "Deleted user" and seen["members"][0]["user_id"].startswith("deleted:")
+    assert "alice" not in json.dumps(seen)
+    client.post(f"/api/v1/app-calls/rooms/{room['id']}/leave", headers=headers("bob"), json={})
+    client.post(f"/api/v1/app-calls/rooms/{room['id']}/leave", headers=headers("carol"), json={})
+    with database_engine.begin() as connection:
+        connection.execute(text("update app_calls set ended_at = now() - interval '400 days' where room_id = :id"), {"id": room["id"]})
+        assert connection.execute(text("select status from app_call_rooms")).scalar_one() == "ended"
+    assert purge_retention(retention_days=365)["calls"] >= 1
+    with database_engine.connect() as connection:
+        assert connection.execute(text("select count(*) from app_call_rooms")).scalar_one() == 0
+        assert connection.execute(text("select count(*) from app_calls where room_id is not null")).scalar_one() == 0

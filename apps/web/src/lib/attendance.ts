@@ -6,7 +6,8 @@ import type {
 } from '@anum/contracts';
 import { formatNumber, t, type MessageKey } from './i18n.ts';
 
-export const ATTENDANCE_TABS = ['team', 'timesheet', 'daily', 'corrections', 'settings'] as const;
+// `workspace` (the manager view, docs/attendance.md#manager-view) is shown to workspace owners and organisation administrators only.
+export const ATTENDANCE_TABS = ['team', 'timesheet', 'daily', 'corrections', 'settings', 'workspace'] as const;
 export type AttendanceTab = typeof ATTENDANCE_TABS[number];
 
 /** Links made before the redesign keep working: Today and Reports are both in My timesheet now. */

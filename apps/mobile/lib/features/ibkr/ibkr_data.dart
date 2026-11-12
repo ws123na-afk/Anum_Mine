@@ -9,8 +9,12 @@ import '../../data/readable_error.dart';
 /// the orders and the approvals that wait. The phone approves an order the
 /// same way the web does (`POST /intents/{id}/approve` with the payload hash
 /// the owner was shown, single use, expiring, checked again by the server),
-/// rejects it, and can always stop everything. Connecting, limits, the order
-/// ticket, buy plans and the live switch stay on the web.
+/// rejects it, and can always stop everything. The order ticket makes a
+/// request that waits for that same approval (nothing is sent by making it),
+/// limits are read and changed by the owner, alerts are read and marked
+/// read, and an order is checked, looked up and sent, or cancelled, as on
+/// the web. Connecting, buy plans, the allowed list and the live switch stay
+/// on the web.
 
 /// One gate or paper proof check: the code names it, the message is the
 /// server's own English sentence with the figures.
@@ -231,7 +235,12 @@ class IbkrOverview {
       this.approvalMinutes = 5,
       this.paperMinOrders = 20,
       this.paperMinDays = 14,
-      this.riskNote = ''});
+      this.riskNote = '',
+      this.limits = const {},
+      this.settingsVersion = 0,
+      this.liveOn = false,
+      this.allowed = const [],
+      this.fractionalOk = false});
   final String mode;
   final bool deploymentLiveEnabled, killSwitch, marketOpen;
   final String marketMessage, riskNote;
@@ -241,6 +250,15 @@ class IbkrOverview {
   final List<IbkrCheck> liveGates, paperProof;
   final List<IbkrIntent> pending;
   final int unreadAlerts, approvalMinutes, paperMinOrders, paperMinDays;
+
+  /// The owner's hard limits as the API sent them (field name to text).
+  final Map<String, String> limits;
+  final int settingsVersion;
+
+  /// Live orders are switched on: limits may then only be made stricter.
+  final bool liveOn;
+  final List<IbkrAllowed> allowed;
+  final bool fractionalOk;
 
   factory IbkrOverview.fromJson(JsonReader j) {
     final settings = j.object('settings');
@@ -271,6 +289,19 @@ class IbkrOverview {
       paperMinOrders: j.optInt('paper_min_orders') ?? 20,
       paperMinDays: j.optInt('paper_min_days') ?? 14,
       riskNote: j.optString('risk_note') ?? '',
+      limits: {
+        for (final e
+            in (settings.optMap('limits') ?? const <String, Object?>{}).entries)
+          if (e.value is String || e.value is num) e.key: '${e.value}'
+      },
+      settingsVersion: settings.optInt('version') ?? 0,
+      liveOn: settings.optObject('live')?.optBool('on') ?? false,
+      allowed: settings.optObjects(
+          'allowed',
+          (a) => IbkrAllowed(
+              symbol: a.string('symbol'),
+              shariah: a.optBool('shariah_screened') ?? false)),
+      fractionalOk: settings.optBool('fractional_ok') ?? false,
     );
   }
 
@@ -283,6 +314,122 @@ class IbkrOverview {
 
   bool get paperDone => paperProof.isNotEmpty && paperProof.every((c) => c.ok);
 }
+
+/// An ETF on the owner's allowed list (the order ticket offers only these).
+class IbkrAllowed {
+  const IbkrAllowed({required this.symbol, this.shariah = false});
+  final String symbol;
+  final bool shariah;
+}
+
+/// The limit fields in the web's order (docs/finance-live-trading.md#limits).
+const ibkrLimitFields = [
+  'max_capital',
+  'max_order',
+  'max_daily_loss',
+  'max_orders_per_day',
+  'price_band_percent',
+  'session_buffer_minutes',
+  'fee_buffer',
+];
+
+/// IBKR's price for an allowed ETF, for the ticket.
+class IbkrQuote {
+  const IbkrQuote(
+      {required this.symbol,
+      this.last,
+      this.delayed = false,
+      this.bandPercent = ''});
+  final String symbol;
+  final String? last;
+  final bool delayed;
+  final String bandPercent;
+
+  factory IbkrQuote.fromJson(JsonReader j) => IbkrQuote(
+      symbol: j.optString('symbol') ?? '',
+      last: j.optString('last'),
+      delayed: j.optBool('delayed') ?? false,
+      bandPercent: j.optString('band_percent') ?? '');
+}
+
+/// One IBKR alert (a refused order, a session expiry, a mismatch), newest first.
+class IbkrAlert {
+  const IbkrAlert(
+      {required this.id,
+      required this.severity,
+      required this.message,
+      this.environment,
+      this.createdAt,
+      this.read = false});
+  final String id, severity, message;
+  final String? environment;
+  final DateTime? createdAt;
+  final bool read;
+
+  factory IbkrAlert.fromJson(JsonReader j) => IbkrAlert(
+      id: j.string('id'),
+      severity: j.optString('severity') ?? 'info',
+      message: j.optString('message') ?? '',
+      environment: j.optString('environment'),
+      createdAt: j.optDate('created_at'),
+      read: j.optString('read_at') != null);
+}
+
+/// The order ticket's own checks before anything is sent (the server checks
+/// everything again), as `checkTicket` on the web: null when it may go.
+String? ibkrTicketProblem(
+    {required String symbol,
+    required String quantity,
+    required String limitPrice,
+    required List<String> allowed,
+    required bool fractionalOk,
+    required String maxOrder}) {
+  if (!allowed.contains(symbol)) return 'symbol';
+  final q = _scaled(quantity);
+  if (q == null || q <= BigInt.zero) return 'quantity';
+  if (!fractionalOk && q % BigInt.from(10000) != BigInt.zero) {
+    return 'wholeShares';
+  }
+  final p = _scaled(limitPrice);
+  if (p == null || p <= BigInt.zero) return 'price';
+  final total = ibkrNotional(quantity, limitPrice);
+  final cap = _scaled(maxOrder);
+  if (total != null && cap != null && (_scaled(total) ?? BigInt.zero) > cap) {
+    return 'overOrder';
+  }
+  return null;
+}
+
+final _decimal = RegExp(r'^\d{1,10}(\.\d{1,4})?$');
+
+/// A decimal text as a count of 1/10000, or null.
+BigInt? _scaled(String text) {
+  final value = text.trim();
+  if (!_decimal.hasMatch(value)) return null;
+  final parts = value.split('.');
+  final fraction = (parts.length > 1 ? parts[1] : '').padRight(4, '0');
+  return BigInt.parse(parts[0]) * BigInt.from(10000) +
+      BigInt.parse(fraction.substring(0, 4));
+}
+
+/// quantity times price, rounded half up to cents ("12.34"); exact.
+String? ibkrNotional(String quantity, String price) {
+  final q = _scaled(quantity), p = _scaled(price);
+  if (q == null || p == null) return null;
+  final cents = (q * p + BigInt.from(500000)) ~/ BigInt.from(1000000);
+  final whole = cents ~/ BigInt.from(100);
+  final rest = (cents % BigInt.from(100)).toString().padLeft(2, '0');
+  return '$whole.$rest';
+}
+
+/// Order states where Check at IBKR applies (`OPEN_ORDER_STATES` on the web).
+const ibkrOpenStates = {
+  'submitting',
+  'submitted',
+  'partially_filled',
+  'cancel_requested',
+  'unknown'
+};
 
 class IbkrOrderPage {
   const IbkrOrderPage({required this.items, required this.total});
@@ -323,6 +470,25 @@ abstract interface class IbkrRepository {
   Future<void> reject(IbkrIntent intent);
   Future<IbkrKillReport> kill(String reason);
   Future<void> release();
+
+  /// IBKR's price for an allowed ETF.
+  Future<IbkrQuote> quote(String symbol);
+
+  /// The order ticket: a limit order request that waits for approval.
+  Future<IbkrIntent> createOrder(
+      {required String symbol,
+      required String side,
+      required String quantity,
+      required String limitPrice,
+      String? reason});
+  Future<void> saveLimits(Map<String, Object> limits, int version);
+  Future<(List<IbkrAlert>, int)> alerts({int limit = 10});
+  Future<void> markAlertsRead();
+
+  /// Check at IBKR (refresh), Look up and send, Cancel.
+  Future<IbkrOrder> refreshOrder(String orderId);
+  Future<IbkrOrder> resendOrder(String orderId);
+  Future<IbkrOrder> cancelOrder(String orderId);
 }
 
 class ApiIbkrRepository implements IbkrRepository {
@@ -372,6 +538,61 @@ class ApiIbkrRepository implements IbkrRepository {
     await api.request('POST', '$_base/kill-switch/release',
         body: {'confirm': 'RESUME'});
   }
+
+  String _order(String id) => '$_base/orders/${Uri.encodeComponent(id)}';
+
+  @override
+  Future<IbkrQuote> quote(String symbol) async =>
+      IbkrQuote.fromJson(JsonReader(await api.request(
+          'GET', '$_base/quote?symbol=${Uri.encodeQueryComponent(symbol)}')));
+
+  @override
+  Future<IbkrIntent> createOrder(
+          {required String symbol,
+          required String side,
+          required String quantity,
+          required String limitPrice,
+          String? reason}) async =>
+      IbkrIntent.fromJson(
+          JsonReader(await api.request('POST', '$_base/orders', body: {
+        'symbol': symbol,
+        'side': side,
+        'quantity': quantity.trim(),
+        'limit_price': limitPrice.trim(),
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      })));
+
+  @override
+  Future<void> saveLimits(Map<String, Object> limits, int version) async {
+    await api.request('PUT', '$_base/limits',
+        body: {'limits': limits, 'version': version});
+  }
+
+  @override
+  Future<(List<IbkrAlert>, int)> alerts({int limit = 10}) async {
+    final j = JsonReader(await api.request(
+        'GET', '$_base/events?alerts=true&limit=$limit&offset=0'));
+    return (j.optObjects('items', IbkrAlert.fromJson), j.optInt('unread') ?? 0);
+  }
+
+  @override
+  Future<void> markAlertsRead() async {
+    await api.request('POST', '$_base/events/read');
+  }
+
+  @override
+  Future<IbkrOrder> refreshOrder(String orderId) async => IbkrOrder.fromJson(
+      JsonReader(await api.request('POST', '${_order(orderId)}/refresh')));
+
+  @override
+  Future<IbkrOrder> resendOrder(String orderId) async {
+    final j = JsonReader(await api.request('POST', '${_order(orderId)}/send'));
+    return IbkrOrder.fromJson(j.optObject('order') ?? j);
+  }
+
+  @override
+  Future<IbkrOrder> cancelOrder(String orderId) async => IbkrOrder.fromJson(
+      JsonReader(await api.request('POST', '${_order(orderId)}/cancel')));
 }
 
 enum IbkrPhase { loading, ready, denied, error }
@@ -420,7 +641,10 @@ class IbkrController extends ChangeNotifier {
       error = readableError(e);
     }
     notifyListeners();
-    if (phase == IbkrPhase.ready) await loadOrders();
+    if (phase == IbkrPhase.ready) {
+      await loadOrders();
+      if (overview!.unreadAlerts > 0 || alerts.isNotEmpty) await loadAlerts();
+    }
   }
 
   Future<void> loadOrders({bool more = false}) async {
@@ -489,6 +713,156 @@ class IbkrController extends ChangeNotifier {
             ? IbkrNote(
                 key: 'ibkr.kill.done', values: {'count': report.cancelled})
             : const IbkrNote(key: 'ibkr.kill.stuck', failed: true);
+      });
+
+  // -- alerts ---------------------------------------------------------------
+
+  List<IbkrAlert> alerts = const [];
+  bool alertsLoading = false;
+  String? alertsError;
+
+  Future<void> loadAlerts() async {
+    alertsLoading = true;
+    alertsError = null;
+    notifyListeners();
+    try {
+      alerts = (await repository.alerts()).$1;
+    } on Object catch (e) {
+      alertsError = e is ApiException ? e.readable : readableError(e);
+    }
+    alertsLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> markAlertsRead() => _act('alerts', () async {
+        await repository.markAlertsRead();
+        return const IbkrNote(key: 'od.ib.alertsRead');
+      });
+
+  // -- the order ticket -----------------------------------------------------
+
+  IbkrQuote? quote;
+  bool quoting = false;
+
+  /// The ticket's own problem as a catalog key, or the API's sentence.
+  IbkrNote? ticketNote;
+
+  Future<void> getQuote(String symbol) async {
+    quoting = true;
+    ticketNote = null;
+    quote = null;
+    notifyListeners();
+    try {
+      quote = await repository.quote(symbol);
+    } on ApiException catch (e) {
+      ticketNote = IbkrNote(raw: e.readable, failed: true);
+    } on Object catch (e) {
+      ticketNote = IbkrNote(raw: readableError(e), failed: true);
+    }
+    quoting = false;
+    notifyListeners();
+  }
+
+  /// Makes an order request for approval; true when it was made. Nothing
+  /// reaches IBKR until the owner approves it with its payload hash.
+  Future<bool> createOrder(
+      {required String symbol,
+      required String side,
+      required String quantity,
+      required String limitPrice}) async {
+    final o = overview;
+    if (o == null || busy != null) return false;
+    final problem = ibkrTicketProblem(
+        symbol: symbol,
+        quantity: quantity,
+        limitPrice: limitPrice,
+        allowed: [for (final a in o.allowed) a.symbol],
+        fractionalOk: o.fractionalOk,
+        maxOrder: o.limits['max_order'] ?? '0');
+    if (problem != null) {
+      ticketNote = IbkrNote(
+          key: 'ibkr.ticket.error.$problem',
+          values: {'max': 'USD ${o.limits['max_order'] ?? '-'}'},
+          failed: true);
+      notifyListeners();
+      return false;
+    }
+    busy = 'ticket';
+    ticketNote = null;
+    note = null;
+    notifyListeners();
+    var made = false;
+    try {
+      await repository.createOrder(
+          symbol: symbol,
+          side: side,
+          quantity: quantity,
+          limitPrice: limitPrice);
+      made = true;
+      quote = null;
+      ticketNote = const IbkrNote(key: 'ibkr.ticket.created');
+    } on ApiException catch (e) {
+      // Shown beside the ticket: the server's own sentence (a limit, the
+      // market hours, a missing connection).
+      ticketNote = IbkrNote(raw: e.readable, failed: true);
+    } on Object catch (e) {
+      ticketNote = IbkrNote(raw: readableError(e), failed: true);
+    }
+    busy = null;
+    notifyListeners();
+    if (made) await load();
+    return made;
+  }
+
+  // -- limits ---------------------------------------------------------------
+
+  /// Saves the owner's limits; null when saved, else the sentence to show
+  /// in the form (the server refuses loosening while live, and any value
+  /// outside its bounds).
+  Future<String?> saveLimits(Map<String, String> values) async {
+    final o = overview;
+    if (o == null) return null;
+    final body = <String, Object>{};
+    for (final field in ibkrLimitFields) {
+      final text = (values[field] ?? '').trim();
+      if (field == 'max_orders_per_day' || field == 'session_buffer_minutes') {
+        final number = int.tryParse(text);
+        if (number == null) return 'od.ib.limitWhole';
+        body[field] = number;
+      } else {
+        if (_scaled(text) == null) return 'od.ib.limitNumber';
+        body[field] = text;
+      }
+    }
+    try {
+      await repository.saveLimits(body, o.settingsVersion);
+    } on ApiException catch (e) {
+      return e.readable;
+    } on Object catch (e) {
+      return readableError(e);
+    }
+    note = const IbkrNote(key: 'ibkr.limits.saved');
+    await load();
+    return null;
+  }
+
+  // -- per-order actions ----------------------------------------------------
+
+  Future<void> checkOrder(IbkrOrder order) => _act(order.id, () async {
+        await repository.refreshOrder(order.id);
+        return const IbkrNote(key: 'ibkr.orders.checked');
+      });
+
+  /// For an order IBKR never answered: the server looks it up by its own id
+  /// first and sends only if IBKR has none, so nothing is sent twice.
+  Future<void> resendOrder(IbkrOrder order) => _act(order.id, () async {
+        await repository.resendOrder(order.id);
+        return const IbkrNote(key: 'ibkr.orders.resent');
+      });
+
+  Future<void> cancelOrder(IbkrOrder order) => _act(order.id, () async {
+        await repository.cancelOrder(order.id);
+        return const IbkrNote(key: 'ibkr.orders.cancelled');
       });
 
   Future<void> release(String typed) {

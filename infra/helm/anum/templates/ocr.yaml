@@ -1,0 +1,135 @@
+{{- if .Values.ocr.enabled }}
+{{- /* Document vault OCR (docs/documents.md#the-ocr-service), the compose `ocr` profile on Kubernetes. */}}
+{{- $component := "ocr" }}
+{{- $v := .Values.ocr }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "anum.fullname" . }}-ocr
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  replicas: {{ $v.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 8 }}
+      {{- with $v.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "anum.serviceAccountName" (dict "root" $ "component" $component) }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsUser: {{ $v.uid }}
+        runAsGroup: {{ $v.uid }}
+        fsGroup: {{ $v.uid }}
+      containers:
+        - name: ocr
+          image: {{ include "anum.image" (dict "image" $v.image "root" $) }}
+          imagePullPolicy: {{ $v.image.pullPolicy }}
+          command: ["python", "-m", "anum_api.vault.ocr_service"]
+          # Only the token the API sends: no ConfigMap, no other ANUM setting or secret.
+          env:
+            - name: ANUM_OCR_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $v.tokenSecret.name }}
+                  key: {{ $v.tokenSecret.key }}
+            - name: ANUM_OCR_CONCURRENCY
+              value: {{ $v.concurrency | quote }}
+            - name: ANUM_OCR_PORT
+              value: {{ $v.service.port | quote }}
+          ports:
+            - name: http
+              containerPort: {{ $v.service.port }}
+              protocol: TCP
+          # /healthz answers 503 while Tesseract or its English or Arabic data is missing.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+      affinity:
+        {{- include "anum.affinity" (dict "root" $ "component" $component "affinity" $v.affinity) | nindent 8 }}
+      {{- with $v.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "anum.fullname" . }}-ocr
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $v.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- if $v.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "anum.fullname" . }}-ocr
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  minAvailable: {{ $v.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+{{- end }}
+{{- end }}

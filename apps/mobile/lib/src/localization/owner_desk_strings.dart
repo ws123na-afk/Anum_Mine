@@ -12,6 +12,61 @@ const ownerDeskEn = <String, String>{..._webEn, ..._phoneEn};
 const ownerDeskAr = <String, String>{..._webAr, ..._phoneAr};
 
 const _webEn = <String, String>{
+  'ibkr.alerts.read': 'Mark as read',
+  'ibkr.alerts.title': 'Alerts ({count} new)',
+  'ibkr.limit.fee_buffer': 'Cash kept for fees per order',
+  'ibkr.limit.max_capital': 'Total capital in use',
+  'ibkr.limit.max_daily_loss': 'Daily loss stop',
+  'ibkr.limit.max_order': 'Most per order',
+  'ibkr.limit.max_orders_per_day': 'Orders per day',
+  'ibkr.limit.price_band_percent': 'Price band (percent from IBKR price)',
+  'ibkr.limit.session_buffer_minutes':
+      'No orders in the first and last minutes',
+  'ibkr.limits.edit': 'Change limits',
+  'ibkr.limits.liveStricter':
+      'While live is on, limits can only be made stricter. Turn live off to loosen them.',
+  'ibkr.limits.lossShort': 'Stops new orders for the day. Never sells.',
+  'ibkr.limits.lossText':
+      'It is a safety stop. If today\'s loss at IBKR reaches {amount}, ANUM makes no NEW orders for the rest of the day. It never sells anything you hold, so a normal dip in prices does not turn into a sale.',
+  'ibkr.limits.lossWhy': 'Why a daily loss limit?',
+  'ibkr.limits.saved': 'Saved.',
+  'ibkr.limits.title': 'Your hard limits (USD)',
+  'ibkr.orders.cancel': 'Cancel',
+  'ibkr.orders.cancelled': 'Cancel sent to IBKR and checked.',
+  'ibkr.orders.check': 'Check at IBKR',
+  'ibkr.orders.checked': 'Checked at IBKR.',
+  'ibkr.orders.resend': 'Look up and send',
+  'ibkr.orders.resent': 'Looked up at IBKR first. Nothing is sent twice.',
+  'ibkr.ticket.create': 'Make order for approval',
+  'ibkr.ticket.created':
+      'Order made. Review and approve it under Waiting for your approval.',
+  'ibkr.ticket.error.overOrder':
+      'This order is over your limit of {max} per order.',
+  'ibkr.ticket.error.price': 'Enter a limit price above zero.',
+  'ibkr.ticket.error.quantity':
+      'Enter a quantity above zero, with at most 4 decimal places.',
+  'ibkr.ticket.error.symbol': 'Pick an ETF from your allowed list.',
+  'ibkr.ticket.error.wholeShares': 'Whole shares only.',
+  'ibkr.ticket.estimate':
+      'About {total} before fees. Your limit per order is {max}.',
+  'ibkr.ticket.fractional': 'Up to 4 decimal places.',
+  'ibkr.ticket.getPrice': 'Get IBKR price',
+  'ibkr.ticket.intro':
+      'Limit orders only, for one day, regular US hours. Making an order sends nothing: it waits for your approval below.',
+  'ibkr.ticket.limit': 'Limit price (USD)',
+  'ibkr.ticket.noQuote': 'IBKR has no usable price for this ETF right now.',
+  'ibkr.ticket.noSymbols': 'No ETF allowed yet',
+  'ibkr.ticket.noSymbolsText':
+      'Add at least one US ETF to your allowed list below.',
+  'ibkr.ticket.quoteDelayed':
+      'IBKR price {price}, Delayed (about 15 minutes old, free data). Your limit must be within {band} percent of it.',
+  'ibkr.ticket.quoteLive':
+      'IBKR price {price}, real time. Your limit must be within {band} percent of it.',
+  'ibkr.ticket.side': 'Buy or sell',
+  'ibkr.ticket.title': 'Order ticket',
+  'ibkr.ticket.whole': 'Whole shares only.',
+  'ibkr.symbols.shariah': 'Shariah-screened by its issuer',
+  'ibkr.symbols.notScreened': 'Not Shariah-screened',
   'ab.addCard': 'Add card',
   'ab.addLogin': 'Add login',
   'ab.amountNote':
@@ -504,6 +559,58 @@ const _webEn = <String, String>{
       'The server names your organisation as the issuer, so the pricing and legal pages show your plans and details.',
 };
 const _webAr = <String, String>{
+  'ibkr.alerts.read': 'تعليم كمقروءة',
+  'ibkr.alerts.title': 'التنبيهات ({count} جديدة)',
+  'ibkr.limit.fee_buffer': 'نقد يبقى للرسوم لكل أمر',
+  'ibkr.limit.max_capital': 'إجمالي رأس المال المستخدم',
+  'ibkr.limit.max_daily_loss': 'توقف الخسارة اليومية',
+  'ibkr.limit.max_order': 'الحد الأقصى لكل أمر',
+  'ibkr.limit.max_orders_per_day': 'الأوامر في اليوم',
+  'ibkr.limit.price_band_percent': 'نطاق السعر (نسبة من سعر IBKR)',
+  'ibkr.limit.session_buffer_minutes': 'لا أوامر في أول وآخر دقائق',
+  'ibkr.limits.edit': 'تغيير الحدود',
+  'ibkr.limits.liveStricter':
+      'أثناء تفعيل التداول الحقيقي يمكن تشديد الحدود فقط. أوقف الحقيقي لتخفيفها.',
+  'ibkr.limits.lossShort': 'يوقف الأوامر الجديدة لليوم. لا يبيع أبدا.',
+  'ibkr.limits.lossText':
+      'هو توقف للأمان. إذا بلغت خسارة اليوم لدى IBKR {amount}، لا ينشئ ANUM أي أوامر جديدة بقية اليوم. ولا يبيع أبدا شيئا تملكه، فلا يتحول هبوط عادي في الأسعار إلى بيع.',
+  'ibkr.limits.lossWhy': 'لماذا حد للخسارة اليومية؟',
+  'ibkr.limits.saved': 'تم الحفظ.',
+  'ibkr.limits.title': 'حدودك الصارمة (دولار)',
+  'ibkr.orders.cancel': 'إلغاء',
+  'ibkr.orders.cancelled': 'أرسل الإلغاء إلى IBKR وتم التحقق.',
+  'ibkr.orders.check': 'افحص لدى IBKR',
+  'ibkr.orders.checked': 'تم الفحص لدى IBKR.',
+  'ibkr.orders.resend': 'ابحث ثم أرسل',
+  'ibkr.orders.resent': 'تم البحث لدى IBKR أولا. لا يرسل شيء مرتين.',
+  'ibkr.ticket.create': 'إنشاء أمر للموافقة',
+  'ibkr.ticket.created':
+      'أنشئ الأمر. راجعه ووافق عليه في قائمة بانتظار موافقتك.',
+  'ibkr.ticket.error.overOrder': 'هذا الأمر يتجاوز حدك البالغ {max} لكل أمر.',
+  'ibkr.ticket.error.price': 'أدخل سعرا محددا أكبر من صفر.',
+  'ibkr.ticket.error.quantity':
+      'أدخل كمية أكبر من صفر، بأربع خانات عشرية كحد أقصى.',
+  'ibkr.ticket.error.symbol': 'اختر صندوقا من قائمتك المسموحة.',
+  'ibkr.ticket.error.wholeShares': 'أسهم كاملة فقط.',
+  'ibkr.ticket.estimate': 'قرابة {total} قبل الرسوم. حدك لكل أمر {max}.',
+  'ibkr.ticket.fractional': 'حتى 4 خانات عشرية.',
+  'ibkr.ticket.getPrice': 'جلب سعر IBKR',
+  'ibkr.ticket.intro':
+      'أوامر محددة السعر فقط، ليوم واحد، في ساعات السوق الأمريكية العادية. إنشاء الأمر لا يرسل شيئا: ينتظر موافقتك أدناه.',
+  'ibkr.ticket.limit': 'السعر المحدد (دولار)',
+  'ibkr.ticket.noQuote': 'لا يوجد لدى IBKR سعر صالح لهذا الصندوق الآن.',
+  'ibkr.ticket.noSymbols': 'لا يوجد صندوق مسموح بعد',
+  'ibkr.ticket.noSymbolsText':
+      'أضف صندوقا أمريكيا واحدا على الأقل إلى قائمتك المسموحة أدناه.',
+  'ibkr.ticket.quoteDelayed':
+      'سعر IBKR {price}، متأخر (قرابة 15 دقيقة، بيانات مجانية). يجب أن يكون سعرك المحدد ضمن {band} بالمئة منه.',
+  'ibkr.ticket.quoteLive':
+      'سعر IBKR {price}، لحظي. يجب أن يكون سعرك المحدد ضمن {band} بالمئة منه.',
+  'ibkr.ticket.side': 'شراء أو بيع',
+  'ibkr.ticket.title': 'نموذج الأمر',
+  'ibkr.ticket.whole': 'أسهم كاملة فقط.',
+  'ibkr.symbols.shariah': 'متوافق مع الشريعة حسب مصدره',
+  'ibkr.symbols.notScreened': 'غير مفحوص شرعيا',
   'ab.addCard': 'إضافة بطاقة',
   'ab.addLogin': 'إضافة بيانات دخول',
   'ab.amountNote': 'هذا ما تعرضه الصفحة. كشف حسابك البنكي هو المرجع النهائي.',
@@ -986,6 +1093,22 @@ const _webAr = <String, String>{
 };
 
 const _phoneEn = <String, String>{
+  'od.ib.alertsTitle': 'Alerts',
+  'od.ib.alertsNone': 'No alerts.',
+  'od.ib.alertsRead': 'Alerts marked as read.',
+  'od.ib.alertsFailed': 'Could not load alerts: {message}',
+  'od.ib.limitWhole': 'Orders per day and the minutes are whole numbers.',
+  'od.ib.limitNumber':
+      'Each amount is a number with at most 4 decimal places, for example 10 or 2.5.',
+  'od.ib.cancelOrderTitle': 'Cancel this order at IBKR?',
+  'od.ib.cancelOrderText':
+      'ANUM asks IBKR to cancel it and checks the answer. A part already filled stays filled.',
+  'od.ib.keepOrder': 'Keep the order',
+  'od.ib.save': 'Save limits',
+  'od.ib.ticketPaperLive':
+      'This order request will be {mode}. It waits for your approval with its code before anything reaches IBKR.',
+  'od.ib.quantity': 'Quantity',
+  'od.ib.symbol': 'ETF',
   'od.eyebrow': 'Owner desk',
   'od.refresh': 'Refresh',
   'od.retry': 'Try again',
@@ -1028,7 +1151,7 @@ const _phoneEn = <String, String>{
   'od.ib.marketClosed': 'Closed',
   'od.ib.killOn': 'On: no new orders',
   'od.ib.killOff': 'Off',
-  'od.ib.alerts': 'New alerts: {count}. Read them on the web.',
+  'od.ib.alerts': 'New alerts: {count}. They are listed under Alerts.',
   'od.ib.risk':
       'Real money can be lost. Figures come from IBKR\'s own records; ANUM never predicts or promises earnings.',
   'od.ib.releaseType': 'Type RESUME to allow orders again',
@@ -1050,7 +1173,8 @@ const _phoneEn = <String, String>{
   'od.ib.unmet': 'Not met',
   'od.ib.progress': '{done} of {total}',
   'od.ib.notSynced': 'Not read from IBKR yet. Press Read IBKR now on the web.',
-  'od.ib.ordersOnWeb': 'Check, look up and send, and cancel are on the web.',
+  'od.ib.ordersOnWeb':
+      'Connecting, buy plans, the allowed ETF list and the live switch are on the web.',
   'od.ab.title': 'Action browser',
   'od.ab.intro':
       'Browser tasks the agents do on sites you named: each step, and what waits for you. Saved logins and cards and the live picture stay on the web.',
@@ -1085,10 +1209,25 @@ const _phoneEn = <String, String>{
   'od.ab.handoffWeb':
       'This step needs your hands on the page. Open the task on the web to see the picture and complete the check.',
   'od.ab.webOnly':
-      'Saved logins and cards, the live picture and steps that need your hands on the page are on the web.',
+      'A step that needs the card security code is approved on the web, where the code is typed.',
 };
 
 const _phoneAr = <String, String>{
+  'od.ib.alertsTitle': 'التنبيهات',
+  'od.ib.alertsNone': 'لا توجد تنبيهات.',
+  'od.ib.alertsRead': 'علمت التنبيهات كمقروءة.',
+  'od.ib.alertsFailed': 'تعذر تحميل التنبيهات: {message}',
+  'od.ib.limitWhole': 'عدد الأوامر في اليوم والدقائق أرقام صحيحة.',
+  'od.ib.limitNumber': 'كل مبلغ رقم بأربع خانات عشرية كحد أقصى، مثل 10 أو 2.5.',
+  'od.ib.cancelOrderTitle': 'إلغاء هذا الأمر لدى IBKR؟',
+  'od.ib.cancelOrderText':
+      'يطلب ANUM من IBKR إلغاءه ويتحقق من الرد. الجزء المنفذ يبقى منفذا.',
+  'od.ib.keepOrder': 'إبقاء الأمر',
+  'od.ib.save': 'حفظ الحدود',
+  'od.ib.ticketPaperLive':
+      'سيكون طلب الأمر هذا {mode}. ينتظر موافقتك برمزه قبل أن يصل أي شيء إلى IBKR.',
+  'od.ib.quantity': 'الكمية',
+  'od.ib.symbol': 'الصندوق',
   'od.eyebrow': 'مكتب المالك',
   'od.refresh': 'تحديث',
   'od.retry': 'حاول مرة أخرى',
@@ -1131,7 +1270,7 @@ const _phoneAr = <String, String>{
   'od.ib.marketClosed': 'مغلق',
   'od.ib.killOn': 'مفعّل: لا أوامر جديدة',
   'od.ib.killOff': 'متوقف',
-  'od.ib.alerts': 'تنبيهات جديدة: {count}. اقرأها على الويب.',
+  'od.ib.alerts': 'تنبيهات جديدة: {count}. تجدها في قسم التنبيهات.',
   'od.ib.risk':
       'يمكن خسارة أموال حقيقية. الأرقام من سجلات IBKR نفسها؛ لا يتوقع ANUM أرباحًا ولا يعد بها.',
   'od.ib.releaseType': 'اكتب RESUME للسماح بالأوامر مجددًا',
@@ -1153,7 +1292,8 @@ const _phoneAr = <String, String>{
   'od.ib.progress': '{done} من {total}',
   'od.ib.notSynced':
       'لم تُقرأ البيانات من IBKR بعد. اضغط اقرأ IBKR الآن على الويب.',
-  'od.ib.ordersOnWeb': 'التحقق والبحث والإرسال والإلغاء على الويب.',
+  'od.ib.ordersOnWeb':
+      'الربط وخطط الشراء وقائمة الصناديق المسموحة ومفتاح التداول الحقيقي على الويب.',
   'od.ab.title': 'متصفح الإجراءات',
   'od.ab.intro':
       'مهام المتصفح التي ينفذها الوكلاء على مواقع حددتها: كل خطوة، وما ينتظرك. بيانات الدخول والبطاقات المحفوظة والصورة المباشرة تبقى على الويب.',
@@ -1189,5 +1329,5 @@ const _phoneAr = <String, String>{
   'od.ab.handoffWeb':
       'تحتاج هذه الخطوة إلى يدك على الصفحة. افتح المهمة على الويب لترى الصورة وتكمل التحقق.',
   'od.ab.webOnly':
-      'بيانات الدخول والبطاقات المحفوظة والصورة المباشرة والخطوات التي تحتاج يدك على الصفحة موجودة على الويب.',
+      'الخطوة التي تحتاج رمز أمان البطاقة يوافق عليها على الويب حيث يكتب الرمز.',
 };
