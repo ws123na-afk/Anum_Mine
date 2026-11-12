@@ -297,6 +297,10 @@ class RunCheckpoint(BaseModel):
     autonomy: dict[str, Any] | None = None
     # The agent snapshot this run applies (anum_api.agent_policy.AgentRunProfile), if any.
     agent: dict[str, Any] | None = None
+    # The person whose run proposed the checkpointed call, as they were then (user id, workspace
+    # roles, role template limit, organization roles): an approved call runs as them
+    # (anum_api.requester_identity, docs/approvals-and-risk.md#who-the-action-runs-as).
+    requested_as: dict[str, Any] | None = None
 
 
 class AgentRun(BaseModel):
@@ -354,9 +358,12 @@ class ApprovalRouting(BaseModel):
     can_approve: bool = False
     can_reject: bool = False
     refusal: Literal[
-        "not_pending", "not_listed", "own_request", "already_approved", "viewer", "no_hash"
+        "not_pending", "not_listed", "own_request", "already_approved", "viewer", "no_hash", "run_as_shared"
     ] | None = None
     summary: str = ""
+    # The caller decides their own request under the private-task exception and must confirm it
+    # explicitly (``confirm_own_request`` on the approve request, docs/approvals-and-risk.md#private-task-self-approval).
+    confirm_own: bool = False
 
 
 class SuppressedRecipient(BaseModel):
@@ -465,6 +472,9 @@ class ApprovalDecisionRequest(BaseModel):
     # Only for an action browser step that types a card's security code (docs/action-browser.md#the-card-security-code):
     # the code the owner typed on the approval card. Held in memory for that one execution, never stored or logged.
     security_code: str | None = Field(default=None, max_length=8, repr=False)
+    # A self-approval under the private-task exception: the person confirms, a second time and
+    # explicitly, that they approve their own request (``routing.confirm_own``).
+    confirm_own_request: bool = False
 
     @field_validator("reason")
     @classmethod

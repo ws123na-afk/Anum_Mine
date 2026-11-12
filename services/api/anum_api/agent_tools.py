@@ -55,6 +55,27 @@ class ToolDefinition(BaseModel):
     # the person's own mailbox). A task that plans such a call becomes private to its creator
     # before the call runs, and only the creator's run may make it (docs/tasks.md#private-tasks).
     caller_scoped: bool = False
+    # The argument that names whose data the call acts on (the Email Center's ``owner_user_id``:
+    # the mailbox owner, or the writer of a draft in a mailbox shared with them). When the call
+    # names someone, it must be the person it runs for: refused when planned, when its approval
+    # is decided, and again when it executes (docs/tasks.md#acting-for-someone-else).
+    acts_for_argument: str | None = None
+
+
+ACTS_FOR_SOMEONE_ELSE = (
+    "This action names another person's mailbox or data. ANUM acts only for the person who asked "
+    "(their own mailbox, or one shared with them); ask that person to request it themselves."
+)
+
+
+def acts_for_someone_else(call: "ToolCall", definition: "ToolDefinition | None", context: TenantContext) -> bool:
+    """Whether ``call`` names a person other than the one it runs for (``acts_for_argument``)."""
+    if definition is None or not definition.acts_for_argument:
+        return False
+    named = call.arguments.get(definition.acts_for_argument)
+    if named is None or named == "":
+        return False
+    return str(named) != context.user_id
 
 
 def holds_organization_permission(context: TenantContext, permission: str) -> bool:
@@ -137,6 +158,32 @@ def running_in(task_id: str, run_id: str) -> Iterator[None]:
         yield
     finally:
         CURRENT_RUN.reset(token)
+
+# Whoever approved the call being made (None outside an approved call). The call runs as the
+# person who asked for it (docs/approvals-and-risk.md#who-the-action-runs-as); a tool that records
+# who approved it (a proposal's "accepted by") or needs the approver to hold a role (an AI phone
+# call needs an owner's approval) reads :func:`approver_of` instead of the call's own context.
+APPROVER: ContextVar[TenantContext | None] = ContextVar("anum_approver", default=None)
+
+
+@contextmanager
+def approved_as(approver: TenantContext | None) -> Iterator[None]:
+    """Mark the approver of the tool call made inside the ``with`` block (``APPROVER``)."""
+    token = APPROVER.set(approver)
+    try:
+        yield
+    finally:
+        APPROVER.reset(token)
+
+
+def approver_of(context: TenantContext) -> TenantContext:
+    """Who approved the call being made (same tenant and workspace), else the person it runs for."""
+    approver = APPROVER.get()
+    if approver is None or (approver.tenant_id, approver.workspace_id) != (context.tenant_id, context.workspace_id):
+        return context
+    return approver
+
+
 # What a connector knows about one call for autonomy (returns ``autonomy.AutonomyFacts``).
 AutonomyFactsProvider = Callable[[ToolCall, TenantContext], Any]
 
@@ -199,6 +246,8 @@ class ToolRegistry:
         # Nothing leaves a demo workspace (docs/demo-workspace.md#sending).
         from .demo import send_refusal
 
+        if acts_for_someone_else(call, self._definitions.get(call.name), context):
+            return ToolResult(status="blocked", summary=ACTS_FOR_SOMEONE_ELSE, audit_metadata={"outcome": "acts_for_someone_else"})
         demo_refusal = send_refusal(context, call.name, self._definitions.get(call.name), call.arguments)
         if demo_refusal:
             return ToolResult(status="blocked", summary=demo_refusal, audit_metadata={"outcome": "demo_workspace"})
@@ -263,6 +312,12 @@ class ToolPolicy:
             return ToolPolicyDecision(
                 outcome=ToolPolicyOutcome.BLOCK,
                 reason="The actor does not have a role required by this tool.",
+                risk_level=RiskLevel.BLOCKED,
+            )
+        if acts_for_someone_else(call, definition, context):
+            return ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.BLOCK,
+                reason=ACTS_FOR_SOMEONE_ELSE,
                 risk_level=RiskLevel.BLOCKED,
             )
         if definition.required_organization_permission and not holds_organization_permission(context, definition.required_organization_permission):

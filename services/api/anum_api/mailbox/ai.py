@@ -31,7 +31,7 @@ from email import policy
 from email.parser import BytesHeaderParser
 from typing import Any, Literal
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolResult
+from ..agent_tools import ACTS_FOR_SOMEONE_ELSE, ToolCall, ToolDefinition, ToolResult
 from ..model_budget import ModelBudgetExceededError
 from ..prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from ..punctuation import plain_dashes
@@ -46,7 +46,7 @@ from .mime import (
     valid_address,
 )
 from .server import MailServer
-from .service import MailError, cfg, folder_by_role, on_server, require_available, sender_of, with_signature
+from .service import MailError, cfg, folder_by_role, on_server, owner_context, require_available, sender_of, with_signature
 from .store import MailAccount, MailDraft, MailIdentity, open_mail_store
 
 logger = logging.getLogger("anum.mail.ai")
@@ -652,11 +652,6 @@ def _save_draft(context: TenantContext, draft: MailDraft) -> None:
 # -- tools that always wait for an approval ---------------------------------------------------
 
 
-def _owner_context(call: ToolCall, context: TenantContext) -> TenantContext:
-    owner = str(call.arguments.get("owner_user_id") or "")
-    return context.model_copy(update={"user_id": owner}) if owner else context
-
-
 def _uids(call: ToolCall, cap: int) -> list[int]:
     raw = call.arguments.get("uids") or []
     uids = sorted({int(u) for u in raw if (isinstance(u, int) and not isinstance(u, bool)) or (isinstance(u, str) and u.isdigit())})
@@ -665,7 +660,9 @@ def _uids(call: ToolCall, cap: int) -> list[int]:
 
 async def archive_mail_bulk(call: ToolCall, context: TenantContext) -> ToolResult:
     """Move many messages to Archive. Runs only after an approval of exactly these messages."""
-    owner = _owner_context(call, context)
+    owner = owner_context(call, context)
+    if owner is None:
+        return _failed(f"Not archived: {ACTS_FOR_SOMEONE_ELSE}", 403, "not_yours")
     folder = str(call.arguments.get("folder") or "")
     uids = _uids(call, MAX_BULK)
     if not uids:
@@ -700,7 +697,9 @@ async def archive_mail_bulk(call: ToolCall, context: TenantContext) -> ToolResul
 
 async def export_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     """Unlock a one-hour download of exactly the approved messages (``GET /mail/ai/exports/{id}``)."""
-    owner = _owner_context(call, context)
+    owner = owner_context(call, context)
+    if owner is None:
+        return _failed(f"Not exported: {ACTS_FOR_SOMEONE_ELSE}", 403, "not_yours")
     uids = _uids(call, MAX_EXPORT)
     if not uids:
         return _failed("Not exported: no messages were named.", 422, "uids")
@@ -843,6 +842,7 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=ARCHIVE_TOOL,
             description="Move many messages to Archive in the owner's mailbox, after approval of exactly those messages.",
             risk_level=RiskLevel.HIGH, required_roles=_PEOPLE, timeout_seconds=90, category="email", action_kind="archive", always_ask=True,
+            acts_for_argument="owner_user_id",
         ),
         archive_mail_bulk,
     ),
@@ -851,6 +851,7 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=EXPORT_TOOL,
             description="Allow a one-hour download of the named messages as an mbox file, after approval.",
             risk_level=RiskLevel.HIGH, required_roles=_PEOPLE, timeout_seconds=60, category="email", action_kind="other", always_ask=True,
+            acts_for_argument="owner_user_id",
         ),
         export_mail,
     ),

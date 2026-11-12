@@ -130,7 +130,8 @@ def check_the_tasks_person_decides_a_private_approval(client: Any, headers_for: 
     assert balance not in exported.text
 
     # An owner under the two-person rule: the rule asks for another owner, but nobody else can see a
-    # private approval, so the person decides this one too (every other approval still needs two people).
+    # private approval, so the person decides this one too, after confirming it explicitly as a
+    # self-approval (every other approval still needs two people).
     alice = headers_for("alice")
     policy = client.put("/api/v1/approval-policy", headers=alice, json={"two_person_rule": True, "medium_risk_requires_approval": False})
     assert policy.status_code == 200, policy.text
@@ -140,6 +141,9 @@ def check_the_tasks_person_decides_a_private_approval(client: Any, headers_for: 
     own = client.post("/api/v1/tasks", headers=alice, json={"title": "Money", "prompt": "What is my account balance and what did I spend this month?"}).json()
     paused = client.post(f"/api/v1/tasks/{own['id']}/run", headers=alice).json()
     assert paused["run"]["status"] == "waiting_approval"
-    approved = client.post(f"/api/v1/approvals/{paused['approval']['id']}/approve", headers=alice, json={"payload_hash": paused["approval"]["payload_hash"]})
+    unconfirmed = client.post(f"/api/v1/approvals/{paused['approval']['id']}/approve", headers=alice, json={"payload_hash": paused["approval"]["payload_hash"]})
+    assert unconfirmed.status_code == 428, unconfirmed.text
+    approved = client.post(f"/api/v1/approvals/{paused['approval']['id']}/approve", headers=alice,
+                           json={"payload_hash": paused["approval"]["payload_hash"], "confirm_own_request": True})
     assert approved.status_code == 200 and approved.json()["run"]["status"] == "completed" and balance in approved.text, approved.text
     assert client.get(f"/api/v1/tasks/{own['id']}", headers=headers_for("omar")).status_code == 404

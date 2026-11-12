@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, TypeVar
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
+from ..agent_tools import ACTS_FOR_SOMEONE_ELSE, ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from ..schemas import RiskLevel, TenantContext, utc_now
 from ..settings import settings
 from .config import MailServerSettings, mail_settings
@@ -286,10 +286,16 @@ def content_hash(arguments: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
 
 
-def _owner_context(call: ToolCall, context: TenantContext) -> TenantContext:
-    """Mailboxes are private to their owner: the approved call names whose it is."""
+def owner_context(call: ToolCall, context: TenantContext) -> TenantContext | None:
+    """Mailboxes are private to their owner: the approved call names whose it is
+    (``owner_user_id``: the mailbox owner, or the writer of a draft in a mailbox shared with
+    them). It runs only for that person: a call naming anyone else (a model can plan one) is
+    refused here, as it is when planned and when its approval is decided
+    (``ToolDefinition.acts_for_argument``). ``None`` means refuse."""
     owner = str(call.arguments.get("owner_user_id") or "")
-    return context.model_copy(update={"user_id": owner}) if owner else context
+    if owner and owner != context.user_id:
+        return None
+    return context
 
 
 def _failed(summary: str, **output: Any) -> ToolResult:
@@ -299,7 +305,9 @@ def _failed(summary: str, **output: Any) -> ToolResult:
 async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     """Send exactly the approved message, once, or schedule it. Runs only after approval (high risk)."""
     args = call.arguments
-    owner = _owner_context(call, context)
+    owner = owner_context(call, context)
+    if owner is None:
+        return _failed(f"Not sent: {ACTS_FOR_SOMEONE_ELSE}")
     try:
         require_available(owner)
     except MailError as exc:
@@ -460,7 +468,9 @@ async def deliver(
 async def delete_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     """Delete messages for good from Trash or Junk. Runs only after approval (high risk)."""
     args = call.arguments
-    owner = _owner_context(call, context)
+    owner = owner_context(call, context)
+    if owner is None:
+        return _failed(f"Not deleted: {ACTS_FOR_SOMEONE_ELSE}")
     try:
         require_available(owner)
     except MailError as exc:
@@ -507,6 +517,7 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             category="email",
             action_kind="send",
             always_ask=True,
+            acts_for_argument="owner_user_id",
         ),
         send_mail,
     ),
@@ -520,6 +531,7 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             category="email",
             action_kind="delete",
             always_ask=True,
+            acts_for_argument="owner_user_id",
         ),
         delete_mail,
     ),

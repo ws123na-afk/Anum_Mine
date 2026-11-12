@@ -32,7 +32,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
+from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult, approver_of
 from ..events import CanonicalEventName, create_event
 from ..model_gateway import MockModelGateway
 from ..repository import AnumRepository
@@ -121,7 +121,7 @@ async def accept_proposal(call: ToolCall, context: TenantContext) -> ToolResult:
         proposal.status = ProposalStatus.ACCEPTED
         proposal.accepted_version = version.version
         proposal.accepted_hash = version.content_hash
-        proposal.accepted_by = context.user_id
+        proposal.accepted_by = approver_of(context).user_id
         proposal.accepted_at = now
         proposal.decision_note = ""
         proposal.updated_at = now

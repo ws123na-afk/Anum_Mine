@@ -36,6 +36,7 @@ from .prompt_provenance import Provenance, label_untrusted
 from .model_gateway import ModelGateway
 from .repository import AnumRepository
 from .retrieval import RetrievalResult, Retriever
+from .requester_identity import requested_as
 from .schemas import (
     AgentRun,
     AgentRunStep,
@@ -940,6 +941,9 @@ class AgentRuntime:
         run.checkpoint.phase = RunPhase.WAITING_APPROVAL
         run.checkpoint.version += 1
         run.checkpoint.approval_id = approval.id
+        # Who asked, as they were when they asked: the approved call runs as this person
+        # (``requester_identity``), never as whoever approves it.
+        run.checkpoint.requested_as = requested_as(context)
         task.updated_at = run.updated_at = utc_now()
         run.steps.append(
             AgentRunStep(
@@ -1215,6 +1219,10 @@ class AgentRuntime:
                 "reversible": action.undo_tool is not None,
             },
         )
+
+    def fail_run(self, task: Task, run: AgentRun, context: TenantContext, reason: str, approval_id: str | None = None) -> None:
+        """Fail ``run`` with ``reason`` (an approved call that may not run, for example)."""
+        self._fail(task, run, context, reason, approval_id)
 
     def _fail(
         self,

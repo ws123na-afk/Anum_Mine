@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
+from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult, approver_of
 from ..schemas import RiskLevel, Task, TenantContext, new_id, utc_now
 from .analytics import summarize, summary_text
 from .models import (
@@ -155,7 +155,7 @@ async def schedule_post(call: ToolCall, context: TenantContext) -> ToolResult:
             return _failed("The post no longer meets the platform's limits; nothing was scheduled.")
         post.status = PostStatus.SCHEDULED
         post.approved_hash = approved
-        post.approved_by = context.user_id
+        post.approved_by = approver_of(context).user_id
         post.authorised_by = "approval"
         try:
             requested = datetime.fromisoformat(str(args.get("scheduled_at")))
@@ -195,7 +195,7 @@ async def enable_auto_post(call: ToolCall, context: TenantContext) -> ToolResult
             return _failed("An account in the approval is no longer connected; auto-post was not turned on.")
         campaign.auto_post = True
         campaign.auto_post_accounts = accounts
-        campaign.auto_post_approved_by = context.user_id
+        campaign.auto_post_approved_by = approver_of(context).user_id
         campaign.auto_post_enabled_at = now
         campaign.updated_at = now
         store.save_campaign(campaign)
