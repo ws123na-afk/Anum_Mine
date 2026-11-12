@@ -340,4 +340,11 @@ export const financeSmsEn = {
   'fsms.limits.amount': "Largest amount",
   'fsms.limits.add': "Add a limit",
   'fsms.limits.remove': "Remove this limit",
+  'fsms.fix.undo_recheck': "Recorded when waiting messages were re-checked",
+  'fsms.learn.rechecked_sender': "Waiting messages from {sender} recorded: {count}. Each can be undone on its row.",
+  'fsms.learn.rechecked_card': "Waiting messages with card ending {last4} recorded: {count}. Each can be undone on its row.",
+  'fsms.learn.rechecked': "Waiting messages recorded: {count}. Each can be undone on its row.",
+  'fsms.recheck': "Re-check waiting messages",
+  'fsms.recheck.done': "Recorded: {recorded}. Still waiting: {waiting}.",
+  'fsms.recheck.more': "There are more: press Re-check again to carry on.",
 } satisfies Record<string, Message>;

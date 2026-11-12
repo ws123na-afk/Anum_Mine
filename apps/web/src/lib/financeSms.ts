@@ -86,7 +86,7 @@ export function shortcutSteps(url: string): string[] {
 export const REMEMBERED_KINDS: readonly string[] = ['salary', 'own_transfer', 'refund'];
 
 /** Fixes the person can apply in one tap; the others are said in words (decide, record) or open Settings. */
-export const ONE_TAP_FIXES: readonly string[] = ['trust_sender', 'map_card', 'auto_post_on', 'clear_hold', 'remember_kind', 'undo_learning'];
+export const ONE_TAP_FIXES: readonly string[] = ['trust_sender', 'map_card', 'auto_post_on', 'clear_hold', 'remember_kind', 'undo_learning', 'undo_recheck'];
 
 /** The one action that makes such a message automatic next time, in plain words. */
 export function fixText(fix: FinanceSmsFix): string {
@@ -98,6 +98,7 @@ export function fixText(fix: FinanceSmsFix): string {
     case 'clear_hold': return t('fsms.fix.clear_hold', { sender });
     case 'remember_kind': return t('fsms.fix.remember_kind', { party: fix.party ?? '-', kind: kindLabel(fix.kind) });
     case 'undo_learning': return t('fsms.fix.undo_learning', { party: fix.party ?? '-', value: learnedValueLabel(fix.kind) });
+    case 'undo_recheck': return t('fsms.fix.undo_recheck');
     case 'open_settings': return t('fsms.fix.open_settings');
     case 'decide': return t('fsms.fix.decide');
     default: return t('fsms.fix.record');
@@ -117,6 +118,10 @@ export function noticeText(notice: FinanceSmsLearningNotice): string {
     case 'sender_trusted': return t('fsms.learn.sender_trusted', { sender: notice.sender ?? '-' });
     case 'kind_remembered': return t('fsms.learn.kind_remembered', { party: notice.party ?? '-', kind: kindLabel(notice.value) });
     case 'category_remembered': return t('fsms.learn.category_remembered', { party: notice.party ?? '-', category: learnedValueLabel(notice.value) });
+    case 'rechecked':
+      if (notice.sender) return t('fsms.learn.rechecked_sender', { count: notice.value ?? '0', sender: notice.sender });
+      if (notice.last4) return t('fsms.learn.rechecked_card', { count: notice.value ?? '0', last4: notice.last4 });
+      return t('fsms.learn.rechecked', { count: notice.value ?? '0' });
     default: return t('fsms.learn.card_proposed', { last4: notice.last4 ?? '-', account: notice.account_name ?? '-' });
   }
 }

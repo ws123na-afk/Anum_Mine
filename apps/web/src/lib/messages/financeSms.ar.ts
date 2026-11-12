@@ -340,4 +340,11 @@ export const financeSmsAr: Record<keyof typeof financeSmsEn, Message> = {
   'fsms.limits.amount': "أكبر مبلغ",
   'fsms.limits.add': "أضف حدا",
   'fsms.limits.remove': "احذف هذا الحد",
+  'fsms.fix.undo_recheck': "سُجلت عند إعادة فحص الرسائل المنتظرة",
+  'fsms.learn.rechecked_sender': "الرسائل المنتظرة من {sender} التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+  'fsms.learn.rechecked_card': "الرسائل المنتظرة للبطاقة المنتهية بـ {last4} التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+  'fsms.learn.rechecked': "الرسائل المنتظرة التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+  'fsms.recheck': "أعد فحص الرسائل المنتظرة",
+  'fsms.recheck.done': "سُجلت: {recorded}. ما زالت تنتظر: {waiting}.",
+  'fsms.recheck.more': "هناك المزيد: اضغط أعد الفحص مرة أخرى للمتابعة.",
 };

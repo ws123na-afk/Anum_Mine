@@ -134,7 +134,7 @@ export interface FinanceSmsMessage {
 export interface FinanceSmsLearnedApplied { what: 'kind' | 'category'; value: string; ref: string; party: string; counter_account_id?: string }
 
 export type FinanceSmsFixAction =
-  | 'trust_sender' | 'map_card' | 'auto_post_on' | 'clear_hold' | 'remember_kind' | 'undo_learning' | 'open_settings' | 'decide' | 'record';
+  | 'trust_sender' | 'map_card' | 'auto_post_on' | 'clear_hold' | 'remember_kind' | 'undo_learning' | 'undo_recheck' | 'open_settings' | 'decide' | 'record';
 
 export interface FinanceSmsFix {
   action: FinanceSmsFixAction;
@@ -147,7 +147,7 @@ export interface FinanceSmsFix {
   ref: string | null;
 }
 
-export type FinanceSmsNoticeKind = 'sender_trusted' | 'kind_remembered' | 'category_remembered' | 'card_proposed';
+export type FinanceSmsNoticeKind = 'sender_trusted' | 'kind_remembered' | 'category_remembered' | 'card_proposed' | 'rechecked';
 
 export interface FinanceSmsLearningNotice {
   id: string;
@@ -173,7 +173,11 @@ export interface FinanceSmsLearning {
   card_proposals: { last4: string; account_id: string; account_name: string | null; count: number }[];
   notices: FinanceSmsLearningNotice[];
   version: number;
+  /** What the re-check that followed the change recorded (docs/finance-sms.md#re-checking-waiting-messages). */
+  recheck?: FinanceSmsRecheck | null;
 }
+
+export interface FinanceSmsRecheck { recorded: number; still_waiting: number; more: boolean; message_ids: string[] }
 
 export interface FinanceSmsReviewSummary {
   total: number;

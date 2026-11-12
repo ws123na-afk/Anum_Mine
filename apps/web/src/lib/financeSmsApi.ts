@@ -60,4 +60,5 @@ export const forgetKind = (memoryId: string) => send<FinanceSmsLearning>('DELETE
 export const forgetCategory = (ruleId: string) => send<FinanceSmsLearning>('DELETE', `/sms/learning/categories/${id(ruleId)}`);
 export const dismissNotice = (noticeId: string) => send<FinanceSmsLearning>('POST', `/sms/learning/notices/${id(noticeId)}/dismiss`);
 export const setAutoPost = (on: boolean) => send<FinanceSmsLearning>('POST', '/sms/learning/auto-post', { on });
+export const recheckWaiting = () => send<FinanceSmsLearning>('POST', '/sms/learning/recheck');
 export const undoLearning = (messageId: string) => send<FinanceSmsUndoLearning>('POST', `/sms/messages/${id(messageId)}/undo-learning`);

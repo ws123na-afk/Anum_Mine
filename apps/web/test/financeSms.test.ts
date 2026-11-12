@@ -94,6 +94,9 @@ describe('learning from reviews (docs/finance-sms.md#learning)', () => {
     assert.equal(noticeText(notice('kind_remembered')), 'Money from ACME will be recorded as Salary.');
     assert.equal(noticeText(notice('category_remembered', { value: 'groceries' })), 'ACME will be filed under Groceries.');
     assert.match(noticeText(notice('card_proposed')), /Card twice for card ending 1234/);
+    assert.equal(noticeText(notice('rechecked', { value: '3' })), 'Waiting messages from testbank recorded: 3. Each can be undone on its row.');
+    assert.match(noticeText(notice('rechecked', { value: '2', sender: null })), /card ending 1234 recorded: 2/);
+    assert.equal(fixText(fix({ action: 'undo_recheck' })), 'Recorded when waiting messages were re-checked');
     assert.equal(learnedValueLabel('own_transfer'), kindLabel('own_transfer'));
     assert.ok(ONE_TAP_FIXES.includes('trust_sender') && !ONE_TAP_FIXES.includes('decide') && REMEMBERED_KINDS.includes('salary'));
   });

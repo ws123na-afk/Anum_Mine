@@ -96,6 +96,10 @@ async function mockApi(page: Page, options: SmsMock = {}) {
     if (sms === '/sms/review/summary') return json(summary());
     if (sms === '/sms/learning/senders/trust') { settings = { ...settings, verified_senders: ['testbank'] as never[] }; return json(learning()); }
     if (sms === '/sms/learning/senders/untrust') { notices = []; return json(learning()); }
+    if (sms === '/sms/learning/recheck') {
+      message.status = 'posted';
+      return json({ ...learning(), recheck: { recorded: 1, still_waiting: 0, more: false, message_ids: [message.id] } });
+    }
     if (sms === '/sms/banks') return json([{ key: 'al_rajhi', name: 'Al Rajhi Bank', country: 'SA', currency: 'SAR', senders: ['alrajhibank'], verified_by_anum: false, confirmed_by_you: false }]);
     if (sms === '/ledger/dashboard') return options.failLedger ? json({ detail: 'The database is not reachable' }, 503) : json(dashboard);
     if (sms === '/ledger/entries') return json({ items: entries, total: entries.length, limit: 20, offset: 0 });
@@ -167,6 +171,16 @@ test('why messages wait: one tap trusts the sender, and what ANUM learned can be
   await expect(learned).toBeHidden();
   const serious = (await new AxeBuilder({ page }).include('main').analyze()).violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
   expect(serious).toEqual([]);
+});
+
+test('re-check waiting messages records what now passes and says how many', async ({ page }) => {
+  const { sent } = await mockApi(page, { ready: true });
+  await page.goto('/#finance-sms');
+  await page.getByRole('navigation', { name: 'iPhone SMS sections' }).getByRole('button', { name: /Review/ }).click();
+  const why = page.getByRole('region', { name: 'Why is this waiting?' });
+  await why.getByRole('button', { name: 'Re-check waiting messages' }).click({ timeout: 20_000 });
+  await expect(page.getByText('Recorded: 1. Still waiting: 0.')).toBeVisible();
+  expect(sent.filter((s) => s.path.endsWith('/sms/learning/recheck') && s.method === 'POST')).toHaveLength(1);
 });
 
 test('learning settings and limits are saved with the form', async ({ page }) => {
