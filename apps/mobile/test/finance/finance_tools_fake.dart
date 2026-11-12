@@ -726,6 +726,16 @@ class ToolsApi {
       case ('POST', '/sms/learning/senders/trust'):
       case ('POST', '/sms/learning/cards/map'):
         return ok({'notices': smsNotices});
+      case ('POST', '/sms/learning/recheck'):
+        return ok({
+          'notices': smsNotices,
+          'recheck': {
+            'recorded': 1,
+            'still_waiting': 0,
+            'more': false,
+            'message_ids': ['sms_1']
+          }
+        });
       case ('POST', '/sms/learning/senders/untrust'):
         smsNotices.removeWhere((n) => n['kind'] == 'sender_trusted');
         return ok({'notices': smsNotices});

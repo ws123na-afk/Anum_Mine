@@ -730,6 +730,16 @@ class FinanceToolsStrings extends ModuleStrings {
     'sms.learn.mapLabel': "Map: {text}",
     'sms.learn.notNowLabel': "Not now: {text}",
     'sms.remember': "Remember this for {party} from now on",
+    'sms.fix.undo_recheck': "Recorded when waiting messages were re-checked",
+    'sms.learn.rechecked_sender':
+        "Waiting messages from {sender} recorded: {count}. Each can be undone on its row.",
+    'sms.learn.rechecked_card':
+        "Waiting messages with card ending {last4} recorded: {count}. Each can be undone on its row.",
+    'sms.learn.rechecked':
+        "Waiting messages recorded: {count}. Each can be undone on its row.",
+    'sms.recheck': "Re-check waiting messages",
+    'sms.recheck.done': "Recorded: {recorded}. Still waiting: {waiting}.",
+    'sms.recheck.more': "There are more: press Re-check again to carry on.",
   };
 
   static const _ar = <String, String>{
@@ -1415,5 +1425,15 @@ class FinanceToolsStrings extends ModuleStrings {
     'sms.learn.mapLabel': "اربط: {text}",
     'sms.learn.notNowLabel': "ليس الآن: {text}",
     'sms.remember': "تذكّر هذا لـ {party} من الآن",
+    'sms.fix.undo_recheck': "سُجلت عند إعادة فحص الرسائل المنتظرة",
+    'sms.learn.rechecked_sender':
+        "الرسائل المنتظرة من {sender} التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+    'sms.learn.rechecked_card':
+        "الرسائل المنتظرة للبطاقة المنتهية بـ {last4} التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+    'sms.learn.rechecked':
+        "الرسائل المنتظرة التي سُجلت: {count}. يمكن التراجع عن كل منها في سطرها.",
+    'sms.recheck': "أعد فحص الرسائل المنتظرة",
+    'sms.recheck.done': "سُجلت: {recorded}. ما زالت تنتظر: {waiting}.",
+    'sms.recheck.more': "هناك المزيد: اضغط أعد الفحص مرة أخرى للمتابعة.",
   };
 }

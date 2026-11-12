@@ -51,6 +51,7 @@ String smsFixText(BuildContext context, SmsFix fix) {
         {'party': fix.party ?? '-', 'kind': _learnedValue(context, fix.kind)}),
     'undo_learning' => t.t('sms.fix.undo_learning',
         {'party': fix.party ?? '-', 'value': _learnedValue(context, fix.kind)}),
+    'undo_recheck' => t.t('sms.fix.undo_recheck'),
     'open_settings' => t.t('sms.fix.open_settings'),
     'decide' => t.t('sms.fix.decide'),
     _ => t.t('sms.fix.record'),
@@ -67,6 +68,11 @@ String smsNoticeText(BuildContext context, SmsNotice n) {
         {'party': n.party ?? '-', 'kind': _learnedValue(context, n.value)}),
     'category_remembered' => t.t('sms.learn.category_remembered',
         {'party': n.party ?? '-', 'category': _learnedValue(context, n.value)}),
+    'rechecked' when n.sender != null => t.t('sms.learn.rechecked_sender',
+        {'count': n.value ?? '0', 'sender': n.sender!}),
+    'rechecked' when n.last4 != null => t.t('sms.learn.rechecked_card',
+        {'count': n.value ?? '0', 'last4': n.last4!}),
+    'rechecked' => t.t('sms.learn.rechecked', {'count': n.value ?? '0'}),
     _ => t.t('sms.learn.card_proposed',
         {'last4': n.last4 ?? '-', 'account': n.accountName ?? '-'}),
   };
@@ -120,7 +126,8 @@ class _SmsFixLineState extends State<SmsFixLine> {
         Expanded(child: Text(text, style: muted)),
       ]);
     }
-    if (widget.fix.action == 'undo_learning') {
+    if (widget.fix.action == 'undo_learning' ||
+        widget.fix.action == 'undo_recheck') {
       return Wrap(
           spacing: AnumSpacing.xs,
           runSpacing: AnumSpacing.xs,
@@ -308,6 +315,24 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
     }
   }
 
+  Future<void> _recheck() async {
+    final t = FinanceToolsStrings.of(context);
+    try {
+      final done = await widget.repository.recheckSms();
+      if (!mounted) return;
+      recordsToast(
+          context,
+          [
+            t.t('sms.recheck.done',
+                {'recorded': done.recorded, 'waiting': done.stillWaiting}),
+            if (done.more) t.t('sms.recheck.more'),
+          ].join(' '));
+      await _reload();
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    }
+  }
+
   Widget _noticeButton(
       String key, String label, String spoken, VoidCallback onPressed,
       {bool filled = false}) {
@@ -340,36 +365,49 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
                       Wrap(
                           spacing: AnumSpacing.xs,
                           runSpacing: AnumSpacing.xs,
-                          children: n.kind == 'card_proposed'
+                          children: n.kind == 'rechecked'
                               ? [
-                                  _noticeButton(
-                                      'sms-notice-map-${n.id}',
-                                      t.t('sms.fix.map'),
-                                      t.t('sms.learn.mapLabel',
-                                          {'text': smsNoticeText(context, n)}),
-                                      () => _notice(n, 'map'),
-                                      filled: true),
-                                  _noticeButton(
-                                      'sms-notice-undo-${n.id}',
-                                      t.t('sms.learn.notNow'),
-                                      t.t('sms.learn.notNowLabel',
-                                          {'text': smsNoticeText(context, n)}),
-                                      () => _notice(n, 'undo')),
-                                ]
-                              : [
-                                  _noticeButton(
-                                      'sms-notice-undo-${n.id}',
-                                      t.t('sms.fix.undo'),
-                                      t.t('sms.learn.undoLabel',
-                                          {'text': smsNoticeText(context, n)}),
-                                      () => _notice(n, 'undo')),
                                   _noticeButton(
                                       'sms-notice-ok-${n.id}',
                                       t.t('sms.learn.dismiss'),
                                       t.t('sms.learn.okLabel',
                                           {'text': smsNoticeText(context, n)}),
                                       () => _notice(n, 'ok')),
-                                ]),
+                                ]
+                              : n.kind == 'card_proposed'
+                                  ? [
+                                      _noticeButton(
+                                          'sms-notice-map-${n.id}',
+                                          t.t('sms.fix.map'),
+                                          t.t('sms.learn.mapLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'map'),
+                                          filled: true),
+                                      _noticeButton(
+                                          'sms-notice-undo-${n.id}',
+                                          t.t('sms.learn.notNow'),
+                                          t.t('sms.learn.notNowLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'undo')),
+                                    ]
+                                  : [
+                                      _noticeButton(
+                                          'sms-notice-undo-${n.id}',
+                                          t.t('sms.fix.undo'),
+                                          t.t('sms.learn.undoLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'undo')),
+                                      _noticeButton(
+                                          'sms-notice-ok-${n.id}',
+                                          t.t('sms.learn.dismiss'),
+                                          t.t('sms.learn.okLabel', {
+                                            'text': smsNoticeText(context, n)
+                                          }),
+                                          () => _notice(n, 'ok')),
+                                    ]),
                     ]),
             ]),
       if (summary != null && summary.total > 0)
@@ -378,6 +416,15 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
             title: t.t('sms.why'),
             children: [
               Text(t.t('sms.why.help', {'count': summary.total}), style: muted),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: OutlinedButton.icon(
+                  key: const Key('sms-recheck'),
+                  onPressed: _recheck,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(t.t('sms.recheck')),
+                ),
+              ),
               for (final g in summary.groups) ...[
                 Text(t.label('sms.reason', g.reason),
                     style: const TextStyle(fontWeight: FontWeight.w600)),

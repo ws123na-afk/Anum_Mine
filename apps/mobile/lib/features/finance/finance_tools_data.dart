@@ -345,7 +345,7 @@ class SmsFix {
   /// decision, a record or a Setup change are said in words).
   bool get oneTap => switch (action) {
         'trust_sender' || 'auto_post_on' || 'clear_hold' => true,
-        'remember_kind' || 'undo_learning' => true,
+        'remember_kind' || 'undo_learning' || 'undo_recheck' => true,
         'map_card' => accountId != null,
         _ => false,
       };
@@ -778,7 +778,7 @@ extension FinanceSmsApi on FinanceMoreRepository {
       case 'map_card':
         await _call('POST', '/sms/learning/cards/map',
             {'last4': fix.last4, 'account_id': fix.accountId});
-      case 'undo_learning':
+      case 'undo_learning' || 'undo_recheck':
         await _call(
             'POST', '/sms/messages/${_id(messageId ?? '')}/undo-learning');
     }
@@ -801,6 +801,18 @@ extension FinanceSmsApi on FinanceMoreRepository {
 
   Future<void> mapSmsCard(SmsNotice n) => _call('POST',
       '/sms/learning/cards/map', {'last4': n.last4, 'account_id': n.accountId});
+
+  /// Re-check every waiting message (docs/finance-sms.md#re-checking-waiting-messages):
+  /// how many were recorded, how many still wait, and whether to run it again.
+  Future<({int recorded, int stillWaiting, bool more})> recheckSms() async {
+    final r =
+        (await _call('POST', '/sms/learning/recheck')).optObject('recheck');
+    return (
+      recorded: r?.optInt('recorded') ?? 0,
+      stillWaiting: r?.optInt('still_waiting') ?? 0,
+      more: r?.optBool('more') ?? false,
+    );
+  }
 
   Future<void> dismissSmsNotice(String id) =>
       _call('POST', '/sms/learning/notices/${_id(id)}/dismiss');

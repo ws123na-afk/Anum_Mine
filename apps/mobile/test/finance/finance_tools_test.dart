@@ -372,6 +372,11 @@ void main() {
       expect(lastBody(api, 'POST', '/sms/learning/senders/trust'),
           {'sender': 'examplebank'});
       await clearToasts(tester);
+      await tap(tester, find.byKey(const Key('sms-recheck')));
+      expect(api.sent('POST', '/sms/learning/recheck'), hasLength(1));
+      expect(find.textContaining('Recorded: 1. Still waiting: 0.'),
+          findsOneWidget);
+      await clearToasts(tester);
       // The message itself carries the same fix.
       await tap(tester, find.byKey(const Key('sms-message-sms_1')));
       expect(find.byKey(const Key('sms-message-fix')), findsOneWidget);
