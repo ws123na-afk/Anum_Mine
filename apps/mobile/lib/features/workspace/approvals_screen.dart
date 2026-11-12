@@ -476,6 +476,16 @@ class _PendingCardState extends State<PendingApprovalCard> {
               ),
             ]),
           ),
+        if (approval.runAsShared)
+          Padding(
+            key: Key('approval-run-as-shared-${approval.id}'),
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+                'Run this as a shared task so a second person can approve it. '
+                'This private task reaches beyond your own data, and nobody '
+                'else can see it.',
+                style: TextStyle(color: p.text, fontSize: AnumType.sm)),
+          ),
         const SizedBox(height: 12),
         TextField(
           controller: _reason,
@@ -537,6 +547,7 @@ class _PendingCardState extends State<PendingApprovalCard> {
                 onPressed: controller.mutating ||
                         !approval.canApprove() ||
                         approval.needsCardCodeOnWeb ||
+                        approval.runAsShared ||
                         alreadyApproved
                     ? null
                     : () => _confirmApprove(context),
@@ -552,20 +563,25 @@ class _PendingCardState extends State<PendingApprovalCard> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Approve this action?'),
+        title: Text(approval.confirmOwn
+            ? 'Approve your own request?'
+            : 'Approve this action?'),
         content: Text(
             'The agent will now call ${approval.action} with the arguments shown '
             '(payload hash ${shortHash(approval.payloadHash)})'
             '${approval.target == null ? '' : ' and send them to ${approval.target}'}.\n\n'
             'Risk: ${approval.risk}. If the call changes before it runs, it is '
-            'not executed. This is recorded in the audit log.'),
+            'not executed. This is recorded in the audit log.'
+            '${approval.confirmOwn ? '\n\nThis is your own private request: nobody else can see it, so you '
+                'approve it yourself. It is recorded as a self-approval.' : ''}'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
               child: const Text('Not yet')),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Approve')),
+              child: Text(
+                  approval.confirmOwn ? 'Approve my own request' : 'Approve')),
         ],
       ),
     );
@@ -573,8 +589,10 @@ class _PendingCardState extends State<PendingApprovalCard> {
   }
 
   Future<void> _decide({required bool approve}) async {
-    await controller.decide(approval,
-        approve: approve, reason: normalizeReason(_reason.text));
+    await controller.decide(
+        approve && approval.confirmOwn ? approval.confirmedAsOwn() : approval,
+        approve: approve,
+        reason: normalizeReason(_reason.text));
     widget.onDecided?.call();
   }
 }

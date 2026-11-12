@@ -110,7 +110,10 @@ class WorkspaceApproval {
       this.requestedBy,
       this.target,
       this.requiredApprovals = 1,
-      this.approvers = const []});
+      this.approvers = const [],
+      this.confirmOwn = false,
+      this.runAsShared = false,
+      this.ownConfirmed = false});
 
   /// [action] is the exact tool the agent will call and [arguments] the exact
   /// arguments it will send (secret-looking values arrive as `[REDACTED]`).
@@ -140,6 +143,41 @@ class WorkspaceApproval {
 
   /// Who has approved so far, oldest first.
   final List<ApprovalApprover> approvers;
+
+  /// Your own private request (`routing.confirm_own`): you decide it
+  /// yourself after an explicit confirmation, recorded as a self-approval
+  /// (docs/approvals-and-risk.md#private-task-self-approval).
+  final bool confirmOwn;
+
+  /// Your own private task reaches beyond your own data (`routing.refusal`
+  /// `run_as_shared`): nobody can approve it; run it as a shared task.
+  final bool runAsShared;
+
+  /// Set on the copy handed to the decision once you confirmed [confirmOwn].
+  final bool ownConfirmed;
+
+  /// This approval with your explicit self-approval confirmation.
+  WorkspaceApproval confirmedAsOwn() => WorkspaceApproval(
+      id: id,
+      taskId: taskId,
+      action: action,
+      reason: reason,
+      risk: risk,
+      status: status,
+      createdAt: createdAt,
+      arguments: arguments,
+      payloadHash: payloadHash,
+      expiresAt: expiresAt,
+      decidedAt: decidedAt,
+      decidedBy: decidedBy,
+      decisionReason: decisionReason,
+      requestedBy: requestedBy,
+      target: target,
+      requiredApprovals: requiredApprovals,
+      approvers: approvers,
+      confirmOwn: confirmOwn,
+      runAsShared: runAsShared,
+      ownConfirmed: true);
 
   /// "1 of 3 approvals" for an approval that needs several people, else null.
   String? get progressLabel {
@@ -205,6 +243,8 @@ Map<String, Object?> decisionBody(WorkspaceApproval approval, String? reason) {
   return {
     if (approval.payloadHash != null) 'payload_hash': approval.payloadHash,
     if (normalized != null) 'reason': normalized,
+    if (approval.confirmOwn && approval.ownConfirmed)
+      'confirm_own_request': true,
   };
 }
 

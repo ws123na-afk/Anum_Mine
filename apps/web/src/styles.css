@@ -669,6 +669,8 @@ dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 
 .approvalSuppressed, .approvalReadOnly { align-items: flex-start; display: flex; gap: var(--d-s2); }
 .approvalReadOnly { color: var(--d-muted); font-size: var(--text-sm); margin-top: var(--d-s2); }
 .approvalSuppressed svg, .approvalReadOnly svg { flex: none; margin-top: 2px; }
+.approvalConfirmOwn { align-items: flex-start; display: flex; gap: var(--d-s2); margin-top: var(--d-s2); }
+.approvalConfirmOwn input { accent-color: var(--d-violet); flex: none; height: 18px; margin: 2px 0 0; min-height: 0; padding: 0; width: 18px; }
 /* Approval routing: who may approve this item and why (docs/approvals-and-risk.md#approval-routing). */
 .approvalToolbar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
 .approvalSearch { align-items: center; background: var(--d-field); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-muted); display: flex; flex: 1 1 220px; gap: var(--d-s2); max-width: 420px; min-height: 40px; min-width: 0; padding: 0 var(--d-s3); }

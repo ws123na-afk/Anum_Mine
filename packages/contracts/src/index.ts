@@ -170,7 +170,7 @@ export interface ApprovalRouteStep {
   approvedBy?: string | null;
 }
 
-export type ApprovalRoutingRefusal = 'not_pending' | 'not_listed' | 'own_request' | 'already_approved' | 'viewer' | 'no_hash';
+export type ApprovalRoutingRefusal = 'not_pending' | 'not_listed' | 'own_request' | 'already_approved' | 'viewer' | 'no_hash' | 'run_as_shared';
 
 export interface ApprovalRouting {
   /** False: no amount rule applies; workspace owners decide as before. */
@@ -187,6 +187,8 @@ export interface ApprovalRouting {
   refusal?: ApprovalRoutingRefusal | null;
   /** One English sentence from the API (the clients word it from the fields above). */
   summary: string;
+  /** The caller decides their own private request and must confirm it explicitly (sent as `confirm_own_request`). */
+  confirmOwn?: boolean;
 }
 
 export interface SuppressedRecipient {

@@ -66,6 +66,16 @@ export interface DecisionBody {
   reason?: string;
   /** Only for an action browser step that types a card's security code: used once, never stored. */
   security_code?: string;
+  /** The person confirmed, explicitly, that they approve their own private request (docs/approvals-and-risk.md#private-task-self-approval). */
+  confirm_own_request?: boolean;
+}
+
+/** An approval as the card hands it to the decision: `ownConfirmed` once the person ticked the self-approval confirmation. */
+export type ConfirmedApproval = Approval & { ownConfirmed?: boolean };
+
+/** Whether approving needs the person to confirm, explicitly, that they approve their own private request. */
+export function needsOwnConfirmation(approval: Pick<Approval, 'routing'>): boolean {
+  return Boolean(approval.routing?.confirmOwn);
 }
 
 /** The marker an action browser step carries when the owner must type the card security code to approve it. */
@@ -81,12 +91,13 @@ export function cardCodeValid(code: string | undefined): boolean {
 }
 
 /** The decision body: the payload hash exactly as it was displayed, and the optional reason. */
-export function decisionBody(approval: Approval, reason?: string | null, securityCode?: string): DecisionBody | undefined {
+export function decisionBody(approval: ConfirmedApproval, reason?: string | null, securityCode?: string): DecisionBody | undefined {
   const body: DecisionBody = {};
   if (approval.payloadHash) body.payload_hash = approval.payloadHash;
   const normalized = normalizeReason(reason);
   if (normalized) body.reason = normalized;
   if (securityCode && needsCardCode(approval)) body.security_code = securityCode;
+  if (approval.ownConfirmed && needsOwnConfirmation(approval)) body.confirm_own_request = true;
   return Object.keys(body).length ? body : undefined;
 }
 

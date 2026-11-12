@@ -152,7 +152,89 @@ Future<ApiWorkspaceRepository> _repository(_Transport transport) async {
       fileTransfer: _NoFiles());
 }
 
+class _CapturingRepository extends _FakeRepository {
+  _CapturingRepository(super.approvals);
+  final sent = <WorkspaceApproval>[];
+
+  @override
+  Future<WorkspaceApproval> decideApproval(WorkspaceApproval approval,
+      {required bool approve, String? reason}) async {
+    sent.add(approval);
+    return super.decideApproval(approval, approve: approve, reason: reason);
+  }
+}
+
 void main() {
+  group('your own private request (private-task self-approval)', () {
+    Map<String, Object?> withRouting(Map<String, Object?> routing) =>
+        {..._approvalJson(), 'routing': routing};
+
+    test('the routing flags are mapped and the confirmation is sent once given',
+        () {
+      final own = workspaceApprovalFromJson(
+          JsonReader(withRouting({'can_approve': true, 'confirm_own': true})));
+      expect(own.confirmOwn, isTrue);
+      expect(own.runAsShared, isFalse);
+      expect(decisionBody(own, null), {'payload_hash': _hash});
+      expect(decisionBody(own.confirmedAsOwn(), null),
+          {'payload_hash': _hash, 'confirm_own_request': true});
+      final shared = workspaceApprovalFromJson(JsonReader(
+          withRouting({'can_approve': false, 'refusal': 'run_as_shared'})));
+      expect(shared.runAsShared, isTrue);
+      expect(shared.confirmOwn, isFalse);
+      expect(
+          decisionBody(shared.confirmedAsOwn(), null), {'payload_hash': _hash});
+    });
+
+    testWidgets('approving asks to confirm it as your own request',
+        (tester) async {
+      final pending = workspaceApprovalFromJson(
+          JsonReader(withRouting({'can_approve': true, 'confirm_own': true})));
+      final repository = _CapturingRepository([pending]);
+      final controller = WorkspaceController(repository);
+      await controller.load();
+      tester.view.physicalSize = const Size(1200, 4000);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: AnumTheme.dark(),
+        home: Scaffold(body: ApprovalsScreen(controller: controller)),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Approve'));
+      await tester.pumpAndSettle();
+      expect(find.text('Approve your own request?'), findsOneWidget);
+      expect(
+          find.textContaining('recorded as a self-approval'), findsOneWidget);
+      await tester.tap(find.text('Approve my own request'));
+      await tester.pumpAndSettle();
+      expect(repository.sent.single.ownConfirmed, isTrue);
+      expect(decisionBody(repository.sent.single, null)['confirm_own_request'],
+          isTrue);
+    });
+
+    testWidgets('a private task reaching beyond your data cannot be approved',
+        (tester) async {
+      final pending = workspaceApprovalFromJson(JsonReader(
+          withRouting({'can_approve': false, 'refusal': 'run_as_shared'})));
+      final controller = WorkspaceController(_FakeRepository([pending]));
+      await controller.load();
+      tester.view.physicalSize = const Size(1200, 4000);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: AnumTheme.dark(),
+        home: Scaffold(body: ApprovalsScreen(controller: controller)),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Run this as a shared task'), findsOneWidget);
+      final approve = tester.widget<FilledButton>(find.ancestor(
+          of: find.text('Approve'),
+          matching: find.byWidgetPredicate((w) => w is FilledButton)));
+      expect(approve.onPressed, isNull);
+    });
+  });
+
   test('approvals map the exact arguments, hash, expiry and decider', () async {
     final transport = _Transport();
     final repository = await _repository(transport);

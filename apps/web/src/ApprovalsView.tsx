@@ -5,7 +5,7 @@ import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Hourglass, Route, Sea
 import type { Approval } from '@anum/contracts';
 import * as api from './lib/api';
 import { APPROVAL_FILTERS, approvalSignal,APPROVAL_PAGE_SIZE, APPROVAL_SEARCH_DELAY_MS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from './lib/approvalPaging';
-import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, cardCodeValid, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, needsCardCode, normalizeReason, shortHash } from './lib/approvals';
+import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, cardCodeValid, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, needsCardCode, needsOwnConfirmation, normalizeReason, shortHash } from './lib/approvals';
 import { mayApprove, mayReject, routingView, suppressedText } from './lib/approvalRules';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t } from './lib/i18n';
@@ -244,7 +244,13 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
   // it lives only in this component's state and is cleared once the decision is sent.
   const codeNeeded = needsCardCode(approval);
   const [securityCode, setSecurityCode] = useState('');
-  const approvable = canApprove(approval, now) && !alreadyApproved && mayApprove(approval) && (!codeNeeded || cardCodeValid(securityCode));
+  // The person's own private request (docs/approvals-and-risk.md#private-task-self-approval): approving it
+  // themselves needs a second, explicit confirmation, recorded as a self-approval.
+  const confirmNeeded = needsOwnConfirmation(approval);
+  const [ownConfirmed, setOwnConfirmed] = useState(false);
+  const confirmId = useId();
+  const sharedOnly = approval.routing?.refusal === 'run_as_shared';
+  const approvable = canApprove(approval, now) && !alreadyApproved && mayApprove(approval) && (!codeNeeded || cardCodeValid(securityCode)) && (!confirmNeeded || ownConfirmed);
   const rejectable = mayReject(approval);
   const route = routingView(approval);
   const suppressed = suppressedText(approval);
@@ -258,7 +264,9 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
     setRefusal(null);
     const code = decision === 'approve' && codeNeeded ? securityCode : undefined;
     setSecurityCode('');
-    void decide(approval, decision, typed, code).then(setRefusal);
+    const decided = decision === 'approve' && confirmNeeded && ownConfirmed ? { ...approval, ownConfirmed: true } : approval;
+    setOwnConfirmed(false);
+    void decide(decided, decision, typed, code).then(setRefusal);
   };
   return (
     <article id={`approval-${approval.id}`} tabIndex={-1} data-risk={approval.riskLevel} className="approvalDetail" aria-label={t('approvals.cardLabel', { action: approval.action })}>
@@ -272,6 +280,7 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
         )}
         {route && <RoutingBlock route={route} />}
         {route?.explanation && !alreadyApproved && <p className="approvalReadOnly" role="note"><UserX aria-hidden size={14} />{route.explanation}</p>}
+        {sharedOnly && <p className="approvalReadOnly" role="note"><UserX aria-hidden size={14} />{t('routing.refusal.runAsShared')}</p>}
         {suppressed && <p className="approvalWarning approvalSuppressed" role="note"><BellOff aria-hidden size={14} />{suppressed}</p>}
         <TargetLine approval={approval} />
         {approval.action === 'web.act' && <Suspense fallback={null}><ActionBrowserApproval approval={approval}
@@ -296,6 +305,12 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
           />
           <small>{t('approvals.reasonCount', { used: reason.length, max: REASON_MAX_CHARS })}</small>
         </label>
+        {confirmNeeded && canApprove(approval, now) && (
+          <label className="approvalConfirmOwn" htmlFor={confirmId}>
+            <input id={confirmId} type="checkbox" checked={ownConfirmed} onChange={(event) => setOwnConfirmed(event.target.checked)} />
+            <span>{t('routing.confirmOwn')}</span>
+          </label>
+        )}
         {refusal && (
           <div className="approvalRefusal" role="alert">
             <UserX aria-hidden />

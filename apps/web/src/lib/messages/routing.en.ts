@@ -109,6 +109,8 @@ export const routingEn = {
   'routing.refusal.own': 'Read only: you started this request, so another approver ({who}) must decide it.',
   'routing.refusal.already': 'You approved your step. It now waits for the next approver ({who}).',
   'routing.refusal.viewer': 'Read only: viewers cannot decide approvals.',
+  'routing.refusal.runAsShared': 'Run this as a shared task so a second person can approve it. This private task reaches beyond your own data, and nobody else can see it.',
+  'routing.confirmOwn': 'I approve my own private request. It is recorded as a self-approval.',
   'routing.suppressed': {
     one: 'Opted out: {recipients} asked not to be messaged. Approving will not send anything; reject it instead.',
     other: 'Opted out: {recipients} asked not to be messaged. Approving will not send anything; reject it instead.',

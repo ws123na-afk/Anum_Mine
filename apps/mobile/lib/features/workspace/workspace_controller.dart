@@ -394,7 +394,9 @@ class WorkspaceController extends ChangeNotifier {
       return result;
     } on ApiException catch (error) {
       if (onRefused != null &&
-          (error.isPermissionDenied || error.statusCode == 409)) {
+          (error.isPermissionDenied ||
+              error.statusCode == 409 ||
+              error.statusCode == 428)) {
         onRefused(error.message);
         await load();
       } else if (error.isBudgetExceeded) {

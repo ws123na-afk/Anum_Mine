@@ -101,6 +101,7 @@ export interface ApiApprovalRouting {
   can_reject: boolean;
   refusal?: string | null;
   summary?: string;
+  confirm_own?: boolean;
 }
 
 /** `GET /api/v1/me/workspace-memberships` row (docs/identity.md, My workspaces). */
@@ -762,5 +763,6 @@ function mapRouting(routing: ApiApprovalRouting): NonNullable<Approval['routing'
     canReject: routing.can_reject,
     refusal: (routing.refusal ?? null) as NonNullable<Approval['routing']>['refusal'],
     summary: routing.summary ?? '',
+    confirmOwn: routing.confirm_own ?? false,
   };
 }

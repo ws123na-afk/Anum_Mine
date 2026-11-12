@@ -478,4 +478,7 @@ WorkspaceApproval workspaceApprovalFromJson(JsonReader j) => WorkspaceApproval(
         (a) => ApprovalApprover(
             userId: a.string('user_id'),
             approvedAt: a.date('approved_at').toLocal(),
-            reason: a.optString('reason'))));
+            reason: a.optString('reason'))),
+    confirmOwn: j.optObject('routing')?.optBool('confirm_own') ?? false,
+    runAsShared:
+        j.optObject('routing')?.optString('refusal') == 'run_as_shared');
