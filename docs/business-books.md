@@ -281,7 +281,19 @@ The figures are pure (`books_group.consolidate` over each business's `books_serv
 
 ## Automatic exchange rates
 
-An opt-in per business (Books, Settings, **Automatic exchange rates**; `GET`, `PUT /rates/auto`, `POST /rates/auto/refresh`). Once a day the [daily job](#daily-job) reads the European Central Bank's euro reference rates with Finance's connector and strict parser (`finance/connectors.http_get`, `finance/fx.parse_ecb`: no redirects, a capped size, a pattern instead of an XML parser, a recent date) and stores in the business's own book rates `1 EUR = rate X` for the base currency and each currency chosen, with the ECB's date, the source `ECB` and `origin: ecb`. Conversions between other currencies go through the euro (a cross rate). The UAE dirham is not in the ECB list: it is derived from EUR to USD and the Central Bank of the UAE's fixed peg (3.6725 AED per USD), exactly as `fx.with_aed_peg` does, and its source says so. **No other peg is assumed**: Finance does not treat the Saudi riyal or any other currency as pegged, so a currency the ECB does not publish (SAR, KWD, QAR, BHD, OMR, EGP, PKR) gets no automatic rate and is listed as unavailable; an owner records those by hand.
+An opt-in per business (Books, Settings, **Automatic exchange rates**; `GET`, `PUT /rates/auto`, `POST /rates/auto/refresh`). Once a day the [daily job](#daily-job) reads the European Central Bank's euro reference rates with Finance's connector and strict parser (`finance/connectors.http_get`, `finance/fx.parse_ecb`: no redirects, a capped size, a pattern instead of an XML parser, a recent date) and stores in the business's own book rates `1 EUR = rate X` for the base currency and each currency chosen, with the ECB's date, the source `ECB` and `origin: ecb`. Conversions between other currencies go through the euro (a cross rate).
+
+**Pegged Gulf currencies.** The ECB does not publish the Gulf currencies. Those fixed to the US dollar by their central bank are derived from the ECB's EUR to USD rate times the official peg (`finance/fx.USD_PEGS`, `fx.with_usd_pegs`), stored with the ECB's date and a source that names the peg, for example `ECB, SAR from EUR/USD at the SAMA peg 3.75 SAR per USD`:
+
+| Currency | Peg (per USD) | Set by |
+| --- | --- | --- |
+| AED | 3.6725 | Central Bank of the UAE (CBUAE) |
+| SAR | 3.75 | Saudi Central Bank (SAMA) |
+| QAR | 3.64 | Qatar Central Bank (QCB) |
+| BHD | 0.376 | Central Bank of Bahrain (CBB) |
+| OMR | 0.3845 | Central Bank of Oman (CBO) |
+
+**Not automatic.** The Kuwaiti dinar has followed an undisclosed basket of currencies since 2007, so no fixed rate exists to derive it from; the Egyptian pound and the Pakistani rupee float, and the ECB, the only rates source ANUM reads, publishes neither. KWD, EGP and PKR (and any other currency the ECB does not publish) get no automatic rate and are listed as unavailable on the page with the reason; an owner records those by hand with their source. A peg change is a code change to `fx.USD_PEGS` with this table. Finance's own rates (personal money) still derive only the dirham (`fx.with_aed_peg`).
 
 - **A typed rate always wins.** The job never stores a rate for a pair and day that already has one (either way round); an owner's rate for a pair and day that has a fetched one replaces it (`rate_recorded` audit names the replaced id); and conversions drop a fetched rate when a typed one exists for the same pair, either way round, and day (`books_report.prefer_manual`).
 - **A failed fetch changes nothing.** The feed keeps when it last succeeded and the rates' date, and records when and why the last attempt failed; the page shows both. Reports go on using the last rates while they are within the business's maximum rate age, then show figures as not converted.
@@ -395,5 +407,5 @@ Evidence: `tests/test_business_evidence.py` (attach and remove with the threshol
 - Revaluing balances is monthly: there is no daily revaluation.
 - Locking invoices, invoice payments and credit notes in Business, Invoices, or allocations in Finance, dated in a closed period: they are recorded by other modules, so the posting run posts them on the first open day, marked late.
 - The personal trigger `finance_postings_balanced` still misses an entry with no postings (defect B7); the business journal's trigger catches it.
-- Automatic rates for currencies the ECB does not publish: no peg other than the dirham's is assumed (the Saudi riyal's would need an owner decision to add it to `finance/fx.py`).
+- Automatic rates for KWD (a basket, no fixed rate), EGP and PKR (floating, not published by the ECB): typed by hand, since ANUM reads no other rates source.
 - Filing a tax return or sending invoices to ZATCA: the [VAT return](business-tax.md#the-vat-return) is a working draft and e-invoicing stops at [readiness](business-tax.md#what-is-not-built). The statements follow IFRS principles for a small business but are not audited financial statements.

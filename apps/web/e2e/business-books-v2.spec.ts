@@ -148,7 +148,7 @@ test('automatic ECB rates are turned on by an owner, fetched now, and a failed f
   expect(mock.calls.find((c) => c.method === 'PUT' && c.path.endsWith('/rates/auto'))?.body).toEqual({ enabled: true, currencies: ['USD'], version: null });
   await card.getByRole('button', { name: 'Fetch now' }).click();
   await expect(card.getByText('Fetched: 1 new rate.')).toBeVisible();
-  await expect(card.getByText(/The ECB does not publish SAR/)).toBeVisible();
+  await expect(card.getByText(/No automatic rate for KWD: the ECB does not publish them/)).toBeVisible();
   await expect(card.getByText('ECB', { exact: true }).first()).toBeVisible();
 
   await page.unrouteAll({ behavior: 'ignoreErrors' });
