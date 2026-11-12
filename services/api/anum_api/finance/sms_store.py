@@ -139,10 +139,10 @@ class LearningNotice(BaseModel):
     """What ANUM learned, shown once on Review with its undo."""
 
     id: str
-    kind: Literal["sender_trusted", "kind_remembered", "category_remembered", "card_proposed"]
+    kind: Literal["sender_trusted", "kind_remembered", "category_remembered", "card_proposed", "rechecked"]
     sender: str | None = None
     party: str | None = None
-    value: str | None = None  # the kind or category
+    value: str | None = None  # the kind or category; for ``rechecked`` how many messages were recorded
     last4: str | None = None
     account_id: str | None = None
     ref: str | None = None  # the kind memory id or the finance rule id

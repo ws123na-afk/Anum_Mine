@@ -713,6 +713,60 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
     return Outcome(message, unusual=flagged, notify="unusual" if flagged else None)
 
 
+RECHECK_LIMIT = 200  # waiting messages one re-check records at most; the next call carries on
+RECHECK_SCAN = 2_000  # waiting messages one re-check reads at most (oldest first)
+
+
+@dataclass
+class Recheck:
+    recorded: list[str]  # message ids now recorded (posted or attached)
+    still_waiting: int  # matching messages that still wait, each with its reason
+    more: bool  # stopped at the limit: run it again to carry on
+
+
+def recheck(finance: FinanceStore, store: SmsStore, context: TenantContext, *, now: datetime, sender: str | None = None,
+            last4: str | None = None, limit: int | None = None) -> Recheck:
+    """Run waiting bank messages through the pipeline again after the person trusted a sender, mapped a card, taught a
+    kind or turned auto-post on (docs/finance-sms.md#re-checking-waiting-messages). The caller holds the owner's lock.
+
+    Only forwarded or pasted messages whose masked text is still kept are re-read. A message is kept only when it now
+    posts or attaches; anything that still waits (currency doubts, ambiguous matches, possible duplicates, above the
+    limit, a sender corrected lately) is left exactly as it was. A message the person sent back (``learning_undone``)
+    is never re-recorded. Running it twice records nothing twice: a recorded message is no longer waiting."""
+    waiting, _total = store.list_messages(context, status=MessageStatus.REVIEW.value, limit=RECHECK_SCAN, offset=0)
+    recorded: list[str] = []
+    still = 0
+    more = False
+    for message in reversed(waiting):  # oldest first, so a repeat of the same payment meets the first one as a duplicate
+        if message.source not in ("device", "paste") or not message.body_masked or message.reason == "learning_undone":
+            continue
+        if sender is not None and message.sender != sender:
+            continue
+        if last4 is not None and str(message.parsed.get("last4") or "") != last4:
+            continue
+        if len(recorded) >= (limit or RECHECK_LIMIT):
+            more = True
+            break
+        trial = message.model_copy(deep=True)
+        try:
+            outcome = process(finance, store, context, trial, trial.body_masked, now=now)
+        except Exception:  # one bad message never stops the pass; it keeps waiting as it was
+            logger.exception("finance_sms_recheck_failed")
+            still += 1
+            continue
+        if outcome.message.status not in (MessageStatus.POSTED, MessageStatus.ATTACHED):
+            still += 1
+            continue
+        done = outcome.message
+        if done.status == MessageStatus.POSTED and not isinstance(done.parsed.get("learned"), dict):
+            done.parsed = {**done.parsed, "learned": {"what": "recheck", "value": str(done.parsed.get("kind") or ""), "ref": "",
+                                                       "party": done.sender}}
+        done.updated_at = now
+        store.save_message(done)
+        recorded.append(done.id)
+    return Recheck(recorded, still, more)
+
+
 OWN_PAIR_DAYS = 2
 
 

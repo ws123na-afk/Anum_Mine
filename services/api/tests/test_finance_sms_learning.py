@@ -391,3 +391,73 @@ def test_pure_reading_comparison() -> None:
     assert SL.reading_changed(m, {"amount": "10.01"})
     assert SL.reading_changed(m, {"occurred_on": "2026-11-02"})
     assert SL.reading_changed(m.model_copy(update={"reason": "missing_amount"}), {})
+
+
+# -- re-checking messages already waiting (docs/finance-sms.md#re-checking-waiting-messages) -------------------
+
+
+def _waiting() -> list[dict]:
+    return client.get(f"{API}/sms/messages", headers=OWNER, params={"status": "review"}).json()["items"]
+
+
+def test_trusting_a_sender_records_its_waiting_messages_with_a_notice_and_each_undoable() -> None:
+    s = setup()
+    ids = [send(s["token"], purchase(amount, day))["message_id"] for amount, day in (("10.00", 1), ("11.00", 2))]
+    other = send(s["token"], purchase("12.00", 3), sender="OtherBank")["message_id"]
+    trusted = client.post(f"{API}/sms/learning/senders/trust", headers=OWNER, json={"sender": SENDER})
+    assert trusted.status_code == 200, trusted.text
+    assert trusted.json()["recheck"] == {"recorded": 2, "still_waiting": 0, "more": False, "message_ids": ids}
+    notice = trusted.json()["notices"][0]
+    assert notice["kind"] == "rechecked" and notice["value"] == "2" and notice["sender"] == "testbank"
+    assert [m["id"] for m in _waiting()] == [other]  # another sender is untouched
+    shown = message(ids[0])
+    assert shown["status"] == "posted" and shown["fix"]["action"] == "undo_recheck"
+    back = client.post(f"{API}/sms/messages/{ids[0]}/undo-learning", headers=OWNER)
+    assert back.status_code == 200 and back.json()["reason"] == "learning_undone"
+    # Idempotent: running it again records nothing twice and never re-records what the person sent back.
+    again = client.post(f"{API}/sms/learning/recheck", headers=OWNER).json()["recheck"]
+    assert again["recorded"] == 0 and len(sms_memory_store.entries) == 3  # two posts and the reversal
+
+
+def test_ticking_this_reading_is_right_rechecks_the_senders_other_waiting_messages() -> None:
+    s = setup()
+    first = send(s["token"], purchase("10.00", 1))["message_id"]
+    second = send(s["token"], purchase("11.00", 2))["message_id"]
+    result = record(first, confirm_format=True)
+    assert [n["kind"] for n in result["learned"]] == ["rechecked"]
+    assert message(second)["status"] == "posted"
+
+
+def test_recheck_keeps_every_safety_hold() -> None:
+    s = setup()
+    put_settings(auto_post_limits=[{"currency": "SAR", "amount": "40"}])
+    big = send(s["token"], purchase("45.50", 1))["message_id"]
+    fx = send(s["token"], "SYNTHETIC. Purchase USD 20.00 at NETFLIX.COM card **1234 on 08/11/2026")["message_id"]
+    text = purchase("12.00", 3)
+    first = send(s["token"], text)["message_id"]
+    twin = client.post(f"{API}/sms/paste", headers=OWNER, json={"message": text, "sender": SENDER}).json()["message_id"]
+    done = client.post(f"{API}/sms/learning/senders/trust", headers=OWNER, json={"sender": SENDER}).json()["recheck"]
+    assert done["recorded"] == 1 and done["message_ids"] == [first] and done["still_waiting"] == 3
+    waiting = {m["id"]: m["reason"] for m in _waiting()}
+    assert waiting == {big: "format_unverified", fx: "format_unverified", twin: "format_unverified"}  # left exactly as they were
+    # A sender corrected lately keeps waiting even when auto-post is switched on.
+    record(first, amount="13.00")
+    put_settings(auto_post=False)
+    held = send(s["token"], purchase("14.00", 4))["message_id"]
+    on = client.post(f"{API}/sms/learning/auto-post", headers=OWNER, json={"on": True}).json()["recheck"]
+    assert held not in on["message_ids"] and message(held)["status"] == "review"
+
+
+def test_mapping_a_card_and_auto_post_on_recheck_and_the_pass_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = setup(verified=True)
+    unmapped = [send(s["token"], purchase(a, d, card="4321"))["message_id"] for a, d in (("30.00", 1), ("31.00", 2))]
+    mapped = client.post(f"{API}/sms/learning/cards/map", headers=OWNER, json={"last4": "4321", "account_id": s["card"]["id"]}).json()
+    assert mapped["recheck"]["message_ids"] == unmapped and mapped["notices"][0]["last4"] == "4321"
+    put_settings(auto_post=False)
+    off = [send(s["token"], purchase(a, d))["message_id"] for a, d in (("40.00", 3), ("41.00", 4), ("42.00", 5))]
+    monkeypatch.setattr(svc, "RECHECK_LIMIT", 2)
+    put_settings(auto_post=True)  # turning it on in the form re-checks too, two at a time here
+    assert [m["id"] for m in _waiting()] == [off[2]]
+    rest = client.post(f"{API}/sms/learning/recheck", headers=OWNER).json()["recheck"]
+    assert rest["message_ids"] == [off[2]] and not rest["more"] and _waiting() == []
+    assert client.post(f"{API}/sms/learning/recheck", headers=VIEWER).status_code == 403

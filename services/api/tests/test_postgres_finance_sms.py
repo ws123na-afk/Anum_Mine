@@ -328,3 +328,20 @@ def test_learning_from_reviews_under_rls(client: TestClient, app_session: Callab
         unbalanced = session.execute(text(
             "select entry_id from finance_postings group by entry_id, currency having sum(amount) <> 0")).all()
         assert unbalanced == []
+
+
+def test_recheck_records_waiting_messages_once_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    """docs/finance-sms.md#re-checking-waiting-messages: trusting a sender records its waiting messages in the same
+    unit of work under the owner's lock; a second run records nothing twice; another person sees nothing."""
+    api = client
+    s = _setup(api)
+    ids = [_send(api, s["token"], f"SYNTHETIC. Purchase of SAR {a} at ZEBRA MART with card **1234 on 0{d}/11/2026 14:22")["message_id"]
+           for a, d in (("20.00", 1), ("21.00", 2))]
+    trusted = api.post(f"{API}/sms/learning/senders/trust", headers=ME, json={"sender": "TestBank"})
+    assert trusted.status_code == 200, trusted.text
+    assert trusted.json()["recheck"]["message_ids"] == ids and trusted.json()["notices"][0]["kind"] == "rechecked"
+    assert api.post(f"{API}/sms/learning/recheck", headers=ME).json()["recheck"]["recorded"] == 0
+    assert api.post(f"{API}/sms/learning/recheck", headers=SOMEONE).json()["recheck"]["recorded"] == 0
+    assert _count(app_session, "finance_journal_entries", "user_test") == 2
+    undo = api.post(f"{API}/sms/messages/{ids[1]}/undo-learning", headers=ME)
+    assert undo.status_code == 200 and undo.json()["reason"] == "learning_undone"

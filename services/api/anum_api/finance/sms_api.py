@@ -264,7 +264,9 @@ def put_sms_settings(body: SettingsInput, context: TenantContext = Depends(tenan
                      repository: AnumRepository = Depends(repository_context)) -> SmsSettings:
     _manage(context)
     now = utc_now()
-    with open_sms_stores(context) as (finance, store):
+    rechecked = None
+    with svc.owner_lock(context), open_sms_stores(context) as (finance, store):
+        store.lock_owner(context)
         current = svc.settings_for(store, context)
         if body.version != current.version:
             raise _conflict("These settings changed in another window. Reload and try again.")
@@ -332,10 +334,29 @@ def put_sms_settings(body: SettingsInput, context: TenantContext = Depends(tenan
         updated.version, updated.updated_at = current.version + 1, now
         if not store.save_settings(context, updated, expected_version=current.version):
             raise _conflict("These settings changed in another window. Reload and try again.")
+        rechecked = _recheck_after_settings(finance, store, context, current, updated, now)
+        if rechecked is not None:
+            updated = svc.settings_for(store, context)
+    if rechecked is not None:
+        _audit(repository, context, "finance.sms.learning.recheck", "finance_sms_messages",
+               {"why": "settings", "recorded": rechecked, "still_waiting": None, "more": None})
     _audit(repository, context, "finance.sms.settings.update", "finance_sms_settings",
            {"fields": sorted(body.model_fields_set - {"version", "ai_consent"}), "enabled": updated.enabled, "ai": updated.ai.enabled,
             "learning": updated.learning.enabled})
     return updated
+
+
+def _recheck_after_settings(finance: Any, store: Any, context: TenantContext, before: SmsSettings, after: SmsSettings, now: Any) -> int | None:
+    """Turning auto-post on, trusting a sender or mapping a card in the settings form re-checks what waits for it."""
+    from .sms_learning_api import recheck_waiting
+
+    if after.auto_post and not before.auto_post:
+        return recheck_waiting(finance, store, context, now).recorded
+    targets = [{"sender": s} for s in sorted(set(after.verified_senders) - set(before.verified_senders))]
+    targets += [{"last4": m.last4} for m in after.account_map if m.last4 not in {b.last4 for b in before.account_map}]
+    if not targets:
+        return None
+    return sum(recheck_waiting(finance, store, context, now, sender=t.get("sender"), last4=t.get("last4")).recorded for t in targets[:10])
 
 
 class Check(BaseModel):
@@ -795,6 +816,14 @@ def post_message(message_id: str, body: CorrectionInput, context: TenantContext 
                           **{k: v for k, v in corrected.items() if k not in ("allow_duplicate", "confirm_format", "teach", "remember")}}
         store.save_message(message)
         learned = _learn(finance, store, context, as_read, body, corrected, draft, now)
+        if body.confirm_format or any(n.kind in ("sender_trusted", "kind_remembered") for n in learned):
+            # The sender is trusted, or a kind is remembered, now: its other waiting messages may pass (docs/finance-sms.md#re-checking-waiting-messages).
+            from .sms_learning_api import recheck_waiting
+
+            rechecked = recheck_waiting(finance, store, context, now, sender=message.sender)
+            if rechecked.recorded:
+                latest = svc.settings_for(store, context).memory.notices[-1:]
+                learned += [LearningNoticeView(**n.model_dump()) for n in latest if n.kind == "rechecked"]
         if body.teach:
             try:
                 rule_view = _rule_view(svc.teach(store, context, message, corrected, draft, now))

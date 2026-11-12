@@ -393,6 +393,13 @@ def category_notice(settings: SmsSettings, memory: CategoryMemory, rule_id: str,
     return _notice(settings, now, kind="category_remembered", party=memory.party_label, value=memory.category, ref=rule_id)
 
 
+def recheck_notice(settings: SmsSettings, count: int, now: datetime, *, sender: str | None = None, last4: str | None = None) -> LearningNotice | None:
+    """'N waiting messages from X were recorded', when a re-check recorded any."""
+    if count <= 0:
+        return None
+    return _notice(settings, now, kind="rechecked", value=str(count), sender=sender, last4=last4)
+
+
 def dismiss_notice(settings: SmsSettings, notice_id: str) -> bool:
     before = len(settings.memory.notices)
     settings.memory.notices = [n for n in settings.memory.notices if n.id != notice_id]
@@ -404,7 +411,7 @@ def dismiss_notice(settings: SmsSettings, notice_id: str) -> bool:
 
 @dataclass
 class Fix:
-    action: str  # trust_sender, map_card, auto_post_on, clear_hold, remember_kind, undo_learning, open_settings, decide, record
+    action: str  # trust_sender, map_card, auto_post_on, clear_hold, remember_kind, undo_learning, undo_recheck, open_settings, decide, record
     sender: str | None = None
     last4: str | None = None
     account_id: str | None = None
@@ -417,6 +424,8 @@ def fix_for(message: SmsMessage, settings: SmsSettings, accounts: list[Account])
     """The single action that stops this kind of message waiting, in the person's terms. None for settled messages."""
     reason = message.reason or ""
     learned = message.parsed.get("learned")
+    if message.status.value == "posted" and isinstance(learned, dict) and learned.get("what") == "recheck":
+        return Fix("undo_recheck", sender=message.sender)
     if message.status.value == "posted" and isinstance(learned, dict):
         return Fix("undo_learning", party=str(learned.get("party") or "") or None, kind=str(learned.get("value") or "") or None,
                    ref=str(learned.get("ref") or "") or None)

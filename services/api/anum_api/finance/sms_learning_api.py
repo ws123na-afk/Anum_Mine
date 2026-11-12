@@ -88,6 +88,13 @@ class NoticeView(BaseModel):
     created_at: Any
 
 
+class RecheckView(BaseModel):
+    recorded: int
+    still_waiting: int
+    more: bool  # stopped at the limit: run it again to carry on
+    message_ids: list[str]
+
+
 class LearningView(BaseModel):
     enabled: bool
     confirm_after: int
@@ -99,6 +106,7 @@ class LearningView(BaseModel):
     card_proposals: list[CardView]
     notices: list[NoticeView]
     version: int
+    recheck: RecheckView | None = None  # what the re-check that followed this change recorded
 
 
 class ReasonItem(BaseModel):
@@ -184,8 +192,32 @@ def review_summary(context: TenantContext = Depends(tenant_context)) -> ReviewSu
     return ReviewSummary(total=total, scanned=len(waiting), complete=len(waiting) >= total, groups=groups)
 
 
-def _change(context: TenantContext, change: Any, *, bump: bool = True) -> tuple[SmsSettings, list[Any], Any]:
-    """Read, change and save the person's SMS settings under their lock. ``change`` returns a result or raises."""
+def recheck_waiting(finance: Any, store: Any, context: TenantContext, now: Any, *, sender: str | None = None,
+                    last4: str | None = None) -> RecheckView:
+    """Re-check waiting messages (the caller holds the owner's lock) and leave the notice "N waiting messages from X
+    were recorded". docs/finance-sms.md#re-checking-waiting-messages."""
+    done = svc.recheck(finance, store, context, now=now, sender=sender, last4=last4)
+    if done.recorded:
+        for _attempt in range(3):
+            settings = svc.settings_for(store, context)
+            updated = settings.model_copy(deep=True)
+            SL.recheck_notice(updated, len(done.recorded), now, sender=sender, last4=last4)
+            if store.save_settings(context, updated, expected_version=settings.version):
+                break
+    return RecheckView(recorded=len(done.recorded), still_waiting=done.still_waiting, more=done.more, message_ids=done.recorded)
+
+
+def _recheck_audit(repository: AnumRepository, context: TenantContext, view: RecheckView | None, why: str) -> None:
+    if view is not None:
+        _audit(repository, context, "finance.sms.learning.recheck", "finance_sms_messages",
+               {"why": why, "recorded": view.recorded, "still_waiting": view.still_waiting, "more": view.more})
+
+
+def _change(context: TenantContext, change: Any, *, bump: bool = True, recheck: dict[str, str | None] | None = None
+            ) -> tuple[SmsSettings, list[Any], Any]:
+    """Read, change and save the person's SMS settings under their lock. ``change`` returns a result or raises.
+    With ``recheck`` (a sender, a card ending or neither), the matching waiting messages are re-checked afterwards in
+    the same unit of work, and the result is returned as ``LearningView.recheck`` by the caller."""
     now = utc_now()
     with svc.owner_lock(context), open_sms_stores(context) as (finance, store):
         store.lock_owner(context)
@@ -197,6 +229,9 @@ def _change(context: TenantContext, change: Any, *, bump: bool = True) -> tuple[
             updated.version, updated.updated_at = settings.version + 1, now
         if not store.save_settings(context, updated, expected_version=settings.version):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Your SMS settings changed at the same moment. Try again.")
+        if recheck is not None:
+            result = recheck_waiting(finance, store, context, now, sender=recheck.get("sender"), last4=recheck.get("last4"))
+            updated = svc.settings_for(store, context)
     return updated, accounts, result
 
 
@@ -231,9 +266,10 @@ def trust_sender(body: SenderInput, context: TenantContext = Depends(tenant_cont
         if found is not None:
             found.corrected_at = None
 
-    updated, accounts, _ = _change(context, change)
+    updated, accounts, done = _change(context, change, recheck={"sender": sender})
     _audit(repository, context, "finance.sms.learning.trust", "finance_sms_settings", {"how": "owner"})
-    return _view(updated, accounts, utc_now())
+    _recheck_audit(repository, context, done, "trust_sender")
+    return _view(updated, accounts, utc_now()).model_copy(update={"recheck": done})
 
 
 @router.post("/sms/learning/senders/untrust", response_model=LearningView)
@@ -294,9 +330,10 @@ def map_card(body: CardInput, context: TenantContext = Depends(tenant_context),
         s.account_map = [*s.account_map, AccountMapping(last4=body.last4, account_id=body.account_id)]
         SL.drop_card(s, body.last4, declined=False)
 
-    updated, accounts, _ = _change(context, change)
+    updated, accounts, done = _change(context, change, recheck={"last4": body.last4})
     _audit(repository, context, "finance.sms.learning.map_card", "finance_sms_settings", {"account": body.account_id})
-    return _view(updated, accounts, utc_now())
+    _recheck_audit(repository, context, done, "map_card")
+    return _view(updated, accounts, utc_now()).model_copy(update={"recheck": done})
 
 
 @router.post("/sms/learning/cards/decline", response_model=LearningView)
@@ -319,13 +356,19 @@ def activate_kind(memory_id: str, context: TenantContext = Depends(tenant_contex
     """Apply a choice made once to the next messages now ("Treat money from X as Salary")."""
     _manage(context)
 
+    with open_sms_stores(context) as (_finance, store):
+        found = next((m for m in svc.settings_for(store, context).memory.kinds if m.id == memory_id), None)
+    if found is None:
+        raise _missing("That remembered choice")
+
     def change(s: SmsSettings, _accounts: list[Any], now: Any) -> None:
         if SL.activate_kind(s, memory_id, now) is None:
             raise _missing("That remembered choice")
 
-    updated, accounts, _ = _change(context, change, bump=False)
+    updated, accounts, done = _change(context, change, bump=False, recheck={"sender": found.sender})
     _audit(repository, context, "finance.sms.learning.remember_kind", memory_id)
-    return _view(updated, accounts, utc_now())
+    _recheck_audit(repository, context, done, "remember_kind")
+    return _view(updated, accounts, utc_now()).model_copy(update={"recheck": done})
 
 
 @router.delete("/sms/learning/kinds/{memory_id}", response_model=LearningView)
@@ -406,9 +449,24 @@ def set_auto_post(body: AutoPostInput, context: TenantContext = Depends(tenant_c
     def change(s: SmsSettings, _accounts: list[Any], _now: Any) -> None:
         s.auto_post = body.on
 
-    updated, accounts, _ = _change(context, change)
+    updated, accounts, done = _change(context, change, recheck={} if body.on else None)
     _audit(repository, context, "finance.sms.learning.auto_post", "finance_sms_settings", {"on": body.on})
-    return _view(updated, accounts, utc_now())
+    _recheck_audit(repository, context, done, "auto_post_on")
+    return _view(updated, accounts, utc_now()).model_copy(update={"recheck": done})
+
+
+@router.post("/sms/learning/recheck", response_model=LearningView)
+def recheck_all(context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> LearningView:
+    """"Re-check waiting messages": every waiting message runs the pipeline again; those that now pass every rule are
+    recorded, at most ``svc.RECHECK_LIMIT`` per call (``recheck.more`` says to run it again)."""
+    _manage(context)
+    now = utc_now()
+    with svc.owner_lock(context), open_sms_stores(context) as (finance, store):
+        store.lock_owner(context)
+        done = recheck_waiting(finance, store, context, now)
+        settings, accounts = svc.settings_for(store, context), finance.list_accounts(context)
+    _recheck_audit(repository, context, done, "button")
+    return _view(settings, accounts, now).model_copy(update={"recheck": done})
 
 
 class UndoLearningView(BaseModel):
