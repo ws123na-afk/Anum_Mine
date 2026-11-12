@@ -175,6 +175,8 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'vehicles', view: 'vehicles', mock: workspace, ready: '.opsVehTable tbody tr' },
   { hash: 'vehicles-list', view: 'vehicles', mock: workspace, ready: '.vehList li' },
   { hash: 'vehicles-settings', view: 'vehicles', mock: workspace, ready: '.vehForm select' },
+  { hash: 'vehicles-costs', view: 'vehicles', mock: workspace, ready: '.vehFleetTable tbody tr' },
+  { hash: 'vehicles-import', view: 'vehicles', mock: workspace, ready: '.vehImport input[type="file"]' },
   { hash: 'purchases', view: 'purchases', mock: workspace, ready: '.purTaskList li' },
   { hash: 'purchases-list', view: 'purchases', mock: workspace, ready: '.purTracker tbody tr' },
   { hash: 'purchases-deliveries', view: 'purchases', mock: workspace, ready: '.purTracker tbody tr, .emptyState' },
