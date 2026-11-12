@@ -162,6 +162,7 @@ from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
+from .delivery_tools import register_delivery_tools
 from .whatsapp import register_whatsapp_tools, router as whatsapp_router
 from .sales_api import router as sales_router
 from .sales_followup_scheduler import run_due_sales_followups
@@ -717,7 +718,9 @@ register_browser_tools(tool_registry, settings, integration_registry.workspace_e
 register_action_tools(
     tool_registry, settings, integration_registry.workspace_enabled(ACTION_INTEGRATION_ID), default_planner_factory(model_gateway),
 )
-# Reports and other features send through whichever delivery tools are registered.
+# Reports and other features send through whichever delivery tools are registered:
+# email through the server's mail settings, WhatsApp through the workspace's own number.
+register_delivery_tools(tool_registry)
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
 configure_tool_catalog(tool_registry.definition)

@@ -518,7 +518,7 @@ class _TyreReportScreenState extends State<TyreReportScreen> {
               child: Column(children: [
                 for (final d in report.deliveries)
                   AnumRow(
-                    title: '${d['channel']} · ${d['to']}',
+                    title: '${channelLabel(l, '${d['channel']}')} · ${d['to']}',
                     subtitle: _deliveryLabel(l, '${d['status']}'),
                     icon: Icons.mark_email_read_outlined,
                   ),
@@ -530,6 +530,24 @@ class _TyreReportScreenState extends State<TyreReportScreen> {
       ),
     );
   }
+}
+
+/// The label of a delivery channel ("email", "whatsapp"); others as sent.
+String channelLabel(AnumLocalizations l, String channel) => switch (channel) {
+      'email' => l.t('tyreOps.channelEmail'),
+      'whatsapp' => l.t('tyreOps.channelWhatsapp'),
+      _ => channel,
+    };
+
+/// The message key of what is wrong with [to] for [channel], or null:
+/// email needs one address, WhatsApp one number in international format.
+String? recipientProblem(String? channel, String to) {
+  final text = to.trim();
+  final email = RegExp(r'^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$').hasMatch(text);
+  final phone = RegExp(r'^\+?[0-9 ]{7,20}$').hasMatch(text);
+  if (channel == 'email') return email ? null : 'tyreOps.badEmail';
+  if (channel == 'whatsapp') return phone ? null : 'tyreOps.badPhone';
+  return email || phone ? null : 'tyreOps.recipientNeeded';
 }
 
 String _deliveryLabel(AnumLocalizations l, String status) {
@@ -614,8 +632,9 @@ class _DeliverDialogState extends State<_DeliverDialog> {
 
   Future<void> _send() async {
     final l = AnumLocalizations.maybeOf(context);
-    if (to.text.trim().length < 3) {
-      setState(() => error = l.t('tyreOps.recipientNeeded'));
+    final problem = recipientProblem(channel, to.text);
+    if (problem != null) {
+      setState(() => error = l.t(problem));
       return;
     }
     setState(() {
@@ -658,15 +677,26 @@ class _DeliverDialogState extends State<_DeliverDialog> {
                           InputDecoration(labelText: l.t('tyreOps.channel')),
                       items: [
                         for (final c in list)
-                          DropdownMenuItem(value: c, child: Text(c)),
+                          DropdownMenuItem(
+                              value: c, child: Text(channelLabel(l, c))),
                       ],
-                      onChanged: (v) => setState(() => channel = v),
+                      onChanged: (v) => setState(() {
+                        channel = v;
+                        error = null;
+                      }),
                     ),
                     TextField(
                       key: const Key('tyre-deliver-to'),
                       controller: to,
+                      textDirection: TextDirection.ltr,
+                      keyboardType: channel == 'whatsapp'
+                          ? TextInputType.phone
+                          : TextInputType.emailAddress,
                       decoration: InputDecoration(
                           labelText: l.t('tyreOps.recipient'),
+                          hintText: channel == 'whatsapp'
+                              ? '+9665...'
+                              : 'fleet@example.com',
                           errorText: error),
                     ),
                     DropdownButtonFormField<String>(
@@ -682,7 +712,13 @@ class _DeliverDialogState extends State<_DeliverDialog> {
                     ),
                     Padding(
                       padding: const EdgeInsets.only(top: AnumSpacing.xs),
-                      child: Text(l.t('tyreOps.deliverNote'),
+                      child: Text(
+                          [
+                            l.t('tyreOps.deliverNote'),
+                            if (channel == 'whatsapp')
+                              l.t('tyreOps.whatsappWindow'),
+                          ].join(' '),
+                          key: const Key('tyre-deliver-note'),
                           style: TextStyle(color: context.palette.muted)),
                     ),
                   ]),

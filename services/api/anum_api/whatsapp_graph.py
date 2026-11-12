@@ -279,6 +279,36 @@ class WhatsAppGraphClient:
             ]
         return await self.send(phone_number_id, {"to": to, "type": "template", "template": template})
 
+    async def upload_media(self, phone_number_id: str, filename: str, content_type: str, content: bytes) -> str:
+        """Upload a file for sending (``POST /{phone-number-id}/media``); returns the media id."""
+        try:
+            async with self._client() as client:
+                response = await client.post(
+                    f"{self._base}/{phone_number_id}/media",
+                    data={"messaging_product": "whatsapp", "type": content_type},
+                    files={"file": (filename, content, content_type)},
+                )
+        except httpx.TimeoutException:
+            raise WhatsAppGraphError(504, "Meta did not answer in time. Try again.") from None
+        except httpx.TransportError:
+            raise WhatsAppGraphError(502, "Meta's API could not be reached. Check the server's internet access.") from None
+        if response.status_code >= 400:
+            raise _error_from(response)
+        try:
+            body = response.json()
+        except ValueError:
+            raise WhatsAppGraphError(502, "Meta answered with something that is not JSON.") from None
+        media_id = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(media_id, str) or not valid_graph_id(media_id):
+            raise WhatsAppGraphError(502, "Meta accepted the file but returned no media id.")
+        return media_id
+
+    async def send_document(self, phone_number_id: str, to: str, media_id: str, filename: str, caption: str) -> str:
+        document: dict[str, Any] = {"id": media_id, "filename": filename}
+        if caption:
+            document["caption"] = caption
+        return await self.send(phone_number_id, {"to": to, "type": "document", "document": document})
+
     async def media(self, media_id: str, *, max_bytes: int) -> MediaFile:
         info = await self._call("GET", f"/{media_id}")
         url = info.get("url")

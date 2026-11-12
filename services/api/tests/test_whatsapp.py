@@ -49,6 +49,7 @@ class FakeMeta:
 
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
+        self.uploads: list[bytes] = []
         self.calls: list[str] = []
         self.fail_send: dict[str, Any] | None = None
         self.profile_status = 200
@@ -98,6 +99,10 @@ class FakeMeta:
             body = json.loads(request.content)
             self.sent.append(body)
             return httpx.Response(200, json={"messages": [{"id": f"wamid.out{len(self.sent)}"}]})
+        if request.method == "POST" and rest == f"{PHONE_ID}/media":
+            assert b'name="messaging_product"' in request.content and b"%PDF" in request.content
+            self.uploads.append(request.content)
+            return httpx.Response(200, json={"id": "998877665544"})
         if request.method == "GET" and rest == "1234567890":
             return httpx.Response(200, json={"url": self.media_url, "mime_type": "image/jpeg", "file_size": self.media_size, "id": "1234567890"})
         return httpx.Response(404, json={"error": {"message": f"unexpected {request.method} {path}", "code": 100}})
@@ -812,3 +817,35 @@ def test_every_state_changing_whatsapp_route_is_audited_without_secrets(meta: Fa
     probe.call("POST", f"{BASE}/conversations/{conversation['id']}/send", MEMBER, sent=["Yes, 4 in stock."], json={"text": "Yes, 4 in stock."})
     probe.call("DELETE", f"{BASE}/account", OWNER)
     probe.assert_covered()
+
+
+def test_report_delivery_as_a_document_inside_the_window(meta: FakeMeta) -> None:
+    """The WhatsApp delivery tool (docs/tools-and-integrations.md#delivery): a channel only once the
+    workspace's number is connected, and a document only to someone who wrote in the last 24 hours."""
+    from anum_api import delivery, delivery_tools
+
+    delivery.register_attachment_resolver("test_doc", lambda context, item_id, fmt: ("tyres.pdf", "application/pdf", b"%PDF-1.4 tyres"))
+    try:
+        assert "whatsapp" not in delivery.channels(main.tool_registry, CONTEXT)
+        assert connect().status_code == 200
+        assert delivery.channels(main.tool_registry, CONTEXT)["whatsapp"] == delivery_tools.WHATSAPP_TOOL
+        reference = delivery.attachment_reference("test_doc", "doc_1", "pdf", CONTEXT)
+        send = ToolCall(name=delivery_tools.WHATSAPP_TOOL, arguments={
+            "to": f"+{CUSTOMER}", "subject": "Tyre report", "text": "Attached.", "attachments": [reference]})
+        closed = asyncio.run(delivery_tools.whatsapp_tool(send, CONTEXT))
+        assert closed.status == "failed" and "within 24 hours" in closed.summary and meta.uploads == []
+
+        assert deliver(inbound("Send me the report please")).status_code == 200
+        sent = asyncio.run(delivery_tools.whatsapp_tool(send, CONTEXT))
+        assert sent.status == "succeeded", sent.summary
+        assert len(meta.uploads) == 1
+        document = meta.sent[-1]
+        assert document["to"] == CUSTOMER and document["type"] == "document"
+        assert document["document"] == {"id": "998877665544", "filename": "tyres.pdf", "caption": "Tyre report\n\nAttached."}
+        conversation = only_conversation()
+        thread = client.get(f"{BASE}/conversations/{conversation['id']}", headers=OWNER).json()
+        assert any(m["kind"] == "document" and m["status"] == "sent" for m in thread["messages"])
+        wrong = asyncio.run(delivery_tools.whatsapp_tool(ToolCall(name=delivery_tools.WHATSAPP_TOOL, arguments={**send.arguments, "to": "fleet@example.com"}), CONTEXT))
+        assert wrong.status == "failed" and "phone number" in wrong.summary
+    finally:
+        delivery._resolvers.pop("test_doc", None)
