@@ -374,6 +374,8 @@ Every change is a **version** (`finance_rules`, one row per version, never overw
 
 The older **Remember this category** tick in the drawer still works: before the first versioned rule it adds to the phrase list as before; afterwards it saves an approved `learned` rule.
 
+**Learning from iPhone SMS review.** A category the owner chooses twice for the same merchant while recording bank messages saves an approved `learned` rule on that merchant (money out) through `propose` and `decide`, so this engine files the merchant from every source afterwards; undoing it under Review proposes and approves a version with the rule switched off ([Learning from reviews](finance-sms.md#learning-from-reviews)). Senders, what money from a party is and card proposals are SMS-only and live with the SMS settings.
+
 ### Merchants and aliases
 
 A description's merchant is its first three meaningful words, without card numbers, dates, channel words ("POS", "Apple Pay", "شراء عبر نقاط البيع"), cities, country codes and legal forms (`rules.merchant_key`; "POS 1234 CARREFOUR CITY CENTRE DUBAI AE" is "carrefour city centre"). Arabic letter forms are folded first (أ إ آ to ا, ة to ه, ى to ي, no diacritics), so a rule or alias typed either way matches both. The owner can name several spellings, English or Arabic, as one merchant (`GET, POST /merchants/aliases`, `PATCH, DELETE /merchants/aliases/{id}`; at most 500): a rule on the merchant "Zebra Mart" then matches "شراء زيبرا" and "POS ZEBRA MRT" alike, and history counts them together.
