@@ -531,6 +531,17 @@ def _agents_running() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_command_continuations_from_other_tests() -> Iterator[None]:
+    """Finished steps queued for the server's command continuation are per process: a test
+    starts with none left by another (docs/command.md#the-server-continues-a-command)."""
+    from anum_api.command_continuation import command_continuer
+
+    command_continuer.clear()
+    yield
+    command_continuer.clear()
+
+
+@pytest.fixture(autouse=True)
 def _quiet_machine(monkeypatch: pytest.MonkeyPatch) -> None:
     """The evaluation load guard reads the real machine; tests pretend it is idle unless a
     test sets a reading itself (docs/finance-trading-intel.md#load-guard)."""

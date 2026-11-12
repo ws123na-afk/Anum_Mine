@@ -243,6 +243,7 @@ from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
 from .green_concrete_ops import register_green_concrete_tools
+from .command_continuation import command_continuer
 from .commands import prepare_step_run as prepare_command_step_run, router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
@@ -340,6 +341,8 @@ async def lifespan(application: FastAPI):
     push_dispatcher.start()
     # Runs automation steps after their transaction commits and reacts to committed events.
     automation_dispatcher.start()
+    # Starts a command's waiting steps when the steps they wait for complete (docs/command.md).
+    command_continuer.start()
     developer_watcher = build_developer_watcher()
     if developer_watcher is not None:
         developer_watcher.start()
@@ -419,6 +422,7 @@ async def lifespan(application: FastAPI):
             await scheduler.stop()
         if developer_watcher is not None:
             await developer_watcher.stop()
+        await command_continuer.stop()
         await automation_dispatcher.stop()
         await push_dispatcher.stop()
         await asyncio.to_thread(notification_email.shutdown)
@@ -1706,6 +1710,11 @@ async def _cancel_task_for_voice(context: TenantContext, task_id: str) -> Task:
         await run_dispatcher.cancelled(context, task.id)
     return task
 
+
+# A command's waiting steps start when the steps they wait for complete, as the command's
+# creator, through the same body as POST /tasks/{id}/run (docs/command.md#the-server-continues-a-command).
+command_continuer.configure(runner=lambda context, task_id: start_task_run(task_id, context, _membership_units))
+command_continuer.attach(event_runtime)
 
 # The voice assistant's actions run these same route bodies (docs/voice.md#actions).
 voice_actions.configure(

@@ -159,7 +159,72 @@ def test_steps_start_in_dependency_order_under_rls(client: TestClient) -> None:
     started = client.post(f"/api/v1/commands/{command['id']}/start", headers=headers())
     assert started.status_code == 200, started.text
     body = started.json()
-    assert body["started"] == [step["task_id"] for step in command["steps"]] and body["refused"] == {}
-    assert [step["status"] for step in body["command"]["steps"]] == ["completed", "waiting_approval"]
+    assert body["started"] == [command["steps"][0]["task_id"]] and body["refused"] == {}
+    assert [step["status"] for step in body["command"]["steps"]] == ["completed", "created"]
+    # The server continues on its own once step 1 completed (docs/command.md#the-server-continues-a-command).
+    import asyncio
+
+    from anum_api.command_continuation import command_continuer
+
+    continued: list[str] = []
+    while (item := command_continuer._take()) is not None:
+        continued.extend(asyncio.run(command_continuer.handle(item)))
+    assert continued == [send["task_id"]]
+    view = client.get(f"/api/v1/commands/{command['id']}", headers=headers()).json()
+    assert [step["status"] for step in view["steps"]] == ["completed", "waiting_approval"]
     # Another user of the workspace cannot start this user's command.
     assert client.post(f"/api/v1/commands/{command['id']}/start", headers=headers("user_other")).status_code == 404
+
+
+def test_two_concurrent_finishers_start_the_waiting_step_once(client: TestClient, database_engine: Engine) -> None:
+    """Steps 1 and 2 complete; step 3 waits for both. Two API replicas each receive both
+    completions (as from NATS) and race to continue the command: the claim in a short
+    transaction lets exactly one start step 3 (docs/command.md#the-server-continues-a-command)."""
+    import asyncio
+
+    from anum_api.command_continuation import CommandContinuer, Finished, command_continuer
+    from anum_api.main import _membership_units, start_task_run
+
+    text_value = "Check my emails, schedule a meeting with the team tomorrow at 10 a.m, send the summary to the team"
+    created = client.post("/api/v1/commands", headers=headers(), json={"text": text_value, "steps": [
+        {"instruction": "Check my emails", "depends_on": []},
+        {"instruction": "Schedule a meeting with the team tomorrow at 10 a.m", "depends_on": []},
+        {"instruction": "send the summary to the team", "depends_on": [1, 2]},
+    ]})
+    assert created.status_code == 201, created.text
+    ids = [step["task_id"] for step in created.json()["steps"]]
+    for task_id in ids[:2]:
+        ran = client.post(f"/api/v1/tasks/{task_id}/run", headers=headers())
+        assert ran.status_code == 200 and ran.json()["task"]["status"] == "completed", ran.text
+    command_continuer.clear()  # this process's own queue is not part of the race
+
+    async def race() -> list[list[str]]:
+        # Both replicas read step 3 as ready before either starts it, then both try.
+        barrier = asyncio.Barrier(2)
+
+        async def runner(context, task_id):  # type: ignore[no-untyped-def]
+            try:
+                await asyncio.wait_for(barrier.wait(), timeout=5)
+            except (TimeoutError, asyncio.BrokenBarrierError):
+                pass
+            return await start_task_run(task_id, context, _membership_units)
+
+        replicas = [CommandContinuer(), CommandContinuer()]
+        for replica in replicas:
+            replica.configure(runner=runner)
+        finished = [Finished(TENANT_A, WORKSPACE_A, task_id) for task_id in ids[:2]]
+        return list(await asyncio.gather(replicas[0].handle(finished[0]), replicas[1].handle(finished[1]))) + [
+            [str(replica.started), str(replica.already_started), str(replica.refused)] for replica in replicas
+        ]
+
+    first, second, counts_a, counts_b = asyncio.run(race())
+    assert sorted(first + second) == [ids[2]]
+    assert sorted([counts_a, counts_b]) == [["0", "1", "0"], ["1", "0", "0"]]
+    with database_engine.connect() as connection:
+        runs = connection.execute(text("select count(*) from agent_runs where task_id = :id"), {"id": ids[2]}).scalar_one()
+        approvals = connection.execute(text("select count(*) from approvals where task_id = :id"), {"id": ids[2]}).scalar_one()
+        status = connection.execute(text("select status from tasks where id = :id"), {"id": ids[2]}).scalar_one()
+    assert runs == 1 and approvals == 1 and status == "waiting_approval"
+    # The live view agrees, as the command's creator.
+    view = client.get(f"/api/v1/commands/{created.json()['id']}", headers=headers()).json()
+    assert [step["status"] for step in view["steps"]] == ["completed", "completed", "waiting_approval"]

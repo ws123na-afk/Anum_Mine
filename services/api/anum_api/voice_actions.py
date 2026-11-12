@@ -925,7 +925,7 @@ async def _quick_command(runtime: VoiceTaskRuntime, action: ParsedAction, contex
         return await runtime.run(context, task_id)
 
     # As the Command Center's Start: steps with nothing to wait for start together, a step
-    # that builds on others starts once they completed (commands.run_ready_steps).
+    # that builds on others is started by the server once they completed (command_continuation.py).
     from .commands import run_ready_steps
 
     outcomes = await run_ready_steps(view.id, context, _units, start)
