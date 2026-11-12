@@ -48,6 +48,40 @@ spec:
     {{- with $np.appEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- if .Values.ocr.enabled }}
+    # The document vault's OCR service of this release.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "anum.selectorLabels" (dict "root" $ "component" "ocr") | nindent 14 }}
+      ports:
+        - port: {{ .Values.ocr.service.port }}
+          protocol: TCP
+    {{- end }}
+{{- end }}
+{{- if .Values.ocr.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-ocr
+  labels:
+    {{- include "anum.labels" (dict "root" $ "component" "network") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "anum.selectorLabels" (dict "root" $ "component" "ocr") | nindent 6 }}
+  # Only this release's API pods may call it; no egress at all (no DNS, no internet,
+  # no database), like the compose `ocr` network that nothing else joins.
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "anum.selectorLabels" (dict "root" $ "component" "api") | nindent 14 }}
+      ports:
+        - port: {{ .Values.ocr.service.port }}
+          protocol: TCP
 {{- end }}
 {{- if .Values.worker.enabled }}
 ---

@@ -190,6 +190,49 @@ refuses "ANUM_FILE_SCAN_REQUIRED must stay true" "${SCAN_ON[@]}" --set-string ex
 refuses "ANUM_CLAMAV_PORT" --set-string config.ANUM_CLAMAV_PORT=70000
 refuses "ANUM_CLAMAV_TIMEOUT_SECONDS" --set-string config.ANUM_CLAMAV_TIMEOUT_SECONDS=0
 
+# Document vault OCR (docs/documents.md#the-ocr-service, docs/deployment.md#document-ocr): off by
+# default; when on, its own Deployment, Service and NetworkPolicy, the API gets the Service URL
+# and the token from the token Secret, nothing else does, and the token never reaches a ConfigMap.
+staging="$(helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml")"
+if grep -q 'app.kubernetes.io/component: ocr' <<<"$staging"; then
+  fail "ocr must be off by default"
+fi
+OCR_ON=(--set ocr.enabled=true --set ocr.image.repository=ghcr.io/owner/anum-ocr --set ocr.image.tag=example)
+ocr="$(helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${OCR_ON[@]}")" \
+  || fail "the chart must render with the OCR service on"
+helm lint --strict "$CHART" -f "$CHART/values-staging.yaml" "${OCR_ON[@]}" >/dev/null || fail "helm lint fails with the OCR service on"
+kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION" -schema-location "$KUBECONFORM_SCHEMA" - <<<"$ocr" \
+  || fail "the OCR manifests do not validate"
+for kind in Deployment Service NetworkPolicy ServiceAccount; do
+  grep -B1 -A3 "^kind: $kind\$" <<<"$ocr" | grep -q 'name: anum-ocr$' || fail "ocr: no $kind named anum-ocr"
+done
+ocr_config="$(helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${OCR_ON[@]}" --show-only templates/configmap.yaml)"
+grep -qF 'ANUM_OCR_SERVICE_URL: "http://anum-ocr:8091"' <<<"$ocr_config" || fail "configmap.yaml: ANUM_OCR_SERVICE_URL must point at the release's OCR Service"
+grep -q 'ANUM_OCR_SERVICE_TOKEN' <<<"$ocr_config" && fail "configmap.yaml: the OCR token must never be in the ConfigMap"
+for template in api.yaml ocr.yaml; do
+  helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${OCR_ON[@]}" --show-only "templates/$template" \
+    | grep -A4 -- '- name: ANUM_OCR_SERVICE_TOKEN$' | tr -d ' ' | tr '\n' '|' | grep -qF 'secretKeyRef:|name:anum-ocr|key:ANUM_OCR_SERVICE_TOKEN|' \
+    || fail "$template: ANUM_OCR_SERVICE_TOKEN must come from the anum-ocr Secret"
+done
+helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${OCR_ON[@]}" --show-only templates/worker.yaml | grep -q 'ANUM_OCR_SERVICE_TOKEN' \
+  && fail "worker.yaml: only the API may hold the OCR token"
+ocr_pod="$(helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${OCR_ON[@]}" --show-only templates/ocr.yaml)"
+for needle in 'readOnlyRootFilesystem: true' 'automountServiceAccountToken: false' 'path: /healthz' 'memory: 512Mi' 'drop:'; do
+  grep -qF "$needle" <<<"$ocr_pod" || fail "ocr.yaml: missing $needle"
+done
+grep -q 'configMapRef' <<<"$ocr_pod" && fail "ocr.yaml: the OCR pod must not read the ANUM ConfigMap"
+ocr_np="$(helm template anum "$CHART" --namespace anum -f "$CHART/values-staging.yaml" "${OCR_ON[@]}" --show-only templates/networkpolicies.yaml)"
+awk '/^  name: anum-ocr$/,/^---/' <<<"$ocr_np" | grep -q 'egress:' && fail "networkpolicies.yaml: the OCR pod must have no egress rule"
+awk '/^  name: anum-api$/,/^---/' <<<"$ocr_np" | grep -q 'port: 8091' || fail "networkpolicies.yaml: the API must be allowed to reach the OCR Service"
+log "OCR service renders as the compose ocr profile does"
+refuses "ocr.image.repository is required" --set ocr.enabled=true
+refuses "ANUM_OCR_SERVICE_TOKEN is the OCR service's token" --set-string config.ANUM_OCR_SERVICE_TOKEN=example-token
+refuses "ANUM_OCR_SERVICE_TOKEN is the OCR service's token" --set-string extraEnv.ANUM_OCR_SERVICE_TOKEN=example-token
+refuses "ocr.concurrency" "${OCR_ON[@]}" --set ocr.concurrency=0
+refuses "ocr.resources.limits" "${OCR_ON[@]}" --set ocr.resources.limits=null
+refuses "points elsewhere while ocr.enabled" "${OCR_ON[@]}" --set-string config.ANUM_OCR_SERVICE_URL=http://other-ocr:8091
+refuses "must be an http or https URL" --set-string config.ANUM_OCR_SERVICE_URL=ocr:8091
+
 # ---------------------------------------------------------------------------
 # Admission policy chart (infra/helm/anum-admission, docs/deployment.md#admission-policy).
 # kubeconform has no schema for custom resources. The policy.sigstore.dev

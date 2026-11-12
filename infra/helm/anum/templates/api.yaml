@@ -57,6 +57,14 @@ spec:
                 name: {{ include "anum.configName" . }}
           env:
             {{- include "anum.secretEnv" . | nindent 12 }}
+            {{- if .Values.ocr.enabled }}
+            # The document vault's OCR service token (docs/documents.md#the-ocr-service): the API only.
+            - name: ANUM_OCR_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ocr.tokenSecret.name }}
+                  key: {{ .Values.ocr.tokenSecret.key }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           startupProbe:

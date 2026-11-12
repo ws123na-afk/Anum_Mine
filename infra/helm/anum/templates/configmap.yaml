@@ -18,4 +18,8 @@ data:
   {{- if and (not .Values.config.ANUM_EMAIL_WEB_URL) .Values.ingress.hosts.web }}
   ANUM_EMAIL_WEB_URL: {{ printf "https://%s" .Values.ingress.hosts.web | quote }}
   {{- end }}
+  {{- /* Document vault OCR (docs/documents.md#the-ocr-service): this release's OCR Service. */}}
+  {{- if and .Values.ocr.enabled (not .Values.config.ANUM_OCR_SERVICE_URL) }}
+  ANUM_OCR_SERVICE_URL: {{ printf "http://%s-ocr:%v" (include "anum.fullname" .) .Values.ocr.service.port | quote }}
+  {{- end }}
   FORWARDED_ALLOW_IPS: {{ .Values.api.forwardedAllowIps | quote }}
