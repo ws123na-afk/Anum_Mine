@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
 import '../../data/readable_error.dart';
+import '../auth/welcome_screens.dart' show openExternalUrl;
 import 'calendar_models.dart';
 
 /// Connecting, choosing and disconnecting Google and Microsoft calendars on
@@ -110,6 +111,10 @@ class ApiCalendarConnectionsRepository
           'PUT', '$_base/connections/${_id(connectionId)}/calendars',
           body: {'selected': selected})));
 }
+
+/// Opens a provider's sign-in in the system browser. Only the journeys
+/// replace it (integration_test/journeys/life_admin.dart).
+Future<bool> Function(Uri uri) calendarOpenUrl = openExternalUrl;
 
 enum ConnectionsPhase { loading, ready, error, denied }
 

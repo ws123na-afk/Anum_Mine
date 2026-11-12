@@ -49,6 +49,7 @@ flutter test integration_test -d flutter-tester
 | Notifications: filter by read state, mark unread, delete after a confirmation | `journeys/notifications_favorites.dart` |
 | Favorites: in My order, move one up (sent with its anchor), then search | `journeys/notifications_favorites.dart` |
 | Finance: a reconciliation's statement row posted as a correcting entry with its payload hash, the session completed, then a new rule approved with its payload hash | `journeys/finance.dart` |
+| Life admin: connect Google Calendar from the phone (the sign-in opens in the browser and the app finishes it on return) and choose another calendar; edit a purchase, attach a receipt from the vault, move a return and record its refund in cash; write and submit a daily report after the review; send a tyre report by email, which waits for an approval | `journeys/life_admin.dart` |
 | Session: Sign out in Settings leaves only the sign-in screen (also when the server cannot be told); a session that expires mid-use returns to sign-in with a notice; the next person to sign in sees nothing of the previous one | `journeys/session.dart` |
 
 ## Broken journeys these tests found and fixed
