@@ -182,6 +182,7 @@ from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
 from .finance.sms_api import router as finance_sms_router
+from .finance.sms_learning_api import router as finance_sms_learning_router
 from .finance.links_api import router as finance_links_router
 from .finance.commitments_api import router as finance_commitments_router
 from .finance.bank_loans_api import router as finance_bank_loans_router
@@ -619,6 +620,7 @@ app.include_router(finance_wider_router)
 app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
 app.include_router(finance_sms_router)
+app.include_router(finance_sms_learning_router)
 app.include_router(finance_links_router)
 app.include_router(finance_commitments_router)
 app.include_router(finance_bank_loans_router)

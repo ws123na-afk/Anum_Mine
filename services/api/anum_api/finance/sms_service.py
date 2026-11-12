@@ -75,6 +75,7 @@ from .sms_store import (
 )
 from . import link_hooks
 from . import wallet as W
+from .sms_learning import category_by_rule, hold_reason, remembered_kind
 from .store import FinanceStore
 from .summary import today_in, zone
 
@@ -649,8 +650,25 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
             store.save_rule(rule)
             if rule.account_id and resolved.account is None and resolved.counter is None:
                 resolved = resolve(parsed, settings, accounts, account_id=rule.account_id)
+    applied = remembered_kind(settings, message.sender, parsed, accounts)
+    if applied is not None and resolved.amount is not None and target is not None:
+        # The person chose this twice for money from or to this party (docs/finance-sms.md#learning).
+        if applied.kind == P.Kind.OWN_TRANSFER:
+            own = next((a for a in accounts if a.id == applied.counter_account_id), None)
+            if own is None or own.currency != target.currency or own.id == target.id:
+                applied = None  # across currencies, or to the same account: the person decides
+            else:
+                account, counter = (own, target) if parsed.kind in P.MONEY_IN else (target, own)
+                resolved = Resolved(account, counter, resolved.amount, resolved.original_amount, resolved.original_currency, resolved.fx_rate)
+        if applied is not None:
+            parsed.kind = applied.kind
+            message.parsed = {**message.parsed, "learned": applied.record()}
     when, has_time = _when(parsed, message.received_at, tz_name)
     reason = parsed.reason or resolved.problem
+    if reason is None:
+        # A reading by a rule the person taught is theirs: a hold for corrected readings of the generic engine does not apply.
+        held_sender = None if parsed.rule.startswith("learned:") else message.sender
+        reason = hold_reason(settings, held_sender, resolved.amount, target.currency if target is not None else None, now)
     if reason is None and not settings.auto_post:
         reason = "auto_post_off"
     if resolved.amount is not None and target is not None and parsed.kind != P.Kind.UNKNOWN and parsed.reason not in ("unknown_kind", "ambiguous_kind"):
@@ -668,6 +686,16 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
     if reason is not None:
         message.status, message.reason = MessageStatus.REVIEW, reason
         return Outcome(message, notify="review")
+    if parsed.kind in (P.Kind.CARD_PURCHASE, P.Kind.TRANSFER_OUT) and settings.memory.categories and resolved.amount is not None:
+        # Mark a category the person taught by choosing it twice (an approved learned rule), so Review can offer its undo.
+        from .categories import classify_text
+        from .rules_store import owner_rules
+
+        found = classify_text(parsed.merchant or "", -resolved.amount, owner_rules(finance, context), account_id=getattr(resolved.account, "id", None),
+                              reference=parsed.reference)
+        memory = category_by_rule(settings, found.rule_id)
+        if memory is not None:
+            message.parsed = {**message.parsed, "learned": {"what": "category", "value": memory.category, "ref": str(memory.rule_id), "party": memory.party_label}}
     draft = Draft(kind=parsed.kind, resolved=resolved, merchant=parsed.merchant, category=None, occurred_at=when, has_time=has_time,
                   reference=parsed.reference, interest=parsed.interest, fee=parsed.fee if parsed.kind != P.Kind.BANK_FEE else None)
     try:
@@ -848,6 +876,10 @@ def process_wallet(finance: FinanceStore, store: SmsStore, context: TenantContex
         return _attach(message, existing_entry, decision)
     if decision == "ambiguous":
         message.status, message.reason = MessageStatus.REVIEW, "ambiguous_match"
+        return Outcome(message, notify="review")
+    limited = hold_reason(settings, None, resolved.amount, account.currency, now)
+    if limited is not None:
+        message.status, message.reason = MessageStatus.REVIEW, limited
         return Outcome(message, notify="review")
     if not settings.auto_post:
         message.status, message.reason = MessageStatus.REVIEW, "auto_post_off"

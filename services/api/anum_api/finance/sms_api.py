@@ -38,9 +38,11 @@ from .api import _audit, _manage, _read
 from .flows import Flow, flow_of
 from .ledger import EntrySource, EntryStatus, PlanError
 from .models import AccountKind
+from . import sms_learning as SL
 from .sms_store import (
     MAX_DEVICES,
     AccountMapping,
+    AutoPostLimit,
     DeviceStatus,
     LedgerKind,
     MessageStatus,
@@ -120,6 +122,7 @@ class MessageView(BaseModel):
     observed_balance: Decimal | None
     observed_currency: str | None
     attempts: int
+    fix: dict[str, Any] | None = None  # the one action that makes such a message automatic next time (docs/finance-sms.md#learning)
 
 
 class MessagePage(BaseModel):
@@ -173,12 +176,18 @@ def _device_view(device: SmsDevice) -> DeviceView:
     return DeviceView(**device.model_dump(exclude={"tenant_id", "workspace_id", "owner_user_id", "token_hash"}))
 
 
-def _message_view(message: SmsMessage) -> MessageView:
+def _message_view(message: SmsMessage, settings: SmsSettings | None = None, accounts: list[Any] | None = None) -> MessageView:
+    fix = None
+    if settings is not None and accounts is not None:
+        found = SL.fix_for(message, settings, accounts)
+        if found is not None:
+            names = {a.id: a.name for a in accounts}
+            fix = {**found.__dict__, "account_name": names.get(found.account_id or "")}
     return MessageView(
         id=message.id, device_id=message.device_id, source=message.source, received_at=message.received_at, sender=message.sender,
         bank_key=message.bank_key, body_masked=message.body_masked, body_kept_until=message.body_purge_at, status=message.status,
         reason=message.reason, parsed=dict(message.parsed), rule=message.rule, entry_id=message.entry_id, duplicate_of=message.duplicate_of,
-        observed_balance=message.observed_balance, observed_currency=message.observed_currency, attempts=message.attempts,
+        observed_balance=message.observed_balance, observed_currency=message.observed_currency, attempts=message.attempts, fix=fix,
     )
 
 
@@ -232,6 +241,9 @@ class SettingsInput(BaseModel):
     ai_enabled: bool | None = None
     ai_consent: bool = False  # must be true to turn AI help on: masked text goes to the workspace's model
     ai_daily_cap: int | None = Field(default=None, ge=1, le=200)
+    learning_enabled: bool | None = None  # learn from reviews (docs/finance-sms.md#learning)
+    learning_confirm_after: int | None = Field(default=None, ge=1, le=5)
+    auto_post_limits: list[AutoPostLimit] | None = Field(default=None, max_length=20)
 
 
 class SettingsView(SmsSettings):
@@ -306,11 +318,21 @@ def put_sms_settings(body: SettingsInput, context: TenantContext = Depends(tenan
             updated.ai.enabled, updated.ai.opted_in_at = False, None
         if body.ai_daily_cap is not None:
             updated.ai.daily_cap = body.ai_daily_cap
+        if body.learning_enabled is not None:
+            updated.learning.enabled = body.learning_enabled
+        if body.learning_confirm_after is not None:
+            updated.learning.confirm_after = body.learning_confirm_after
+        if body.auto_post_limits is not None:
+            currencies = [item.currency for item in body.auto_post_limits]
+            if len(set(currencies)) != len(currencies):
+                raise _unprocessable("Limits for automatic recording: each currency can have one limit.")
+            updated.auto_post_limits = body.auto_post_limits
         updated.version, updated.updated_at = current.version + 1, now
         if not store.save_settings(context, updated, expected_version=current.version):
             raise _conflict("These settings changed in another window. Reload and try again.")
     _audit(repository, context, "finance.sms.settings.update", "finance_sms_settings",
-           {"fields": sorted(body.model_fields_set - {"version", "ai_consent"}), "enabled": updated.enabled, "ai": updated.ai.enabled})
+           {"fields": sorted(body.model_fields_set - {"version", "ai_consent"}), "enabled": updated.enabled, "ai": updated.ai.enabled,
+            "learning": updated.learning.enabled})
     return updated
 
 
@@ -661,20 +683,21 @@ def sms_paste(body: PasteInput, context: TenantContext = Depends(tenant_context)
 def list_messages(status_filter: MessageStatus | None = Query(default=None, alias="status"), limit: int = Query(default=25, ge=1, le=200),
                   offset: int = Query(default=0, ge=0), context: TenantContext = Depends(tenant_context)) -> MessagePage:
     _read(context)
-    with open_sms_stores(context) as (_finance, store):
+    with open_sms_stores(context) as (finance, store):
         store.purge_bodies(context, utc_now())
         items, total = store.list_messages(context, status=status_filter.value if status_filter else None, limit=limit, offset=offset)
-    return MessagePage(items=[_message_view(m) for m in items], total=total, limit=limit, offset=offset)
+        settings, accounts = svc.settings_for(store, context), finance.list_accounts(context)
+    return MessagePage(items=[_message_view(m, settings, accounts) for m in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/sms/messages/{message_id}", response_model=MessageView)
 def get_message(message_id: str, context: TenantContext = Depends(tenant_context)) -> MessageView:
     _read(context)
-    with open_sms_stores(context) as (_finance, store):
+    with open_sms_stores(context) as (finance, store):
         message = store.get_message(context, message_id)
         if message is None:
             raise _not_found("Message")
-        return _message_view(message)
+        return _message_view(message, svc.settings_for(store, context), finance.list_accounts(context))
 
 
 class CorrectionInput(BaseModel):
@@ -697,6 +720,19 @@ class CorrectionInput(BaseModel):
     allow_duplicate: bool = False  # post a message ANUM flagged as a duplicate anyway
     confirm_format: bool = False  # this reading is right: trust this sender's format from now on
     teach: bool = False  # propose a rule from this correction
+    remember: bool = False  # remember this kind for this party now, without waiting for the second time
+
+
+class LearningNoticeView(BaseModel):
+    id: str
+    kind: str
+    sender: str | None = None
+    party: str | None = None
+    value: str | None = None
+    last4: str | None = None
+    account_id: str | None = None
+    ref: str | None = None
+    created_at: Any
 
 
 class CorrectionResult(BaseModel):
@@ -706,6 +742,7 @@ class CorrectionResult(BaseModel):
     reversed_entry_id: str | None = None
     proposed_rule: RuleView | None = None
     rule_error: str | None = None
+    learned: list[LearningNoticeView] = Field(default_factory=list)  # what ANUM learned from this, each with its undo
 
 
 @router.post("/sms/messages/{message_id}/post", response_model=CorrectionResult)
@@ -717,7 +754,9 @@ def post_message(message_id: str, body: CorrectionInput, context: TenantContext 
     now = utc_now()
     corrected = body.model_dump(exclude_none=True, mode="json")
     reversed_id = rule_view = rule_error = None
-    with open_sms_stores(context) as (finance, store):
+    learned: list[LearningNoticeView] = []
+    with svc.owner_lock(context), open_sms_stores(context) as (finance, store):
+        store.lock_owner(context)  # one writer of this person's settings and journal at a time (ingest takes the same lock)
         message = store.get_message(context, message_id)
         if message is None:
             raise _not_found("Message")
@@ -748,16 +787,12 @@ def post_message(message_id: str, body: CorrectionInput, context: TenantContext 
                                 source_ref=message.id, now=now, canonical_id=canonical)
         except PlanError as exc:
             raise _unprocessable(str(exc)) from None
+        as_read = message.model_copy(deep=True)  # the reading before this correction, for learning
         message.status, message.reason, message.entry_id, message.updated_at = MessageStatus.POSTED, None, entry.id, now
-        message.parsed = {**message.parsed, **{k: v for k, v in corrected.items() if k not in ("allow_duplicate", "confirm_format", "teach")}}
+        message.parsed = {**{k: v for k, v in message.parsed.items() if k != "learned"},
+                          **{k: v for k, v in corrected.items() if k not in ("allow_duplicate", "confirm_format", "teach", "remember")}}
         store.save_message(message)
-        if body.confirm_format and message.sender and message.sender not in settings.verified_senders:
-            updated = settings.model_copy(deep=True)
-            updated.verified_senders = sorted({*updated.verified_senders, message.sender})
-            if message.bank_key is None and not any(m.sender == message.sender for m in updated.extra_senders):
-                updated.extra_senders.append(SenderMapping(sender=message.sender, bank=message.sender[:40]))
-            updated.version, updated.updated_at = settings.version + 1, now
-            store.save_settings(context, updated, expected_version=settings.version)
+        learned = _learn(finance, store, context, as_read, body, corrected, draft, now)
         if body.teach:
             try:
                 rule_view = _rule_view(svc.teach(store, context, message, corrected, draft, now))
@@ -766,8 +801,71 @@ def post_message(message_id: str, body: CorrectionInput, context: TenantContext 
         view = _message_view(message)
     _audit(repository, context, "finance.sms.message.post", message_id,
            {"entry": entry.id, "reversed": reversed_id, "fields": sorted(set(corrected) - {"allow_duplicate", "confirm_format", "teach"}),
-            "confirmed_format": body.confirm_format, "rule": rule_view.id if rule_view else None})
-    return CorrectionResult(message=view, entry_id=entry.id, canonical_id=entry.canonical_id or entry.id, reversed_entry_id=reversed_id, proposed_rule=rule_view, rule_error=rule_error)
+            "confirmed_format": body.confirm_format, "rule": rule_view.id if rule_view else None, "learned": [n.kind for n in learned]})
+    return CorrectionResult(message=view, entry_id=entry.id, canonical_id=entry.canonical_id or entry.id, reversed_entry_id=reversed_id,
+                            proposed_rule=rule_view, rule_error=rule_error, learned=learned)
+
+
+def _learn(finance: Any, store: Any, context: TenantContext, message: SmsMessage, body: CorrectionInput, corrected: dict[str, Any],
+           draft: svc.Draft, now: Any) -> list[LearningNoticeView]:
+    """Confirm the format (when ticked) and learn from what the person recorded (docs/finance-sms.md#learning).
+
+    The settings are read again and saved with their version; the version moves only when the trusted senders change,
+    so a settings form open in another window keeps working after an ordinary record."""
+    picked = body.account_id or body.counter_account_id
+    accounts = finance.list_accounts(context)
+    for _attempt in range(3):
+        settings = svc.settings_for(store, context)
+        updated = settings.model_copy(deep=True)
+        trusted = body.confirm_format and SL.trust_sender(updated, message.sender, message.bank_key)
+        other = _own_other(draft, message, settings, accounts) if draft.kind == P.Kind.OWN_TRANSFER else None
+        result = SL.on_recorded(updated, message, corrected, chosen_kind=draft.kind, picked_account_id=picked, counter_account_id=other,
+                                merchant=draft.merchant, explicit_confirm=body.confirm_format, remember=body.remember, accounts=accounts, now=now)
+        notices = list(result.notices)
+        if result.category_rule is not None:
+            rule_id = _learned_category_rule(finance, context, result.category_rule, now)
+            if rule_id is not None:
+                notices.append(SL.category_notice(updated, result.category_rule, rule_id, now))
+        if trusted or result.trusted_changed:
+            updated.version, updated.updated_at = settings.version + 1, now
+        if store.save_settings(context, updated, expected_version=settings.version):
+            return [LearningNoticeView(**n.model_dump()) for n in notices]
+    logger.warning("finance_sms_learning_conflict")
+    return []
+
+
+def _own_other(draft: svc.Draft, message: SmsMessage, settings: SmsSettings, accounts: list[Any]) -> str | None:
+    """The person's other own account in an own transfer: not the one the message itself is about."""
+    read = svc.resolve(_parsed_from(message), settings, accounts)
+    named = read.account or read.counter
+    sides = [a for a in (draft.resolved.account, draft.resolved.counter) if a is not None]
+    if named is not None:
+        others = [a.id for a in sides if a.id != named.id]
+        return others[0] if len(others) == 1 else None
+    return None
+
+
+def _learned_category_rule(finance: Any, context: TenantContext, memory: Any, now: Any) -> str | None:
+    """An approved ``learned`` finance rule from a category chosen twice for one merchant, or the rule that already does it."""
+    from . import rules_service as RS
+    from .categories import classify_text
+    from .models import Category
+    from .rules import RuleContent, RuleMatch
+    from .rules_store import owner_rules, rules_store_for
+
+    found = classify_text(memory.party, Decimal(-1), owner_rules(finance, context))
+    if found.rule_id is not None and found.category.value == memory.category:
+        return str(found.rule_id)
+    try:
+        content = RuleContent(match=RuleMatch(merchant=memory.party, direction="out"), category=Category(memory.category),
+                              note="Learned from iPhone SMS review: chosen twice for this merchant")
+        rules = rules_store_for(finance)
+        made = RS.propose(finance, rules, context, content, provenance="learned", by=context.user_id, now=now, confidence=Decimal("0.85"))
+        RS.decide(rules, context, made.rule_id, made.version, approve=True, payload=made.payload_hash, by=context.user_id, now=now)
+    except (ValueError, RS.RuleError):
+        logger.info("finance_sms_category_not_learned")
+        return None
+    return made.rule_id
 
 
 def _parsed_from(message: SmsMessage) -> P.Parsed:

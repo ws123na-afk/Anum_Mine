@@ -68,6 +68,95 @@ class AiSettings(BaseModel):
     used: int = 0
 
 
+MAX_SENDER_TRACKS = 100
+MAX_CHOICES = 300
+MAX_CARD_MEMORY = 50
+MAX_NOTICES = 20
+MAX_LIMITS = 20
+
+
+class AutoPostLimit(BaseModel):
+    """The largest amount in one currency that may be recorded without the person's look (docs/finance-sms.md#learning)."""
+
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=3)
+
+
+class LearningSettings(BaseModel):
+    """Learning from the person's reviews. On by default; a sender is trusted after ``confirm_after`` readings recorded unchanged."""
+
+    enabled: bool = True
+    confirm_after: int = Field(default=2, ge=1, le=5)
+
+
+class SenderTrack(BaseModel):
+    """How the person's recent reviews of one sender went: readings recorded unchanged in a row, and the last correction."""
+
+    sender: str = Field(min_length=1, max_length=60)
+    clean: int = Field(default=0, ge=0)
+    corrected_at: datetime | None = None
+    auto_confirmed_at: datetime | None = None
+
+
+class KindMemory(BaseModel):
+    """What the person chose for money from or to one party of one sender: salary, a transfer from their own account..."""
+
+    id: str
+    sender: str = Field(max_length=60)
+    direction: Literal["in", "out"]
+    party: str = Field(max_length=80)  # ``rules.merchant_key`` of the merchant or other party
+    party_label: str = Field(max_length=80)
+    kind: str = Field(max_length=40)
+    counter_account_id: str | None = None  # the person's own account an own transfer comes from or goes to
+    count: int = Field(default=0, ge=0)
+    active: bool = False
+    since: datetime | None = None
+    updated_at: datetime
+
+
+class CategoryMemory(BaseModel):
+    """The category the person chose for one merchant; at twice the same an approved ``learned`` finance rule does the work."""
+
+    party: str = Field(max_length=80)
+    party_label: str = Field(max_length=80)
+    category: str = Field(max_length=40)
+    count: int = Field(default=0, ge=0)
+    rule_id: str | None = None  # the finance rule made from it (docs/finance.md#rules-and-learning)
+    updated_at: datetime
+
+
+class CardMemory(BaseModel):
+    """An unmapped card or account ending and the account the person picked for it. Proposed, never mapped silently."""
+
+    last4: str = Field(pattern=r"^\d{4}$")
+    account_id: str = Field(max_length=80)
+    count: int = Field(default=0, ge=0)
+    declined: bool = False
+    updated_at: datetime
+
+
+class LearningNotice(BaseModel):
+    """What ANUM learned, shown once on Review with its undo."""
+
+    id: str
+    kind: Literal["sender_trusted", "kind_remembered", "category_remembered", "card_proposed"]
+    sender: str | None = None
+    party: str | None = None
+    value: str | None = None  # the kind or category
+    last4: str | None = None
+    account_id: str | None = None
+    ref: str | None = None  # the kind memory id or the finance rule id
+    created_at: datetime
+
+
+class SmsMemory(BaseModel):
+    senders: list[SenderTrack] = Field(default_factory=list, max_length=MAX_SENDER_TRACKS)
+    kinds: list[KindMemory] = Field(default_factory=list, max_length=MAX_CHOICES)
+    categories: list[CategoryMemory] = Field(default_factory=list, max_length=MAX_CHOICES)
+    cards: list[CardMemory] = Field(default_factory=list, max_length=MAX_CARD_MEMORY)
+    notices: list[LearningNotice] = Field(default_factory=list, max_length=MAX_NOTICES)
+
+
 class SmsSettings(BaseModel):
     """Per person and workspace. Off until the person turns it on."""
 
@@ -86,6 +175,10 @@ class SmsSettings(BaseModel):
     # Per-integration switches on Settings, Integrations, iPhone (docs/iphone-integrations.md); a missing key
     # takes the integration's default. SMS forwarding itself is ``enabled``.
     integration_switches: dict[str, bool] = Field(default_factory=dict, max_length=20)
+    # Learning from reviews (docs/finance-sms.md#learning). Older rows have none of these and read the defaults.
+    learning: LearningSettings = Field(default_factory=LearningSettings)
+    auto_post_limits: list[AutoPostLimit] = Field(default_factory=list, max_length=MAX_LIMITS)
+    memory: SmsMemory = Field(default_factory=SmsMemory)
     version: int = 0
     updated_at: datetime | None = None
 
