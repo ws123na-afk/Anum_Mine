@@ -97,9 +97,14 @@ class _Page:
 
 
 class PdfDocument:
-    def __init__(self, footer: str) -> None:
+    def __init__(self, footer: str, *, rtl: bool = False, page_label: str = "page {number} of {total}", empty: str = "No rows.") -> None:
+        """``rtl`` lays a right-to-left document out from the right margin (tables mirrored: the first column on the right);
+        ``page_label`` and ``empty`` are the footer's page words and an empty table's line, for a document in another language."""
         self.pages: list[_Page] = []
         self.footer = footer
+        self.rtl = rtl
+        self.page_label = page_label
+        self.empty = empty
         self.y = 0.0
         # Arabic glyphs used, per weight: glyph id -> the presentation form's code point.
         self._glyphs: dict[bool, dict[int, int]] = {False: {}, True: {}}
@@ -144,14 +149,15 @@ class PdfDocument:
             self.page.text(MARGIN, self.y, fit(text, half, size, True), size, bold=True)
             self.page.text(MARGIN + width - half, self.y, fit(ar, half, size, True), size, bold=True, align="right", width=half, rtl=True)
         else:
-            self.page.text(MARGIN, self.y, fit(text, width, size, True), size, bold=True,
-                           align="right" if pdf_text.base_is_rtl(text) else "left", width=width)
+            rtl = self.rtl or pdf_text.base_is_rtl(text)
+            self.page.text(MARGIN, self.y, fit(text, width, size, True), size, bold=True, align="right" if rtl else "left", width=width,
+                           rtl=rtl or None)
         self.y -= 8
 
     def paragraph(self, text: str, size: float = 9, *, rtl: bool | None = None) -> None:
         """Wrapped text; a right-to-left paragraph (Arabic first) is set from the right margin."""
         width = PAGE_WIDTH - 2 * MARGIN
-        direction = pdf_text.base_is_rtl(text) if rtl is None else rtl
+        direction = (self.rtl or pdf_text.base_is_rtl(text)) if rtl is None else rtl
         for item in wrap(text, width, size):
             self._need(size + 3)
             self.y -= size + 3
@@ -217,36 +223,41 @@ class PdfDocument:
             self.page.text(MARGIN, self.y, fit(title, half, 11, True), 11, bold=True)
             self.page.text(MARGIN + width - half, self.y, fit(title_ar, half, 11, True), 11, bold=True, align="right", width=half, rtl=True)
         else:
-            self.page.text(MARGIN, self.y, fit(title, width, 11, True), 11, bold=True)
+            self.page.text(MARGIN, self.y, fit(title, width, 11, True), 11, bold=True, align="right" if self.rtl else "left", width=width,
+                           rtl=self.rtl or None)
         self.y -= 6
+        # Where each column starts: left to right, or mirrored from the right margin in a right-to-left document.
+        starts = []
+        x = MARGIN
+        for column_width in widths:
+            starts.append(MARGIN + width - (x - MARGIN) - column_width if self.rtl else x)
+            x += column_width
 
         def header() -> None:
             height = (size + 6) + ((size + 2) if bilingual else 0)
             self.y -= height
             self.page.fill(MARGIN, self.y - 4, width, height + 1)
-            x = MARGIN
             for index, column_width in enumerate(widths):
+                x = starts[index]
                 top = self.y + ((size + 2) if bilingual else 0)
-                self.page.text(x + 2, top, fit(english[index], column_width - 4, size, True), size, bold=True)
+                self.page.text(x + 2, top, fit(english[index], column_width - 4, size, True), size, bold=True,
+                               align="right" if self.rtl else "left", width=column_width - 4, rtl=self.rtl or None)
                 if arabic[index]:
                     self.page.text(x + 2, self.y, fit(arabic[index], column_width - 4, size, True), size, bold=True,
                                    align="right", width=column_width - 4, rtl=True)
-                x += column_width
 
         header()
         if not texts:
             self.y -= size + 5
-            self.page.text(MARGIN + 2, self.y, "No rows.", size)
+            self.page.text(MARGIN + 2, self.y, self.empty, size, align="right" if self.rtl else "left", width=width - 4, rtl=self.rtl or None)
         for row in texts:
             if self.y - (size + 5) < MARGIN + 20:
                 self._new_page()
                 header()
             self.y -= size + 5
-            x = MARGIN
-            for value, column_width in zip(row, widths):
-                rtl = pdf_text.base_is_rtl(value)
-                self.page.text(x + 2, self.y, fit(value, column_width - 4, size), size, align="right" if rtl else "left", width=column_width - 4)
-                x += column_width
+            for index, (value, column_width) in enumerate(zip(row, widths)):
+                rtl = self.rtl or pdf_text.base_is_rtl(value)
+                self.page.text(starts[index] + 2, self.y, fit(value, column_width - 4, size), size, align="right" if rtl else "left", width=column_width - 4)
             self.page.line(MARGIN, self.y - 2.5, MARGIN + width, self.y - 2.5, 0.88)
         self.y -= 8
 
@@ -293,7 +304,8 @@ class PdfDocument:
     def render(self) -> bytes:
         # The footer first, so its glyphs count as used before the fonts are written.
         for number, page in enumerate(self.pages, start=1):
-            page.text(MARGIN, MARGIN - 12, f"{self.footer}  -  page {number} of {len(self.pages)}", 7)
+            label = f"{self.footer}  -  {self.page_label.format(number=number, total=len(self.pages))}"
+            page.text(MARGIN, MARGIN - 12, label, 7, align="right" if self.rtl else "left", width=PAGE_WIDTH - 2 * MARGIN, rtl=self.rtl or None)
         objects: list[bytes] = [b"", b""]  # 1 catalog, 2 pages: filled below
         objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
         objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")

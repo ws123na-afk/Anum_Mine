@@ -320,6 +320,7 @@ from .serving import prepare_for_serving, use_worker_threads
 from .attendance.api import router as attendance_router  # docs/attendance.md
 from .vehicles.api import router as vehicles_router  # docs/vehicles.md
 from .vehicles.devices import router as vehicles_device_router
+from .vehicles.fleet_api import router as vehicles_fleet_router  # docs/vehicles.md#fleet
 from .purchases.api import router as purchases_router  # docs/purchases.md
 from .purchases.devices import router as purchases_device_router
 from .purchases.mail_import import router as purchases_mail_router  # Save as purchase from the Email Center
@@ -487,6 +488,8 @@ install_hardening(
         BodyLimitRule("POST", vault_router.prefix, settings.max_upload_body_bytes),
         # PDF bank statements (docs/finance-statements.md): the reader's own cap, checked again there.
         BodyLimitRule("POST", "/api/v1/finance/imports/pdf/read", PDF_STATEMENT_MAX_BYTES + 1024),
+        # A client's fleet from Excel or CSV (docs/vehicles.md#fleet-import): a 5 MB workbook in base64, checked again there.
+        BodyLimitRule("POST", "/api/v1/vehicles/fleet/import", 7_000_000),
     ),
 )
 app.add_middleware(
@@ -689,6 +692,7 @@ app.include_router(home_router)
 app.include_router(setup_plans_router)
 app.include_router(attendance_router)
 app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
+app.include_router(vehicles_fleet_router)  # /api/v1/vehicles/fleet/..., also before {vehicle_id}
 app.include_router(vehicles_router)
 app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
 app.include_router(purchases_mail_router)
