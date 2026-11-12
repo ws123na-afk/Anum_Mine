@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -88,6 +90,11 @@ class BrowserRunState {
             }));
     api.get('/api/v1/action-browser/sessions/{id}',
         (_) => FakeResponse.json(session));
+    // The run screen polls the live picture while the run is active.
+    api.get(
+        '/api/v1/action-browser/sessions/{id}/frame',
+        (_) => FakeResponse.bytes(base64Decode(_onePixelPng),
+            headers: const {'content-type': 'image/png'}));
     api.get('/api/v1/approvals', (_) => FakeResponse.json([approval]));
     seedApprovalPages(api, () => [approval]);
     api.post('/api/v1/approvals/{id}/approve', (r) {
@@ -140,3 +147,7 @@ void ownerDeskJourneys() => group('Owner desk', () {
             isEmpty);
       });
     });
+
+/// A 1x1 PNG: the live picture the run screen polls for.
+const _onePixelPng =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
