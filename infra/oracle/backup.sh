@@ -23,6 +23,8 @@
 #   backup.sh promote <database>     replace the live `anum` database with a verified
 #                                    anum_restore_* database (asks for confirmation)
 #   backup.sh restore-keycloak <dump>  replace Keycloak's database with a dump (asks)
+#   backup.sh drill-timer            write and enable anum-drill.timer: the restore drill on
+#                                    the 1st of each month (root or sudo; safe to repeat)
 #
 # Dumps hold every tenant's data. They are written 0600 in 0700 directories owned by
 # uid 10001, and leave the VM only through rclone crypt (ANUM_BACKUP_ENCRYPTION_PASSPHRASE).
@@ -162,7 +164,9 @@ case "${1:-}" in
     dc run --rm --no-deps retention python -m anum_api.files_reconcile "${@:2}"
     ;;
   drill)
-    dc run --rm restore-tools drill --work-dir /backups/drill
+    # The outcome goes into status/last-drill.json for System health (docs/system-health.md).
+    if ! dc run --rm restore-tools drill --work-dir /backups/drill; then record_status drill false; exit 1; fi
+    record_status drill true
     ;;
   restore)
     dump="$(container_path "${2:?usage: backup.sh restore <path to anum-*.dump under $BACKUP_DIR>}")"
@@ -215,8 +219,33 @@ case "${1:-}" in
     dc up -d keycloak
     echo "Done. The previous Keycloak database is kept as $previous (backup.sh drop-database $previous)."
     ;;
+  drill-timer)
+    # Monthly restore drill (docs/system-health.md#restore-drill); install.sh and update.sh call it.
+    if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+    write_unit() { printf '%s\n' "$2" | $SUDO tee "/etc/systemd/system/$1" >/dev/null; }
+    write_unit anum-drill.service "[Unit]
+Description=ANUM monthly restore drill (backup, restore into a scratch database, verify, drop)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $ORACLE_DIR/backup.sh drill"
+    write_unit anum-drill.timer "[Unit]
+Description=Monthly ANUM restore drill
+
+[Timer]
+OnCalendar=*-*-01 05:13:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target"
+    $SUDO systemctl daemon-reload
+    $SUDO systemctl enable --now anum-drill.timer >/dev/null
+    echo "anum-drill.timer is enabled"
+    ;;
   *)
-    sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

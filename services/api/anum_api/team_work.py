@@ -1258,6 +1258,9 @@ class TeamReminderScheduler:
             self._pass = asyncio.ensure_future(asyncio.to_thread(run_reminder_pass))
             try:
                 await asyncio.shield(self._pass)
+                from .system_health import heartbeat
+
+                heartbeat("team_reminders")  # the System health page's "background jobs" check
             except Exception:
                 logger.exception("Team reminder pass failed")
             try:

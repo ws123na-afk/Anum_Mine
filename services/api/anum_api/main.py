@@ -245,6 +245,8 @@ from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
 from .green_concrete_ops import register_green_concrete_tools
 from .command_continuation import command_continuer
+from .command_sweep import build_command_sweeper
+from .system_health import build_system_health_monitor, install_error_counter, router as system_health_router
 from .commands import prepare_step_run as prepare_command_step_run, router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
@@ -343,8 +345,19 @@ async def lifespan(application: FastAPI):
     push_dispatcher.start()
     # Runs automation steps after their transaction commits and reacts to committed events.
     automation_dispatcher.start()
+    # Counts this process's error log records for System health (docs/system-health.md).
+    install_error_counter()
     # Starts a command's waiting steps when the steps they wait for complete (docs/command.md).
     command_continuer.start()
+    # Finds waiting steps whose completion never reached this process (no NATS, a restart) and
+    # continues each once (docs/command.md#the-sweep); with ANUM_AUTOMATION_SCHEDULER_ENABLED.
+    command_sweeper = build_command_sweeper(settings)
+    if command_sweeper is not None:
+        command_sweeper.start()
+    # Owner notices when a health check is red or the API restarted unexpectedly (docs/system-health.md).
+    health_monitor = build_system_health_monitor(settings)
+    if health_monitor is not None:
+        health_monitor.start()
     developer_watcher = build_developer_watcher()
     if developer_watcher is not None:
         developer_watcher.start()
@@ -424,7 +437,12 @@ async def lifespan(application: FastAPI):
             await scheduler.stop()
         if developer_watcher is not None:
             await developer_watcher.stop()
+        if command_sweeper is not None:
+            await command_sweeper.stop()
         await command_continuer.stop()
+        # Last of the loops: records the clean stop the next start's restart check looks for.
+        if health_monitor is not None:
+            await health_monitor.stop()
         await automation_dispatcher.stop()
         await push_dispatcher.stop()
         await asyncio.to_thread(notification_email.shutdown)
@@ -534,6 +552,7 @@ app.include_router(suppression_router)
 app.include_router(contact_consent_router)
 app.include_router(contacts_router)
 app.include_router(approval_reminders_router)
+app.include_router(system_health_router)
 app.include_router(automation_router)
 # Folders, tags and bulk actions first: their fixed paths must never be read as a file id.
 app.include_router(files_organize_router)
