@@ -120,11 +120,35 @@ class PurchasesApi {
   final returns = <Map<String, Object?>>[];
   final shipments = <Map<String, Object?>>[];
   Map<String, Object?>? payment;
+  Map<String, Object?> patched = {};
+  bool archived = false;
+  bool deleted = false;
+  List<Map<String, Object?>> accounts = [
+    {'id': 'acct_cash', 'name': 'Wallet', 'currency': 'AED', 'kind': 'cash'},
+    {'id': 'acct_card', 'name': 'Card', 'currency': 'AED', 'kind': 'card'},
+  ];
   late final api = FakeApi(route);
+
+  Map<String, Object?> _money(String link, String canonical, String amount,
+          {bool cash = false}) =>
+      {
+        'link_id': link,
+        'canonical_id': canonical,
+        'status': 'active',
+        'status_reason': null,
+        'amount': amount,
+        'currency': 'AED',
+        'paid_by': 'user_me',
+        'recorded_as_cash': cash,
+        'linked_at': '2026-11-06T09:00:00Z',
+        'original_canonical_id': null,
+      };
 
   Map<String, Object?> detail() => {
         ...purchaseJson('pur_1',
             status: status, version: version, payment: payment),
+        ...patched,
+        if (archived) 'archived_at': '2026-11-07T09:00:00Z',
         'items': [
           {
             'id': 'pitem_1',
@@ -174,7 +198,106 @@ class PurchasesApi {
       });
     }
     if (r.method == 'GET' && path == '/api/v1/purchases/pur_1') {
+      return deleted
+          ? refuse(404, 'Purchase not found.', 'not_found')
+          : ok(detail());
+    }
+    if (r.method == 'PATCH' && path == '/api/v1/purchases/pur_1') {
+      if (r.body!['version'] != version) {
+        return refuse(
+            409,
+            'This purchase changed since you opened it. Reload and try again.',
+            'stale');
+      }
+      patched.addAll({...r.body!}..remove('version'));
+      version += 1;
       return ok(detail());
+    }
+    if (r.method == 'POST' && path == '/api/v1/purchases/pur_1/archive') {
+      archived = r.body!['archived'] == true;
+      version += 1;
+      return ok(detail());
+    }
+    if (r.method == 'DELETE' && path == '/api/v1/purchases/pur_1') {
+      if (payment != null) {
+        return refuse(
+            409,
+            'This purchase has a payment or refunds linked from Finance. Remove those links, or archive it to keep its history.',
+            'has_payments');
+      }
+      deleted = true;
+      return const ApiResponse(statusCode: 204, body: null);
+    }
+    if (r.method == 'POST' && path == '/api/v1/purchases/pur_1/notes') {
+      return ok({
+        'id': 'pev_note',
+        'owner_user_id': 'user_me',
+        'purchase_id': 'pur_1',
+        'kind': 'note',
+        'note': r.body!['note'],
+        'occurred_at': '2026-11-07T08:00:00Z',
+      }, 201);
+    }
+    if (path == '/api/v1/purchases/shipments/pship_1') {
+      if (r.method == 'DELETE') {
+        shipments.clear();
+        return const ApiResponse(statusCode: 204, body: null);
+      }
+      final changed = {...shipments.single, ...r.body!}..remove('version');
+      changed['version'] = (shipments.single['version']! as int) + 1;
+      shipments[0] = changed;
+      return ok(changed);
+    }
+    if (path == '/api/v1/purchases/returns/pret_1') {
+      if (r.method == 'DELETE') {
+        returns.clear();
+        return const ApiResponse(statusCode: 204, body: null);
+      }
+      returns[0] = {...returns.single, ...r.body!, 'version': 2};
+      return ok(returns.single);
+    }
+    if (r.method == 'POST' &&
+        path == '/api/v1/purchases/returns/pret_1/status') {
+      returns[0] = {
+        ...returns.single,
+        'status': r.body!['to'],
+        'version': 2,
+        'allowed_moves': ['cancelled'],
+      };
+      return ok(returns.single);
+    }
+    if (r.method == 'GET' && path == '/api/v1/finance/accounts') {
+      return ok({'data': accounts});
+    }
+    if (r.method == 'POST' && path == '/api/v1/purchases/pur_1/payment/cash') {
+      payment = _money('flink_cash', 'canon_cash', r.body!['amount']! as String,
+          cash: true);
+      return ok({'payment': payment, 'replayed': false}, 201);
+    }
+    if (r.method == 'DELETE' && path == '/api/v1/purchases/pur_1/payment') {
+      payment = null;
+      return const ApiResponse(statusCode: 204, body: null);
+    }
+    if (r.method == 'POST' &&
+        path == '/api/v1/purchases/returns/pret_1/refunds/cash') {
+      final refund = _money(
+          'flink_rcash', 'canon_rcash', r.body!['amount']! as String,
+          cash: true);
+      returns[0] = {
+        ...returns.single,
+        'refunds': [refund],
+        'refunded': refund['amount']
+      };
+      return ok({'refund': refund, 'replayed': false}, 201);
+    }
+    if (r.method == 'DELETE' &&
+        path == '/api/v1/purchases/returns/pret_1/refunds/flink_rcash') {
+      returns[0] = {
+        ...returns.single,
+        'refunds': <Object?>[],
+        'refunded': '0.00'
+      };
+      return const ApiResponse(statusCode: 204, body: null);
     }
     if (r.method == 'GET' && path == '/api/v1/purchases/pur_1/events') {
       return ok({
@@ -280,14 +403,38 @@ class PurchasesApi {
   }
 }
 
+class FakeReceipts implements PurchaseReceipts {
+  final uploads = <String>[];
+  bool failSearch = false;
+
+  @override
+  Future<List<ReceiptChoice>> search(String query) async {
+    if (failSearch) throw const ApiException(503, 'The vault is unavailable.');
+    return [
+      if ('noon receipt'.contains(query.toLowerCase()))
+        const ReceiptChoice(
+            id: 'doc_noon', title: 'Noon receipt', category: 'receipt'),
+    ];
+  }
+
+  @override
+  Future<ReceiptChoice?> upload() async {
+    uploads.add('receipt.pdf');
+    return const ReceiptChoice(
+        id: 'doc_new', title: 'receipt', category: 'receipt');
+  }
+}
+
 Future<void> pumpPurchases(WidgetTester tester, PurchasesApi fake,
     {Size size = phone,
     double textScale = 1,
-    Locale locale = const Locale('en')}) async {
+    Locale locale = const Locale('en'),
+    PurchaseReceipts? receipts}) async {
   final controller =
       PurchasesController(ApiPurchasesRepository(fake.api.client()));
   addTearDown(controller.dispose);
-  await pumpModule(tester, PurchasesScreen(controller: controller),
+  await pumpModule(
+      tester, PurchasesScreen(controller: controller, receipts: receipts),
       size: size, textScale: textScale, locale: locale);
 }
 
@@ -491,12 +638,246 @@ void main() {
       expect(fake.api.sent('POST', '/api/v1/purchases/pur_1/payment'),
           hasLength(1));
       expect(find.text('AED 199.99, linked'), findsOneWidget);
-      await tapVisible(tester, find.byKey(const Key('return-refund-pret_1')));
+      await tapVisible(tester, find.byKey(const Key('return-actions-pret_1')));
+      await tapVisible(tester, find.byKey(const Key('action-link')));
       expect(fake.api.requests.last.uri.queryParameters['kind'], 'refund');
       await tapVisible(tester, find.byKey(const Key('candidate-canon_refund')));
       expect(fake.api.sent('POST', '/api/v1/purchases/returns/pret_1/refunds'),
           hasLength(1));
       expectClean(tester);
+    });
+
+    testWidgets('edits details with the version on screen, adds a note',
+        (tester) async {
+      final fake = PurchasesApi();
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('purchase-edit')));
+      await tester.enterText(
+          find.byKey(const Key('field-order_ref')), 'NOON-2002');
+      await tester.enterText(
+          find.byKey(const Key('field-warranty_until')), '2027-11-01');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      final sent = fake.api.sent('PATCH', '/api/v1/purchases/pur_1').single;
+      expect(sent.body, {
+        'order_ref': 'NOON-2002',
+        'warranty_until': '2027-11-01',
+        'version': 3
+      });
+      expect(find.text('NOON-2002'), findsOneWidget);
+
+      await tapVisible(tester, find.byKey(const Key('purchase-note')));
+      await tester.enterText(
+          find.byKey(const Key('field-note')), 'Called the shop');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(fake.api.sent('POST', '/api/v1/purchases/pur_1/notes').single.body,
+          {'note': 'Called the shop'});
+      expectClean(tester);
+    });
+
+    testWidgets('a stale edit says so and keeps the form open', (tester) async {
+      final fake = PurchasesApi();
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('purchase-edit')));
+      fake.version = 9;
+      await tester.enterText(
+          find.byKey(const Key('field-order_ref')), 'NOON-3');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(find.textContaining('changed since you opened it'), findsWidgets);
+    });
+
+    testWidgets('attaches a receipt from the vault, uploads one, removes it',
+        (tester) async {
+      final fake = PurchasesApi();
+      final receipts = FakeReceipts();
+      await pumpPurchases(tester, fake, receipts: receipts);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('purchase-receipt')));
+      await tapVisible(tester, find.byKey(const Key('receipt-doc_noon')));
+      expect(
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/pur_1')
+              .last
+              .body!['document_id'],
+          'doc_noon');
+      expect(find.text('Attached from the document vault'), findsOneWidget);
+
+      await tapVisible(tester, find.byKey(const Key('purchase-receipt')));
+      await tapVisible(tester, find.byKey(const Key('receipt-upload')));
+      expect(receipts.uploads, ['receipt.pdf']);
+      expect(
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/pur_1')
+              .last
+              .body!['document_id'],
+          'doc_new');
+
+      await tapVisible(tester, find.byKey(const Key('purchase-receipt')));
+      await tapVisible(tester, find.byKey(const Key('receipt-remove')));
+      expect(
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/pur_1')
+              .last
+              .body!
+              .containsKey('document_id'),
+          isTrue);
+      expect(
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/pur_1')
+              .last
+              .body!['document_id'],
+          isNull);
+      expectClean(tester);
+    });
+
+    testWidgets('a vault that cannot be searched says so', (tester) async {
+      final fake = PurchasesApi();
+      final receipts = FakeReceipts()..failSearch = true;
+      await pumpPurchases(tester, fake, receipts: receipts);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('purchase-receipt')));
+      expect(find.byKey(const Key('receipt-error')), findsOneWidget);
+    });
+
+    testWidgets('edits and removes a shipment', (tester) async {
+      final fake = PurchasesApi()
+        ..shipments.add({
+          'id': 'pship_1',
+          'purchase_id': 'pur_1',
+          'carrier': 'Aramex',
+          'tracking_number': 'TRACK-EXAMPLE',
+          'status': 'in_transit',
+          'version': 1,
+          'can_edit': true,
+        });
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('shipment-pship_1')));
+      await tapVisible(tester, find.byKey(const Key('action-edit')));
+      await tester.enterText(find.byKey(const Key('field-carrier')), 'DHL');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/shipments/pship_1')
+              .single
+              .body,
+          {'carrier': 'DHL', 'version': 1});
+      expect(find.text('In transit · DHL'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('shipment-pship_1')));
+      await tapVisible(tester, find.byKey(const Key('action-delete')));
+      await tapVisible(tester, find.byKey(const Key('records-confirm')));
+      expect(fake.api.sent('DELETE', '/api/v1/purchases/shipments/pship_1'),
+          hasLength(1));
+      expect(find.byKey(const Key('shipment-pship_1')), findsNothing);
+    });
+
+    testWidgets('a return: edit, move, cash refund, unlink, then remove',
+        (tester) async {
+      final fake = PurchasesApi()..returns.add(returnJson('pret_1'));
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      Future<void> act(String key) async {
+        await tapVisible(
+            tester, find.byKey(const Key('return-actions-pret_1')));
+        await tapVisible(tester, find.byKey(Key('action-$key')));
+      }
+
+      await act('edit');
+      await tester.enterText(find.byKey(const Key('field-courier')), 'Aramex');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/returns/pret_1')
+              .single
+              .body,
+          {'courier': 'Aramex', 'version': 1});
+
+      await act('move:approved');
+      expect(
+          fake.api
+              .sent('POST', '/api/v1/purchases/returns/pret_1/status')
+              .single
+              .body,
+          {'to': 'approved', 'version': 2});
+      expect(find.text('Damaged · Approved'), findsOneWidget);
+
+      await act('cash');
+      expect(find.text('Wallet (AED)'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      final cash = fake.api
+          .sent('POST', '/api/v1/purchases/returns/pret_1/refunds/cash')
+          .single;
+      expect(cash.body, {
+        'account_id': 'acct_cash',
+        'amount': '199.99',
+        'posted_on': isA<String>()
+      });
+      expect(cash.headers['Idempotency-Key'], startsWith('cashref'));
+
+      await act('unlink:flink_rcash');
+      await tapVisible(tester, find.byKey(const Key('records-confirm')));
+      expect(
+          fake.api.sent(
+              'DELETE', '/api/v1/purchases/returns/pret_1/refunds/flink_rcash'),
+          hasLength(1));
+
+      await act('delete');
+      await tapVisible(tester, find.byKey(const Key('records-confirm')));
+      expect(fake.api.sent('DELETE', '/api/v1/purchases/returns/pret_1'),
+          hasLength(1));
+      expect(find.byKey(const Key('return-pret_1')), findsNothing);
+      expectClean(tester);
+    });
+
+    testWidgets('records a cash payment, unlinks it, archives and deletes',
+        (tester) async {
+      final fake = PurchasesApi();
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('purchase-cash-payment')));
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      final cash =
+          fake.api.sent('POST', '/api/v1/purchases/pur_1/payment/cash').single;
+      expect(cash.body, {
+        'account_id': 'acct_cash',
+        'amount': '199.99',
+        'posted_on': '2026-11-01'
+      });
+      expect(find.byKey(const Key('purchase-unlink-payment')), findsOneWidget);
+
+      // A purchase with money linked cannot be deleted: the API says why.
+      await tapVisible(tester, find.byKey(const Key('purchase-delete')));
+      await tapVisible(tester, find.byKey(const Key('records-confirm')));
+      expect(find.textContaining('payment or refunds linked'), findsOneWidget);
+
+      await tapVisible(
+          tester, find.byKey(const Key('purchase-unlink-payment')));
+      await tapVisible(tester, find.byKey(const Key('records-confirm')));
+      expect(find.byKey(const Key('purchase-cash-payment')), findsOneWidget);
+
+      await tapVisible(tester, find.byKey(const Key('purchase-archive')));
+      expect(
+          fake.api.sent('POST', '/api/v1/purchases/pur_1/archive').single.body,
+          {'version': 3, 'archived': true});
+      expect(find.text('Restore'), findsOneWidget);
+      expect(find.byKey(const Key('purchase-edit')), findsNothing);
+
+      await tapVisible(tester, find.byKey(const Key('purchase-delete')));
+      await tapVisible(tester, find.byKey(const Key('records-confirm')));
+      expect(fake.api.sent('DELETE', '/api/v1/purchases/pur_1'), hasLength(2));
+      expect(find.byKey(const Key('purchase-pur_1')), findsNothing);
+    });
+
+    testWidgets(
+        'without a Finance account a cash payment says where to add one',
+        (tester) async {
+      final fake = PurchasesApi()..accounts = [];
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('purchase-cash-payment')));
+      expect(find.textContaining('Add one under Finance, Accounts'),
+          findsOneWidget);
     });
 
     testWidgets('a filter with no match offers to clear it', (tester) async {

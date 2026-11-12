@@ -66,6 +66,7 @@ class Purchase {
     this.warrantyUntil,
     this.notes,
     this.archivedAt,
+    this.documentId,
     this.allowedMoves = const [],
     this.due = const [],
     this.refunded = const [],
@@ -89,6 +90,7 @@ class Purchase {
         needsReview: j.optBool('needs_review') ?? false,
         notes: j.optString('notes'),
         archivedAt: j.optString('archived_at'),
+        documentId: j.optString('document_id'),
         version: j.integer('version'),
         canEdit: j.optBool('can_edit') ?? false,
         canPay: j.optBool('can_pay') ?? false,
@@ -100,6 +102,9 @@ class Purchase {
   final String id, ownership, merchant, orderedOn, currency, status;
   final String? orderRef, total, expectedDeliveryOn, deliveredOn;
   final String? returnWindowUntil, warrantyUntil, notes, archivedAt;
+
+  /// The receipt or invoice: a vault document (docs/purchases.md#receipts).
+  final String? documentId;
   final PurchaseMoneyLink? payment;
   final int version;
   final bool canEdit, canPay, mine, needsReview;
@@ -143,6 +148,8 @@ class PurchaseShipment {
     this.detectedCarrier,
     this.links = const [],
     this.severalCarriers = false,
+    this.version = 1,
+    this.canEdit = false,
   });
   factory PurchaseShipment.fromJson(JsonReader j) {
     final tracking = j.optObject('tracking');
@@ -176,9 +183,13 @@ class PurchaseShipment {
           : null,
       links: named != null ? [named] : candidates,
       severalCarriers: named == null && candidates.length > 1,
+      version: j.optInt('version') ?? 1,
+      canEdit: j.optBool('can_edit') ?? false,
     );
   }
   final String id, status;
+  final int version;
+  final bool canEdit;
   final String? carrier, trackingNumber, shippedOn, expectedOn, deliveredOn;
   final String? note;
 
@@ -204,6 +215,16 @@ class PurchaseReturn {
     this.reasonNote,
     this.deadlineOn,
     this.refunds = const [],
+    this.version = 1,
+    this.canEdit = false,
+    this.allowedMoves = const [],
+    this.pickupOn,
+    this.courier,
+    this.trackingNumber,
+    this.confirmationRef,
+    this.refundRef,
+    this.expectedRefundOn,
+    this.disputeNote,
   });
   factory PurchaseReturn.fromJson(JsonReader j) => PurchaseReturn(
         id: j.string('id'),
@@ -217,10 +238,24 @@ class PurchaseReturn {
         refunded: j.optString('refunded') ?? '0',
         canRefund: j.optBool('can_refund') ?? false,
         refunds: j.optObjects('refunds', PurchaseMoneyLink.fromJson),
+        version: j.optInt('version') ?? 1,
+        canEdit: j.optBool('can_edit') ?? false,
+        allowedMoves: j.optStrings('allowed_moves') ?? const [],
+        pickupOn: j.optString('pickup_on'),
+        courier: j.optString('courier'),
+        trackingNumber: j.optString('tracking_number'),
+        confirmationRef: j.optString('confirmation_ref'),
+        refundRef: j.optString('refund_ref'),
+        expectedRefundOn: j.optString('expected_refund_on'),
+        disputeNote: j.optString('dispute_note'),
       );
   final String id, status, reason, requestedOn, currency, refunded;
   final String? amount, reasonNote, deadlineOn;
-  final bool canRefund;
+  final String? pickupOn, courier, trackingNumber, confirmationRef;
+  final String? refundRef, expectedRefundOn, disputeNote;
+  final bool canRefund, canEdit;
+  final int version;
+  final List<String> allowedMoves;
   final List<PurchaseMoneyLink> refunds;
 }
 
@@ -293,6 +328,39 @@ class PurchaseCandidate {
   final bool linked;
 }
 
+/// A Finance account money can be recorded against (cash, card...).
+class FinanceAccountChoice {
+  const FinanceAccountChoice(
+      {required this.id,
+      required this.name,
+      required this.currency,
+      this.kind = ''});
+  factory FinanceAccountChoice.fromJson(JsonReader j) => FinanceAccountChoice(
+      id: j.string('id'),
+      name: j.optString('name') ?? j.string('id'),
+      currency: j.optString('currency') ?? '',
+      kind: j.optString('kind') ?? '');
+  final String id, name, currency, kind;
+}
+
+/// A vault document that can be a purchase's receipt.
+class ReceiptChoice {
+  const ReceiptChoice(
+      {required this.id, required this.title, this.category = ''});
+  final String id, title, category;
+}
+
+/// Where receipts come from: the person's document vault. Search lists
+/// documents they can open; upload stores a new file there (category
+/// `receipt`, private) and answers it.
+abstract interface class PurchaseReceipts {
+  Future<List<ReceiptChoice>> search(String query);
+
+  /// Picks a file on the phone and uploads it; null when the person
+  /// picked nothing.
+  Future<ReceiptChoice?> upload();
+}
+
 abstract interface class PurchasesRepository {
   Future<RecordsChunk<Purchase>> list(
       {String query, String status, String? token});
@@ -311,6 +379,34 @@ abstract interface class PurchasesRepository {
       {required String canonicalId, required String idempotencyKey});
   Future<PurchaseMoneyLink> linkRefund(String returnId,
       {required String canonicalId, required String idempotencyKey});
+
+  /// Changes a purchase's details from the version on screen.
+  Future<PurchaseDetail> update(String id, Map<String, Object?> changes);
+  Future<PurchaseDetail> archive(String id,
+      {required int version, required bool archived});
+  Future<void> delete(String id);
+  Future<PurchaseEvent> addNote(String id, String note);
+  Future<PurchaseShipment> updateShipment(
+      String shipmentId, Map<String, Object?> changes);
+  Future<void> deleteShipment(String shipmentId);
+  Future<PurchaseReturn> updateReturn(
+      String returnId, Map<String, Object?> changes);
+  Future<PurchaseReturn> moveReturn(String returnId,
+      {required String to, required int version, String? note});
+  Future<void> deleteReturn(String returnId);
+  Future<List<FinanceAccountChoice>> financeAccounts();
+  Future<PurchaseMoneyLink> recordCash(String id,
+      {required String accountId,
+      required String amount,
+      required String postedOn,
+      required String idempotencyKey});
+  Future<void> unlinkPayment(String id);
+  Future<PurchaseMoneyLink> recordCashRefund(String returnId,
+      {required String accountId,
+      required String amount,
+      required String postedOn,
+      required String idempotencyKey});
+  Future<void> unlinkRefund(String returnId, String linkId);
 }
 
 class ApiPurchasesRepository implements PurchasesRepository {
@@ -412,6 +508,116 @@ class ApiPurchasesRepository implements PurchasesRepository {
               body: {'canonical_id': canonicalId},
               headers: {'Idempotency-Key': idempotencyKey}))
           .object('refund'));
+
+  @override
+  Future<PurchaseDetail> update(
+          String id, Map<String, Object?> changes) async =>
+      PurchaseDetail.fromJson(JsonReader(
+          await api.request('PATCH', '$_base/${_id(id)}', body: changes)));
+
+  @override
+  Future<PurchaseDetail> archive(String id,
+          {required int version, required bool archived}) async =>
+      PurchaseDetail.fromJson(JsonReader(await api.request(
+          'POST', '$_base/${_id(id)}/archive',
+          body: {'version': version, 'archived': archived})));
+
+  @override
+  Future<void> delete(String id) => api.request('DELETE', '$_base/${_id(id)}');
+
+  @override
+  Future<PurchaseEvent> addNote(String id, String note) async =>
+      PurchaseEvent.fromJson(JsonReader(await api
+          .request('POST', '$_base/${_id(id)}/notes', body: {'note': note})));
+
+  @override
+  Future<PurchaseShipment> updateShipment(
+          String shipmentId, Map<String, Object?> changes) async =>
+      PurchaseShipment.fromJson(JsonReader(await api.request(
+          'PATCH', '$_base/shipments/${_id(shipmentId)}',
+          body: changes)));
+
+  @override
+  Future<void> deleteShipment(String shipmentId) =>
+      api.request('DELETE', '$_base/shipments/${_id(shipmentId)}');
+
+  @override
+  Future<PurchaseReturn> updateReturn(
+          String returnId, Map<String, Object?> changes) async =>
+      PurchaseReturn.fromJson(JsonReader(await api
+          .request('PATCH', '$_base/returns/${_id(returnId)}', body: changes)));
+
+  @override
+  Future<PurchaseReturn> moveReturn(String returnId,
+          {required String to, required int version, String? note}) async =>
+      PurchaseReturn.fromJson(JsonReader(await api.request(
+          'POST', '$_base/returns/${_id(returnId)}/status', body: {
+        'to': to,
+        'version': version,
+        if (note != null) 'note': note
+      })));
+
+  @override
+  Future<void> deleteReturn(String returnId) =>
+      api.request('DELETE', '$_base/returns/${_id(returnId)}');
+
+  @override
+  Future<List<FinanceAccountChoice>> financeAccounts() async {
+    final body = await api.request('GET', '/api/v1/finance/accounts');
+    // The list answers a JSON array (the client wraps it in `data`).
+    return JsonReader(body).optObjects('data', FinanceAccountChoice.fromJson);
+  }
+
+  @override
+  Future<PurchaseMoneyLink> recordCash(String id,
+          {required String accountId,
+          required String amount,
+          required String postedOn,
+          required String idempotencyKey}) async =>
+      PurchaseMoneyLink.fromJson(JsonReader(await _cash(
+              '$_base/${_id(id)}/payment/cash',
+              accountId: accountId,
+              amount: amount,
+              postedOn: postedOn,
+              idempotencyKey: idempotencyKey))
+          .object('payment'));
+
+  @override
+  Future<void> unlinkPayment(String id) =>
+      api.request('DELETE', '$_base/${_id(id)}/payment');
+
+  @override
+  Future<PurchaseMoneyLink> recordCashRefund(String returnId,
+          {required String accountId,
+          required String amount,
+          required String postedOn,
+          required String idempotencyKey}) async =>
+      PurchaseMoneyLink.fromJson(JsonReader(await _cash(
+              '$_base/returns/${_id(returnId)}/refunds/cash',
+              accountId: accountId,
+              amount: amount,
+              postedOn: postedOn,
+              idempotencyKey: idempotencyKey))
+          .object('refund'));
+
+  @override
+  Future<void> unlinkRefund(String returnId, String linkId) => api.request(
+      'DELETE', '$_base/returns/${_id(returnId)}/refunds/${_id(linkId)}');
+}
+
+extension on ApiPurchasesRepository {
+  Future<Map<String, Object?>> _cash(String path,
+          {required String accountId,
+          required String amount,
+          required String postedOn,
+          required String idempotencyKey}) =>
+      api.request('POST', path, body: {
+        'account_id': accountId,
+        'amount': amount,
+        'posted_on': postedOn,
+      }, headers: {
+        'Idempotency-Key': idempotencyKey
+      });
 }
 
 /// A stale version (someone changed the purchase): reload and try again.

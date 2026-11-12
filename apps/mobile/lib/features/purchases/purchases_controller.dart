@@ -33,6 +33,9 @@ class PurchasesController extends ChangeNotifier {
     }
   }
 
+  /// A purchase was deleted on its page: it leaves the list.
+  void removed(String id) => purchases.remove((p) => p.id == id);
+
   @override
   void dispose() {
     purchases.dispose();
@@ -109,6 +112,87 @@ class PurchaseDetailController extends ChangeNotifier {
   }
 
   Future<void> refresh() => _reload();
+
+  /// Runs a change and reads the purchase again. A stale version reloads
+  /// too, and the refusal goes back to the caller to show.
+  Future<void> _change(Future<void> Function() work) async {
+    try {
+      await work();
+    } on Object catch (error) {
+      if (isStale(error)) await _reload();
+      rethrow;
+    }
+    await _reload();
+  }
+
+  /// Changes the purchase's details from the version on screen.
+  Future<void> update(Map<String, Object?> changes) => _change(() => repository
+      .update(purchaseId, {...changes, 'version': detail!.purchase.version}));
+
+  /// Sets or clears the receipt (a vault document id).
+  Future<void> setReceipt(String? documentId) =>
+      update({'document_id': documentId});
+
+  Future<void> archive(bool archived) =>
+      _change(() => repository.archive(purchaseId,
+          version: detail!.purchase.version, archived: archived));
+
+  /// Deletes the purchase; the caller leaves the page.
+  Future<void> delete() async {
+    await repository.delete(purchaseId);
+    deleted = true;
+    _notify();
+  }
+
+  /// True once the purchase was deleted here.
+  bool deleted = false;
+
+  Future<void> addNote(String note) =>
+      _change(() => repository.addNote(purchaseId, note));
+
+  Future<void> updateShipment(
+          PurchaseShipment shipment, Map<String, Object?> changes) =>
+      _change(() => repository.updateShipment(
+          shipment.id, {...changes, 'version': shipment.version}));
+
+  Future<void> deleteShipment(PurchaseShipment shipment) =>
+      _change(() => repository.deleteShipment(shipment.id));
+
+  Future<void> updateReturn(
+          PurchaseReturn item, Map<String, Object?> changes) =>
+      _change(() => repository
+          .updateReturn(item.id, {...changes, 'version': item.version}));
+
+  Future<void> moveReturn(PurchaseReturn item, String to, {String? note}) =>
+      _change(() => repository.moveReturn(item.id,
+          to: to, version: item.version, note: note));
+
+  Future<void> deleteReturn(PurchaseReturn item) =>
+      _change(() => repository.deleteReturn(item.id));
+
+  Future<void> recordCash(
+          {required String accountId,
+          required String amount,
+          required String postedOn,
+          required String idempotencyKey,
+          PurchaseReturn? refundOf}) =>
+      _change(() => refundOf == null
+          ? repository.recordCash(purchaseId,
+              accountId: accountId,
+              amount: amount,
+              postedOn: postedOn,
+              idempotencyKey: idempotencyKey)
+          : repository.recordCashRefund(refundOf.id,
+              accountId: accountId,
+              amount: amount,
+              postedOn: postedOn,
+              idempotencyKey: idempotencyKey));
+
+  Future<void> unlinkPayment() =>
+      _change(() => repository.unlinkPayment(purchaseId));
+
+  Future<void> unlinkRefund(PurchaseReturn item, String linkId) =>
+      _change(() => repository.unlinkRefund(item.id, linkId));
 
   @override
   void dispose() {
