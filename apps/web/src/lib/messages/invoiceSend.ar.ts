@@ -54,7 +54,7 @@ export const invoiceSendAr = {
   'inv.credit.pdf': 'ملف الإشعار الدائن',
   'inv.pay.viaMoyasar': 'دُفعت بالبطاقة عبر Moyasar',
   'inv.pay.viaStripe': 'دُفعت بالبطاقة عبر Stripe',
-  'inv.refund.title': 'مبالغ مستردة من لوحة {provider}',
+  'inv.refund.title': 'مبالغ مستردة عبر {provider}',
   'inv.refund.line': 'استُرد {amount} في {date}',
   'inv.refund.surplus': 'منها {amount} أخذتها البطاقة فوق الرصيد، فلا تُخصم من الفاتورة.',
   'inv.refund.reversed': 'أبلغت {provider} بأن هذا الاسترداد فشل، فلم يعد يُحتسب.',

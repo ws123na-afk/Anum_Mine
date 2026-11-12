@@ -30,6 +30,8 @@ from .invoice_models import (
     InvoiceSchedule,
     InvoicePayment,
     InvoiceRefund,
+    RefundRequest,
+    RefundReview,
     PaymentLink,
     PaymentNotice,
     PortalAccess,
@@ -110,6 +112,9 @@ KINDS: dict[str, type[BaseModel]] = {
     # Refunds synced from the card provider and the portal's emailed code sign-in (migration 0177_business_refunds_otp).
     "invoice_refunds": InvoiceRefund,
     "portal_sign_ins": PortalSignIn,
+    # Refunds started from ANUM and provider refunds of payments ANUM never recorded (migration 0178_refund_requests_vault).
+    "refund_requests": RefundRequest,
+    "refund_reviews": RefundReview,
 }
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -167,6 +172,16 @@ def _matches(item: BaseModel, query: Query) -> bool:
     return True
 
 
+# The in-memory store keeps the database's unique keys that callers rely on to detect a race (``UniqueViolation``,
+# the stand-in for PostgreSQL's ``IntegrityError``): one refund request per workspace and idempotency key
+# (migration 0178_refund_requests_vault).
+UNIQUE_IN_WORKSPACE: dict[str, tuple[str, ...]] = {"refund_requests": ("idempotency_key",)}
+
+
+class UniqueViolation(Exception):
+    """A row with the same unique key already exists in this workspace (memory backend)."""
+
+
 class InMemoryBusinessStore:
     def __init__(self) -> None:
         self._rows: dict[str, dict[str, BaseModel]] = {kind: {} for kind in KINDS}
@@ -203,6 +218,10 @@ class _ScopedMemoryStore:
         with self.root._lock:
             if item.id in self.root._rows[kind]:  # type: ignore[attr-defined]
                 raise KeyError(item.id)  # type: ignore[attr-defined]
+            for name in UNIQUE_IN_WORKSPACE.get(kind, ()):
+                value = getattr(item, name)
+                if any(self._mine(row) and getattr(row, name) == value for row in self.root._rows[kind].values()):
+                    raise UniqueViolation(f"{kind}.{name}")
             self.root._rows[kind][item.id] = item.model_copy(deep=True)  # type: ignore[attr-defined]
         return item
 

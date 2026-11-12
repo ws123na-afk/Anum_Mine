@@ -21,6 +21,9 @@ nothing.
 
 * ``business.send_outreach`` (high risk, always asks; ``outreach.py``): sends one approved outbox
   message after the send-time checks. Sending is off by default (docs/business.md#outreach).
+* ``business.refund_card_payment`` (high risk, always asks; ``invoice_refund_requests.py``): refunds part or all of
+  one card payment of a Business invoice through Moyasar or Stripe, after an owner approves the exact request
+  (docs/business.md#refunds-from-anum).
 * ``web.fetch_page`` (low risk, read only; ``fetch.py``): reads one public https page for the
   prospecting pipeline, obeying robots.txt behind the SSRF guard.
 """
@@ -32,7 +35,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
+from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult, approver_of
 from ..events import CanonicalEventName, create_event
 from ..model_gateway import MockModelGateway
 from ..repository import AnumRepository
@@ -40,6 +43,7 @@ from ..runtime import AgentRuntime
 from ..schemas import AgentRunStep, Approval, RiskLevel, RunPhase, Task, TaskStatus, TenantContext, new_id, utc_now
 from . import research
 from .invoice_models import Invoice, InvoiceStatus
+from .invoice_refund_requests import REFUND_TOOL, refund_card_payment, refund_definition
 from .invoice_service import issue
 from .invoices import invoice_hash
 from .models import OPEN_LEAD_STATES, LeadState, Proposal, ProposalStatus, ProposalVersion, Stage
@@ -121,7 +125,7 @@ async def accept_proposal(call: ToolCall, context: TenantContext) -> ToolResult:
         proposal.status = ProposalStatus.ACCEPTED
         proposal.accepted_version = version.version
         proposal.accepted_hash = version.content_hash
-        proposal.accepted_by = context.user_id
+        proposal.accepted_by = approver_of(context).user_id
         proposal.accepted_at = now
         proposal.decision_note = ""
         proposal.updated_at = now
@@ -211,7 +215,7 @@ async def send_invoice(call: ToolCall, context: TenantContext) -> ToolResult:
             return _failed("The invoice changed after it was sent for approval; nothing was sent. Ask for approval again.")
         if store.get("accounts", invoice.account_id) is None:
             return _failed("The customer account no longer exists; nothing was sent.")
-        invoice = issue(invoice.model_copy(update={"content_hash": approved_hash}), store, context, now)
+        invoice = issue(invoice.model_copy(update={"content_hash": approved_hash}), store, approver_of(context), now)
         store.save("invoices", invoice)
         record_activity(
             store, context, "invoice_sent", f"Invoice {invoice.number} sent ({invoice.currency.value} {invoice.total}).",
@@ -286,6 +290,8 @@ def register_business_tools(registry: ToolRegistry) -> ToolRegistry:
         registry.register(send_invoice_definition(), send_invoice)
     if SUPPORT_REPLY_TOOL not in registry.names:
         registry.register(support_reply_definition(), draft_support_reply)
+    if REFUND_TOOL not in registry.names:
+        registry.register(refund_definition(), refund_card_payment)
     research.configure(registry)
     return registry
 
@@ -301,6 +307,7 @@ def _approval_registry() -> ToolRegistry:
     registry.register(send_definition(), send_outreach)
     registry.register(fetch_definition(), page_fetcher)
     registry.register(send_invoice_definition(), send_invoice)
+    registry.register(refund_definition(), refund_card_payment)
     return registry
 
 
@@ -324,7 +331,7 @@ def request_approval(
         id=new_id("step"), type="tool_proposal", summary=f"Proposed tool call: {tool}", created_at=utc_now(),
         metadata={"tool": tool, "risk_level": decision.risk_level.value, "policy_outcome": decision.outcome.value,
                   "governance_rules": list(decision.governance_rules),
-                  "record_id": arguments.get("proposal_id") or arguments.get("invoice_id") or arguments.get("outbox_id")},
+                  "record_id": arguments.get("proposal_id") or arguments.get("refund_request_id") or arguments.get("invoice_id") or arguments.get("outbox_id")},
     )
     run.steps.append(proposal_step)
     run.checkpoint.phase = RunPhase.TOOL_READY

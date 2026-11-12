@@ -34,6 +34,10 @@ export interface InvoicesMock {
   accessLinks: Json[];
   /** What customers decided in their portals (`GET /portal/decisions`), newest first. */
   decisions: Json[];
+  /** An owner approves the waiting refund request in Approvals: the provider refunds it and it is recorded on the payment. */
+  approveRefund: (invoiceId: string) => void;
+  /** Provider refunds of payments ANUM never recorded (`GET /refund-reviews`). */
+  reviews: Json[];
 }
 
 interface Options {
@@ -56,7 +60,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
   const decisions: Json[] = [];
   let counter = 0, sequence = 0;
   const id = (prefix: string) => `${prefix}_${++counter}`;
-  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', seedNotice: () => '', approveMessage: () => undefined, accessLinks: access, decisions };
+  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', seedNotice: () => '', approveMessage: () => undefined, accessLinks: access, decisions, approveRefund: () => undefined, reviews: [] };
   const project = {
     id: 'bprj_1', ...scope, proposal_id: 'bprop_1', proposal_version: 1, opportunity_id: 'bopp_1', account_id: 'bacc_1', name: 'Website rebuild', status: 'active', currency: 'SAR',
     contract_total: 5750, owner_id: 'user_local', start_on: null, contract_limits: '', created_by: 'user_local', created_at: now(), updated_at: now(), account_name: 'Acme Trading',
@@ -100,6 +104,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
       decide_notice: status === 'sent' || status === 'paid',
       email: status === 'sent' || status === 'paid', remind: status === 'sent' && dueState(invoice).overdue,
       payment_link: status === 'sent' && dueState(invoice).balance > 0,
+      refund: status === 'sent' || status === 'paid',
     };
   };
   const liveReminders = (invoice: Json) => (invoice.messages as Json[]).filter((m) => m.kind === 'reminder' && (m.status === 'sent' || m.status === 'waiting_approval')).length;
@@ -118,7 +123,22 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     const balance = Math.round((Number(invoice.total) - paid - credited) * 100) / 100;
     return { overdue: late && balance > 0, days_overdue: days, balance, payment_state: balance <= 0 && Number(invoice.total) > 0 ? (paid <= 0 && credited > 0 ? 'credited' : 'paid') : paid <= 0 ? 'unpaid' : 'partially_paid' };
   };
+  const OPEN_REQUESTS = ['waiting_approval', 'processing', 'pending_provider'];
+  const refundable = (invoice: Json) => {
+    if (invoice.status !== 'sent' && invoice.status !== 'paid') return {};
+    const out: Record<string, number> = {};
+    for (const payment of invoice.payments as Json[]) {
+      if (!payment.provider) continue;
+      const charged = Number(payment.provider_amount ?? payment.amount);
+      const given = ((invoice.refunds ?? []) as Json[]).filter((r) => r.payment_id === payment.id && r.status === 'recorded').reduce((sum, r) => sum + Number(r.provider_amount), 0);
+      const held = ((invoice.refund_requests ?? []) as Json[]).filter((r) => r.payment_id === payment.id && OPEN_REQUESTS.includes(String(r.status))).reduce((sum, r) => sum + Number(r.amount), 0);
+      const left = Math.round((charged - given - held) * 100) / 100;
+      if (left > 0) out[String(payment.id)] = left;
+    }
+    return out;
+  };
   const view = (invoice: Json) => ({
+    refund_requests: invoice.refund_requests ?? [], refundable: refundable(invoice),
     ...invoice, account_name: 'Acme Trading', project_name: invoice.project_id ? 'Website rebuild' : null, ...dueState(invoice),
     payments: invoice.payments, approval_state: invoice.status === 'pending_approval' ? 'pending' : 'none',
     approval: invoice.status === 'pending_approval' ? { id: 'approval_inv', task_id: 'task_inv', action: 'business.send_invoice', risk_level: 'high', status: 'pending', reason: '', created_at: now(), decided_at: null, arguments: {}, payload_hash: invoice.requested_hash, expires_at: null, decided_by: null, decision_reason: null } : null,
@@ -158,6 +178,19 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     const invoice = invoices.find((entry) => entry.id === invoiceId)!;
     for (const message of invoice.messages as Json[]) if (message.status === 'waiting_approval') Object.assign(message, { status: 'sent', detail: 'Sent after approval.', updated_at: now() });
   };
+  mock.approveRefund = (invoiceId) => {
+    const invoice = invoices.find((entry) => entry.id === invoiceId)!;
+    for (const request of (invoice.refund_requests ?? []) as Json[]) {
+      if (request.status !== 'waiting_approval') continue;
+      const refund = { id: id('binref'), ...scope, invoice_id: invoiceId, payment_id: request.payment_id, provider: request.provider, provider_refund_id: `re_anum_${counter}`,
+        provider_payment_id: 'pi_1', currency: request.currency, provider_amount: request.amount, amount: request.amount, refunded_on: day(0), status: 'recorded',
+        note: 'Refunded from ANUM through Stripe.', recorded_by: 'user_owner', reversed_at: null, created_at: now(), updated_at: now() };
+      invoice.refunds = [...((invoice.refunds ?? []) as Json[]), refund];
+      invoice.amount_paid = Math.round((Number(invoice.amount_paid) - Number(request.amount)) * 100) / 100;
+      if (invoice.status === 'paid') invoice.status = 'sent';
+      Object.assign(request, { status: 'succeeded', refund_id: refund.id, provider_refund_id: refund.provider_refund_id, detail: 'Refunded through Stripe.', decided_by: 'user_owner', decided_at: now() });
+    }
+  };
   mock.approveSend = (invoiceId) => { const invoice = invoices.find((entry) => entry.id === invoiceId)!; send(invoice); };
   mock.rejectSend = (invoiceId, reason) => { const invoice = invoices.find((entry) => entry.id === invoiceId)!; Object.assign(invoice, { status: 'draft', decision_note: `Rejected by user_owner: ${reason}`, approval_id: null, requested_hash: null }); };
 
@@ -179,7 +212,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     const path = url.pathname.replace('/api/v1/business', '');
     const method = request.method();
     const parts = path.split('/').filter(Boolean);
-    const mine = parts[0] === 'invoices' || parts[0] === 'payment-provider' || parts[0] === 'billing-profile' || (parts[0] === 'portal') || path === '/accounts' || parts[0] === 'accounts' || (path === '/projects' && method === 'GET');
+    const mine = parts[0] === 'invoices' || parts[0] === 'refund-reviews' || parts[0] === 'payment-provider' || parts[0] === 'billing-profile' || (parts[0] === 'portal') || path === '/accounts' || parts[0] === 'accounts' || (path === '/projects' && method === 'GET');
     if (!mine || (parts[0] === 'accounts' && parts.length > 2)) return route.fallback();
     const body = request.postData() ? request.postDataJSON() as Json : {};
     mock.calls.push({ method, path, body });
@@ -191,6 +224,20 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     if (path === '/accounts' && method === 'GET') return json(page_([{ ...account, contacts: contacts.length, open_leads: 0 }]));
     if (parts[0] === 'accounts') return json({ ...account, id: parts[1], contacts: contacts.map((entry) => ({ ...entry, account_id: parts[1] })), leads: [] });
     if (path === '/projects') return json(page_(options.noProject ? [] : [project]));
+
+    if (parts[0] === 'refund-reviews') {
+      if (method === 'GET') {
+        const state = url.searchParams.get('state') ?? 'open';
+        const items = mock.reviews.filter((r) => state === 'all' || r.status === state);
+        return json({ items, total: items.length, limit: 25, offset: 0 });
+      }
+      if (role !== 'owner') return denied();
+      const review = mock.reviews.find((r) => r.id === parts[1]);
+      if (!review) return json(envelope('not_found', 'Refund to check not found'), 404);
+      if (parts[2] === 'check') Object.assign(review, { status: 'checked', checked_by: 'user_owner', checked_at: now(), note: String(body.note ?? ''), updated_at: now() });
+      else Object.assign(review, { status: 'open', checked_by: null, checked_at: null, updated_at: now() });
+      return json(review);
+    }
 
     if (path === '/billing-profile') {
       if (method === 'PUT') { if (role !== 'owner') return denied(); Object.assign(profile, body); return json(profile); }
@@ -310,7 +357,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
         Object.assign(invoice, { status: 'void', voided_by: 'user_owner', voided_at: now(), void_reason: body.reason });
         return json(view(invoice));
       }
-      if (parts[2] === 'payments' && method === 'POST') {
+      if (parts[2] === 'payments' && parts.length === 3 && method === 'POST') {
         if (status !== 'sent') return json(envelope('conflict', `The invoice is ${status}; payments are recorded on a sent invoice.`), 409);
         const balance = dueState(invoice).balance;
         if (Number(body.amount) > balance) return json(envelope('validation_error', `The payment is more than the balance of ${balance.toFixed(2)}.`), 422);
@@ -393,6 +440,27 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
             url: provider === 'stripe' ? `https://buy.stripe.example/plink_${counter}` : `https://checkout.moyasar.example/invoices/inv_${counter}`, amount: balance, currency: invoice.currency, status: 'open', created_by: 'user_local', created_at: now(), updated_at: now() });
         }
         return json(view(invoice), 201);
+      }
+      if (parts[2] === 'payments' && parts[4] === 'refund-requests' && method === 'POST') {
+        const payment = (invoice.payments as Json[]).find((p) => p.id === parts[3]);
+        if (!payment) return json(envelope('not_found', 'That payment is not on this invoice.'), 404);
+        const key = request.headers()['idempotency-key'] ?? '';
+        const requests = (invoice.refund_requests ?? []) as Json[];
+        const again = requests.find((r) => r.idempotency_key === key);
+        if (again) return json({ request: again, invoice: view(invoice) });
+        const left = refundable(invoice)[String(payment.id)] ?? 0;
+        if (Number(body.amount) > left) return json(envelope('validation_error', `At most SAR ${left.toFixed(2)} can be refunded from this payment.`), 422);
+        const asked = { id: id('binrfq'), ...scope, invoice_id: invoice.id, payment_id: payment.id, provider: payment.provider, currency: invoice.currency, amount: Number(body.amount),
+          reason: body.reason, status: 'waiting_approval', idempotency_key: key, approval_id: 'approval_refund', task_id: 'task_refund', payload_hash: 'ab'.repeat(32),
+          provider_refund_id: null, refund_id: null, detail: '', requested_by: role === 'owner' ? 'user_owner' : 'user_member', decided_by: null, decided_at: null, created_at: now(), updated_at: now() };
+        invoice.refund_requests = [asked, ...requests];
+        return json({ request: asked, invoice: view(invoice) }, 201);
+      }
+      if (parts[2] === 'refund-requests' && parts[4] === 'cancel' && method === 'POST') {
+        const asked = ((invoice.refund_requests ?? []) as Json[]).find((r) => r.id === parts[3]);
+        if (!asked) return json(envelope('not_found', 'Refund request not found'), 404);
+        Object.assign(asked, { status: 'cancelled', detail: 'Withdrawn before approval.', updated_at: now() });
+        return json(view(invoice));
       }
       if (parts[2] === 'payments' && parts[4] === 'receipt') {
         const found = (invoice.payments as Json[]).find((p) => p.id === parts[3]);

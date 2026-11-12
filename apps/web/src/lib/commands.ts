@@ -117,9 +117,16 @@ export function confirmedDependencies(steps: readonly Pick<PlanStep, 'position' 
   return steps.map((step, index) => [...new Set(step.dependsOn.map((p) => at.get(p)).filter((p): p is number => p !== undefined && p < index + 1))].sort((a, b) => a - b));
 }
 
-/** A step that never started and only waited for earlier steps that have now all completed. */
-export const readyToContinue = (view: Pick<CommandView, 'steps'>): boolean =>
-  view.steps.some((step) => step.status === 'created' && !step.runId && step.dependsOn.length > 0 && step.waitingFor.length === 0);
+/**
+ * Steps the server did not start on its own (docs/command.md#the-server-continues-a-command): never started,
+ * nothing left to wait for, not blocked, and nothing else of the command queued or running that could still
+ * start them. That happens when the monthly budget or the emergency stop held a step; "Start the remaining
+ * steps" (POST /commands/{id}/start) tries again. Positions, in order.
+ */
+export function stalledSteps(view: Pick<CommandView, 'steps'>): number[] {
+  if (view.steps.some((step) => step.status === 'queued' || step.status === 'running')) return [];
+  return view.steps.filter((step) => step.status === 'created' && !step.runId && step.waitingFor.length === 0 && step.blockedBy.length === 0).map((step) => step.position);
+}
 
 /** The task ids of a command that have not started yet (each is run with `POST /tasks/{id}/run`). */
 export const unstartedTasks = (view: Pick<CommandView, 'steps'>): string[] =>

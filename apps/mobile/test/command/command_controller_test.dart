@@ -98,7 +98,7 @@ void main() {
     expect(controller.canStart, isFalse);
   });
 
-  test('start creates the command, runs every step and follows it to results',
+  test('start creates the command, starts it once and follows it to results',
       () async {
     final settled = <CommandView>[];
     controller.onSettled = settled.add;
@@ -117,7 +117,8 @@ void main() {
     await controller.start();
     expect(repository.creates.single['steps'],
         ['Check my emails', 'Send the summary to the team']);
-    expect(repository.runs, ['task_1', 'task_2']);
+    // One start: the server starts step 2 itself once step 1 completed.
+    expect(repository.starts, ['command_1']);
     await Future<void>.delayed(const Duration(milliseconds: 60));
     expect(controller.command!.status, CommandStatus.waitingApproval);
     expect(controller.stage, CommandStage.results);
@@ -140,9 +141,7 @@ void main() {
 
   test('a step that cannot start shows why, and Stop cancels unfinished steps',
       () async {
-    repository.runErrors = {
-      'task_2': const ApiException(402, 'The monthly model budget is used up.')
-    };
+    repository.refused = {'task_2': 'Step 2 is archived; restore it first.'};
     repository.views = [
       view('running', [
         stepViewJson(1, 'email', 'running'),
@@ -151,10 +150,33 @@ void main() {
     ];
     await controller.submit('Check my emails');
     await controller.start();
-    expect(controller.stepErrors['task_2'], contains('budget'));
-    expect(controller.notStarted.single.taskId, 'task_2');
+    expect(controller.stepErrors['task_2'], contains('archived'));
+    // Step 1 still runs: the server may still start step 2, so nothing is offered.
+    expect(controller.notStarted, isEmpty);
     await controller.stop();
     expect(repository.cancels.single, ['task_1', 'task_2']);
+  });
+
+  test('a ready step the server held is offered and started again', () async {
+    repository.startError =
+        const ApiException(402, 'The monthly model budget is used up.');
+    repository.views = [
+      view('running', [
+        stepViewJson(1, 'email', 'completed', result: 'Found 12 urgent emails'),
+        stepViewJson(2, 'action', 'created'),
+        stepViewJson(3, 'action', 'created', waitingFor: [2]),
+        stepViewJson(4, 'action', 'created', blockedBy: [9]),
+      ]),
+    ];
+    await controller.submit('Check my emails');
+    await controller.start();
+    expect(controller.runError!.message, contains('budget'));
+    // Only the step with nothing left to wait for and nothing blocking it.
+    expect([for (final step in controller.notStarted) step.taskId], ['task_2']);
+    repository.startError = null;
+    await controller.startRemaining();
+    expect(repository.starts, ['command_1', 'command_1']);
+    expect(controller.runError, isNull);
   });
 
   test('live events of the command refresh it; others are ignored', () async {

@@ -91,6 +91,20 @@ test('overview: spend per currency, what is due, and a fuel payment linked from 
   await noSeriousAxe(page);
 });
 
+test('a fitting business allocation is proposed on the record and the person confirms it (docs/vehicles.md#business-allocations)', async ({ page }) => {
+  const { sent } = await mockApi(page, { vanFuel: true });
+  await page.goto('/#vehicles-list');
+  await page.getByRole('button', { name: 'Open VAN 77' }).first().click();
+  await expect(page.getByRole('heading', { name: /VAN 77/, level: 2 })).toBeVisible();
+  const proposal = page.getByRole('group', { name: 'Business allocation that fits:' });
+  await expect(proposal.getByText(/ref a1b2c3/)).toBeVisible();
+  await noSeriousAxe(page);
+  await proposal.getByRole('button', { name: /^Use this allocation: SAR\s?150\.00/ }).click();
+  await expect(page.getByText(/Business allocation counted as this record's cost/)).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Business allocation that fits:' })).toHaveCount(0);
+  expect(sent.find((r) => r.path.endsWith('/allocation') && r.method === 'POST')?.body).toEqual({ allocation_id: 'alloc_1' });
+});
+
 test('a business vehicle paid from a personal card counts the business allocation as its cost (docs/vehicles.md#business-allocations)', async ({ page }) => {
   const { sent } = await mockApi(page, { vanFuel: true });
   await page.goto('/#vehicles-list');

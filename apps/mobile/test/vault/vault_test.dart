@@ -126,9 +126,15 @@ Map<String, Object?> metaJson({bool canWrite = true}) => {
     };
 
 class VaultApi {
-  VaultApi({this.empty = false, this.canWrite = true, this.receipt = false});
-  bool empty, canWrite, receipt;
+  VaultApi(
+      {this.empty = false,
+      this.canWrite = true,
+      this.receipt = false,
+      this.insurance = false});
+  bool empty, canWrite, receipt, insurance;
   String? linkedPayment;
+  final dismissed = <Map<String, Object?>>[];
+  bool vehicleLinked = false;
   bool trashed = false;
   final links = <Map<String, Object?>>[];
   late final api = FakeApi(route);
@@ -175,6 +181,10 @@ class VaultApi {
         'next_cursor': 'cursor_2',
       });
     }
+    if (r.method == 'GET' && path == '$base/vdoc_1' && insurance) {
+      return ok(docJson('vdoc_1',
+          title: 'Motor insurance ABC 1234', category: 'insurance'));
+    }
     if (r.method == 'GET' && path == '$base/vdoc_1') {
       return ok(docJson('vdoc_1',
           status: trashed ? 'deleted' : 'active',
@@ -192,6 +202,31 @@ class VaultApi {
     // Receipt matches (docs/documents.md#receipt-matches).
     if (r.method == 'GET' && path == '$base/vdoc_1/matches') {
       return ok(matchesJson());
+    }
+    if (r.method == 'POST' &&
+        (path == '$base/vdoc_1/matches/dismiss' ||
+            path == '$base/vdoc_1/matches/restore')) {
+      final target = r.body!['target_id'];
+      if (path.endsWith('restore')) {
+        dismissed.removeWhere((d) => d['target_id'] == target);
+      } else {
+        dismissed.add({
+          'kind': r.body!['kind'],
+          'target_id': target,
+          'label': 'ALNOOR PHARMACY SAR 86.40 (2026-11-10)',
+          'dismissed_by': 'user_me',
+          'dismissed_at': '2026-11-12T08:00:00Z',
+        });
+      }
+      return ok(matchesJson());
+    }
+    // Vehicle papers (docs/documents.md#vehicle-papers).
+    if (r.method == 'GET' && path == '$base/vdoc_1/vehicle-proposals') {
+      return ok(papersJson());
+    }
+    if (r.method == 'POST' && path == '$base/vdoc_1/vehicle') {
+      vehicleLinked = true;
+      return ok(papersJson());
     }
     if (r.method == 'POST' && path == '$base/vdoc_1/matches/accept') {
       if (r.body!['target_id'] != 'fin_je_1') {
@@ -294,7 +329,8 @@ extension on VaultApi {
         'reason': null,
         'can_edit': true,
         'payments': [
-          if (linkedPayment == null)
+          if (linkedPayment == null &&
+              !dismissed.any((d) => d['target_id'] == 'fin_je_1'))
             {
               'kind': 'payment',
               'target_id': 'fin_je_1',
@@ -311,6 +347,32 @@ extension on VaultApi {
         'purchases_unavailable': 'purchase_access',
         'linked_payments': [if (linkedPayment != null) linkedPayment],
         'linked_purchases': <Object?>[],
+        'dismissed': dismissed,
+      };
+
+  Map<String, Object?> papersJson() => {
+        'document_id': 'vdoc_1',
+        'category': 'insurance',
+        'field': 'insurance_expires_on',
+        'expiry_date': '2026-11-25',
+        'reason': null,
+        'can_edit': true,
+        'vehicles_unavailable': null,
+        'linked_vehicles': [if (vehicleLinked) 'veh_1'],
+        'reminder_from': '2026-10-26',
+        'reminder_days': 30,
+        'vehicles': [
+          {
+            'vehicle_id': 'veh_1',
+            'label': 'Family car (ABC 1234)',
+            'registration': 'ABC 1234',
+            'ownership': 'personal',
+            'current_expiry': vehicleLinked ? '2026-11-25' : '2026-01-01',
+            'would_change': !vehicleLinked,
+            'matches_registration': true,
+            'linked': vehicleLinked,
+          }
+        ],
       };
 }
 
@@ -483,6 +545,46 @@ void main() {
       expect(find.text('Linked to a payment in Finance as its receipt.'),
           findsOneWidget);
       expect(find.byKey(const Key('match-take-fin_je_1')), findsNothing);
+      expectClean(tester);
+    });
+
+    testWidgets('a wrong match is dismissed and restored', (tester) async {
+      final fake = VaultApi(receipt: true);
+      await pumpVault(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('doc-vdoc_1')));
+      await tapVisible(tester, find.byKey(const Key('match-dismiss-fin_je_1')));
+      expect(
+          fake.api
+              .sent('POST', '/api/v1/documents/vdoc_1/matches/dismiss')
+              .single
+              .body,
+          {'kind': 'payment', 'target_id': 'fin_je_1'});
+      expect(find.byKey(const Key('match-take-fin_je_1')), findsNothing);
+      expect(find.text('Dismissed matches'), findsOneWidget);
+      expect(find.textContaining('Dismissed by user_me'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('match-restore-fin_je_1')));
+      expect(fake.api.sent('POST', '/api/v1/documents/vdoc_1/matches/restore'),
+          hasLength(1));
+      expect(find.byKey(const Key('match-take-fin_je_1')), findsOneWidget);
+      expect(find.text('Dismissed matches'), findsNothing);
+      expectClean(tester);
+    });
+
+    testWidgets('an insurance document links to its vehicle', (tester) async {
+      final fake = VaultApi(insurance: true);
+      await pumpVault(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('doc-vdoc_1')));
+      expect(find.byKey(const Key('vault-papers')), findsOneWidget);
+      expect(find.textContaining('Registration named in the document'),
+          findsOneWidget);
+      expect(find.textContaining('The first reminder comes 30 days before'),
+          findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('papers-link-veh_1')));
+      expect(
+          fake.api.sent('POST', '/api/v1/documents/vdoc_1/vehicle').single.body,
+          {'vehicle_id': 'veh_1'});
+      expect(find.byKey(const Key('papers-link-veh_1')), findsNothing);
+      expect(find.text('Linked'), findsOneWidget);
       expectClean(tester);
     });
 

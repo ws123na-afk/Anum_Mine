@@ -55,3 +55,7 @@
 .vehLinkButton { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: inline-flex; justify-self: start; min-height: 44px; padding: 0 var(--d-s3); }
 /* Six vehicle sections wrap onto a second row on narrow screens instead of hiding one past the edge. */
 .vehDetail > .settingsTabs { flex-wrap: wrap; margin: 0; overflow: visible; }
+/* A business allocation the server proposes as a record's cost (docs/vehicles.md#business-allocations). */
+.vehProposal { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--d-s2); padding: var(--d-s2) var(--d-s3);
+  border: 1px dashed var(--d-line); border-radius: var(--d-r-control); }
+.vehProposal p { margin: 0; font-size: var(--text-sm); min-width: 0; overflow-wrap: anywhere; }

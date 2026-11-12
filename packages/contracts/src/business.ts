@@ -393,6 +393,24 @@ export interface InvoiceRefund extends Scoped {
   refunded_on: string; status: 'recorded' | 'reversed'; note: string; recorded_by: string; reversed_at: string | null;
 }
 
+export type RefundRequestStatus = 'waiting_approval' | 'processing' | 'pending_provider' | 'succeeded' | 'failed' | 'rejected' | 'cancelled';
+/** A refund of a card payment asked for from ANUM; it waits for an owner's approval (docs/business.md#refunds-from-anum). */
+export interface RefundRequest extends Scoped {
+  invoice_id: string; payment_id: string; provider: CardProvider; currency: BusinessCurrency; amount: number; reason: string;
+  status: RefundRequestStatus; idempotency_key: string; approval_id: string | null; task_id: string | null; payload_hash: string | null;
+  provider_refund_id: string | null;
+  /** The `InvoiceRefund` it was recorded as, once the provider refunded it. */
+  refund_id: string | null;
+  detail: string; requested_by: string; decided_by: string | null; decided_at: string | null;
+}
+export interface RefundAsk { amount: number; reason: string }
+export interface RefundAnswer { request: RefundRequest; invoice: BusinessInvoice }
+/** A refund the provider reported for a card payment ANUM never recorded, for an owner to check (docs/business.md#refunds-anum-could-not-match). */
+export interface RefundReview extends Scoped {
+  invoice_id: string | null; invoice_number: string; provider: CardProvider; provider_refund_id: string; provider_payment_id: string; currency: string;
+  amount: number; status: 'open' | 'checked'; note: string; checked_by: string | null; checked_at: string | null;
+}
+
 export type InvoiceMessageKind = 'invoice' | 'reminder';
 export type InvoiceMessageStatus = 'waiting_approval' | 'sent' | 'rejected' | 'failed' | 'blocked';
 /** An invoice email or payment reminder a person asked for; it waits for an owner's approval (docs/business.md#emailing-an-invoice-and-reminders). */
@@ -434,6 +452,8 @@ export interface InvoiceCan {
   email: boolean; remind: boolean;
   /** Make a Moyasar payment page for the balance (the owner's Moyasar must be on). */
   payment_link: boolean;
+  /** Ask for a refund of a card payment; it waits for an owner's approval (older servers send none). */
+  refund?: boolean;
 }
 
 export interface BusinessInvoice extends Scoped {
@@ -449,6 +469,9 @@ export interface BusinessInvoice extends Scoped {
   payments: InvoicePayment[];
   /** Refunds made in the card provider's dashboard (older servers send none). */
   refunds?: InvoiceRefund[];
+  /** Refunds asked for from ANUM, newest first, and what each card payment can still give back by payment id (older servers send none). */
+  refund_requests?: RefundRequest[];
+  refundable?: Record<string, number>;
   credit_notes: CreditNote[];
   payment_notices: PaymentNotice[];
   approval_state: ApprovalState;

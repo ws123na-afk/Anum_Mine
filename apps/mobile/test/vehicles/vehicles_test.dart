@@ -104,8 +104,9 @@ Map<String, Object?> page(List<Map<String, Object?>> items,
 
 /// The vehicles API over an in-memory list.
 class VehiclesApi {
-  VehiclesApi({this.empty = false, this.business = false});
-  bool empty, business;
+  VehiclesApi(
+      {this.empty = false, this.business = false, this.proposal = false});
+  bool empty, business, proposal;
   bool decreaseOnce = false;
   final fuel = <Map<String, Object?>>[fuelJson('vfuel_1')];
   late final api = FakeApi(route);
@@ -171,7 +172,24 @@ class VehiclesApi {
       return ok({'payment': payment, 'replayed': false}, 201);
     }
     if (r.method == 'GET' && path == '/api/v1/vehicles/veh_1/fuel') {
-      return ok(page(fuel));
+      // A business allocation proposed for a record with no cost yet.
+      return ok(page([
+        for (final f in fuel)
+          {
+            ...f,
+            if (proposal && f['payment'] == null)
+              'allocation_proposal': {
+                'allocation_id': 'alloc_1',
+                'posted_on': '2026-11-02',
+                'amount': '130.05',
+                'currency': 'AED',
+                'category': 'fuel',
+                'memo': 'Van diesel',
+                'source_ref': 'a1b2c3',
+                'days_apart': 0,
+              },
+          }
+      ]));
     }
     if (r.method == 'GET' &&
         (path == '/api/v1/vehicles/veh_1/trips' ||
@@ -427,6 +445,26 @@ void main() {
               .body,
           {'allocation_id': 'alloc_1'});
       expect(find.textContaining('business allocation'), findsWidgets);
+      expectClean(tester);
+    });
+
+    testWidgets('a fitting business allocation is proposed and confirmed',
+        (tester) async {
+      final fake = VehiclesApi(business: true, proposal: true);
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      expect(find.byKey(const Key('alloc-proposal-vfuel_1')), findsOneWidget);
+      expect(find.textContaining('ref a1b2c3'), findsOneWidget);
+      await tapVisible(
+          tester, find.byKey(const Key('alloc-proposal-use-vfuel_1')));
+      expect(
+          fake.api
+              .sent('POST',
+                  '/api/v1/vehicles/costs/fuel_entry/vfuel_1/allocation')
+              .single
+              .body,
+          {'allocation_id': 'alloc_1'});
+      expect(find.byKey(const Key('alloc-proposal-vfuel_1')), findsNothing);
       expectClean(tester);
     });
 

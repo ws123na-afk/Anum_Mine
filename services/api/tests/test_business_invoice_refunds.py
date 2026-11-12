@@ -144,7 +144,7 @@ def test_a_refund_for_another_tenant_or_an_unknown_payment_changes_nothing(fake_
     assert ok(stripe_refund_event("evt_x", "pi_other"))["outcome"] == "ignored"
     fake_stripe.intent("pi_never_paid", 105000, "aed", metadata)
     fake_stripe.dashboard_refund("pi_never_paid", 1000)
-    assert ok(stripe_refund_event("evt_y", "pi_never_paid"))["outcome"] == "ignored"
+    assert ok(stripe_refund_event("evt_y", "pi_never_paid"))["outcome"] == "refund_needs_review"  # kept for an owner to check, nothing taken off
     assert invoice(sent["id"])["refunds"] == [] and invoice(sent["id"])["amount_paid"] == 1050
     # A delivery that does not verify is refused before anything is read.
     payload = json.dumps({"id": "evt_forged", "type": "charge.refunded", "data": {"object": {"payment_intent": "pi_ref_1"}}}).encode()

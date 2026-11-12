@@ -587,6 +587,61 @@ def use_allocation(context: TenantContext, kind: str, record_id: str, allocation
     return payment, False
 
 
+PROPOSAL_DAYS = 7  # an allocation's payment date within this many days of the record's date
+
+
+def _figure(record: Any) -> tuple[Decimal, date] | None:
+    """The record's own figure and day (a fuel entry's pump total, a service record's receipt total)."""
+    if isinstance(record, FuelEntry):
+        return (record.total, record.filled_at.date()) if record.total is not None and record.total > 0 else None
+    if isinstance(record, ServiceRecord):
+        return (record.receipt_total, record.service_on) if record.receipt_total is not None and record.receipt_total > 0 else None
+    return None
+
+
+def allocation_proposals(context: TenantContext, vehicle: Vehicle, records: list[Any]) -> dict[str, dict[str, Any]]:
+    """record id -> the business allocation proposed as its cost (docs/vehicles.md#business-allocations).
+
+    Only on a business vehicle, only for records the caller logged that have no cost yet and a figure of their own,
+    only to someone who may use allocations (``vehicle:write`` and ``business:read``). An allocation is proposed when it
+    is this business's, made by the caller, counted by no record, in the record's currency, for exactly its figure, and
+    its payment is dated within :data:`PROPOSAL_DAYS` days of the record; each allocation is proposed to one record
+    only (the nearest date wins). A proposal only: the person confirms it with ``POST .../allocation``, which checks
+    everything again under the workspace lock."""
+    if vehicle.ownership != Ownership.BUSINESS or not has_permission(context, Permission.VEHICLE_WRITE) or not has_permission(context, Permission.BUSINESS_READ):
+        return {}
+    wanting = []
+    for record in records:
+        payment = getattr(record, "payment", None)
+        figure = _figure(record)
+        if record.owner_user_id == context.user_id and figure is not None and (payment is None or payment.status == "void"):
+            wanting.append((record, *figure))
+    if not wanting:
+        return {}
+    rows = _allocations(context)
+    if not rows:
+        return {}
+    with open_vehicle_store(context) as store:
+        used = _used_allocations(store, context)
+    pairs = []
+    for record, amount, day in wanting:
+        for row in rows:
+            if row.id in used or row.currency != record.currency or A.money(row.amount) != A.money(amount):
+                continue
+            gap = abs((row.posted_on - day).days)
+            if gap <= PROPOSAL_DAYS:
+                pairs.append((gap, record.id, row.id, row))
+    out: dict[str, dict[str, Any]] = {}
+    taken: set[str] = set()
+    for gap, record_id, row_id, row in sorted(pairs, key=lambda p: (p[0], p[1], p[2])):
+        if record_id in out or row_id in taken:
+            continue
+        taken.add(row_id)
+        out[record_id] = {"allocation_id": row.id, "posted_on": row.posted_on.isoformat(), "amount": A.money(row.amount), "currency": row.currency,
+                          "category": row.category, "memo": row.memo, "source_ref": row.source_ref, "days_apart": gap}
+    return out
+
+
 def refresh_allocations(context: TenantContext, records: list[Any]) -> list[Any]:
     """Bring each record whose cost is a business allocation in line with the allocation row as it is now: removed (the
     owner took the allocation back, or the payment was undone) reads ``void`` with ``allocation_removed`` and is not

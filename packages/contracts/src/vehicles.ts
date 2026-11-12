@@ -152,6 +152,8 @@ export interface VehicleFuelEntry extends VehicleRecordBase {
   full_tank: boolean;
   payment_method: VehiclePaymentMethod | null;
   payment: VehiclePayment | null;
+  /** A business allocation that fits this record, on lists of a business vehicle's records (older servers send none). */
+  allocation_proposal?: VehicleAllocationProposal | null;
   document_id: string | null;
   notes: string | null;
 }
@@ -190,6 +192,8 @@ export interface VehicleServiceRecord extends VehicleRecordBase {
   currency: string;
   payment_method: VehiclePaymentMethod | null;
   payment: VehiclePayment | null;
+  /** A business allocation that fits this record, on lists of a business vehicle's records (older servers send none). */
+  allocation_proposal?: VehicleAllocationProposal | null;
   document_id: string | null;
 }
 
@@ -318,6 +322,12 @@ export interface VehicleAllocationCandidate {
   category: string;
   memo: string | null;
   source_ref: string;
+}
+
+/** A business allocation proposed as a business vehicle record's cost (docs/vehicles.md#business-allocations): the person confirms it. */
+export interface VehicleAllocationProposal extends VehicleAllocationCandidate {
+  /** Days between the allocation's payment and the record. */
+  days_apart: number;
 }
 
 export interface VehicleLinkInput { canonical_id: string; amount?: string | null; /** Needed when the payment has more than one currency. */ currency?: string | null }

@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolResult
+from ..agent_tools import ToolCall, ToolDefinition, ToolResult, approver_of
 from ..audit import AuditRecord
 from ..authorization import Permission
 from ..schemas import RiskLevel
@@ -257,7 +257,8 @@ async def place_ai_call(call: ToolCall, context: TenantContext) -> ToolResult:
     opt-out recorded since the approval means no call.
     """
     args = call.arguments
-    if not is_owner(context):
+    # The call runs as the person who asked; the owner who approved it is the approver.
+    if not is_owner(approver_of(context)):
         return _failed("Not called: an AI call needs the approval of a workspace owner.")
     try:
         number = normalized(str(args.get("phone_number") or ""))
@@ -309,7 +310,7 @@ def _claim_ai_call(context: TenantContext, args: dict[str, Any], number: str, pu
         def refuse(message: str, **metadata: Any) -> ToolResult:
             # A request that was waiting for this approval is closed with the reason.
             if request is not None and request.status == AiRequestStatus.PENDING_APPROVAL:
-                store.save_request(request.model_copy(update={"status": AiRequestStatus.FAILED, "error": message, "decided_by": context.user_id, "updated_at": utc_now()}))
+                store.save_request(request.model_copy(update={"status": AiRequestStatus.FAILED, "error": message, "decided_by": approver_of(context).user_id, "updated_at": utc_now()}))
             return _failed(f"Not called: {message}", **metadata)
 
         if request_id and (request is None or request.status != AiRequestStatus.PENDING_APPROVAL):
@@ -342,7 +343,7 @@ def _claim_ai_call(context: TenantContext, args: dict[str, Any], number: str, pu
             provider=account.provider, ai_request_id=request.id, created_at=now, updated_at=now,
         )
         store.add_call(entry)
-        request = request.model_copy(update={"status": AiRequestStatus.CALLING, "call_id": entry.id, "decided_by": context.user_id, "updated_at": now})
+        request = request.model_copy(update={"status": AiRequestStatus.CALLING, "call_id": entry.id, "decided_by": approver_of(context).user_id, "updated_at": now})
         store.save_request(request)
         return entry, request, contact, account.route_id, account.from_number, voice(account)
 

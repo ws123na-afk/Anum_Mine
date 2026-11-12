@@ -181,6 +181,68 @@ class InvoiceRefund(Scoped):
     reversed_at: datetime | None = None
 
 
+class RefundRequestStatus(StrEnum):
+    WAITING_APPROVAL = "waiting_approval"
+    # Approved and being sent to the provider (or the provider's answer was lost: the same request settles it).
+    PROCESSING = "processing"
+    # The provider took the refund but has not finished it (a Stripe refund may be pending): its webhook records it.
+    PENDING_PROVIDER = "pending_provider"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
+OPEN_REFUND_REQUESTS = frozenset({RefundRequestStatus.WAITING_APPROVAL, RefundRequestStatus.PROCESSING, RefundRequestStatus.PENDING_PROVIDER})
+
+
+class RefundRequest(Scoped):
+    """A refund of a card payment started from inside ANUM (docs/business.md#refunds-from-anum). It waits for an
+    owner's approval bound to its payload hash; the approved call refunds through the provider with the request's own
+    idempotency key and is recorded as an ``InvoiceRefund`` through the same path the provider's webhook uses, so the
+    webhook that follows records nothing twice. While open, its amount is held against what the payment can give back."""
+
+    invoice_id: str
+    payment_id: str
+    provider: Literal["moyasar", "stripe"]
+    currency: Currency
+    amount: Money
+    reason: str = Field(min_length=3, max_length=300)
+    status: RefundRequestStatus = RefundRequestStatus.WAITING_APPROVAL
+    idempotency_key: str = Field(min_length=8, max_length=80)
+    approval_id: str | None = None
+    task_id: str | None = None
+    payload_hash: str | None = Field(default=None, max_length=128)
+    provider_refund_id: str | None = Field(default=None, max_length=200)
+    refund_id: str | None = None
+    detail: str = Field(default="", max_length=500)
+    requested_by: str
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+
+
+class RefundReviewStatus(StrEnum):
+    OPEN = "open"
+    CHECKED = "checked"
+
+
+class RefundReview(Scoped):
+    """A refund the provider's verified webhook reported for a payment ANUM never recorded on the invoice
+    (docs/business.md#refunds-anum-could-not-match). Kept once per provider refund for an owner to look at."""
+
+    invoice_id: str | None = None
+    invoice_number: str = Field(default="", max_length=40)
+    provider: Literal["moyasar", "stripe"]
+    provider_refund_id: str = Field(max_length=200)
+    provider_payment_id: str = Field(max_length=200)
+    currency: str = Field(max_length=3)
+    amount: Money
+    status: RefundReviewStatus = RefundReviewStatus.OPEN
+    note: str = Field(default="", max_length=300)
+    checked_by: str | None = None
+    checked_at: datetime | None = None
+
+
 class MessageKind(StrEnum):
     INVOICE = "invoice"
     REMINDER = "reminder"

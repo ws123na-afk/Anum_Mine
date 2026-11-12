@@ -11,6 +11,7 @@ import {
   cardCodeValid,
   decisionBody,
   needsCardCode,
+  needsOwnConfirmation,
   decisionSummary,
   effectiveStatus,
   expiryLabel,
@@ -127,6 +128,19 @@ describe('approval expiry and decider (A3)', () => {
       'Expired without a decision · at 2026-10-07T11:00:00Z',
     );
     assert.equal(decisionSummary(approval(), format, now), '');
+  });
+});
+
+describe('self-approval of a private request (docs/approvals-and-risk.md#private-task-self-approval)', () => {
+  const routing = { routed: false, rules: [], steps: [], currentStep: 0, reasons: [], fallback: false, canApprove: true, canReject: true, summary: '' };
+  test('the confirmation is sent only once the person ticked it, and only when the API asks for it', () => {
+    const own = approval({ routing: { ...routing, confirmOwn: true } });
+    assert.equal(needsOwnConfirmation(own), true);
+    assert.deepEqual(decisionBody(own), { payload_hash: hash });
+    assert.deepEqual(decisionBody({ ...own, ownConfirmed: true }), { payload_hash: hash, confirm_own_request: true });
+    const ordinary = approval({ routing });
+    assert.equal(needsOwnConfirmation(ordinary), false);
+    assert.deepEqual(decisionBody({ ...ordinary, ownConfirmed: true }), { payload_hash: hash });
   });
 });
 

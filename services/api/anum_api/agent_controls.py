@@ -434,6 +434,25 @@ def _cancel_batch(scoped: TenantContext) -> tuple[int, list[str]]:
     return len(tasks), done
 
 
+def _cancel_all(scoped: TenantContext, cancelled: list[tuple[TenantContext, str]]) -> None:
+    """Cancel, in batches, every running and queued task ``scoped`` can see."""
+    while True:
+        listed, done = _cancel_batch(scoped)
+        cancelled.extend((scoped, task_id) for task_id in done)
+        if not done or listed < CANCEL_LIMIT:
+            break
+
+
+def _other_members(scoped: TenantContext) -> list[str]:
+    """Every other person with a membership row in the workspace (active or not): whose private
+    tasks the stop must reach. Ids only, read in one short unit of work."""
+    from .dependencies import _unit_of_work
+
+    with _unit_of_work(scoped, require_membership=False) as repository:
+        members = repository.list_memberships(scoped)
+    return sorted({member.user_id for member in members if member.user_id != scoped.user_id})
+
+
 def cancel_in_flight(context: TenantContext, workspace_ids: list[str]) -> list[tuple[TenantContext, str]]:
     """Cancel every running and queued task of ``workspace_ids``, in batches of ``CANCEL_LIMIT``
     until none remain, each batch its own short unit of work. Returns ``(workspace context,
@@ -450,11 +469,12 @@ def cancel_in_flight(context: TenantContext, workspace_ids: list[str]) -> list[t
             tenant_id=context.tenant_id, workspace_id=workspace_id, user_id=context.user_id, roles=list(context.roles)
         )
         try:
-            while True:
-                listed, done = _cancel_batch(scoped)
-                cancelled.extend((scoped, task_id) for task_id in done)
-                if not done or listed < CANCEL_LIMIT:
-                    break
+            _cancel_all(scoped, cancelled)
+            # Another person's private task is invisible to the caller (0163_private_tasks): it is
+            # reached as that person, whose own row policy shows it, and only counted here. Nothing
+            # of it (title, prompt, result) comes back to the person who pulled the stop.
+            for user_id in _other_members(scoped):
+                _cancel_all(scoped.model_copy(update={"user_id": user_id}), cancelled)
         except Exception:  # noqa: BLE001 - one workspace must not stop the others; runs are refused anyway
             logger.exception(
                 "agent_controls_cancel_failed",
@@ -723,7 +743,12 @@ async def set_emergency_stop(
                 with deps._unit_of_work(context, require_membership=False) as repository:
                     _audit(
                         repository, context, "agent_controls.emergency_stop.cancelled_tasks", f"tenant:{context.tenant_id}",
-                        {"tasks": len(cancelled), "workspaces": len({scoped.workspace_id for scoped, _ in cancelled})},
+                        {
+                            "tasks": len(cancelled),
+                            "workspaces": len({scoped.workspace_id for scoped, _ in cancelled}),
+                            # Other people's private tasks: a count only, never which or whose.
+                            "private_tasks_of_others": sum(1 for scoped, _ in cancelled if scoped.user_id != context.user_id),
+                        },
                     )
 
             await asyncio.to_thread(record_cancelled)

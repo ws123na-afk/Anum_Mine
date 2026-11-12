@@ -1184,10 +1184,7 @@ def step_inputs(task: Task, context: TenantContext) -> tuple[list[str], list[int
     return blocks, [position for position, _, _ in found]
 
 
-def ready_steps(repository: AnumRepository, context: TenantContext, command_id: str) -> list[str]:
-    """Task ids of the command's steps that can start now: never started, and every step they
-    wait for completed. ``404`` for a command that is not the caller's."""
-    command = _command_or_404(command_store(repository, context), command_id)
+def _ready_task_ids(command: StoredCommand, repository: AnumRepository, context: TenantContext) -> list[str]:
     states = _states(command, repository, context)
     return [
         state.step.task_id
@@ -1199,29 +1196,44 @@ def ready_steps(repository: AnumRepository, context: TenantContext, command_id: 
     ]
 
 
+def ready_steps(repository: AnumRepository, context: TenantContext, command_id: str) -> list[str]:
+    """Task ids of the command's steps that can start now: never started, and every step they
+    wait for completed. ``404`` for a command that is not the caller's."""
+    return _ready_task_ids(_command_or_404(command_store(repository, context), command_id), repository, context)
+
+
+def steps_to_continue(repository: AnumRepository, context: TenantContext, task_id: str) -> tuple[str, list[str]] | None:
+    """After ``task_id`` completed: its command and the command's steps that can start now, read
+    as the command's creator (``context``). ``None`` when the task is not a step of one of their
+    commands or is not completed (docs/command.md#the-server-continues-a-command)."""
+    task = repository.get_task(task_id, context)
+    if task is None or task.status != TaskStatus.COMPLETED or task.created_by != context.user_id:
+        return None
+    command = command_store(repository, context).find_by_task(task_id)
+    if command is None:
+        return None
+    return command.id, _ready_task_ids(command, repository, context)
+
+
 async def run_ready_steps(
     command_id: str,
     context: TenantContext,
     units: Callable[[TenantContext], Any],
     run: Callable[[str], Awaitable[Any]],
 ) -> dict[str, Any]:
-    """Start every step that can start, together; when a run finishes inline (the default
-    runtime), start the steps that were waiting for it, and so on. Each read is its own short
-    unit of work in a worker thread; no transaction is open while a step runs.
+    """Start every step that can start now, together. Each read is its own short unit of work in
+    a worker thread; no transaction is open while a step runs.
 
-    Returns ``{task_id: run result or the exception that refused it}`` for the steps started
-    here. Steps still waiting (an earlier step is queued for the durable worker, waits for
-    approval or failed) are left for the next call (``POST /commands/{id}/start``)."""
+    Returns ``{task_id: run result or the exception that refused it}``. The steps that wait for
+    these are started by the server when they complete (``command_continuation``), wherever
+    they finish (inline, after an approval, on the durable worker), so this is one pass."""
+    ready = await run_in_unit(units, context, ready_steps, context, command_id)
+    results = await asyncio.gather(*(run(task_id) for task_id in ready), return_exceptions=True)
     outcomes: dict[str, Any] = {}
-    for _ in range(MAX_STEPS):
-        ready = [task_id for task_id in await run_in_unit(units, context, ready_steps, context, command_id) if task_id not in outcomes]
-        if not ready:
-            break
-        results = await asyncio.gather(*(run(task_id) for task_id in ready), return_exceptions=True)
-        for task_id, result in zip(ready, results, strict=True):
-            if isinstance(result, BaseException) and not isinstance(result, Exception):
-                raise result
-            outcomes[task_id] = result
+    for task_id, result in zip(ready, results, strict=True):
+        if isinstance(result, BaseException) and not isinstance(result, Exception):
+            raise result
+        outcomes[task_id] = result
     return outcomes
 
 
@@ -1456,10 +1468,10 @@ async def start_command(
     context: TenantContext = Depends(tenant_context),
     units: UnitsOfWork = Depends(units_of_work),
 ) -> CommandStartResult:
-    """Start the command's steps in dependency order (docs/command.md#steps-that-build-on-each-other):
-    steps with nothing to wait for start together; a step that waits for others starts once
-    they completed and receives their results. Call it again to continue after an approval
-    or a durable run finished; it starts only what is ready, so repeating it is safe."""
+    """Start the command (docs/command.md#steps-that-build-on-each-other): every step that can
+    start now starts, together. A step that waits for others is started by the server once they
+    completed, with their results (``command_continuation``); calling this again starts only
+    what is ready, so repeating it is safe ("Start the remaining steps" after a refusal)."""
     require_permission(context, Permission.TASK_RUN)
     from .main import start_task_run
 
@@ -1469,10 +1481,14 @@ async def start_command(
     for result in outcomes.values():
         if isinstance(result, Exception) and not isinstance(result, HTTPException):
             raise result
-    refused = {
-        task_id: str(result.detail) for task_id, result in outcomes.items() if isinstance(result, HTTPException)
-    }
     view = await run_in_unit(units, context, _view_of, context, command_id)
+    # A 409 for a step the server's continuation (or another tab) started meanwhile is not a refusal.
+    unstarted = {step.task_id for step in view.steps if step.status == TaskStatus.CREATED}
+    refused = {
+        task_id: str(result.detail)
+        for task_id, result in outcomes.items()
+        if isinstance(result, HTTPException) and (result.status_code != status.HTTP_409_CONFLICT or task_id in unstarted)
+    }
     return CommandStartResult(
         started=[task_id for task_id in outcomes if task_id not in refused], refused=refused, command=view
     )

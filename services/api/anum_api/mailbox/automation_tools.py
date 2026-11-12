@@ -16,7 +16,7 @@ import asyncio
 
 from typing import Any
 
-from ..agent_tools import ToolCall, ToolDefinition, ToolResult
+from ..agent_tools import ACTS_FOR_SOMEONE_ELSE, ToolCall, ToolDefinition, ToolResult
 from ..schemas import RiskLevel, TenantContext, utc_now
 from .automation import (
     MAX_FORWARD_TO,
@@ -29,7 +29,7 @@ from .automation import (
 )
 from .config import mail_settings
 from .mime import valid_address
-from .service import MailError, require_available
+from .service import MailError, owner_context, require_available
 from .store import open_mail_store
 
 SETTINGS_TOOL = "change_mail_settings"
@@ -37,9 +37,6 @@ RULE_TOOL = "activate_mail_forward_rule"
 _PEOPLE = frozenset({"owner", "member"})
 
 
-def _owner(call: ToolCall, context: TenantContext) -> TenantContext:
-    owner = str(call.arguments.get("owner_user_id") or "")
-    return context.model_copy(update={"user_id": owner}) if owner else context
 
 
 def _failed(summary: str, kind: str) -> ToolResult:
@@ -78,7 +75,9 @@ async def change_mail_settings(call: ToolCall, context: TenantContext) -> ToolRe
 def _change_mail_settings(call: ToolCall, context: TenantContext) -> ToolResult:
     """Apply an approved change of one mailbox's settings (owner scope, version checked)."""
     args = call.arguments
-    owner = _owner(call, context)
+    owner = owner_context(call, context)
+    if owner is None:
+        return _failed(f"Not changed: {ACTS_FOR_SOMEONE_ELSE}", "not_yours")
     try:
         require_available(owner)
     except MailError as exc:
@@ -129,7 +128,9 @@ async def activate_mail_forward_rule(call: ToolCall, context: TenantContext) -> 
 def _activate_mail_forward_rule(call: ToolCall, context: TenantContext) -> ToolResult:
     """Turn on an approved forwarding rule, only if it still does exactly what was approved."""
     args = call.arguments
-    owner = _owner(call, context)
+    owner = owner_context(call, context)
+    if owner is None:
+        return _failed(f"Not turned on: {ACTS_FOR_SOMEONE_ELSE}", "not_yours")
     try:
         require_available(owner)
     except MailError as exc:
@@ -167,6 +168,7 @@ AUTOMATION_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=SETTINGS_TOOL,
             description="Change a mailbox's retention and background sync settings, after approval of exactly that change.",
             risk_level=RiskLevel.HIGH, required_roles=_PEOPLE, timeout_seconds=30, category="email", action_kind="update", always_ask=True,
+            acts_for_argument="owner_user_id",
         ),
         change_mail_settings,
     ),
@@ -175,6 +177,7 @@ AUTOMATION_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
             name=RULE_TOOL,
             description="Turn on a rule that forwards matching new inbox mail to the named addresses, after approval of exactly that rule.",
             risk_level=RiskLevel.HIGH, required_roles=_PEOPLE, timeout_seconds=30, category="email", action_kind="send", always_ask=True,
+            acts_for_argument="owner_user_id",
         ),
         activate_mail_forward_rule,
     ),

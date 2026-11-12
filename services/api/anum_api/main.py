@@ -84,7 +84,7 @@ from .realtime import live_event_source
 from .runtime import AgentRuntime
 from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
 from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
-from .agent_tools import ToolCall, default_tool_registry
+from .agent_tools import ToolCall, approved_as, default_tool_registry
 from .tool_governance import decision_requirements, match_governance, required_approvals
 from .suppression import suppressed_for_call
 from .approval_routing import (
@@ -243,6 +243,7 @@ from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
 from .green_concrete_ops import register_green_concrete_tools
+from .command_continuation import command_continuer
 from .commands import prepare_step_run as prepare_command_step_run, router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
@@ -273,6 +274,7 @@ from .files import router as files_router
 from .files_organize import router as files_organize_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
 from .inline_runs import RunClaimLost, claim_expired, execute_committed, run_inline
+from .requester_identity import REQUESTER_GONE, requester_identity
 from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .agent_controls import AgentsStoppedError, agents_stopped, configure_cancel_notifier, router as agent_controls_router
@@ -340,6 +342,8 @@ async def lifespan(application: FastAPI):
     push_dispatcher.start()
     # Runs automation steps after their transaction commits and reacts to committed events.
     automation_dispatcher.start()
+    # Starts a command's waiting steps when the steps they wait for complete (docs/command.md).
+    command_continuer.start()
     developer_watcher = build_developer_watcher()
     if developer_watcher is not None:
         developer_watcher.start()
@@ -419,6 +423,7 @@ async def lifespan(application: FastAPI):
             await scheduler.stop()
         if developer_watcher is not None:
             await developer_watcher.stop()
+        await command_continuer.stop()
         await automation_dispatcher.stop()
         await push_dispatcher.stop()
         await asyncio.to_thread(notification_email.shutdown)
@@ -1707,6 +1712,11 @@ async def _cancel_task_for_voice(context: TenantContext, task_id: str) -> Task:
     return task
 
 
+# A command's waiting steps start when the steps they wait for complete, as the command's
+# creator, through the same body as POST /tasks/{id}/run (docs/command.md#the-server-continues-a-command).
+command_continuer.configure(runner=lambda context, task_id: start_task_run(task_id, context, _membership_units))
+command_continuer.attach(event_runtime)
+
 # The voice assistant's actions run these same route bodies (docs/voice.md#actions).
 voice_actions.configure(
     voice_actions.VoiceTaskRuntime(
@@ -2230,6 +2240,7 @@ async def approve(
         context,
         units,
         card_code=card_code,
+        confirm_own=payload.confirm_own_request,
     )
 
 
@@ -2338,6 +2349,7 @@ async def _decide_approval(
     units: UnitsOfWork,
     *,
     card_code: str | None = None,
+    confirm_own: bool = False,
 ) -> ApprovalDecisionResponse | JSONResponse:
     """Decide an approval with no transaction open while its tool runs (docs/realtime.md#event-loop).
 
@@ -2363,7 +2375,7 @@ async def _decide_approval(
             raise HTTPException(status_code=problem[0], detail=problem[1])
     async with _task_lock(context, approval.task_id):
         decided = await run_in_unit(
-            units, context, _decide_in_unit, approval_id, decision, shown_hash, reason, request, context
+            units, context, _decide_in_unit, approval_id, decision, shown_hash, reason, request, context, confirm_own
         )
         if decided.signal and run_dispatcher is not None:
             # The workflow applies the decision; a lost signal is caught by its next poll.
@@ -2372,12 +2384,16 @@ async def _decide_approval(
             return decided.response
         task, run, call = decided.execute
         definition = tool_registry.definition(call.name)
+        # The tool runs as the person who asked for it, with their permissions (the approver only
+        # approves), as the durable workflow does (docs/approvals-and-risk.md#who-the-action-runs-as).
         work: Awaitable[tuple[Task, AgentRun]] = execute_committed(
-            context, task, run, call,
+            decided.actor or context, task, run, call,
             unit_of_work=units,
             runtime_factory=decided.runtime_factory,
             approval_id=approval_id,
         )
+        # A tool that records or checks its approver reads it from here (``agent_tools.approver_of``).
+        work = _approved_by(context, work)
         if card_code:
             # In memory for this one execution only; dropped when it ends, whatever the outcome.
             work = with_card_code(card_code, work)
@@ -2396,6 +2412,12 @@ async def _decide_approval(
         if not isinstance(response, ApprovalDecisionResponse):  # pragma: no cover - set with execute
             return response
         return response.model_copy(update={"task": task, "run": run})
+
+
+async def _approved_by(approver: TenantContext, work: Awaitable[tuple[Task, AgentRun]]) -> tuple[Task, AgentRun]:
+    """Run ``work`` with ``approver`` marked as the approver of its tool call."""
+    with approved_as(approver):
+        return await work
 
 
 _BACKGROUND_RUNS: set[asyncio.Task[object]] = set()
@@ -2428,6 +2450,8 @@ class _Decided:
     signal: bool = False
     # An inline run committed as ``executing``: run its tool, then settle it.
     execute: tuple[Task, AgentRun, ToolCall] | None = None
+    # Who that tool runs as: the person who asked for it (``requester_identity``), never the approver.
+    actor: TenantContext | None = None
     runtime_factory: Callable[[AnumRepository], AgentRuntime] | None = None
 
 
@@ -2563,19 +2587,55 @@ def _route_refusal_response(
 
 
 def _private_self_decision(task: Task, approval: Approval, context: TenantContext) -> bool:
-    """The one case a person decides their own request (docs/tasks.md#private-tasks, docs/approvals-and-risk.md#approval-routing).
+    """The one case a person decides their own request (docs/tasks.md#private-tasks, docs/approvals-and-risk.md#private-task-self-approval).
 
-    A ``data``-private task's approval of a ``caller_scoped`` tool concerns the person's own
-    ledger or mailbox and their own action, and nobody else can see the task or the approval
-    (the repository filter and the row policies hide both). Routing an approval nobody else
-    can see to owners would leave the run stuck for good, and sharing it would publish the
-    private data, so the task's own person decides it: a confirm step, not a second pair of
-    eyes. Owners, routes and the two-person rule still apply to every other approval.
+    A ``data``-private task's approval of a call that touches only the person's own data:
+    a ``caller_scoped`` tool (their own ledger or mailbox reads and drafts), or a tool that
+    names whose data it acts on (``acts_for_argument``) when it names them and nothing leaves
+    ANUM (no send, payment or other outward kind). Nobody else can see the task or the
+    approval (the repository filter and the row policies hide both), so routing it to owners
+    would leave the run stuck for good and sharing it would publish the private data: the
+    task's own person decides it. Owners, routes and the two-person rule still apply to every
+    other approval; anything else on a private task is refused (:data:`RUN_AS_SHARED`).
     """
     if task.private_kind != "data" or task.private_to != context.user_id:
         return False
+    return _own_data_only(approval, context)
+
+
+# Kinds of action that reach people or money outside the person's own data: never self-approved.
+OUTWARD_ACTION_KINDS = frozenset({"send", "reply", "payment", "price_change", "stock_change", "merge_code"})
+RUN_AS_SHARED = "Run this as a shared task so a second person can approve it."
+CONFIRM_OWN_REQUEST = (
+    "This is your own private request. Tick the confirmation on its card in Approvals to approve it yourself: "
+    "it is recorded as a self-approval under the private-task exception."
+)
+
+
+def _own_data_only(approval: Approval, context: TenantContext) -> bool:
+    """Whether the approved call touches only ``context``'s own data (see :func:`_private_self_decision`)."""
     definition = tool_registry.definition(approval.action)
-    return definition is not None and definition.caller_scoped
+    if definition is None:
+        return False
+    if definition.caller_scoped:
+        return True
+    if not definition.acts_for_argument or definition.delivery_channel or definition.target:
+        return False
+    if (definition.action_kind or "other") in OUTWARD_ACTION_KINDS:
+        return False
+    return str(approval.arguments.get(definition.acts_for_argument) or "") == context.user_id
+
+
+def _own_request_needs_confirmation(approval: Approval, two_person_rule: bool) -> bool:
+    """A self-approval under the private-task exception needs a second, explicit confirmation
+    when the workspace's two-person rule is on or the tool is not a caller-scoped read."""
+    definition = tool_registry.definition(approval.action)
+    return two_person_rule or definition is None or not definition.caller_scoped
+
+
+def _private_shared_only(task: Task, approval: Approval, context: TenantContext) -> bool:
+    """The person's own data-private task proposes a call that touches more than their data."""
+    return task.private_kind == "data" and task.private_to == context.user_id and not _own_data_only(approval, context)
 
 
 def _delegated_refusal(
@@ -2698,7 +2758,7 @@ def _routing_view(
     task_creator = task.created_by if task is not None else None
     pending = approval.status == ApprovalStatus.PENDING
     if task is not None and _private_self_decision(task, approval, context):
-        # The task's own person, for a caller-scoped tool on their data-private task: the one approver.
+        # The task's own person, for a call on their data-private task that touches only their data: the one approver.
         refusal = "not_pending" if not pending else "no_hash" if not approval.payload_hash else None
         return ApprovalRouting(
             routed=False,
@@ -2707,8 +2767,18 @@ def _routing_view(
             can_reject=pending,
             refusal=refusal,  # type: ignore[arg-type]
             summary="This task reads your own data, so you decide this approval yourself.",
+            confirm_own=_own_request_needs_confirmation(approval, two_person_rule),
         )
     owner_decides = has_permission(context, Permission.APPROVAL_DECIDE)
+    if task is not None and pending and _private_shared_only(task, approval, context) and (two_person_rule or not owner_decides):
+        return ApprovalRouting(
+            routed=False,
+            steps=[ApprovalStepView(approvers=[[f"user:{context.user_id}"]])],
+            can_approve=False,
+            can_reject=True,
+            refusal="run_as_shared",
+            summary=RUN_AS_SHARED,
+        )
     own = context.user_id in {task_creator, approval.requested_by}
     already = any(row.user_id == context.user_id for row in recorded)
     viewer = not ({role.lower() for role in context.roles} & {"owner", "member"}) and "org_admin" not in {
@@ -2839,6 +2909,7 @@ def _decide_in_unit(
     reason: str | None,
     request: Request,
     context: TenantContext,
+    confirm_own: bool = False,
 ) -> _Decided:
     """Step 1 of ``_decide_approval``, in one short unit of work in a worker thread. A
     returned refusal commits (its audit record stays); a raised one rolls back."""
@@ -2864,6 +2935,20 @@ def _decide_in_unit(
     route = _route_for(approval, context, repository)
     recorded = repository.list_approval_approvers([approval.id], context).get(approval.id, [])
     own_private = _private_self_decision(task, approval, context)
+    if decision == ApprovalStatus.APPROVED and not own_private and _private_shared_only(task, approval, context) and (
+        not has_permission(context, Permission.APPROVAL_DECIDE) or repository.get_approval_policy(context).two_person_rule
+    ):
+        # Nobody else can see a data-private task, so a call on it that reaches beyond the person's own
+        # data (shared workspace data, other people, money, a send) can never get a second pair of eyes.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=RUN_AS_SHARED)
+    if (
+        decision == ApprovalStatus.APPROVED
+        and own_private
+        and not confirm_own
+        and approval.status == ApprovalStatus.PENDING
+        and _own_request_needs_confirmation(approval, repository.get_approval_policy(context).two_person_rule)
+    ):
+        raise HTTPException(status_code=status.HTTP_428_PRECONDITION_REQUIRED, detail=CONFIRM_OWN_REQUEST)
     if not own_private and not has_permission(context, Permission.APPROVAL_DECIDE):
         delegated_refusal = _delegated_refusal(request, context, repository, task, approval, route, recorded, decision)
         if delegated_refusal is not None:
@@ -3042,7 +3127,7 @@ def _decide_in_unit(
                 "reason": reason,
                 **chain_metadata,
                 # The task's own person decided their own request: visible in the audit log, which is shared.
-                **({"private_self_decision": True} if own_private else {}),
+                **({"private_self_decision": True, "private_exception": "own_data", "confirmed": confirm_own} if own_private else {}),
             },
         )
     )
@@ -3052,7 +3137,14 @@ def _decide_in_unit(
         return _Decided(ApprovalDecisionResponse(approval=shown, task=task, run=run), task.id, signal=run is not None)
     # Inline: re-check the payload hash, expiry, target and policy, and commit the run as
     # ``executing`` with the decision; the tool runs after this unit of work has committed.
-    call = runtime.begin_execution(task, run, context, approval=approval) if run else None
+    # Policy is re-checked as the person who asked (their role now, not the approver's), and
+    # the tool then runs as them, as the durable workflow does.
+    actor = requester_identity(repository, context, approval, run, auth_mode=settings.auth_mode) if run else None
+    if run is not None and actor is None:
+        runtime.fail_run(task, run, context, REQUESTER_GONE, approval.id)
+        call = None
+    else:
+        call = runtime.begin_execution(task, run, actor or context, approval=approval) if run else None
     repository.save_task(task)
     if run:
         repository.save_run(run)
@@ -3061,6 +3153,7 @@ def _decide_in_unit(
         task.id,
         execute=(task, run, call) if run is not None and call is not None else None,
         runtime_factory=lambda unit: AgentRuntime(gateway, unit, tools=tool_registry),
+        actor=actor,
     )
 
 

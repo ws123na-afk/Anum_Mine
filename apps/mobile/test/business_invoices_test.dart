@@ -9,6 +9,7 @@ import 'package:anum_mobile/features/business/invoice_controller.dart';
 import 'package:anum_mobile/features/business/invoice_document.dart';
 import 'package:anum_mobile/features/business/invoice_form.dart';
 import 'package:anum_mobile/features/business/invoice_models.dart';
+import 'package:anum_mobile/features/business/invoice_refunds.dart';
 import 'package:anum_mobile/features/business/invoice_repository.dart';
 import 'package:anum_mobile/features/business/invoices.dart';
 import 'package:anum_mobile/features/business/portal_access.dart';
@@ -473,6 +474,95 @@ class FakeInvoices implements InvoicesRepository {
     requests.add('remove-payment $id $paymentId');
     current = invoiceJson(status: 'sent', owner: owner);
     return inv;
+  }
+
+  // Refunds from ANUM (docs/business.md#refunds-from-anum).
+  String? refundKey;
+  Map<String, Object?>? refundBody;
+  List<Map<String, Object?>> reviews = [];
+  bool failReviews = false;
+
+  @override
+  Future<Invoice> requestRefund(String id, String paymentId,
+      {required double amount,
+      required String reason,
+      required String idempotencyKey}) async {
+    requests.add('refund $id $paymentId');
+    refundKey = idempotencyKey;
+    refundBody = {'amount': amount, 'reason': reason};
+    current = {
+      ...current,
+      'refundable': {paymentId: 1150 - amount},
+      'refund_requests': [
+        {
+          'id': 'binrfq_1',
+          'payment_id': paymentId,
+          'provider': 'stripe',
+          'amount': amount,
+          'reason': reason,
+          'status': 'waiting_approval',
+          'detail': '',
+          'requested_by': 'member_1',
+          'created_at': '2026-11-12T09:00:00Z',
+          'payload_hash': 'ab' * 32,
+        }
+      ],
+    };
+    return inv;
+  }
+
+  @override
+  Future<Invoice> withdrawRefund(String id, String requestId) async {
+    requests.add('withdraw-refund $id $requestId');
+    current = {
+      ...current,
+      'refundable': {'binpay_1': 1150},
+      'refund_requests': [
+        {
+          ...((current['refund_requests']! as List).first
+              as Map<String, Object?>),
+          'status': 'cancelled',
+          'detail': 'Withdrawn before approval.',
+        }
+      ],
+    };
+    return inv;
+  }
+
+  @override
+  Future<BusinessPage<RefundReview>> refundReviews(
+      {required String state, required int offset, int limit = 20}) async {
+    requests.add('reviews $state $offset');
+    if (failReviews) throw const ApiException(500, 'The server failed.');
+    final picked = [
+      for (final r in reviews)
+        if (state == 'all' || r['status'] == state) r
+    ];
+    return BusinessPage([
+      for (final r in picked.skip(offset).take(limit))
+        RefundReview.fromJson(JsonReader.of(r))
+    ], picked.length);
+  }
+
+  @override
+  Future<RefundReview> checkRefundReview(String id, String note) async {
+    requests.add('check-review $id $note');
+    final r = reviews.firstWhere((r) => r['id'] == id);
+    r.addAll({
+      'status': 'checked',
+      'checked_by': 'owner_1',
+      'checked_at': '2026-11-12T10:00:00Z',
+      'note': note
+    });
+    return RefundReview.fromJson(JsonReader.of(r));
+  }
+
+  @override
+  Future<RefundReview> reopenRefundReview(String id) async {
+    requests.add('reopen-review $id');
+    final r = reviews.firstWhere((r) => r['id'] == id);
+    r.addAll({'status': 'open', 'checked_by': null, 'checked_at': null});
+    return RefundReview.fromJson(JsonReader.of(r));
   }
 
   @override
@@ -1227,6 +1317,127 @@ void main() {
     expect(find.textContaining('no longer counts'), findsOneWidget);
     expect(find.textContaining('Issue a credit note'), findsOneWidget);
     expect(find.byKey(const Key('inv-payment-remove-binpay_1')), findsNothing);
+  });
+
+  testWidgets(
+      'a card payment is refunded through an approval and can be withdrawn',
+      (tester) async {
+    sized(tester, 390, 3600);
+    final json = invoiceJson(status: 'paid', payments: [
+      {...paymentJson('binpay_1', 1150), 'provider': 'stripe', 'method': 'card'}
+    ]);
+    final repo = FakeInvoices()
+      ..current = {
+        ...json,
+        'can': {...(json['can']! as Map<String, Object?>), 'refund': true},
+        'refundable': {'binpay_1': 1150},
+      };
+    await pumpDetail(tester, repo, manage: false);
+    await reveal(tester, find.byKey(const Key('inv-rr-ask-binpay_1')));
+    await tester.tap(find.byKey(const Key('inv-rr-ask-binpay_1')));
+    await tester.pumpAndSettle();
+    expect(
+        find.textContaining('only after an owner approves it'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('inv-rr-amount')), '2000');
+    await tester.tap(find.byKey(const Key('inv-rr-submit')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('at most SAR'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('inv-rr-amount')), '300');
+    await tester.enterText(
+        find.byKey(const Key('inv-rr-reason')), 'Returned item');
+    await tester.tap(find.byKey(const Key('inv-rr-submit')));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('refund binv_1 binpay_1'));
+    expect(repo.refundBody, {'amount': 300.0, 'reason': 'Returned item'});
+    expect(repo.refundKey, startsWith('refund-app-'));
+    expect(find.textContaining('waits for an owner\'s approval'), findsWidgets);
+    expect(find.byKey(const Key('inv-rr-binrfq_1')), findsOneWidget);
+    expect(find.textContaining('Waiting for approval'), findsOneWidget);
+    expect(find.textContaining('Approval code abababababab'), findsOneWidget);
+    // A payment with a refund request cannot be removed.
+    expect(find.byKey(const Key('inv-payment-remove-binpay_1')), findsNothing);
+    await reveal(tester, find.byKey(const Key('inv-rr-withdraw-binrfq_1')));
+    await tester.tap(find.byKey(const Key('inv-rr-withdraw-binrfq_1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('inv-confirm')));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('withdraw-refund binv_1 binrfq_1'));
+    expect(find.textContaining('Withdrawn'), findsWidgets);
+  });
+
+  testWidgets(
+      'refunds to check: an owner marks one checked, a member only reads',
+      (tester) async {
+    sized(tester, 390, 2400);
+    Map<String, Object?> review(String id) => {
+          'id': id,
+          'provider': 'stripe',
+          'provider_refund_id': 're_$id',
+          'provider_payment_id': 'pi_unknown',
+          'currency': 'SAR',
+          'amount': 25,
+          'status': 'open',
+          'note': '',
+          'created_at': '2026-11-11T09:00:00Z',
+          'invoice_id': 'binv_1',
+          'invoice_number': 'INV-2026-0001',
+        };
+    final repo = FakeInvoices()
+      ..reviews = [review('binrev_1'), review('binrev_2')];
+    await reset(tester);
+    await tester
+        .pumpWidget(app(RefundReviewsScreen(repository: repo, owner: true)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inv-rv-binrev_1')), findsOneWidget);
+    expect(find.textContaining('Invoice INV-2026-0001'), findsWidgets);
+    await tester.tap(find.byKey(const Key('inv-rv-check-binrev_1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('inv-rv-note')), 'A test payment');
+    await tester.tap(find.byKey(const Key('inv-rv-check-submit')));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('check-review binrev_1 A test payment'));
+    expect(find.byKey(const Key('inv-rv-binrev_1')), findsNothing);
+    await tester.tap(find.text('Checked'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('A test payment'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('inv-rv-reopen-binrev_1')));
+    await tester.pumpAndSettle();
+    expect(repo.requests, contains('reopen-review binrev_1'));
+    expect(find.text('No refund has been marked checked yet.'), findsOneWidget);
+
+    final member = FakeInvoices()..reviews = [review('binrev_3')];
+    await reset(tester);
+    await tester
+        .pumpWidget(app(RefundReviewsScreen(repository: member, owner: false)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inv-rv-owner-only')), findsOneWidget);
+    expect(find.byKey(const Key('inv-rv-check-binrev_3')), findsNothing);
+
+    final failing = FakeInvoices()..failReviews = true;
+    await reset(tester);
+    await tester
+        .pumpWidget(app(RefundReviewsScreen(repository: failing, owner: true)));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('could not be loaded'), findsOneWidget);
+    failing
+      ..failReviews = false
+      ..reviews = [];
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Nothing to check'), findsOneWidget);
+  });
+
+  testWidgets('refunds to check in Arabic', (tester) async {
+    sized(tester, 390, 2400);
+    final repo = FakeInvoices();
+    await reset(tester);
+    await tester.pumpWidget(app(
+        RefundReviewsScreen(repository: repo, owner: true),
+        locale: const Locale('ar')));
+    await tester.pumpAndSettle();
+    expect(find.text('مبالغ مستردة للمراجعة'), findsOneWidget);
+    expect(find.textContaining('لا شيء للمراجعة'), findsOneWidget);
   });
 
   testWidgets('editing a draft drops a sourced line and keeps written ones',

@@ -668,10 +668,12 @@ def _record_routes(kind: RecordKind) -> None:
                      context: TenantContext = Depends(tenant_context)) -> Any:
         _read(context)
         with open_vehicle_store(context) as store:
-            S.get_vehicle(store, context, vehicle_id)
+            vehicle = S.get_vehicle(store, context, vehicle_id)
             items, total = store.list_records(context, kind, vehicle_id, query=(q or "").strip() or None, start=start, end=end, limit=limit, offset=offset)
         items = S.refresh_allocations(context, items)  # a business allocation's cost as it is now (its own short unit)
-        return _page([record_view(context, r) for r in items], total, limit, offset)
+        # A business allocation that fits a record with no cost yet, proposed for the person to confirm (its own short units).
+        proposed = S.allocation_proposals(context, vehicle, items) if kind in ("fuel", "service") else {}
+        return _page([{**record_view(context, r), "allocation_proposal": proposed.get(r.id)} for r in items], total, limit, offset)
 
     @router.post(f"/{{vehicle_id}}/{kind}", status_code=201, name=f"create_{kind}", response_model=None)
     @refusals

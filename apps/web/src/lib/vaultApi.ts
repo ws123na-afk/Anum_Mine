@@ -1,5 +1,5 @@
 // The Document vault over the live API (`/api/v1/documents`, docs/documents.md#api).
-import type { DocumentAccessGrant, DocumentExtraction, DocumentLink, VaultCategory, VaultDocument, VaultDocumentPatch, VaultSettings } from '@anum/contracts';
+import type { DocumentAccessGrant, DocumentExtraction, DocumentLink, VaultCategory, VaultDocument, VaultDocumentPatch, VaultSettings, VaultVehicleProposals } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { ApiError, apiErrorFrom, apiErrorFromResponse } from './errors';
 import { t } from './i18n';
@@ -30,6 +30,13 @@ export const removeLink = (documentId: string, linkId: string) => apiRequestVoid
 export const getMatches = (documentId: string) => apiRequest<VaultReceiptMatches>(`${BASE}/${id(documentId)}/matches`, { method: 'GET' });
 export const acceptMatch = (documentId: string, kind: 'payment' | 'purchase', targetId: string) =>
   apiRequest<VaultReceiptMatches>(`${BASE}/${id(documentId)}/matches/accept`, { method: 'POST', ...json({ kind, target_id: targetId }) });
+/** Say a proposed match is wrong (it is not proposed again), or restore one said wrong (docs/documents.md#receipt-matches). */
+export const dismissMatch = (documentId: string, kind: 'payment' | 'purchase', targetId: string, action: 'dismiss' | 'restore' = 'dismiss') =>
+  apiRequest<VaultReceiptMatches>(`${BASE}/${id(documentId)}/matches/${action}`, { method: 'POST', ...json({ kind, target_id: targetId }) });
+/** The vehicles an insurance or registration document may belong to, and linking it (docs/documents.md#vehicle-papers). */
+export const getVehicleProposals = (documentId: string) => apiRequest<VaultVehicleProposals>(`${BASE}/${id(documentId)}/vehicle-proposals`, { method: 'GET' });
+export const confirmVehicle = (documentId: string, vehicleId: string) =>
+  apiRequest<VaultVehicleProposals>(`${BASE}/${id(documentId)}/vehicle`, { method: 'POST', ...json({ vehicle_id: vehicleId }) });
 export const extract = (documentId: string) => apiRequest<DocumentExtraction>(`${BASE}/${id(documentId)}/extract`, { method: 'POST' });
 export const confirmExtraction = (extractionId: string, fields: Record<string, string>, items?: DocumentExtraction['items']) =>
   apiRequest<VaultDocument>(`${BASE}/extractions/${id(extractionId)}/confirm`, { method: 'POST', ...json({ fields, items }) });

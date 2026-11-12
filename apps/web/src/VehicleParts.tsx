@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Archive, ArchiveRestore, CarFront, Download, Fuel, Gauge, Link2, Pencil, Plus, Route, Trash2, Unlink, Wrench } from 'lucide-react';
 import type {
-  FinanceAccount, Vehicle, VehicleAllocationCandidate, VehicleCostKind, VehicleFuelEntry, VehicleFuelType, VehicleOdometerReading, VehiclePage, VehiclePayment,
+  FinanceAccount, Vehicle, VehicleAllocationCandidate, VehicleAllocationProposal, VehicleCostKind, VehicleFuelEntry, VehicleFuelType, VehicleOdometerReading, VehiclePage, VehiclePayment,
   VehiclePaymentCandidate, VehicleRecordKind, VehicleReport, VehicleServiceKind, VehicleServiceRecord, VehicleTrip, VehicleTripPurpose,
   VehicleType,
 } from '@anum/contracts';
@@ -197,6 +197,8 @@ function RecordsPanel({ kind, vehicle, onChanged }: { kind: VehicleRecordKind; v
     {page.kind === 'ready' && page.value.total > 0 && <>
       <ul className="cmList vehRecords">{page.value.items.map((record) => <li key={record.id}>
         <RecordRow kind={kind} record={record} />
+        {COST_KIND[kind] && 'allocation_proposal' in record && record.allocation_proposal && <AllocationProposal kind={COST_KIND[kind]!} recordId={record.id}
+          proposal={record.allocation_proposal} onDone={(text) => done(text)} onError={(text) => setMessage({ text, error: true })} />}
         <div className="vehRowButtons">
           {COST_KIND[kind] && record.mine && <button type="button" className="secondary" onClick={() => setPaying(record)}
             aria-label={t('veh.pay.manageLabel', { what: rowTitle(kind, record) })}><Link2 aria-hidden="true" />{t('veh.pay.manage')}</button>}
@@ -340,6 +342,24 @@ export function RecordForm({ kind, vehicle, record, onClose, onSaved }: { kind: 
       <div className="actions"><button type="submit" disabled={busy}>{busy ? t('veh.saving') : t('veh.save')}</button><button type="button" className="secondary" disabled={busy} onClick={onClose}>{t('common.cancel')}</button></div>
     </form>
   </Modal>;
+}
+
+/** A business allocation the server found for this record (same figure and currency, within 7 days); the person confirms it. */
+function AllocationProposal({ kind, recordId, proposal, onDone, onError }: { kind: VehicleCostKind; recordId: string; proposal: VehicleAllocationProposal;
+  onDone: (text: string) => void; onError: (text: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const amount = formatAmount(proposal.amount, proposal.currency);
+  const use = async () => {
+    setBusy(true);
+    try { await api.applyAllocation(kind, recordId, proposal.allocation_id); onDone(t('veh.alloc.used')); }
+    catch (e) { onError(describeError(e)); } finally { setBusy(false); }
+  };
+  return <div className="vehProposal" role="group" aria-label={t('veh.alloc.proposalTitle')}>
+    <p><strong>{t('veh.alloc.proposalTitle')}</strong> <span>{t('veh.alloc.line', { day: proposal.posted_on, amount, category: proposal.category, ref: proposal.source_ref })}</span>
+      {proposal.memo ? <> · <bdi dir="auto">{proposal.memo}</bdi></> : null}</p>
+    <button type="button" className="secondary" disabled={busy} aria-label={t('veh.alloc.proposalUseLabel', { amount, day: proposal.posted_on })}
+      onClick={() => void use()}>{busy ? t('veh.saving') : t('veh.alloc.proposalUse')}</button>
+  </div>;
 }
 
 // ---- The payment picker --------------------------------------------------------------------------------

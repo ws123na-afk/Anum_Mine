@@ -3,11 +3,14 @@ records, the live view, approvals, report, next steps, suggestions and quick com
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 
 from anum_api.agent_skills import default_skill_registry
 from anum_api.agent_tools import ToolPolicy, ToolPolicyDecision, ToolPolicyOutcome
+from anum_api.command_continuation import Finished, command_continuer
 from anum_api.commands import (
     MAX_QUICK_COMMANDS,
     CommandStatus,
@@ -73,6 +76,16 @@ def _run_all(command: dict, headers: dict[str, str] = owner) -> None:
     for step in command["steps"]:
         response = client.post(f"/api/v1/tasks/{step['task_id']}/run", headers=headers)
         assert response.status_code == 200, response.text
+
+
+def _continue() -> list[str]:
+    """Let the server's command continuation handle the steps that completed (in the API it
+    runs in the background, docs/command.md#the-server-continues-a-command); returns the task
+    ids it started, in order, until nothing more continues."""
+    started: list[str] = []
+    while (item := command_continuer._take()) is not None:
+        started.extend(asyncio.run(command_continuer.handle(item)))
+    return started
 
 
 def _view(command_id: str, headers: dict[str, str] = owner) -> dict:
@@ -549,10 +562,12 @@ def test_start_runs_steps_in_dependency_order_and_passes_results_forward() -> No
     assert response.status_code == 200, response.text
     body = response.json()
     ids = [step["task_id"] for step in command["steps"]]
-    assert body["refused"] == {} and sorted(body["started"]) == sorted(ids)
-    # The first two started together; the third only after both completed.
-    assert set(body["started"][:2]) == set(ids[:2]) and body["started"][2] == ids[2]
-    view = body["command"]
+    # Start starts what can start now: the first two, together. The third waits for both.
+    assert body["refused"] == {} and sorted(body["started"]) == sorted(ids[:2])
+    assert body["command"]["steps"][2]["status"] == "created"
+    # The server continues on its own when they complete: nobody calls start again.
+    assert _continue() == [ids[2]]
+    view = _view(command["id"])
     assert [step["status"] for step in view["steps"]] == ["completed", "completed", "waiting_approval"]
     assert view["steps"][2]["waiting_for"] == []
     first_done = max(store.runs[step["run_id"]].updated_at for step in view["steps"][:2])
@@ -689,3 +704,124 @@ def test_a_chain_still_waiting_is_not_blocked() -> None:
     assert [step["blocked_by"] for step in view["steps"]] == [[], [], []]
     assert [step["waiting_for"] for step in view["steps"]] == [[], [1], [2]]
     assert view["status"] == "waiting_approval"
+
+
+# --- the server continues a command on its own ---------------------------------------------------
+
+
+def _approve(view: dict) -> None:
+    for pending in view["pending"]:
+        approved = client.post(
+            f"/api/v1/approvals/{pending['id']}/approve", headers=owner, json={"payload_hash": pending["payload_hash"]}
+        )
+        assert approved.status_code == 200, approved.text
+
+
+WAITS_FOR_APPROVAL = "Send the weekly update to the team, then search the web for tyre prices"
+
+
+def test_a_step_waiting_for_an_approved_step_starts_without_the_client() -> None:
+    command = _create(WAITS_FOR_APPROVAL)
+    first, second = (step["task_id"] for step in command["steps"])
+    started = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    assert started["started"] == [first]
+    assert _continue() == []  # step 1 waits for its approval: nothing can continue yet
+    _approve(started["command"])
+    # The approved run completed; the server starts step 2 as the command's creator.
+    assert _continue() == [second]
+    view = _view(command["id"])
+    assert view["steps"][0]["status"] == "completed" and view["steps"][1]["status"] != "created"
+    assert store.tasks[second].created_by == "user_owner"
+    run = store.runs[view["steps"][1]["run_id"]]
+    assert [step.metadata for step in run.steps if step.type == "command_input"] == [{"status": "used", "steps": [1]}]
+    # Exactly once: the same finished step handled again starts nothing more.
+    assert asyncio.run(command_continuer.handle(Finished("tenant_a", "workspace_a", first))) == []
+    assert len([r for r in store.runs.values() if r.task_id == second]) == 1
+
+
+def test_a_step_run_from_its_task_continues_the_command_too() -> None:
+    command = _create(NO_TYRE)
+    ids = [step["task_id"] for step in command["steps"]]
+    for task_id in ids[:2]:
+        assert client.post(f"/api/v1/tasks/{task_id}/run", headers=owner).status_code == 200
+    # Both earlier steps completed; the waiting step starts once, whichever finish is handled first.
+    assert _continue() == [ids[2]]
+    assert _view(command["id"])["steps"][2]["status"] == "waiting_approval"
+
+
+def test_a_cancelled_waiting_step_is_not_started() -> None:
+    command = _create(WAITS_FOR_APPROVAL)
+    first, second = (step["task_id"] for step in command["steps"])
+    started = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    assert client.post("/api/v1/tasks/bulk", headers=owner, json={"action": "cancel", "task_ids": [second]}).status_code == 200
+    _approve(started["command"])
+    assert _continue() == []
+    assert store.tasks[second].status == "cancelled"
+
+
+def test_the_emergency_stop_holds_the_next_step_until_it_is_started_again() -> None:
+    command = _create(WAITS_FOR_APPROVAL)
+    first, second = (step["task_id"] for step in command["steps"])
+    started = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    _approve(started["command"])
+    engaged = client.put("/api/v1/agent-controls/emergency-stop", headers=owner, json={"engaged": True, "reason": "Check first"})
+    assert engaged.status_code == 200, engaged.text
+    refused_before = command_continuer.refused
+    assert _continue() == []
+    assert command_continuer.refused == refused_before + 1 and store.tasks[second].status == "created"
+    view = _view(command["id"])
+    assert view["steps"][1]["waiting_for"] == [] and view["steps"][1]["blocked_by"] == []
+    from anum_api.agent_controls import memory_agent_controls_store
+
+    memory_agent_controls_store.clear()  # an organization admin released the stop
+    # "Start the remaining steps" (POST /commands/{id}/start) picks it up.
+    again = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    assert again["started"] == [second] and again["refused"] == {}
+
+
+def test_continuation_reads_only_the_creators_own_command() -> None:
+    from anum_api.dependencies import _unit_of_work
+    from anum_api.commands import steps_to_continue
+    from anum_api.schemas import TenantContext
+
+    command = _create(NO_TYRE)
+    ids = [step["task_id"] for step in command["steps"]]
+    for task_id in ids[:2]:
+        client.post(f"/api/v1/tasks/{task_id}/run", headers=owner)
+    command_continuer.clear()
+    other = TenantContext(tenant_id="tenant_a", workspace_id="workspace_a", user_id="user_member", roles=["member"])
+    with _unit_of_work(other, require_membership=False) as repository:
+        assert steps_to_continue(repository, other, ids[0]) is None
+    mine = other.model_copy(update={"user_id": "user_owner", "roles": ["owner"]})
+    with _unit_of_work(mine, require_membership=False) as repository:
+        assert steps_to_continue(repository, mine, ids[0]) == (command["id"], [ids[2]])
+        # A step still waiting is not a finished step to continue from.
+        assert steps_to_continue(repository, mine, ids[2]) is None
+    # A task of another tenant is never found.
+    assert asyncio.run(command_continuer.handle(Finished("tenant_b", "workspace_b", ids[0]))) == []
+
+
+def test_each_completed_event_is_queued_once_and_the_bus_feed_wins_while_live() -> None:
+    from anum_api.command_continuation import CommandContinuer
+    from anum_api.schemas import DomainEvent, utc_now
+
+    def event(event_id: str, kind: str = "agent_run.completed", private_to: str | None = None) -> DomainEvent:
+        item = DomainEvent(
+            id=event_id, type=kind, tenant_id="tenant_a", workspace_id="workspace_a", subject="run_1",
+            correlation_id="task_1", created_at=utc_now(), payload={"task_id": "task_1"},
+        )
+        item.private_to = private_to
+        return item
+
+    continuer = CommandContinuer()
+    continuer.submit([event("event_1"), event("event_2", "agent_run.failed")])
+    continuer.observe(event("event_1"))  # the same event from the bus: handled once
+    assert continuer.pending == 1
+    live = CommandContinuer()
+    live._bus_live = lambda: True
+    live.submit([event("event_3"), event("event_4", private_to="user_owner")])
+    # While the bus is live the event arrives through observe on every replica, except a
+    # private task's, which never goes on the bus.
+    assert live.pending == 1 and live._take() == Finished("tenant_a", "workspace_a", "task_1", "user_owner")
+    live.observe(event("event_3"))
+    assert live.pending == 1

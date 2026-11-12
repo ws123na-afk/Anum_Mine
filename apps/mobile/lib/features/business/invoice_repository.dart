@@ -40,6 +40,21 @@ abstract interface class InvoicesRepository {
       {required double amount, required String reason});
   Future<Invoice> voidCreditNote(String id, String creditNoteId, String reason);
 
+  /// A refund of a card payment from ANUM: it waits for an owner's approval
+  /// (docs/business.md#refunds-from-anum). One key per form submit.
+  Future<Invoice> requestRefund(String id, String paymentId,
+      {required double amount,
+      required String reason,
+      required String idempotencyKey});
+  Future<Invoice> withdrawRefund(String id, String requestId);
+
+  /// Provider refunds of payments ANUM never recorded
+  /// (docs/business.md#refunds-anum-could-not-match).
+  Future<BusinessPage<RefundReview>> refundReviews(
+      {required String state, required int offset, int limit});
+  Future<RefundReview> checkRefundReview(String id, String note);
+  Future<RefundReview> reopenRefundReview(String id);
+
   /// A customer's payment report: confirm records a payment; reject keeps a reason.
   Future<Invoice> confirmNotice(String id, String noticeId, {String note});
   Future<Invoice> rejectNotice(String id, String noticeId, String reason);
@@ -151,6 +166,46 @@ class ApiInvoicesRepository implements InvoicesRepository {
   @override
   Future<Invoice> removePayment(String id, String paymentId) =>
       _invoice('DELETE', '/invoices/${_id(id)}/payments/${_id(paymentId)}');
+
+  @override
+  Future<Invoice> requestRefund(String id, String paymentId,
+      {required double amount,
+      required String reason,
+      required String idempotencyKey}) async {
+    final body = await api.request('POST',
+        '$_base/invoices/${_id(id)}/payments/${_id(paymentId)}/refund-requests',
+        body: {'amount': amount, 'reason': reason},
+        headers: {'Idempotency-Key': idempotencyKey});
+    return Invoice.fromJson(JsonReader.of(body).object('invoice'));
+  }
+
+  @override
+  Future<Invoice> withdrawRefund(String id, String requestId) => _invoice(
+      'POST', '/invoices/${_id(id)}/refund-requests/${_id(requestId)}/cancel');
+
+  @override
+  Future<BusinessPage<RefundReview>> refundReviews(
+          {required String state, required int offset, int limit = 20}) async =>
+      BusinessPage.fromJson(
+        JsonReader.of(await _call(
+            'GET',
+            '/refund-reviews${_q({
+                  'state': state,
+                  'offset': '$offset',
+                  'limit': '$limit',
+                })}')),
+        RefundReview.fromJson,
+      );
+
+  @override
+  Future<RefundReview> checkRefundReview(String id, String note) async =>
+      RefundReview.fromJson(JsonReader.of(await _call(
+          'POST', '/refund-reviews/${_id(id)}/check', {'note': note})));
+
+  @override
+  Future<RefundReview> reopenRefundReview(String id) async =>
+      RefundReview.fromJson(JsonReader.of(
+          await _call('POST', '/refund-reviews/${_id(id)}/reopen')));
 
   @override
   Future<String> printHtml(String id, String lang) async {

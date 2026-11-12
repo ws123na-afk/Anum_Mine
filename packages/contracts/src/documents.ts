@@ -220,4 +220,30 @@ export interface VaultReceiptMatches {
   /** Payments (canonical ids) and purchases the document is already linked to. */
   linked_payments: string[];
   linked_purchases: string[];
+  /** Matches the person said are wrong: not proposed again until restored (older servers send none). */
+  dismissed?: VaultDismissedMatch[];
+}
+
+export interface VaultDismissedMatch { kind: 'payment' | 'purchase'; target_id: string; label: string; dismissed_by: string; dismissed_at: string }
+
+/** `GET /api/v1/documents/{id}/vehicle-proposals`: the vehicles an insurance or registration document may belong to (docs/documents.md#vehicle-papers). */
+export interface VaultVehicleProposals {
+  document_id: string;
+  category: string;
+  /** The vehicle date the document sets. */
+  field: 'insurance_expires_on' | 'registration_expires_on' | null;
+  expiry_date: string | null;
+  reason: 'not_a_vehicle_paper' | 'no_expiry' | 'in_trash' | null;
+  can_edit: boolean;
+  vehicles: VaultVehicleProposal[];
+  vehicles_unavailable: 'vehicle_access' | null;
+  linked_vehicles: string[];
+  /** The first renewal reminder's day (the person's reminder days before the expiry). */
+  reminder_from?: string;
+  reminder_days?: number;
+}
+
+export interface VaultVehicleProposal {
+  vehicle_id: string; label: string; registration: string; ownership: string; current_expiry: string | null;
+  would_change: boolean; matches_registration: boolean; linked: boolean;
 }

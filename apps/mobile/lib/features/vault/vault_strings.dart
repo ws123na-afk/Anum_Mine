@@ -118,6 +118,29 @@ class VaultStrings extends ModuleStrings {
     'matchAttachPurchase': 'Attach to purchase',
     'matchLinked': 'Receipt linked to the payment',
     'matchAttached': 'Receipt attached to the purchase',
+    'matchDismiss': 'Not this one',
+    'matchDismissed': 'Match dismissed. It is not proposed again.',
+    'matchesDismissed': 'Dismissed matches',
+    'matchDismissedBy': 'Dismissed by {by}',
+    'matchRestore': 'Restore',
+    'matchRestored': 'Match restored',
+    'papers': 'Vehicle',
+    'papersIntro':
+        'Link this document to its vehicle. The vehicle\'s date becomes {date}, so its renewal reminder follows this document.',
+    'papersReminder': 'The first reminder comes {days} days before, on {date}.',
+    'papersNoExpiry':
+        'Add the expiry date first. The vehicle\'s renewal reminder follows it.',
+    'papersNoAccess':
+        'Vehicles are shown to people who may change vehicles in this workspace. Ask a workspace owner.',
+    'papersNone':
+        'No vehicle you may change in this workspace yet. Add the vehicle under Vehicles first.',
+    'papersMatches': 'Registration named in the document',
+    'papersCurrent': 'Now: {date}',
+    'papersCurrentNone': 'Now: no date',
+    'papersLink': 'Link and set date',
+    'papersLinked': 'Linked',
+    'papersSaved':
+        'Linked to the vehicle. Its renewal reminder follows this document.',
     'linkRemoved': 'Link removed',
     'removeLink': 'Remove this link',
     'link.vehicle': 'Vehicle',
@@ -266,6 +289,27 @@ class VaultStrings extends ModuleStrings {
     'matchAttachPurchase': 'أرفق بعملية الشراء',
     'matchLinked': 'رُبط الإيصال بالدفعة',
     'matchAttached': 'أُرفق الإيصال بعملية الشراء',
+    'matchDismiss': 'ليس هذا',
+    'matchDismissed': 'استُبعد التطابق ولن يُقترح مرة أخرى.',
+    'matchesDismissed': 'تطابقات مستبعدة',
+    'matchDismissedBy': 'استبعده {by}',
+    'matchRestore': 'استرجاع',
+    'matchRestored': 'استُرجع التطابق',
+    'papers': 'المركبة',
+    'papersIntro':
+        'اربط هذا المستند بمركبته. يصبح تاريخ المركبة {date}، فيتبع تذكير التجديد هذا المستند.',
+    'papersReminder': 'يصل أول تذكير قبل {days} يومًا، في {date}.',
+    'papersNoExpiry': 'أضف تاريخ الانتهاء أولًا، فتذكير تجديد المركبة يتبعه.',
+    'papersNoAccess':
+        'تظهر المركبات لمن يحق له تعديل المركبات في مساحة العمل هذه. اطلب ذلك من مالك مساحة العمل.',
+    'papersNone':
+        'لا توجد مركبة يمكنك تعديلها في مساحة العمل هذه بعد. أضف المركبة من صفحة المركبات أولًا.',
+    'papersMatches': 'رقم اللوحة مذكور في المستند',
+    'papersCurrent': 'الآن: {date}',
+    'papersCurrentNone': 'الآن: بلا تاريخ',
+    'papersLink': 'اربط واضبط التاريخ',
+    'papersLinked': 'مربوط',
+    'papersSaved': 'رُبط المستند بالمركبة، ويتبع تذكير التجديد هذا المستند.',
     'restored': 'تمت الاستعادة',
     'purgeOn': 'يُزال نهائيًا في {date}',
     'readOnly':

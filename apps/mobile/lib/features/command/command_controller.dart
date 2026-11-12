@@ -326,7 +326,7 @@ class CommandController extends ChangeNotifier {
 
   /// Why a step could not be started (budget used up, permission), by task id.
   Map<String, String> stepErrors = const {};
-  final Set<String> _inFlight = {};
+  bool _startingCommand = false;
 
   /// True while the live event stream is connected.
   bool live = false;
@@ -357,7 +357,7 @@ class CommandController extends ChangeNotifier {
       stage = CommandStage.executing;
       starting = false;
       _notify();
-      await _runSteps(created.steps.map((step) => step.taskId).toList());
+      await _startCommand(created.id);
     } on Object catch (error) {
       runError = CommandFailure.of(error);
       starting = false;
@@ -365,28 +365,47 @@ class CommandController extends ChangeNotifier {
     }
   }
 
-  /// Steps whose task was created but never started (the app closed while
-  /// starting them): offered as "Start the remaining steps".
-  List<CommandStepView> get notStarted => [
-        for (final step in command?.steps ?? const <CommandStepView>[])
-          if (step.status == 'created' && !_inFlight.contains(step.taskId)) step
-      ];
+  /// Steps the server did not start on its own: ready (nothing left to wait
+  /// for, not blocked) while nothing else of the command is queued or running.
+  /// That happens when the monthly budget or the emergency stop held a step,
+  /// or the server restarted; offered as "Start the remaining steps". The
+  /// server starts a step that waits for others itself once they completed
+  /// (docs/command.md#the-server-continues-a-command).
+  List<CommandStepView> get notStarted {
+    final steps = command?.steps ?? const <CommandStepView>[];
+    if (_startingCommand ||
+        steps.any(
+            (step) => step.status == 'queued' || step.status == 'running')) {
+      return const [];
+    }
+    return [
+      for (final step in steps)
+        if (step.status == 'created' &&
+            step.waitingFor.isEmpty &&
+            step.blockedBy.isEmpty)
+          step
+    ];
+  }
 
-  Future<void> startRemaining() =>
-      _runSteps([for (final step in notStarted) step.taskId]);
+  Future<void> startRemaining() async {
+    final id = command?.id;
+    if (id == null) return;
+    runError = null;
+    await _startCommand(id);
+  }
 
-  Future<void> _runSteps(List<String> taskIds) async {
-    _inFlight.addAll(taskIds);
+  Future<void> _startCommand(String commandId) async {
+    _startingCommand = true;
     _notify();
-    await Future.wait([
-      for (final id in taskIds)
-        repository.runTask(id).then((_) {}, onError: (Object error) {
-          stepErrors = {...stepErrors, id: CommandFailure.of(error).message};
-        }).whenComplete(() {
-          _inFlight.remove(id);
-          _scheduleRefresh();
-        }),
-    ]);
+    try {
+      final result = await repository.startCommand(commandId);
+      stepErrors = {...stepErrors, ...result.refused};
+      if (command?.id == commandId) _follow(result.command);
+    } on Object catch (error) {
+      runError = CommandFailure.of(error);
+    } finally {
+      _startingCommand = false;
+    }
     await refresh();
   }
 
@@ -423,7 +442,7 @@ class CommandController extends ChangeNotifier {
     final view = command;
     if (view == null) return;
     final stillRunning =
-        view.status == CommandStatus.running || _inFlight.isNotEmpty;
+        view.status == CommandStatus.running || _startingCommand;
     // Waiting on a person: keep listening, an approval changes it.
     if (stillRunning || view.status == CommandStatus.waitingApproval) {
       _watch();

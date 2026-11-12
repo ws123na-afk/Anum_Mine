@@ -496,6 +496,44 @@ class BusinessInvoiceRefundRecord(Base, _Updated):
     reversed_at: Mapped[datetime | None] = mapped_column(TS)
 
 
+class BusinessRefundRequestRecord(Base, _Updated):
+    # Migration 0178_refund_requests_vault: a refund started from ANUM, waiting for an owner's approval.
+    __tablename__ = "business_refund_requests"
+    invoice_id: Mapped[str] = mapped_column(String(80))
+    payment_id: Mapped[str] = mapped_column(String(80))
+    provider: Mapped[str] = mapped_column(String(20))
+    currency: Mapped[str] = mapped_column(String(3))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    reason: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20))
+    idempotency_key: Mapped[str] = mapped_column(String(80))
+    approval_id: Mapped[str | None] = mapped_column(String(80))
+    task_id: Mapped[str | None] = mapped_column(String(80))
+    payload_hash: Mapped[str | None] = mapped_column(String(128))
+    provider_refund_id: Mapped[str | None] = mapped_column(String(200))
+    refund_id: Mapped[str | None] = mapped_column(String(80))
+    detail: Mapped[str] = mapped_column(String(500))
+    requested_by: Mapped[str] = mapped_column(String(160))
+    decided_by: Mapped[str | None] = mapped_column(String(160))
+    decided_at: Mapped[datetime | None] = mapped_column(TS)
+
+
+class BusinessRefundReviewRecord(Base, _Updated):
+    # Migration 0178_refund_requests_vault: a provider refund of a payment ANUM never recorded.
+    __tablename__ = "business_refund_reviews"
+    invoice_id: Mapped[str | None] = mapped_column(String(80))
+    invoice_number: Mapped[str] = mapped_column(String(40))
+    provider: Mapped[str] = mapped_column(String(20))
+    provider_refund_id: Mapped[str] = mapped_column(String(200))
+    provider_payment_id: Mapped[str] = mapped_column(String(200))
+    currency: Mapped[str] = mapped_column(String(3))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    status: Mapped[str] = mapped_column(String(10))
+    note: Mapped[str] = mapped_column(String(300))
+    checked_by: Mapped[str | None] = mapped_column(String(160))
+    checked_at: Mapped[datetime | None] = mapped_column(TS)
+
+
 class BusinessPortalSignInRecord(Base, _Updated):
     __tablename__ = "business_portal_sign_ins"
     email_hash: Mapped[str] = mapped_column(String(64))
@@ -718,6 +756,8 @@ RECORDS: dict[str, Any] = {
     "payment_links": BusinessInvoicePaymentLinkRecord,
     "invoice_refunds": BusinessInvoiceRefundRecord,
     "portal_sign_ins": BusinessPortalSignInRecord,
+    "refund_requests": BusinessRefundRequestRecord,
+    "refund_reviews": BusinessRefundReviewRecord,
     "portal_access": BusinessPortalAccessRecord,
     "portal_decisions": BusinessPortalDecisionRecord,
     "invoice_schedules": BusinessInvoiceScheduleRecord,

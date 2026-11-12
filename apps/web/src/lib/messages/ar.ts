@@ -73,6 +73,7 @@ import { filesOrganizeAr } from './filesOrganize.ar.ts';
 import { invoiceMoneyAr } from './invoiceMoney.ar.ts';
 import { businessAccountsAr } from './businessAccounts.ar.ts';
 import { invoiceSendAr } from './invoiceSend.ar.ts';
+import { invoiceRefundsAr } from './invoiceRefunds.ar.ts';
 import { invoiceSchedulesAr } from './invoiceSchedules.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
 import { portalAr } from './portal.ar.ts';
@@ -182,6 +183,7 @@ export const ar: Record<MessageKey, Message> = {
   ...invoiceMoneyAr,
   ...businessAccountsAr,
   ...invoiceSendAr,
+  ...invoiceRefundsAr,
   ...invoiceSchedulesAr,
   ...portalAr,
   ...brevoAr,

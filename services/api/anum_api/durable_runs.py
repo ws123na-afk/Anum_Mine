@@ -22,9 +22,10 @@ from opentelemetry import trace
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from .agent_tools import ToolCall, ToolResult, running_in
+from .agent_tools import ToolCall, ToolResult, approved_as, running_in
 from .model_budget import ModelBudgetExceededError
 from .repository import AnumRepository
+from .requester_identity import approver_identity
 from .runtime import AgentRuntime
 from .schemas import AgentRun, Approval, ApprovalStatus, RunPhase, Task, TaskStatus, TenantContext, utc_now
 from .temporal_workflow import (
@@ -245,6 +246,7 @@ class AgentRunActivities:
                 # ``_apply_plan`` re-checks this checkpoint version under the lock.
                 return _Planning(task.model_copy(deep=True), run.model_copy(deep=True), run.checkpoint.version)
             approval_id: str | None = None
+            approver: TenantContext | None = None
             call = None
             if phase == RunPhase.TOOL_READY:
                 call = runtime.begin_execution(task, run, context)
@@ -260,6 +262,8 @@ class AgentRunActivities:
                 if approval.status == ApprovalStatus.PENDING:
                     return state_of(run, approval)
                 approval_id = approval.id
+                # The call runs as the person who started the run (``context``); the approver only approves.
+                approver = approver_identity(repository, context, approval)
                 call = runtime.begin_execution(task, run, context, approval=approval)
             elif phase == RunPhase.EXECUTING:
                 # The previous attempt stopped mid-tool: decide here, repeat (if allowed) below.
@@ -274,7 +278,7 @@ class AgentRunActivities:
                 )
                 return state_of(run, pending)
             # Committed as ``executing`` before the tool runs, so a crash mid-tool is visible.
-            return _Executing(task.model_copy(deep=True), run.model_copy(deep=True), call, approval_id)
+            return _Executing(task.model_copy(deep=True), run.model_copy(deep=True), call, approval_id, approver)
 
     async def _plan(self, context: TenantContext, request: AgentRunInput, step: _Planning) -> AgentRunState:
         planner = self.runtime_factory(context, _NoUnitOpen())  # type: ignore[arg-type]
@@ -330,7 +334,7 @@ class AgentRunActivities:
         tools = self.runtime_factory(context, _NoUnitOpen()).tools  # type: ignore[arg-type]
         # No transaction is open here. A tool that raises leaves the committed ``executing``
         # checkpoint, which the next attempt recovers (recover_interrupted_execution).
-        with running_in(step.task.id, step.run.id):
+        with running_in(step.task.id, step.run.id), approved_as(step.approver):
             result = await tools.execute(step.call, context)
         return await asyncio.to_thread(self._settle, context, request, step, result)
 
@@ -372,6 +376,7 @@ class _Executing:
     run: AgentRun
     call: ToolCall
     approval_id: str | None
+    approver: TenantContext | None = None
 
 
 class RunDispatcher:

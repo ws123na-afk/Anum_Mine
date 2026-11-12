@@ -117,6 +117,48 @@ def test_a_receipt_proposes_the_purchase_without_one_and_accept_sets_its_receipt
     assert matches(other).json()["purchases"] == []
 
 
+def dismiss(document_id: str, kind: str, target_id: str, headers: dict[str, str] = PERSONAL_OWNER, action: str = "dismiss") -> Any:
+    return client.post(f"{DOCS}/{document_id}/matches/{action}", headers=headers, json={"kind": kind, "target_id": target_id})
+
+
+def test_a_wrong_match_is_dismissed_remembered_and_restored() -> None:
+    bank = account()
+    wrong = pay(bank["id"], "-86.40", "POS ALNOOR PHARMACY JEDDAH", back=1)
+    right = pay(bank["id"], "-86.40", "POS ALNOOR PHARMACY RIYADH", back=2)
+    purchase = client.post("/api/v1/purchases", headers=PERSONAL_OWNER, json={
+        "merchant": "Alnoor Pharmacy", "ordered_on": (today() - timedelta(days=1)).isoformat(), "currency": "SAR", "total": "86.40"}).json()
+    doc = receipt("86.40", "Alnoor Pharmacy", seed=7)
+    first = matches(doc).json()
+    assert [p["target_id"] for p in first["payments"]] == [canonical(wrong["id"]), canonical(right["id"])] and first["dismissed"] == []
+    # Only someone who may change the document dismisses; a match that is not proposed cannot be dismissed.
+    assert dismiss(doc, "payment", canonical(wrong["id"]), MEMBER_PERSONAL).status_code == 404
+    assert dismiss(doc, "payment", canonical(wrong["id"]), VIEWER_PERSONAL).status_code == 403
+    assert dismiss(doc, "payment", "fin_jrn_missing").status_code == 409
+    assert dismiss(doc, "payment", "bad id with spaces").status_code == 422
+    done = dismiss(doc, "payment", canonical(wrong["id"]))
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert [p["target_id"] for p in body["payments"]] == [canonical(right["id"])]
+    [gone] = body["dismissed"]
+    assert gone["kind"] == "payment" and gone["target_id"] == canonical(wrong["id"]) and "86.40" in gone["label"]
+    assert gone["dismissed_by"] == PERSONAL_OWNER["x-user-id"]
+    # Remembered: asked again (or dismissed twice) it stays out; accepting it is refused.
+    assert [p["target_id"] for p in matches(doc).json()["payments"]] == [canonical(right["id"])]
+    assert dismiss(doc, "payment", canonical(wrong["id"])).status_code == 200
+    assert len(matches(doc).json()["dismissed"]) == 1
+    assert take(doc, "payment", canonical(wrong["id"])).status_code == 409
+    # A purchase is dismissed the same way.
+    after = dismiss(doc, "purchase", purchase["id"]).json()
+    assert after["purchases"] == [] and {d["kind"] for d in after["dismissed"]} == {"payment", "purchase"}
+    # Restore: proposed again while it still fits; restoring twice changes nothing.
+    restored = dismiss(doc, "payment", canonical(wrong["id"]), action="restore").json()
+    assert {p["target_id"] for p in restored["payments"]} == {canonical(wrong["id"]), canonical(right["id"])}
+    assert dismiss(doc, "payment", canonical(wrong["id"]), action="restore").status_code == 200
+    assert [d["kind"] for d in matches(doc).json()["dismissed"]] == ["purchase"]
+    events = [e.action for _, _, e in memory_vault_store._events if e.document_id == doc]
+    assert "match_dismissed" in events and "match_restored" in events
+
+
 def test_without_finance_access_the_payments_section_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
     import anum_api.dependencies as deps
     from anum_api.authorization import Permission

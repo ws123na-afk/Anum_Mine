@@ -656,6 +656,25 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
     }
   }
 
+  VehicleAllocation? _proposalOf(VehicleRecord record) => switch (record) {
+        VehicleFuel(:final allocationProposal) => allocationProposal,
+        VehicleService(:final allocationProposal) => allocationProposal,
+        _ => null,
+      };
+
+  /// Confirms the business allocation the server proposed for this record.
+  Future<void> _useProposal(VehicleRecordKind kind, VehicleRecord record,
+      VehicleAllocation proposal) async {
+    final s = VehiclesStrings.of(context);
+    try {
+      await _c.repository.useAllocation(kind.costKind!, record.id, proposal.id);
+      await _c.linked(kind);
+      if (mounted) recordsToast(context, s.t('allocated'));
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    }
+  }
+
   Future<void> _delete(VehicleRecordKind kind, VehicleRecord record) async {
     final s = VehiclesStrings.of(context);
     final k = KitStrings.of(context);
@@ -751,7 +770,7 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
               else ...[
                 AnumSurface(
                   child: Column(children: [
-                    for (final record in list.items)
+                    for (final record in list.items) ...[
                       _RecordRow(
                         record: record,
                         onLink: _tab.costKind != null && record.canEdit
@@ -767,6 +786,13 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                         onDelete:
                             record.canEdit ? () => _delete(_tab, record) : null,
                       ),
+                      if (_proposalOf(record) case final proposal?)
+                        _ProposalRow(
+                          recordId: record.id,
+                          proposal: proposal,
+                          onUse: () => _useProposal(_tab, record, proposal),
+                        ),
+                    ],
                   ]),
                 ),
                 RecordsMore(list: list),
@@ -851,6 +877,49 @@ class _Summary extends StatelessWidget {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// A business allocation the server found for a record: the same figure and
+/// currency within 7 days (docs/vehicles.md#business-allocations). The person confirms it.
+class _ProposalRow extends StatelessWidget {
+  const _ProposalRow(
+      {required this.recordId, required this.proposal, required this.onUse});
+  final String recordId;
+  final VehicleAllocation proposal;
+  final VoidCallback onUse;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = VehiclesStrings.of(context);
+    final amount = formatMoneyText(proposal.amount, proposal.currency,
+        locale: Localizations.localeOf(context));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AnumRow(
+          key: Key('alloc-proposal-$recordId'),
+          icon: Icons.lightbulb_outline,
+          title: s.t('allocProposal'),
+          subtitle: [
+            amount,
+            recordsDate(context, proposal.postedOn),
+            s.t('allocLine', {
+              'category': proposal.category,
+              'ref': proposal.sourceRef,
+              'memo': proposal.memo ?? '',
+            }).trim(),
+          ].join(' · '),
+        ),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton(
+              key: Key('alloc-proposal-use-$recordId'),
+              onPressed: onUse,
+              child: Text(s.t('allocProposalUse'))),
+        ),
       ],
     );
   }

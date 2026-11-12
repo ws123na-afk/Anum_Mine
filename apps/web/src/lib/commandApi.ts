@@ -34,9 +34,9 @@ export async function createCommand(body: { text: string; steps: string[]; depen
 }
 
 /**
- * Start the command in dependency order (POST /commands/{id}/start): steps with nothing to wait for start
- * together, a step that builds on others once they completed. Safe to call again: it starts only what is ready.
- * Rejects with the first refusal (for example the budget) when a step could not start.
+ * Start the command (POST /commands/{id}/start): every step that can start now starts, together; a step that
+ * builds on others is started by the server once they completed. Safe to call again: it starts only what is
+ * ready ("Start the remaining steps"). Rejects with the first refusal (for example the budget).
  */
 export async function startCommand(id: string): Promise<CommandView> {
   const result = await api.apiRequest<Raw>(`/api/v1/commands/${encodeURIComponent(id)}/start`, { method: 'POST' });

@@ -4,7 +4,7 @@ import type {
   InvoiceAutomation, InvoiceSchedule, InvoiceScheduleDetail, InvoiceScheduleFields, ScheduleRunResult, ScheduleStatus,
   Billable, BillingProfile, BusinessInvoice, BusinessPage, BusinessPaymentProvider, CreditNoteInput, InvoiceCreate, InvoiceEmailInput, InvoiceEmailResult,
   InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
-  PortalSignInSettings,
+  PortalSignInSettings, RefundAnswer, RefundAsk, RefundReview,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -77,6 +77,19 @@ export const remindInvoice = (invoiceId: string, body: InvoiceEmailInput) => api
 // card payment links through the owner's Moyasar (docs/business.md#payment-links)
 export const getPaymentProvider = () => apiRequest<BusinessPaymentProvider>(`${BASE}/payment-provider`, { method: 'GET' });
 export const makePaymentLink = (invoiceId: string) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payment-link`, json('POST'));
+
+// refunds of a card payment from ANUM: each waits for an owner's approval (docs/business.md#refunds-from-anum)
+/** One key per open refund form: a retry of the same submit finds the first request instead of asking twice. */
+export const requestRefund = (invoiceId: string, paymentId: string, body: RefundAsk, idempotencyKey: string) =>
+  apiRequest<RefundAnswer>(`${BASE}/invoices/${id(invoiceId)}/payments/${id(paymentId)}/refund-requests`,
+    { ...json('POST', body), headers: { 'content-type': 'application/json', 'Idempotency-Key': idempotencyKey } });
+export const withdrawRefund = (invoiceId: string, requestId: string) =>
+  apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/refund-requests/${id(requestId)}/cancel`, json('POST'));
+// provider refunds of payments ANUM never recorded (docs/business.md#refunds-anum-could-not-match)
+export const listRefundReviews = (q: { state: 'open' | 'checked' | 'all'; limit: number; offset: number }) =>
+  apiRequest<BusinessPage<RefundReview>>(`${BASE}/refund-reviews${query(q)}`, { method: 'GET' });
+export const checkRefundReview = (reviewId: string, note: string) => apiRequest<RefundReview>(`${BASE}/refund-reviews/${id(reviewId)}/check`, json('POST', { note }));
+export const reopenRefundReview = (reviewId: string) => apiRequest<RefundReview>(`${BASE}/refund-reviews/${id(reviewId)}/reopen`, json('POST'));
 
 // credit notes (owners issue and void) and customers' payment reports (members and owners decide)
 export const issueCreditNote = (invoiceId: string, body: CreditNoteInput) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/credit-notes`, json('POST', body));

@@ -123,3 +123,28 @@ test('an approval chain shows its progress and who approved, and stays pending u
   await expect(card.getByRole('button', { name: 'Reject' })).toBeEnabled();
   await expect(page.getByRole('region', { name: 'Approval history' })).toHaveCount(0);
 });
+
+test('a private request of your own is approved only after the explicit self-approval confirmation', async ({ page }) => {
+  // docs/approvals-and-risk.md#private-task-self-approval: the API asks for the confirmation (routing.confirm_own).
+  const routing = { routed: false, rules: [], steps: [{ approvers: [['user:user_local']] }], current_step: 0, reasons: [], fallback: false,
+    can_approve: true, can_reject: true, refusal: null, summary: 'This task reads your own data, so you decide this approval yourself.', confirm_own: true };
+  const decisions = await mockApi(page, { action: 'archive_mail_bulk', arguments: { account_id: 'mbx_1', owner_user_id: 'user_local', folder: 'INBOX', uids: [1, 2] }, routing });
+  await page.goto('/#approvals');
+  const card = page.getByRole('article', { name: 'Approval for archive_mail_bulk' });
+  const approve = card.getByRole('button', { name: 'Approve' });
+  await expect(approve).toBeDisabled();
+  await card.getByRole('checkbox', { name: 'I approve my own private request. It is recorded as a self-approval.' }).check();
+  await approve.click();
+  await expect.poll(() => decisions).toEqual([{ payload_hash: hash, confirm_own_request: true }]);
+});
+
+test('a private request that reaches beyond your own data says to run it as a shared task', async ({ page }) => {
+  const routing = { routed: false, rules: [], steps: [{ approvers: [['user:user_local']] }], current_step: 0, reasons: [], fallback: false,
+    can_approve: false, can_reject: true, refusal: 'run_as_shared', summary: 'Run this as a shared task so a second person can approve it.' };
+  await mockApi(page, { action: 'send_mail', routing });
+  await page.goto('/#approvals');
+  const card = page.getByRole('article', { name: 'Approval for send_mail' });
+  await expect(card.getByText(/Run this as a shared task so a second person can approve it/)).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Approve' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Reject' })).toBeEnabled();
+});
