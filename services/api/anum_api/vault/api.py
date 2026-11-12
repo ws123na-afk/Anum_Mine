@@ -856,6 +856,46 @@ def accept_receipt_match(document_id: str, body: MatchAccept, context: TenantCon
     return accept(context, document_id, body.kind, body.target_id)
 
 
+@router.post("/{document_id}/matches/dismiss", response_model=None)
+def dismiss_receipt_match(document_id: str, body: MatchAccept, context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
+    """Say a proposed match is wrong: it is remembered on the document and not proposed again until restored."""
+    _require(context, Permission.DOCUMENT_WRITE, WRITE_DENIED)
+    from .receipts import dismiss
+
+    return dismiss(context, document_id, body.kind, body.target_id)
+
+
+@router.post("/{document_id}/matches/restore", response_model=None)
+def restore_receipt_match(document_id: str, body: MatchAccept, context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
+    """Forget a dismissal: the match is proposed again while it still fits."""
+    _require(context, Permission.DOCUMENT_WRITE, WRITE_DENIED)
+    from .receipts import restore
+
+    return restore(context, document_id, body.kind, body.target_id)
+
+
+class VehiclePaperInput(BaseModel):
+    vehicle_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+@router.get("/{document_id}/vehicle-proposals", response_model=None)
+def vehicle_paper_proposals(document_id: str, context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
+    """The vehicles an insurance or registration document may belong to (docs/documents.md#vehicle-papers). Proposals only."""
+    _require(context, Permission.DOCUMENT_READ, READ_DENIED)
+    from .vehicle_papers import proposals
+
+    return proposals(context, document_id)
+
+
+@router.post("/{document_id}/vehicle", response_model=None)
+def confirm_vehicle_paper(document_id: str, body: VehiclePaperInput, context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
+    """Link the document to the vehicle and set the vehicle's expiry from it, so its renewal reminder follows the document."""
+    _require(context, Permission.DOCUMENT_WRITE, WRITE_DENIED)
+    from .vehicle_papers import confirm
+
+    return confirm(context, document_id, body.vehicle_id)
+
+
 # --------------------------------------------------------------------------- scanning
 
 

@@ -118,3 +118,28 @@ def test_the_export_names_a_business_allocation() -> None:
     assert client.post(f"{VEH}/costs/fuel_entry/{entry['id']}/allocation", headers=OWNER, json={"allocation_id": alloc_id}).status_code == 201
     csv_text = client.get(f"{VEH}/{car['id']}/export.csv", headers=OWNER).text
     assert "allocation_active" in csv_text and canonical not in csv_text
+
+
+def test_a_fitting_allocation_is_proposed_on_the_record_and_confirmed_by_the_person() -> None:
+    canonical, _card = fuel_payment()
+    allocate(canonical)
+    car = business_car()
+    entry = fuel(car["id"])
+    odd = fuel(car["id"], total="99")  # no allocation of this figure: nothing proposed
+    rows = {r["id"]: r for r in client.get(f"{VEH}/{car['id']}/fuel", headers=OWNER).json()["items"]}
+    proposal = rows[entry["id"]]["allocation_proposal"]
+    assert proposal is not None and proposal["amount"] == "150.00" and proposal["currency"] == "SAR" and proposal["days_apart"] <= 7
+    assert "canonical_id" not in proposal and len(proposal["source_ref"]) == 6
+    assert rows[odd["id"]]["allocation_proposal"] is None
+    # Only to the person who may use it: a member who logged none of these records sees no proposal (viewers see no records).
+    assert all(r["allocation_proposal"] is None for r in client.get(f"{VEH}/{car['id']}/fuel", headers=MEMBER).json()["items"])
+    # Confirming uses the ordinary route; then the record has its cost and nothing is proposed again.
+    used = client.post(f"{VEH}/costs/fuel_entry/{entry['id']}/allocation", headers=OWNER, json={"allocation_id": proposal["allocation_id"]})
+    assert used.status_code == 201, used.text
+    later = fuel(car["id"])  # the same figure again: the allocation is used, so nothing is proposed
+    rows = {r["id"]: r for r in client.get(f"{VEH}/{car['id']}/fuel", headers=OWNER).json()["items"]}
+    assert rows[entry["id"]]["allocation_proposal"] is None and rows[later["id"]]["allocation_proposal"] is None
+    # A personal vehicle never gets a business allocation proposed.
+    personal = business_car(ownership="personal")
+    fuel(personal["id"])
+    assert all(r["allocation_proposal"] is None for r in client.get(f"{VEH}/{personal['id']}/fuel", headers=OWNER).json()["items"])

@@ -167,27 +167,72 @@ def matches(context: TenantContext, document_id: str) -> dict[str, Any]:
     with open_vault_unit(context) as unit:
         doc = get_visible(unit, context, document_id)
         links = unit.store.links(context, document_id)
+        dismissed = unit.store.dismissals(context, document_id)
     receipt = value_of(doc) if doc.status == "active" else None
     out: dict[str, Any] = {"document_id": document_id, "receipt": None, "reason": None, "can_edit": can_edit(context, doc),
                            "payments": [], "payments_unavailable": None, "purchases": [], "purchases_unavailable": None,
                            "linked_payments": sorted(l.target_id for l in links if l.target_type == "finance_transaction"),
-                           "linked_purchases": sorted(l.target_id for l in links if l.target_type == "purchase")}
+                           "linked_purchases": sorted(l.target_id for l in links if l.target_type == "purchase"),
+                           "dismissed": [{"kind": d.kind, "target_id": d.target_id, "label": d.label, "dismissed_by": d.dismissed_by,
+                                          "dismissed_at": d.created_at.isoformat()} for d in dismissed]}
     if receipt is None:
         out["reason"] = "not_a_receipt" if doc.category not in RECEIPT_CATEGORIES else "not_confirmed"
         return out
     out["receipt"] = {"total": str(receipt.total), "currency": receipt.currency, "on": receipt.on.isoformat(), "merchant": receipt.merchant}
+    skip = {(d.kind, d.target_id) for d in dismissed}
     if not has_permission(context, Permission.FINANCE_READ):
         out["payments_unavailable"] = "finance_access"
     elif not out["linked_payments"]:
-        out["payments"] = [p.view() for p in payment_proposals(context, receipt, linked=set())]
+        out["payments"] = [p.view() for p in payment_proposals(context, receipt, linked=set()) if ("payment", p.target_id) not in skip]
     if not has_permission(context, Permission.PURCHASE_READ):
         out["purchases_unavailable"] = "purchase_access"
     elif not out["linked_purchases"]:
         try:
-            out["purchases"] = [p.view() for p in purchase_proposals(context, receipt)]
+            out["purchases"] = [p.view() for p in purchase_proposals(context, receipt) if ("purchase", p.target_id) not in skip]
         except ModuleNotFoundError:  # the purchases module is not installed
             out["purchases_unavailable"] = "not_installed"
     return out
+
+
+def dismiss(context: TenantContext, document_id: str, kind: str, target_id: str) -> dict[str, Any]:
+    """The person says a proposed match is wrong: it is remembered on the document and not proposed again until restored.
+    Only a match that is proposed now can be dismissed (``409 match_gone`` otherwise); only someone who may change the
+    document dismisses (``403``). Repeating it changes nothing."""
+    from fastapi import HTTPException
+
+    from ..schemas import new_id, utc_now
+    from .models import DismissalRecord
+    from .service import EDIT_DENIED, editable, log_event
+    from .store import open_vault_unit
+
+    current = matches(context, document_id)
+    if not current["can_edit"]:
+        raise HTTPException(403, EDIT_DENIED)
+    if any(d["kind"] == kind and d["target_id"] == target_id for d in current["dismissed"]):
+        return current
+    pool = current["payments"] if kind == "payment" else current["purchases"]
+    chosen = next((p for p in pool if p["target_id"] == target_id), None)
+    if chosen is None:
+        raise HTTPException(409, "This match is no longer proposed: the receipt, the payment or the purchase changed, or it was linked already.")
+    label = f"{chosen['label']} {chosen['currency']} {chosen['amount']} ({chosen['on']})"
+    with open_vault_unit(context) as unit:
+        editable(unit, context, document_id)
+        unit.store.add_dismissal(context, DismissalRecord(id=new_id("vdis"), document_id=document_id, kind=kind,  # type: ignore[arg-type]
+                                                          target_id=target_id, label=label[:200], dismissed_by=context.user_id, created_at=utc_now()))
+        log_event(unit, context, document_id, "match_dismissed", {"kind": kind})
+    return matches(context, document_id)
+
+
+def restore(context: TenantContext, document_id: str, kind: str, target_id: str) -> dict[str, Any]:
+    """Forget a dismissal: the match is proposed again if it still fits. Repeating it changes nothing."""
+    from .service import editable, log_event
+    from .store import open_vault_unit
+
+    with open_vault_unit(context) as unit:
+        editable(unit, context, document_id)
+        if unit.store.delete_dismissal(context, document_id, kind, target_id):
+            log_event(unit, context, document_id, "match_restored", {"kind": kind})
+    return matches(context, document_id)
 
 
 def accept(context: TenantContext, document_id: str, kind: str, target_id: str) -> dict[str, Any]:
@@ -220,4 +265,4 @@ def accept(context: TenantContext, document_id: str, kind: str, target_id: str) 
     return matches(context, document_id)
 
 
-__all__ = ["MAX_PROPOSALS", "Proposal", "ReceiptValue", "accept", "matches", "payment_proposals", "purchase_proposals", "value_of", "values"]
+__all__ = ["MAX_PROPOSALS", "Proposal", "ReceiptValue", "accept", "dismiss", "matches", "restore", "payment_proposals", "purchase_proposals", "value_of", "values"]
