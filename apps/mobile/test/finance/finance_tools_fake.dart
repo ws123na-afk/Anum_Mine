@@ -101,6 +101,7 @@ class ToolsApi {
         'currency': 'AED',
         'merchant': 'Example cafe'
       },
+      'fix': {'action': 'trust_sender', 'sender': 'examplebank'},
       'rule': 'builtin',
       'entry_id': null,
       'duplicate_of': null,
@@ -130,6 +131,23 @@ class ToolsApi {
   ];
   bool aiOn = true;
   bool smsEmpty = false;
+  // What ANUM learned (docs/finance-sms.md#learning).
+  final smsNotices = <Map<String, Object?>>[
+    {
+      'id': 'note_1',
+      'kind': 'sender_trusted',
+      'sender': 'examplebank',
+      'created_at': '2026-11-02T09:00:00Z'
+    },
+    {
+      'id': 'note_2',
+      'kind': 'card_proposed',
+      'last4': '4321',
+      'account_id': 'acc_2',
+      'account_name': 'Card',
+      'created_at': '2026-11-02T09:00:00Z'
+    },
+  ];
   final smsRules = <Map<String, Object?>>[
     {
       'id': 'smsrule_1',
@@ -682,6 +700,35 @@ class ToolsApi {
             {'items': items, 'total': items.length, 'limit': 20, 'offset': 0});
       case ('GET', '/sms/rules'):
         return okList(smsRules);
+      case ('GET', '/sms/learning'):
+        return ok({'notices': smsNotices});
+      case ('GET', '/sms/review/summary'):
+        final waiting = smsEmpty ? 0 : 1;
+        return ok({
+          'total': waiting,
+          'scanned': waiting,
+          'complete': true,
+          'groups': [
+            if (waiting > 0)
+              {
+                'reason': 'format_unverified',
+                'count': 1,
+                'items': [
+                  {
+                    'key': 'examplebank',
+                    'count': 1,
+                    'fix': {'action': 'trust_sender', 'sender': 'examplebank'}
+                  }
+                ]
+              }
+          ]
+        });
+      case ('POST', '/sms/learning/senders/trust'):
+      case ('POST', '/sms/learning/cards/map'):
+        return ok({'notices': smsNotices});
+      case ('POST', '/sms/learning/senders/untrust'):
+        smsNotices.removeWhere((n) => n['kind'] == 'sender_trusted');
+        return ok({'notices': smsNotices});
       case ('POST', '/sms/paste'):
         return ok({
           'status': 'review',
