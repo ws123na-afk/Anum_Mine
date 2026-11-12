@@ -40,7 +40,7 @@ from .guardian import (
     evaluate,
 )
 from .models import Category, Transaction
-from .policy import current_rules
+from .policy import current_rules, lending_ids
 from .store import FinanceStore
 from .summary import month_range, settings_for, today_in, zone
 
@@ -97,16 +97,19 @@ class ReviewQueue(BaseModel):
     offset: int
 
 
-def _spend(rows: list[Transaction]) -> list[Transaction]:
-    return [t for t in rows if t.amount < 0 and t.category not in NOT_SPEND]
+def _spend(rows: list[Transaction], lending: frozenset[str] | None = None) -> list[Transaction]:
+    # Money lent to or borrowed from a person, and its repayments, is a transfer whatever its category (``flows.py``).
+    return [t for t in rows if t.amount < 0 and t.category not in NOT_SPEND and t.id not in (lending or ())]
 
 
-def flag(rows: list[Transaction], rules: GuardianRules, timezone: str, now: datetime) -> list[tuple[Transaction, list[Reason]]]:
-    """Each payment out in ``rows`` (one month) that a rule flags, with the rules' reasons. Pure."""
+def flag(rows: list[Transaction], rules: GuardianRules, timezone: str, now: datetime,
+         lending: frozenset[str] | None = None) -> list[tuple[Transaction, list[Reason]]]:
+    """Each payment out in ``rows`` (one month) that a rule flags, with the rules' reasons. Pure. ``lending``: ids of
+    transactions lent or borrowed with a person, never counted or flagged."""
     month: dict[tuple[Category, str], Decimal] = {}
     day: dict[tuple[date, str], Decimal] = {}
     flagged: list[tuple[Transaction, list[Reason]]] = []
-    for t in sorted(_spend(rows), key=lambda r: (r.posted_on, r.created_at, r.id)):
+    for t in sorted(_spend(rows, lending), key=lambda r: (r.posted_on, r.created_at, r.id)):
         amount = -t.amount
         state = LedgerState(
             timezone=timezone,
@@ -155,7 +158,8 @@ def build_queue(store: FinanceStore, context: TenantContext, month: str | None, 
                            items=[], total=0, limit=limit, offset=offset)
     history = store.transactions_between(context, start - timedelta(days=TYPICAL_DAYS), end)
     in_month = [t for t in history if start <= t.posted_on <= end]
-    flagged = flag(in_month, active, settings.timezone, now)
+    lending = lending_ids(store, context)
+    flagged = flag(in_month, active, settings.timezone, now, lending)
     reviews = {r.transaction_id: r for r in store.list_reviews(context, [t.id for t, _ in flagged])}
     accounts = {a.id: a.name for a in store.list_accounts(context)}
     stats: dict[str, RuleStat] = {k: RuleStat(kind=k, count=0, last=None) for k in rules.configured_kinds()}
@@ -197,7 +201,7 @@ def reasons_for(store: FinanceStore, context: TenantContext, transaction: Transa
     """The reasons the queue shows for one payment: checked with the month's and the day's spend before it."""
     start = transaction.posted_on.replace(day=1)
     rows = [t for t in store.transactions_between(context, start, transaction.posted_on) if t.id != transaction.id] + [transaction]
-    return next((reasons for t, reasons in flag(rows, rules, timezone, now) if t.id == transaction.id), [])
+    return next((reasons for t, reasons in flag(rows, rules, timezone, now, lending_ids(store, context)) if t.id == transaction.id), [])
 
 
 def snooze_end(now: datetime, days: int, timezone: str) -> datetime:

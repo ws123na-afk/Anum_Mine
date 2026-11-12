@@ -89,3 +89,36 @@ describe('document vault', () => {
       'limit=50&status=active&q=lease&category=contract&access_class=private&expiry=soon&cursor=c1');
   });
 });
+
+describe('receipt matches (docs/documents.md#receipt-matches)', () => {
+  const base = {
+    document_id: 'vdoc_1', receipt: { total: '86.40', currency: 'SAR', on: '2026-11-10', merchant: 'Alnoor Pharmacy' }, reason: null, can_edit: true,
+    payments: [], payments_unavailable: null, purchases: [], purchases_unavailable: null, linked_payments: [], linked_purchases: [],
+  } as const;
+  const proposal = { kind: 'payment', target_id: 'fin_je_1', on: '2026-11-10', amount: '86.40', currency: 'SAR', label: 'ALNOOR PHARMACY', merchant_agrees: true, confidence: '0.9' } as const;
+  test('the state follows the answer', async () => {
+    const { matchState } = await import('../src/lib/vault.ts');
+    assert.equal(matchState({ ...base, reason: 'not_a_receipt', receipt: null }), 'hidden');
+    assert.equal(matchState({ ...base, reason: 'not_confirmed', receipt: null }), 'not_confirmed');
+    assert.equal(matchState({ ...base }), 'none');
+    assert.equal(matchState({ ...base, payments: [proposal] }), 'proposals');
+    assert.equal(matchState({ ...base, linked_payments: ['fin_je_1'] }), 'linked');
+    assert.equal(matchState({ ...base, linked_payments: ['fin_je_1'], purchases: [{ ...proposal, kind: 'purchase', target_id: 'pur_1' }] }), 'proposals');
+  });
+  test('the confidence reads as a percentage', async () => {
+    const { matchPercent } = await import('../src/lib/vault.ts');
+    assert.equal(matchPercent('0.9'), 90);
+    assert.equal(matchPercent('0'), null);
+    assert.equal(matchPercent('nope'), null);
+  });
+  test('every match message exists in English and Arabic', async () => {
+    const { vaultEn } = await import('../src/lib/messages/vault.en.ts');
+    const { vaultAr } = await import('../src/lib/messages/vault.ar.ts');
+    const keys = Object.keys(vaultEn).filter((k) => k.startsWith('vault.match.'));
+    assert.ok(keys.length >= 20);
+    for (const key of keys as (keyof typeof vaultEn)[]) {
+      assert.ok(vaultAr[key], key);
+      assert.notEqual(vaultAr[key], vaultEn[key], key);
+    }
+  });
+});

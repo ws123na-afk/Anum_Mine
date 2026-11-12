@@ -32,6 +32,11 @@ export interface VehiclePayment {
   paid_by: string;
   recorded_as_cash: boolean;
   linked_at: string;
+  /** `allocation`: a business vehicle's cost paid from a personal card and allocated to this business in Finance
+   * (docs/vehicles.md#business-allocations); `link_id` and `canonical_id` are empty, `source_ref` quotes the row. */
+  source?: 'link' | 'allocation';
+  allocation_id?: string | null;
+  source_ref?: string | null;
 }
 
 export interface VehicleDueItem {
@@ -302,6 +307,17 @@ export interface VehiclePaymentCandidate {
   currency: string;
   remaining: string;
   linked_to_vehicle: boolean;
+}
+
+/** GET /api/v1/vehicles/allocations: this business's allocations the caller made that no vehicle record counts yet. */
+export interface VehicleAllocationCandidate {
+  allocation_id: string;
+  posted_on: string;
+  amount: string;
+  currency: string;
+  category: string;
+  memo: string | null;
+  source_ref: string;
 }
 
 export interface VehicleLinkInput { canonical_id: string; amount?: string | null; /** Needed when the payment has more than one currency. */ currency?: string | null }

@@ -255,6 +255,39 @@ def undo_split(finance: FinanceStore, sms: SmsStore, context: TenantContext, par
     return row
 
 
+def _statement_messages(sms: SmsStore, context: TenantContext, status: MessageStatus) -> list[SmsMessage]:
+    """Every statement source in ``status``, paged so a long history is read whole."""
+    out: list[SmsMessage] = []
+    offset = 0
+    while True:
+        items, total = sms.list_messages(context, status=status.value, limit=MAX_REVIEW_SCAN, offset=offset)
+        out.extend(m for m in items if m.source == "statement")
+        offset += len(items)
+        if not items or offset >= total:
+            return out
+
+
+def detach_import(sms: SmsStore, context: TenantContext, import_id: str, *, now: datetime) -> int:
+    """Undo everything an import attached or held outside its own rows (docs/finance.md#undoing-an-import).
+
+    Every statement source of the import is dismissed (``import_undone``): rows attached to one recorded payment, every
+    part of a split match and rows waiting in Review. A record loses its reconciled mark unless another statement row,
+    of another import, still confirms it. Safe to run again: a second pass finds nothing left. Returns how many
+    sources were detached."""
+    attached = _statement_messages(sms, context, MessageStatus.ATTACHED)
+    mine = [m for m in attached if m.parsed.get("import_id") == import_id]
+    held = [m for m in _statement_messages(sms, context, MessageStatus.REVIEW) if m.parsed.get("import_id") == import_id]
+    ids = {m.id for m in mine}
+    for message in [*mine, *held]:
+        message.status, message.reason, message.updated_at = MessageStatus.DISMISSED, "import_undone", now
+        sms.save_message(message)
+    for entry_id in {m.entry_id for m in mine if m.entry_id}:
+        still = [m for m in attached if m.entry_id == entry_id and m.id not in ids]
+        if not still:
+            sms.mark_entry(context, entry_id, clear_reconciled=True)
+    return len(mine) + len(held)
+
+
 def hold(sms: SmsStore, context: TenantContext, account: Account, row: Transaction, import_id: str, *, now: datetime, reference: str | None) -> None:
     message = statement_message(context, account, row, import_id, now=now, reference=reference)
     message.reason = "ambiguous_match"
@@ -422,6 +455,7 @@ __all__ = [
     "bill_dues",
     "canonical_for",
     "correct_amount",
+    "detach_import",
     "gather",
     "hold",
     "make_links",

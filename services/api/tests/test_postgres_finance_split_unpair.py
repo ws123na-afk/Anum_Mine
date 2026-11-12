@@ -73,6 +73,23 @@ def test_a_group_is_attached_and_undone_whole(client: TestClient, database_engin
         assert connection.execute(text("select count(*) from finance_sms_messages where source = 'statement' and status = 'review'")).scalar_one() == 1
 
 
+def test_undoing_an_import_detaches_a_single_row_attachment(client: TestClient, database_engine: Engine) -> None:
+    card = _account(client, name="Card", kind="card", last4="1234")
+    _entry(client, card["id"], "-150.00", "EXAMPLE MARKET", "2026-11-03")
+    done = _ok(client.post(f"{API}/imports", headers=ME, json={"account_id": card["id"], "content": ROW, "filename": "nov.csv"}), 201)
+    assert (done["imported_count"], done["reconciled"]) == (0, 1)
+    with database_engine.connect() as connection:
+        assert connection.execute(text("select count(*) from finance_journal_entries where reconciled_at is not null")).scalar_one() == 1
+    assert client.delete(f"{API}/imports/{done['id']}", headers=SOMEONE).status_code == 404
+    assert client.delete(f"{API}/imports/{done['id']}", headers=ME).status_code == 204
+    assert client.delete(f"{API}/imports/{done['id']}", headers=ME).status_code == 404
+    with database_engine.connect() as connection:
+        assert connection.execute(text("select count(*) from finance_journal_entries where reconciled_at is not null")).scalar_one() == 0
+        assert connection.execute(text("select count(*) from finance_sms_messages where source = 'statement' and status <> 'dismissed'")).scalar_one() == 0
+    again = _ok(client.post(f"{API}/imports/preview", headers=ME, json={"account_id": card["id"], "content": ROW, "filename": "nov.csv"}))
+    assert again["rows"][0]["match"]["status"] == "matched_existing"
+
+
 def test_a_transfer_pair_is_read_and_unpaired_through_the_links_api(client: TestClient) -> None:
     bank = _account(client, name="Salary account", last4="5678")
     card = _account(client, name="Card", kind="card", last4="5377")

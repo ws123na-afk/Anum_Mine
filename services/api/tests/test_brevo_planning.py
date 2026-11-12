@@ -96,12 +96,60 @@ def test_a_draft_without_a_named_list_asks_which_list() -> None:
     assert call is not None and call.name == "anum.respond" and "Which Brevo contact list" in call.arguments["text"]
 
 
+def test_plain_words_name_the_audience_without_the_word_list() -> None:
+    cases = {
+        "send the winter newsletter to customers": ["customers"],
+        "email the summer sale newsletter to our customers and VIPs tomorrow at 9am": ["customers", "VIPs"],
+        "write the ramadan newsletter to Trade Partners, VIP & Customers": ["Trade Partners", "VIP", "Customers"],
+        "send the winter newsletter to customers, make it short": ["customers"],
+        "أرسل نشرة الشتاء للعملاء": ["العملاء"],
+        "أرسل نشرة الشتاء إلى العملاء والموزعين غدا الساعة 9 صباحا": ["العملاء", "الموزعين"],
+    }
+    for prompt, lists in cases.items():
+        call = plan_call(prompt, now=NOW)
+        assert call is not None and call.name == DRAFT_TOOL, prompt
+        assert call.arguments["list_names"] == lists, prompt
+    assert plan_call("email the summer sale newsletter to our customers tomorrow at 9am", now=NOW).arguments["schedule"] == "2026-10-19T09:00:00+00:00"  # type: ignore[union-attr]
+    # "to" before a verb is a purpose, and everyone is no list: the planner asks which list.
+    for prompt in ("write a newsletter to announce the eid sale", "send the winter newsletter to everyone", "أرسل نشرة الشتاء إلى الجميع"):
+        call = plan_call(prompt, now=NOW)
+        assert call is not None and call.name == "anum.respond", prompt
+    # "email" is a draft verb only before what is drafted; "show the email campaigns" stays a read.
+    shown = plan_call("show the email campaigns", now=NOW)
+    assert shown is not None and shown.name == CAMPAIGNS_TOOL
+
+
+def test_the_owners_words_become_a_draft_through_the_mock_model_and_nothing_is_sent(brevo: FakeBrevo) -> None:  # noqa: F811
+    connect()
+    add_customers(brevo)
+    words = "send the winter newsletter to customers"
+    result = plan(words)  # the planner with the mock model, as a task or chat plans it
+    assert "anum.brevo" in result.plan.skill_ids
+    [call] = result.plan.tool_calls
+    assert call.name == DRAFT_TOOL and call.arguments["list_names"] == ["customers"]
+    definition = main.tool_registry.definition(DRAFT_TOOL)
+    assert definition is not None and definition.action_kind == "draft"
+    assert ToolPolicy().evaluate(call, definition, CONTEXT).outcome.value == "allow"
+    drafted = asyncio.run(brevo_tools.draft_campaign(call, CONTEXT))
+    assert drafted.status == "succeeded" and "Nothing was sent" in drafted.summary, drafted.summary
+    assert drafted.output["lists"] == ["Customers"]
+    assert not brevo.calls("POST", "/emailCampaigns") and not brevo.sent_now
+    draft = ok(client.get(f"{BASE}/drafts/{drafted.output['draft_id']}", headers=VIEWER))
+    assert draft["status"] == "draft" and draft["source"] == "assistant" and draft["list_ids"] == [11]
+    # A list the account does not have fails plainly and writes nothing.
+    missing = plan("send the winter newsletter to partners").plan.tool_calls[0]
+    failed = asyncio.run(brevo_tools.draft_campaign(missing, CONTEXT))
+    assert failed.status == "failed" and "'partners'" in failed.summary
+    assert not brevo.sent_now
+
+
 # -- sending stays approval-gated -----------------------------------------------------------------
 
 
 def test_the_planner_never_plans_a_send() -> None:
     prompts = [NEWSLETTER, "send the newsletter now to the customers list", "send brevodraft_0123456789abcdef to everyone",
-               "أرسل النشرة إلى المشتركين", "schedule the brevo newsletter for tomorrow", "send it to all subscribers"]
+               "أرسل النشرة إلى المشتركين", "schedule the brevo newsletter for tomorrow", "send it to all subscribers",
+               "send the winter newsletter to customers now", "email the newsletter to customers right away", "أرسل نشرة الشتاء للعملاء الآن"]
     for prompt in prompts:
         call = plan_call(prompt, now=NOW)
         assert call is None or call.name != SEND_TOOL, prompt

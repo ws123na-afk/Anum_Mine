@@ -1067,6 +1067,14 @@ def handle_stripe_event(issuer_tenant_id: str, payload: bytes, signature: str | 
 
         outcome = apply_card_payment("stripe", issuer_tenant_id, metadata, payment_intent or str(obj.get("id") or ""), "paid",
                                      int(obj.get("amount_total") or 0), str(obj.get("currency") or ""), now)
+    elif refunds is not None and metadata.get("anum_business_invoice_id"):
+        # A refund made in the Stripe dashboard on a Business invoice's card payment (docs/business.md#refunds-made-in-the-provider-dashboard).
+        # Applied before the event id is stored, so a failure here is retried by Stripe; each refund is recorded once by its Stripe id.
+        from ..business.invoice_refunds import ProviderRefund, apply_card_refunds
+
+        found = [ProviderRefund(item.id, item.amount_minor, item.currency, item.status) for item in reversed(refunds)
+                 if not item.payment_intent or item.payment_intent == payment_intent]
+        outcome = apply_card_refunds("stripe", issuer_tenant_id, metadata, payment_intent, found, now)
     with open_billing(issuer_tenant_id) as rows:
         fresh = rows.insert_ignore("billing_webhook_events", {
             "tenant_id": issuer_tenant_id, "provider": "stripe", "event_id": event_id[:200], "event_type": event_type[:100], "received_at": now,
@@ -1075,7 +1083,7 @@ def handle_stripe_event(issuer_tenant_id: str, payload: bytes, signature: str | 
             return {"received": True, "duplicate": True}
         if paid and not metadata.get("anum_business_invoice_id"):
             outcome = _apply_checkout(rows, issuer_tenant_id, {**obj, "metadata": metadata}, now)
-        elif refunds is not None:
+        elif refunds is not None and not metadata.get("anum_business_invoice_id"):
             outcome = _sync_stripe_refunds(rows, issuer_tenant_id, metadata, payment_intent, refunds, now)
     return {"received": True, "duplicate": False, "outcome": outcome}
 

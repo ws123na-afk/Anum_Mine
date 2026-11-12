@@ -91,6 +91,28 @@ test('overview: spend per currency, what is due, and a fuel payment linked from 
   await noSeriousAxe(page);
 });
 
+test('a business vehicle paid from a personal card counts the business allocation as its cost (docs/vehicles.md#business-allocations)', async ({ page }) => {
+  const { sent } = await mockApi(page, { vanFuel: true });
+  await page.goto('/#vehicles-list');
+  await page.getByRole('button', { name: 'Open VAN 77' }).first().click();
+  await expect(page.getByRole('heading', { name: /VAN 77/, level: 2 })).toBeVisible();
+  await page.getByRole('button', { name: /Payment for .*Example Diesel Point/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Payment' });
+  await dialog.getByRole('radio', { name: 'Business allocation' }).click();
+  await expect(dialog.getByText(/Allocate the payment to this business under Finance/)).toBeVisible();
+  await expect(dialog.getByText(/ref a1b2c3/)).toBeVisible();
+  await noSeriousAxe(page);
+  await dialog.getByRole('button', { name: /^Use the allocation of SAR\s?150\.00/ }).click();
+  await expect(page.getByText(/Business allocation counted as this record's cost/)).toBeVisible();
+  await expect(page.locator('.vehChip.active').filter({ hasText: 'business allocation' })).toBeVisible();
+  expect(sent.find((r) => r.path.endsWith('/allocation') && r.method === 'POST')?.body).toEqual({ allocation_id: 'alloc_1' });
+  // The personal car's records offer no business allocation.
+  await page.getByRole('button', { name: 'Back to vehicles' }).click();
+  await openCar(page);
+  await page.getByRole('button', { name: /Payment for .*Example Station North/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Payment' }).getByRole('radio', { name: 'Business allocation' })).toHaveCount(0);
+});
+
 test('a cash payment retried after a failure is sent with the same key and recorded once', async ({ page }) => {
   const { sent, state } = await mockApi(page, { failCash: 1 });
   await page.goto('/#vehicles-list');

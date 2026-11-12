@@ -144,14 +144,23 @@ def test_maintenance_discovers_due_probes_by_scope_only_and_the_pass_reprobes(
     assert routing_probe.run_due_routing_probes() == 0
     with database_engine.begin() as connection:
         connection.execute(text("update routing_targets set last_checked_at = last_checked_at - make_interval(secs => :s)"), {"s": settings.routing_probe_interval_seconds + 5})
-    # The maintenance role reads the discovery columns and nothing else, and cannot write.
+    # The maintenance role reads the discovery columns (ids, the provider name, times) and
+    # nothing else, and cannot write.
     with database_engine.connect() as connection:
         connection.execute(text("set local role anum_maintenance"))
-        found = connection.execute(text("select tenant_id, probe_workspace_id, id from routing_targets")).all()
-        assert found == [(TENANT_A, WORKSPACE_A, "eu-a")]
-        with pytest.raises(DBAPIError):
-            connection.execute(text("select provider from routing_targets"))
+        found = connection.execute(text("select tenant_id, probe_workspace_id, id, provider from routing_targets")).all()
+        assert found == [(TENANT_A, WORKSPACE_A, "eu-a", "openai-compatible")]
+        assert connection.execute(text("select tenant_id, workspace_id, provider from workspace_model_configs")).all() == [
+            (TENANT_A, WORKSPACE_A, "openai_compatible")
+        ]
         connection.rollback()
+    for secret in ("select model from routing_targets", "select last_error from routing_targets",
+                   "select base_url from workspace_model_configs", "select api_key_ciphertext from workspace_model_configs"):
+        with database_engine.connect() as connection:
+            connection.execute(text("set local role anum_maintenance"))
+            with pytest.raises(DBAPIError):
+                connection.execute(text(secret))
+            connection.rollback()
     with database_engine.connect() as connection:
         connection.execute(text("set local role anum_maintenance"))
         with pytest.raises(DBAPIError):
@@ -161,3 +170,31 @@ def test_maintenance_discovers_due_probes_by_scope_only_and_the_pass_reprobes(
     assert len(seen) == 2
     row = _rows(app_session, "select status, last_checked_at from routing_targets where id = 'eu-a'")[0]
     assert row.status == "healthy" and row.last_checked_at > FIXED_NOW - timedelta(days=1)
+
+
+def test_the_pass_probes_never_probed_targets_through_a_workspace_configured_for_them(
+    client: TestClient, app_session, database_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Migration 0176: never probed targets are discovered too, with a workspace whose model
+    configuration is for the target's provider; a target nobody can reach is left alone."""
+    client.put("/api/v1/routing/targets/eu-a", headers=A, json=TARGET)
+    client.put("/api/v1/routing/targets/an-a", headers=A, json={**TARGET, "id": "an-a", "provider": "anthropic"})
+    # Tenant B has a target and no configuration at all.
+    client.put("/api/v1/routing/targets/eu-b", headers=B, json={**TARGET, "id": "eu-b"})
+    seen = _answering(monkeypatch)
+    # Without any configuration nothing is reachable, and the maintenance role sees no configuration.
+    assert routing_probe.run_due_routing_probes() == 0 and seen == []
+    client.put("/api/v1/model-config", headers=A, json=CONFIG)
+    assert routing_probe.run_due_routing_probes() == 1
+    assert len(seen) == 1
+    rows = _rows(app_session, "select id, status, probe_workspace_id, last_checked_at is not null from routing_targets order by id")
+    assert [tuple(r) for r in rows] == [("an-a", "healthy", None, False), ("eu-a", "healthy", WORKSPACE_A, True)]
+    assert _rows(app_session, "select probe_workspace_id from routing_targets", TENANT_B, WORKSPACE_B) == [(None,)]
+    # A disabled target is never discovered, probed or not.
+    with database_engine.begin() as connection:
+        connection.execute(text("update routing_targets set enabled = false, last_checked_at = null where id = 'eu-a'"))
+    assert routing_probe.run_due_routing_probes() == 0
+    with database_engine.connect() as connection:
+        connection.execute(text("set local role anum_maintenance"))
+        assert connection.execute(text("select id from routing_targets order by id")).all() == [("an-a",), ("eu-b",)]
+        connection.rollback()

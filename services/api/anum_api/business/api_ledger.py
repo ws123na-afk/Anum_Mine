@@ -225,7 +225,7 @@ def list_issues(limit: int = Query(default=25, ge=1, le=MAX_PAGE), offset: int =
 # -- the journal ---------------------------------------------------------------------------------------------------------
 
 
-SOURCE_KINDS = ("invoice", "credit_note", "invoice_payment", "bill", "bill_payment", "allocation", "adjustment", "intercompany", "manual", "closing",
+SOURCE_KINDS = ("invoice", "credit_note", "invoice_payment", "invoice_refund", "bill", "bill_payment", "allocation", "adjustment", "intercompany", "manual", "closing",
                 "asset", "loan", "loan_repayment", "revaluation")
 
 

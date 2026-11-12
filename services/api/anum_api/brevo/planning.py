@@ -3,7 +3,8 @@
 ``plan_call`` turns a free-text request into one Brevo tool call, deterministically and
 from the user's prompt only (threat model G5: never retrieved text or model output):
 
-* "send the winter newsletter to the customers list" plans ``brevo.draft_campaign``: a
+* "send the winter newsletter to the customers list" (or plainly "to customers") plans
+  ``brevo.draft_campaign``: a
   draft in ANUM with the campaign name, subject, preview text, a content outline, the
   contact lists by name and the requested schedule. Nothing is created in Brevo and
   nothing is sent.
@@ -47,7 +48,8 @@ _REPORT_WORDS = re.compile(
     re.IGNORECASE,
 )
 _DRAFT_WORDS = re.compile(
-    r"\b(draft|write|prepare|compose|create|send|schedule)\b|أرسل|ارسل|اكتب|جهز|جدول",
+    r"\b(draft|write|prepare|compose|create|send|schedule|mail out)\b|\bemail (?=(?:the|a|an|our|my|this|next)\b)"
+    r"|أرسل|ارسل|اكتب|جهز|جدول",
     re.IGNORECASE,
 )
 _LIST_WORDS = re.compile(r"\b(lists?|subscribers?|contacts?|audiences?|how many)\b|قوائم|قائمة|المشتركين", re.IGNORECASE)
@@ -63,6 +65,26 @@ _TO_LISTS = re.compile(
 )
 _NAMED_LIST = re.compile(r"\blists? (?:named|called) [\"']?([\w' &-]{1,60}?)[\"']?(?:[.,;!?]|$| (?:and|for|on|at|tomorrow)\b)",
                          re.IGNORECASE)
+# "to customers", "to our customers and VIPs": the audience named without the word "list".
+_TO_AUDIENCE = re.compile(r"\bto (?:all (?:of )?)?(?:the |our |my )?([^.;!?]{1,120})", re.IGNORECASE)
+# A name ends at these words (a time, a topic or the rest of the sentence) or at a number.
+_AUDIENCE_STOP = frozenset({
+    "tomorrow", "today", "tonight", "on", "at", "in", "for", "about", "with", "by", "this", "next", "from", "before", "after",
+    "saying", "announcing", "asap", "now", "please", "then", "so", "that", "which", "who", "telling", "inviting", "using", "via",
+})
+# "write a newsletter to announce the sale", "to customers, make it short": a name that starts
+# with a verb is a purpose or an instruction, not an audience.
+_PURPOSE_VERBS = frozenset({
+    "announce", "tell", "invite", "promote", "share", "celebrate", "thank", "remind", "let", "say", "introduce", "welcome", "show",
+    "get", "help", "ask", "keep", "launch", "offer", "be", "go", "brevo", "send", "draft", "schedule", "make", "use", "add",
+    "include", "mention", "write", "explain", "highlight",
+})
+# Everyone is not a list: the planner asks which list instead of guessing.
+_NOT_A_LIST = frozenset({"everyone", "everybody", "all", "all contacts", "all subscribers", "contacts", "people", "me", "us", "them"})
+_ARABIC_TO = re.compile(r"(?:^| )(?:إلى|الى) (?!قائمة|قائمتي|قائمتى|قوائم)([^.,،؛!?؟]{1,120})")
+# "للعملاء" is "ل" + "العملاء" with the alef dropped.
+_ARABIC_LIL = re.compile(r"(?:^| )لل([^ .,،؛!?؟]{2,40})((?: [^.,،؛!?؟]{1,80})?)")
+_ARABIC_NOT_A_LIST = frozenset({"الجميع", "الكل", "كل"})
 _ISO_WHEN = re.compile(r"\b(\d{4}-\d{2}-\d{2})(?:(?:[ T]| at | الساعة | في الساعة )(\d{1,2}):(\d{2}))?")
 _RELATIVE_WHEN = re.compile(r"\b(today|tomorrow)(?: (?:at )?(\d{1,2})(?::(\d{2}))? ?(am|pm)?)?\b", re.IGNORECASE)
 # Arabic: "غدا الساعة 9 صباحا", "اليوم الساعة 14:00", "غداً في الساعة 7 مساءً".
@@ -134,7 +156,41 @@ def list_names(text: str) -> list[str]:
         for name in _arabic_names(match.group(1)):
             if name.lower() not in {item.lower() for item in found}:
                 found.append(name[:100])
+    if not found:
+        found = audience_names(text)
     return found[:MAX_LISTS]
+
+
+def audience_names(text: str) -> list[str]:
+    """Lists named without the word "list": "to customers", "to our customers and VIPs",
+    "إلى العملاء", "للعملاء والموزعين". Each name is resolved against the account's lists when
+    the draft is written, so a word that is no list fails there and nothing is drafted."""
+    found: list[str] = []
+
+    def add(name: str) -> None:
+        name = " ".join(name.split()).strip(" '\"")
+        if name and name.lower() not in _NOT_A_LIST and name not in _ARABIC_NOT_A_LIST and name.lower() not in {item.lower() for item in found}:
+            found.append(name[:100])
+
+    for match in _TO_AUDIENCE.finditer(text):
+        words: list[str] = []
+        for word in match.group(1).split():
+            if word.lower() in _AUDIENCE_STOP or word[:1].isdigit() or _ARABIC_LETTER.search(word):
+                break
+            words.append(word)
+        if not words or words[0].lower() in _PURPOSE_VERBS:
+            continue
+        for part in re.split(r",|&|\band\b", " ".join(words), flags=re.IGNORECASE):
+            first = part.split()[:1]
+            if 0 < len(part.split()) <= 4 and first[0].lower() not in _PURPOSE_VERBS:
+                add(part)
+    for match in _ARABIC_TO.finditer(text):
+        for name in _arabic_names(match.group(1)):
+            add(name)
+    for match in _ARABIC_LIL.finditer(text):
+        for name in _arabic_names(f"ال{match.group(1)}{match.group(2)}"):
+            add(name)
+    return found
 
 
 def _arabic_names(words: str) -> list[str]:

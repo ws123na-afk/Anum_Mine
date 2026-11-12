@@ -18,10 +18,10 @@ import { type Load } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import {
   CURRENCIES, DATE_FIELDS, PAGE_SIZE, RECEIPT_FIELDS, SORTS, VAULT_TABS, activityLabel, categoryLabel, confidenceText, documentFromHash, editDraft, editPatch, expiriesByDay,
-  expiryText, expiryTone, filterQuery, hashOf, isIdentity, linkLabel, linkedPercent, mergeDocuments, monthGrid, reviewDraft, reviewProblems, rowStatus, rowStatusTone,
+  expiryText, expiryTone, filterQuery, hashOf, isIdentity, linkLabel, linkedPercent, matchPercent, matchState, mergeDocuments, monthGrid, reviewDraft, reviewProblems, rowStatus, rowStatusTone,
   suggestionFields, tabFromHash, uploadProblem, warningTexts,
   type DocumentExtraction, type EditDraft, type VaultDevice, type VaultDeviceCreated, type VaultDocument, type VaultDocumentDetail, type VaultDocumentRow, type VaultMeta,
-  type VaultReviewItem, type VaultSort, type VaultTab, type VaultVersionPage,
+  type VaultReceiptMatches, type VaultReceiptProposal, type VaultReviewItem, type VaultSort, type VaultTab, type VaultVersionPage,
 } from './lib/vault';
 import * as api from './lib/vaultApi';
 import './admin.css';
@@ -493,6 +493,7 @@ function DocumentDetail({ id, meta, onClose, onChanged }: { id: string; meta: Va
       <p className="muted">{t('vault.receipt.noPosting')}</p>
     </section>}
 
+    {doc.receipt && <ReceiptMatches doc={doc} onChanged={(text) => { void fetch(); onChanged(text); }} />}
     <Extractions doc={doc} />
     <Versions doc={doc} onChanged={() => { void fetch(); onChanged(); }} />
     {(doc.can_share || doc.shared_with.length > 0) && <Sharing doc={doc} onChanged={() => { void fetch(); onChanged(); }} />}
@@ -635,6 +636,64 @@ function Links({ doc, meta, onChanged }: { doc: VaultDocumentDetail; meta: Vault
       <button type="submit" className="secondary"><Plus aria-hidden="true" />{t('vault.links.add')}</button>
     </form>}
     <p className="muted">{t('vault.links.finance')}</p>
+    {problem && <Notice error>{problem}</Notice>}
+  </section>;
+}
+
+/** Payments and purchases a confirmed receipt may belong to (docs/documents.md#receipt-matches). Proposals only: the
+ * person links one, and the server checks it is still proposed (409 otherwise). */
+function ReceiptMatches({ doc, onChanged }: { doc: VaultDocumentDetail; onChanged(text?: string): void }) {
+  const [load, setLoad] = useState<Load<VaultReceiptMatches>>({ state: 'loading' });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const fetch = useCallback(() => api.getMatches(doc.id).then((value) => setLoad({ state: 'ready', value }),
+    (error) => setLoad(isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) })),
+  [doc.id]);
+  useEffect(() => { void fetch(); }, [fetch, doc.row_version]);
+  const take = async (item: VaultReceiptProposal) => {
+    setBusy(item.target_id); setProblem(null);
+    try {
+      const value = await api.acceptMatch(doc.id, item.kind, item.target_id);
+      setLoad({ state: 'ready', value });
+      onChanged(t(item.kind === 'payment' ? 'vault.match.linked' : 'vault.match.attached'));
+    } catch (error) { setProblem(describeError(error)); void fetch(); } finally { setBusy(null); }
+  };
+  const heading = <h3 id="vault-matches"><Link2 aria-hidden="true" />{t('vault.match.title')}</h3>;
+  if (load.state === 'loading') return <section className="vaultSub" aria-labelledby="vault-matches">{heading}<LoadingSkeleton label={t('vault.match.loading')} rows={2} /></section>;
+  if (load.state !== 'ready') return <section className="vaultSub" aria-labelledby="vault-matches">{heading}
+    <PaneProblem text={t('vault.match.failed', { message: load.message })} onRetry={() => void fetch()} /></section>;
+  const m = load.value;
+  const state = matchState(m);
+  if (state === 'hidden') return null;
+  const row = (item: VaultReceiptProposal) => {
+    const amount = `${item.currency} ${item.amount}`;
+    const percent = matchPercent(item.confidence);
+    const verb = item.kind === 'payment' ? 'vault.match.linkPayment' : 'vault.match.attachPurchase';
+    const label = item.kind === 'payment' ? 'vault.match.linkPaymentLabel' : 'vault.match.attachPurchaseLabel';
+    return <li key={`${item.kind}:${item.target_id}`} className="vaultMatch">
+      <span className="vaultMatchText"><bdi dir="auto">{item.label}</bdi>
+        <small className="muted"><bdi dir="ltr">{amount}</bdi> · {day(item.on)}</small></span>
+      <span className="vaultMatchActions">
+        <Badge tone={item.merchant_agrees ? 'ok' : ''}>{t(item.merchant_agrees ? 'vault.match.agrees' : 'vault.match.noMerchant')}</Badge>
+        {percent !== null && <Badge>{t('vault.match.sure', { percent })}</Badge>}
+        {m.can_edit && <button type="button" className="secondary" disabled={busy !== null}
+          aria-label={t(label, { label: item.label, amount, day: day(item.on) })} onClick={() => void take(item)}>
+          <Check aria-hidden="true" />{busy === item.target_id ? t('vault.saving') : t(verb)}</button>}
+      </span>
+    </li>;
+  };
+  return <section className="vaultSub" aria-labelledby="vault-matches">{heading}
+    {state === 'not_confirmed' ? <p className="muted">{t('vault.match.notConfirmed')}</p> : <>
+      <p className="muted">{t('vault.match.intro')}</p>
+      {m.linked_payments.length > 0 && <p><Badge tone="ok">{t('vault.match.linkedPayment')}</Badge></p>}
+      {m.linked_purchases.length > 0 && <p><Badge tone="ok">{t('vault.match.linkedPurchase')}</Badge></p>}
+      {m.payments.length > 0 && <><h4>{t('vault.match.payments')}</h4><ul className="vaultMatches">{m.payments.map(row)}</ul></>}
+      {m.purchases.length > 0 && <><h4>{t('vault.match.purchases')}</h4><ul className="vaultMatches">{m.purchases.map(row)}</ul></>}
+      {state === 'none' && <p className="muted">{t('vault.match.none')}</p>}
+      {m.payments_unavailable && <p className="muted">{t('vault.match.noFinance')}</p>}
+      {m.purchases_unavailable && <p className="muted">{t('vault.match.noPurchases')}</p>}
+      {state === 'proposals' && !m.can_edit && <p className="muted vaultReadOnly"><Lock aria-hidden="true" />{t('vault.match.readOnly')}</p>}
+    </>}
     {problem && <Notice error>{problem}</Notice>}
   </section>;
 }

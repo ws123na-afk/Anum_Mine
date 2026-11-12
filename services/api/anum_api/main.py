@@ -317,6 +317,7 @@ from .vehicles.api import router as vehicles_router  # docs/vehicles.md
 from .vehicles.devices import router as vehicles_device_router
 from .purchases.api import router as purchases_router  # docs/purchases.md
 from .purchases.devices import router as purchases_device_router
+from .purchases.mail_import import router as purchases_mail_router  # Save as purchase from the Email Center
 from .business.api_books import router as business_books_router  # docs/business-books.md
 from .business.api_books_more import router as business_books_more_router  # docs/business-books.md (consolidated, recurring, ECB rates)
 from .business.api_evidence import router as business_evidence_router  # docs/business-books.md#supporting-documents-and-evidence
@@ -664,6 +665,7 @@ app.include_router(attendance_router)
 app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
 app.include_router(vehicles_router)
 app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
+app.include_router(purchases_mail_router)
 app.include_router(purchases_router)
 app.include_router(business_books_router)
 app.include_router(business_books_more_router)

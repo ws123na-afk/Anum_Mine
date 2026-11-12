@@ -220,3 +220,28 @@ def test_deleting_the_owners_personal_workspace_removes_the_allocation_rows_they
         left = connection.execute(text("select id from business_ledger_allocations where tenant_id = :t order by id"), {"t": TENANT_A}).scalars().all()
         bypass = connection.execute(text("select rolbypassrls from pg_roles where rolname = 'anum_tenant_purger'")).scalar_one()
     assert left == ["alloc_from_elsewhere"] and bypass is False
+
+
+def test_a_business_vehicle_counts_the_owners_allocation_as_its_cost(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    """docs/vehicles.md#business-allocations: in PostgreSQL, under the app role. The allocation row is read in the business
+    workspace's own scope; the record keeps no ledger id; taking the allocation back takes it out of the cost."""
+    api = client
+    canonical, _card = _fuel(api)
+    allocated = api.post(f"{API}/allocations", headers=ME, json={"canonical_id": canonical, "workspace_id": WORKSPACE_A2, "amount": "150",
+                                                                 "currency": "SAR", "category": "fuel"})
+    assert allocated.status_code == 201, allocated.text
+    owner_there = {**ME, "x-workspace-id": WORKSPACE_A2}
+    car = api.post("/api/v1/vehicles", headers=owner_there, json={"registration": "SYN BUS 88", "country": "SA", "fuel_type": "petrol_91",
+                                                                  "ownership": "business"}).json()
+    entry = api.post(f"/api/v1/vehicles/{car['id']}/fuel", headers=owner_there, json={
+        "filled_at": "2026-11-01T08:00:00+00:00", "litres": "40", "total": "150", "odometer_km": "10400"}).json()
+    items = api.get("/api/v1/vehicles/allocations", headers=owner_there).json()["items"]
+    assert len(items) == 1 and api.get("/api/v1/vehicles/allocations", headers=COLLEAGUE).json()["items"] == []
+    used = api.post(f"/api/v1/vehicles/costs/fuel_entry/{entry['id']}/allocation", headers=owner_there, json={"allocation_id": items[0]["allocation_id"]})
+    assert used.status_code == 201, used.text
+    stored = _rows(app_session, WORKSPACE_A2, "user_test", "select payment->>'source', payment->>'canonical_id' from vehicle_fuel_entries")
+    assert stored == [("allocation", "")]
+    report = api.get(f"/api/v1/vehicles/{car['id']}/report", headers=COLLEAGUE).json()
+    assert report["spend"] == [{"currency": "SAR", "amount": "150.00"}]
+    assert api.delete(f"{API}/allocations/{allocated.json()['link']['id']}", headers=ME).status_code == 200
+    assert api.get(f"/api/v1/vehicles/{car['id']}/report", headers=owner_there).json()["spend"] == []

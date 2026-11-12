@@ -88,6 +88,9 @@
 .bzWarnings { color: var(--d-warn); }
 .bzTrail > li { display: grid; gap: 2px; }
 .bzTrail small { color: var(--d-faint); font-size: var(--text-xs); }
+.bzRefunds { border-inline-start: 2px solid var(--d-line); display: grid; gap: 2px; margin-block-start: var(--d-s2); padding-inline-start: var(--d-s3); }
+.bzRefunds ul { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.bzRefunds li { display: grid; gap: 2px; }
 .bzSteps { font-size: var(--text-sm); gap: var(--d-s2); }
 .bzEvidenceForm, .bzForm { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 640px) { .bzEvidenceForm { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -184,6 +187,8 @@
 @media (min-width: 640px) { .invLineRow { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: 1200px) { .invLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, 1.5fr) 40px; } }
 .invAccess > li { display: grid; gap: 2px; }
+.invCodeSignIn { border-block-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
+.invCodeSignIn > p { margin: 0; }
 /* The global input rule makes inputs full width; a checkbox keeps its own size. */
 .bzCheck input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
 .bzToolbar .bzCheck { margin-top: 0; padding-block-end: var(--d-s2); white-space: nowrap; }

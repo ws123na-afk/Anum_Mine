@@ -25,6 +25,12 @@ abstract interface class MailCenterRepository {
     bool flagged = false,
   });
   Future<MailDetail> read(String accountId, String folder, int uid);
+
+  /// Save the message as a purchase draft, with one attachment kept as its
+  /// private receipt (docs/purchases.md#save-as-purchase-from-the-email-center).
+  Future<({String status, String purchaseId, String message})> saveAsPurchase(
+      String accountId, String folder, int uid,
+      {int? attachmentIndex, String ownership = 'personal'});
   Future<void> setFlag(String accountId, String folder, int uid,
       {required String flag, required bool value});
 
@@ -210,6 +216,25 @@ class ApiMailCenterRepository implements MailCenterRepository {
         _path('$_base/accounts/${_id(accountId)}/message',
             {'folder': folder, 'uid': '$uid'}),
       )));
+
+  @override
+  Future<({String status, String purchaseId, String message})> saveAsPurchase(
+      String accountId, String folder, int uid,
+      {int? attachmentIndex, String ownership = 'personal'}) async {
+    final body = JsonReader(
+        await api.request('POST', '/api/v1/purchases/from-mail', body: {
+      'account_id': accountId,
+      'folder': folder,
+      'uid': uid,
+      'attachment_index': attachmentIndex,
+      'ownership': ownership,
+    }));
+    return (
+      status: body.optString('status') ?? 'created',
+      purchaseId: body.optString('purchase_id') ?? '',
+      message: body.optString('message') ?? '',
+    );
+  }
 
   @override
   Future<void> setFlag(String accountId, String folder, int uid,

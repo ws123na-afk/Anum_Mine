@@ -233,6 +233,9 @@ config:
   ANUM_EMAIL_SYNC_MAX_MESSAGES: "200"
   ANUM_EMAIL_BODY_MAX_BYTES: "262144"
   ANUM_EMAIL_ATTACHMENT_MAX_BYTES: "10485760"
+  # Most bytes one Files bulk zip download may hold (1 MiB to 8 GiB; the zip is built on the
+  # API pod's disk, docs/files.md#bulk-actions).
+  ANUM_FILES_BULK_DOWNLOAD_MAX_BYTES: "1073741824"
   # Background sync of connected mailboxes (the API login must be in anum_maintenance);
   # 0 turns it off.
   ANUM_EMAIL_SYNC_INTERVAL_SECONDS: "300"

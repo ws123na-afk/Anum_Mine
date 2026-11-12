@@ -45,6 +45,9 @@ describe('vehicle helpers', () => {
     assert.match(paymentText(payment()), /SAR\s?150\.00/);
     assert.match(paymentText(payment({ status: 'needs_review' })), /check: the payment changed/);
     assert.equal(paymentText(payment({ status: 'void', status_reason: 'transaction_undone' })), 'The payment was undone in Finance');
+    // A business allocation as a business vehicle's cost (docs/vehicles.md#business-allocations).
+    assert.match(paymentText(payment({ source: 'allocation', link_id: '', canonical_id: '', source_ref: 'abc123' })), /SAR\s?150\.00 \(business allocation\)/);
+    assert.equal(paymentText(payment({ source: 'allocation', status: 'void', status_reason: 'allocation_removed' })), 'The allocation was taken back in Finance');
   });
 
   test('due dates read as today, in N days, overdue or by kilometres', () => {

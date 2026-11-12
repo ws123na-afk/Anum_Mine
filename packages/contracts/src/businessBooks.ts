@@ -724,10 +724,10 @@ export const LEDGER_SUBTYPES: LedgerSubtype[] = [
   'finance_cost', 'fx',
 ];
 export type LedgerSourceKind =
-  | 'invoice' | 'credit_note' | 'invoice_payment' | 'bill' | 'bill_payment' | 'allocation' | 'adjustment' | 'intercompany' | 'manual' | 'closing'
+  | 'invoice' | 'credit_note' | 'invoice_payment' | 'invoice_refund' | 'bill' | 'bill_payment' | 'allocation' | 'adjustment' | 'intercompany' | 'manual' | 'closing'
   | 'asset' | 'loan' | 'loan_repayment' | 'revaluation';
 export const LEDGER_SOURCE_KINDS: LedgerSourceKind[] = [
-  'invoice', 'credit_note', 'invoice_payment', 'bill', 'bill_payment', 'allocation', 'adjustment', 'intercompany', 'manual', 'closing',
+  'invoice', 'credit_note', 'invoice_payment', 'invoice_refund', 'bill', 'bill_payment', 'allocation', 'adjustment', 'intercompany', 'manual', 'closing',
   'asset', 'loan', 'loan_repayment', 'revaluation',
 ];
 

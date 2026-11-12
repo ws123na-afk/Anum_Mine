@@ -66,6 +66,12 @@ class PaymentRef(_Quantized):
     paid_by: str
     recorded_as_cash: bool = False
     linked_at: datetime
+    # ``allocation``: a business vehicle's cost paid from a personal card and allocated to this business in Finance
+    # (docs/vehicles.md#business-allocations). The record points at the business's allocation row, never at the
+    # payer's ledger: ``link_id`` and ``canonical_id`` stay empty and ``source_ref`` is the row's six characters.
+    source: Literal["link", "allocation"] = "link"
+    allocation_id: str | None = None
+    source_ref: str | None = None
 
 
 class _Scoped(_Quantized):

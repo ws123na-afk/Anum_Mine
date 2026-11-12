@@ -150,6 +150,35 @@ class InvoicePayment(Scoped):
     # A payment a provider reported (Moyasar or Stripe), recorded once per provider payment id.
     provider: Literal["moyasar", "stripe"] | None = None
     provider_payment_id: str | None = Field(default=None, max_length=200)
+    # What the provider charged the card (migration 0176): more than ``amount`` when the card paid above the balance.
+    provider_amount: Money | None = None
+
+
+class RefundStatus(StrEnum):
+    RECORDED = "recorded"
+    # The provider reported the refund failed or was cancelled after it was recorded: it counts no more.
+    REVERSED = "reversed"
+
+
+class InvoiceRefund(Scoped):
+    """A refund made in the Stripe or Moyasar dashboard on a card payment of a Business invoice, learnt from the
+    provider's verified webhook (docs/business.md#refunds-made-in-the-provider-dashboard). Recorded once per provider
+    refund. ``amount`` is what it takes off the invoice's amount paid; a refund of money the card took above the
+    balance (``provider_amount`` beyond the payment) takes nothing off."""
+
+    invoice_id: str
+    payment_id: str
+    provider: Literal["moyasar", "stripe"]
+    provider_refund_id: str = Field(max_length=200)
+    provider_payment_id: str = Field(max_length=200)
+    currency: Currency
+    provider_amount: Money
+    amount: Money
+    refunded_on: date
+    status: RefundStatus = RefundStatus.RECORDED
+    note: str = Field(default="", max_length=300)
+    recorded_by: str
+    reversed_at: datetime | None = None
 
 
 class MessageKind(StrEnum):
@@ -292,6 +321,32 @@ class PortalAccess(Scoped):
     revoked_at: datetime | None = None
     revoked_by: str | None = None
     created_by: str
+
+
+class SignInStatus(StrEnum):
+    PENDING = "pending"
+    # Asked for an address with no portal access: nothing was sent, but the request counts towards the limits.
+    UNMATCHED = "unmatched"
+    SIGNED_IN = "signed_in"
+    FAILED = "failed"
+    ENDED = "ended"
+
+
+class PortalSignIn(Scoped):
+    """One emailed code a customer asked for on the portal sign-in page (docs/business-portal.md#signing-in-with-an-emailed-code).
+    Only hashes are kept: the address, the IP address, the code and, once the code is used, the session."""
+
+    email_hash: str = Field(min_length=64, max_length=64)
+    ip_hash: str = Field(min_length=64, max_length=64)
+    access_id: str | None = None
+    code_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    status: SignInStatus = SignInStatus.PENDING
+    attempts: int = Field(default=0, ge=0, le=20)
+    expires_at: datetime
+    used_at: datetime | None = None
+    session_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    session_expires_at: datetime | None = None
+    ended_at: datetime | None = None
 
 
 class DecisionSubject(StrEnum):

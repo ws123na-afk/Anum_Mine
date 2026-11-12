@@ -116,6 +116,11 @@
 }
 .mailFiles h3 { font-size: var(--text-base); margin-bottom: var(--d-s2); }
 .mailFiles ul { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.mailPurchase { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.mailPurchase p:empty { display: none; }
+.mailpForm fieldset { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); margin: 0 0 var(--d-s3); min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.mailpChoice { align-items: center; display: flex; gap: var(--d-s2); min-height: 32px; overflow-wrap: anywhere; }
+.mailpChoice > input { block-size: 18px; flex: none; inline-size: 18px; margin: 0; }
 .mailFiles button { max-width: 100%; overflow-wrap: anywhere; text-align: start; }
 .mailFiles small { color: var(--d-muted); font-weight: 400; }
 .mailFrom { font-size: var(--text-md); margin: 0; overflow-wrap: anywhere; }

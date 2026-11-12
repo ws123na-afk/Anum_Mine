@@ -70,7 +70,7 @@ The `anum.brevo` skill (`agent_skills.py`) is selected by the words Brevo, newsl
 
 | Request | Planned call |
 | --- | --- |
-| "send the winter newsletter to the customers list" (draft, write, prepare, compose, create, send, schedule) | `brevo.draft_campaign` with the name ("Winter newsletter"), subject, preview text, a four-part outline, the user's words as `brief`, `language`, `list_names` and `schedule` |
+| "send the winter newsletter to the customers list", or plainly "send the winter newsletter to customers" (draft, write, prepare, compose, create, send, schedule, mail out, "email the ...") | `brevo.draft_campaign` with the name ("Winter newsletter"), subject, preview text, a four-part outline, the user's words as `brief`, `language`, `list_names` and `schedule` |
 | "أرسل نشرة الشتاء إلى قائمة العملاء غدا الساعة 9 صباحا" (أرسل, اكتب, جهز, جدول) | the same in Arabic: "نشرة الشتاء", lists `["العملاء"]`, tomorrow 09:00 UTC |
 | "how did newsletter campaign 101 perform?" | `brevo.campaign_report {campaign_id: 101}` |
 | "show the Brevo campaign reports" | `brevo.list_campaigns {status: sent}` |
@@ -81,7 +81,7 @@ The `anum.brevo` skill (`agent_skills.py`) is selected by the words Brevo, newsl
 - **The planner never plans `brevo.send_campaign`.** A request to "send" becomes a draft for review; the send is asked for on the page and waits for an owner's approval bound to the payload hash, as above. The send tool stays `always_ask`, so workspace autonomy cannot let it run.
 - Every planned call goes through the runtime's `ToolPolicy` like any other: the reads are low risk and allowed, the draft needs an owner or member.
 - `list_names` are resolved at execution against the account's lists (the first 50): one exact match per name, ignoring case, a trailing "s" and the Arabic article (so "عملاء" finds "العملاء"); anything else fails with "No single Brevo contact list is named ..." and nothing is written.
-- **Lists in English and Arabic:** "to the customers and VIP lists", "the list named Trade Partners"; "إلى قائمة العملاء", "لقائمتي العملاء والموزعين" (a name ends at a time word or a number, and "و" starts the next one).
+- **Lists in English and Arabic:** "to the customers and VIP lists", "the list named Trade Partners"; "إلى قائمة العملاء", "لقائمتي العملاء والموزعين" (a name ends at a time word or a number, and "و" starts the next one). When no list is named outright, the audience after "to" is read as the list names: "to customers", "to our customers and VIPs", "to Trade Partners, VIP & Customers", "إلى العملاء", "للعملاء والموزعين" (a name ends at a time or topic word such as tomorrow, at, about or for, at a number, or at a comma that starts an instruction). A "to" before a verb is a purpose ("a newsletter to announce the sale"), and "everyone" (الجميع) is no list: both get the question which list. A word that is no list of the account fails when the draft is written, with nothing drafted.
 - **Dates in English and Arabic** (UTC): "tomorrow at 9am", "today at 6pm", "2026-11-02 14:30", "on 2026-12-01 at 08:15"; "غدا الساعة 9 صباحا", "اليوم الساعة 7 مساء", "بتاريخ 2026-11-02 الساعة 14:30", with Arabic-Indic digits too. Tomorrow without a time is 09:00. Anything else, a past time or one less than 10 minutes away is "as soon as approved".
 - **The schedule is saved on the draft** (`scheduled_at`, the column from 0074; no new migration) when it is 10 minutes to a year away. Asking to send reuses it (the web pre-fills it; an API request without `scheduled_at` takes it), the approval binds it, and withdrawing a request keeps it.
 
@@ -97,7 +97,7 @@ At execution `brevo.draft_campaign` writes the complete email (`brevo/compose.py
 
 - **Not configured:** before a Brevo call reaches the runtime, `AgentPlanner.plan` reads the connection in its own thread and short unit of work (`brevo.planning.refusal`). With no connection, or a key Brevo refused, the plan is an `anum.respond` that says nothing was drafted or sent and how an owner fixes it. The tools refuse the same way if called directly.
 
-Tests: `tests/test_brevo_planning.py` (intent to plan in English and Arabic, list names and dates in both, the full email from the brand, the owner's Brevo template and a model with its text escaped, the saved schedule reused when asking to send, reads as allowed tool calls, never a send, a planned draft that sends nothing and whose send waits for an owner's approval with the right payload hash, list names that must exist, refusal when Brevo is not connected or its key was refused).
+Tests: `tests/test_brevo_planning.py` (intent to plan in English and Arabic, plain-word audiences through the planner with the mock model, list names and dates in both, the full email from the brand, the owner's Brevo template and a model with its text escaped, the saved schedule reused when asking to send, reads as allowed tool calls, never a send, a planned draft that sends nothing and whose send waits for an owner's approval with the right payload hash, list names that must exist, refusal when Brevo is not connected or its key was refused).
 
 ## Permissions
 

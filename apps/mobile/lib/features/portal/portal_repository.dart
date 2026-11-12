@@ -60,6 +60,49 @@ abstract interface class PortalRepository {
   void close();
 }
 
+/// A challenge from `POST /api/v1/portal/sign-in/code`: the same answer
+/// whether or not the address may sign in.
+class PortalCodeChallenge {
+  const PortalCodeChallenge(this.id, this.message);
+  final String id, message;
+}
+
+/// Signing in with an emailed code (docs/business-portal.md#signing-in-with-an-emailed-code).
+/// Public routes: no bearer, no workspace header.
+abstract interface class PortalCodeClient {
+  Future<PortalCodeChallenge> requestCode(String workspace, String email);
+
+  /// The session token (shaped like a link) for a right code.
+  Future<String> verify(String workspace, String challengeId, String code);
+}
+
+class ApiPortalCodeClient implements PortalCodeClient {
+  ApiPortalCodeClient(this.api);
+  final AnumApiClient api;
+
+  @override
+  Future<PortalCodeChallenge> requestCode(
+      String workspace, String email) async {
+    final body = await api.request('POST', '/api/v1/portal/sign-in/code',
+        body: {'workspace': workspace, 'email': email}, authenticated: false);
+    final r = JsonReader.of(body);
+    return PortalCodeChallenge(r.string('challenge_id'), r.string('message'));
+  }
+
+  @override
+  Future<String> verify(
+      String workspace, String challengeId, String code) async {
+    final body = await api.request('POST', '/api/v1/portal/sign-in/verify',
+        body: {
+          'workspace': workspace,
+          'challenge_id': challengeId,
+          'code': code
+        },
+        authenticated: false);
+    return JsonReader.of(body).string('token');
+  }
+}
+
 class ApiPortalRepository implements PortalRepository {
   ApiPortalRepository(this.api, String token) : _token = token;
   final AnumApiClient api;
@@ -90,7 +133,21 @@ class ApiPortalRepository implements PortalRepository {
   }
 
   @override
-  void close() => _token = null;
+  void close() {
+    final token = _token;
+    _token = null;
+    // A session from an emailed code is signed out on the server too (best
+    // effort); an access link has nothing to sign out of.
+    if (token != null &&
+        token.split('.').length == 5 &&
+        token.split('.')[3].startsWith('bpsign_')) {
+      api.request('POST', '/api/v1/portal/sign-in/end',
+          authenticated: false,
+          headers: {
+            'authorization': 'Bearer $token'
+          }).then((_) {}, onError: (Object _) {});
+    }
+  }
 
   @override
   Future<PortalMe> me() async =>

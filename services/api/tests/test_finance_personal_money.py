@@ -627,3 +627,32 @@ def test_live_rates_cost_only_interest_rates_never_fees() -> None:
     found = LiveResearch("ok", "q", day(2026, 11, 9), items=[LiveItem(title="Bank", url="https://bank.example/rates", read_on=day(2026, 11, 9), figures=figures)])
     assert [v for v, _, _ in live_rates(found)] == [D("5")]
     assert [(f.value, f.rate) for f in figures_in("معدل الفائدة 5% سنويا، رسوم 1%") if f.kind == "percent"] == [("5", True), ("1", False)]
+
+
+def test_the_guardians_caps_treat_lent_and_borrowed_money_as_a_transfer() -> None:
+    """A payment linked to money lent or borrowed counts as a transfer for the Guardian too: its monthly cap, its alerts,
+    the review queue and the check on a saved record, like the summary, advisor and budgets."""
+    bank = account(balance="5000")
+    change = client.post(f"{API}/guardian/changes", headers=OWNER, json={"rules": {
+        "category_caps": [{"category": "other", "currency": "AED", "amount": "500"}]}}).json()
+    assert client.post(f"{API}/guardian/changes/{change['id']}/confirm", headers=OWNER, json={"payload_hash": change["payload_hash"]}).status_code == 200
+    loan = client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Friend A", "amount": "1000",
+                                                                   "lent_on": "2026-11-02"}).json()
+    handed = record(bank["id"], "-1000", "2026-11-02", "Cash to Friend A", "other")
+    alerts = client.get(f"{API}/guardian/alerts", headers=OWNER, params={"month": "2026-11"}).json()["alerts"]
+    assert [a["code"] for a in alerts] == ["cap_over"]  # filed under "other", not yet linked: it counts
+    assert client.post(f"{API}/people-loans/{loan['id']}/links", headers=OWNER, json={"canonical_id": handed, "kind": "handed"}).status_code == 201
+    assert client.get(f"{API}/guardian/alerts", headers=OWNER, params={"month": "2026-11"}).json()["alerts"] == []
+    queue = client.get(f"{API}/guardian/review", headers=OWNER, params={"month": "2026-11"}).json()
+    assert queue["counts"]["flagged"] == 0
+    # The month's spend the cap reads leaves the loan out: a small purchase is within the cap again.
+    small = client.post(f"{API}/transactions", headers=OWNER, json={"account_id": bank["id"], "posted_on": "2026-11-05", "amount": "-100",
+                                                                    "description": "Hardware", "category": "other"})
+    assert small.status_code == 201 and small.json()["guardian"]["outcome"] == "allow"
+    over = client.post(f"{API}/transactions", headers=OWNER, json={"account_id": bank["id"], "posted_on": "2026-11-05", "amount": "-450",
+                                                                   "description": "Hardware", "category": "other"})
+    assert over.json()["guardian"]["outcome"] == "deny"  # real spend still counts: 100 + 450 is over 500
+    # Editing the lent payment itself is never judged by the caps.
+    txn_id = next(t["id"] for t in client.get(f"{API}/transactions", headers=OWNER).json()["items"] if t["description"] == "Cash to Friend A")
+    edited = client.patch(f"{API}/transactions/{txn_id}", headers=OWNER, json={"notes": "SYNTHETIC"})
+    assert edited.status_code == 200 and edited.json()["guardian"] is None

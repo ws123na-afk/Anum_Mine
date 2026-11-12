@@ -1339,4 +1339,129 @@ void main() {
     // The Arabic page is asked for.
     expect(repo.calls, contains('print binv_1 ar'));
   });
+
+  group('signing in with an emailed code', () {
+    test('a sign-in address is read as a workspace, never as a link', () {
+      final found =
+          parsePortalLink('https://app.example/portal#signin=tenant_a.ws_b');
+      expect(found, isA<PortalSignInAddress>());
+      expect((found as PortalSignInAddress).workspace, 'tenant_a.ws_b');
+      expect(
+          parsePortalLink('signin=tenant_a.ws_b'), isA<PortalSignInAddress>());
+      expect(parsePortalLink('https://app.example/portal#signin=bad'),
+          isA<PortalLinkInvalid>());
+      expect(cleanPortalCode(' 123 456 '), '123456');
+      expect(cleanPortalCode('12345'), isNull);
+    });
+
+    testWidgets('the address, the code, then the portal; a wrong code says so',
+        (tester) async {
+      sized(tester, 390, 1200);
+      final codes = _FakeCodes();
+      String? received;
+      await tester.pumpWidget(app(PortalEntryScreen(
+        createSession: (value) {
+          received = value;
+          return PortalController(FakePortal());
+        },
+        saver: FakeSaver(),
+        codes: codes,
+      )));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('portal-link-field')),
+          'https://app.example/portal#signin=tenant_a.ws_b');
+      await tester.tap(find.byKey(const Key('portal-open')));
+      await tester.pumpAndSettle();
+      expect(find.text('Sign in with an emailed code'), findsWidgets);
+      await tester.tap(find.byKey(const Key('portal-code-send')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Enter your email address in full'),
+          findsOneWidget);
+      await tester.enterText(
+          find.byKey(const Key('portal-code-email')), 'sara@acme.example');
+      await tester.tap(find.byKey(const Key('portal-code-send')));
+      await tester.pumpAndSettle();
+      expect(codes.asked, [('tenant_a.ws_b', 'sara@acme.example')]);
+      expect(find.text(_FakeCodes.sent), findsOneWidget);
+      await tester.enterText(
+          find.byKey(const Key('portal-code-digits')), '000 000');
+      await tester.tap(find.byKey(const Key('portal-code-verify')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('This code is not right'), findsOneWidget);
+      expect(received, isNull);
+      await tester.enterText(
+          find.byKey(const Key('portal-code-digits')), '123456');
+      await tester.tap(find.byKey(const Key('portal-code-verify')));
+      await tester.pumpAndSettle();
+      expect(received, _FakeCodes.session);
+      expect(find.text('Gulf Mixers'), findsOneWidget);
+    });
+
+    testWidgets('the code screen in Arabic at 320 wide with large text',
+        (tester) async {
+      sized(tester, 320, 1600);
+      await tester.pumpWidget(app(
+          PortalCodeSignInScreen(
+              workspace: 'tenant_a.ws_b',
+              codes: _FakeCodes(),
+              createSession: (_) => PortalController(FakePortal())),
+          locale: const Locale('ar'),
+          textScale: 2));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('الدخول برمز يصلك بالبريد'), findsWidgets);
+    });
+
+    test('an invoice reads the card refunds the business made', () {
+      final invoice = PortalInvoice.fromJson(JsonReader.of({
+        'id': 'binv_9',
+        'number': 'INV-9',
+        'status': 'sent',
+        'currency': 'SAR',
+        'total': 100,
+        'amount_paid': 60,
+        'balance': 40,
+        'payment_state': 'partially_paid',
+        'lines': <Object>[],
+        'subtotal': 100,
+        'tax': 0,
+        'notes': '',
+        'payment_terms': '',
+        'bill_to_name': '',
+        'bill_to_address': '',
+        'bill_to_tax_number': '',
+        'payments': <Object>[],
+        'refunds': [
+          {'refunded_on': '2026-11-01', 'amount': 40}
+        ],
+      }));
+      expect(invoice.refunds, [('2026-11-01', 40.0)]);
+    });
+  });
+}
+
+class _FakeCodes implements PortalCodeClient {
+  static const sent =
+      'If this address may use this business\'s portal, a code is on its way. It works for 10 minutes.';
+  static const session =
+      'anum_portal.tenant_a.ws_b.bpsign_0123456789abcdef0123456789abcdef.SeSsIoNsEcReT0123456789abcdefgh';
+  final asked = <(String, String)>[];
+
+  @override
+  Future<PortalCodeChallenge> requestCode(
+      String workspace, String email) async {
+    asked.add((workspace, email));
+    return const PortalCodeChallenge(
+        'bpsign_0123456789abcdef0123456789abcdef', sent);
+  }
+
+  @override
+  Future<String> verify(
+      String workspace, String challengeId, String code) async {
+    if (code != '123456') {
+      throw const ApiException(
+          401, 'This code is not right, or it has expired.');
+    }
+    return session;
+  }
 }

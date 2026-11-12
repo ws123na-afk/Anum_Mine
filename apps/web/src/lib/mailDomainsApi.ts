@@ -1,4 +1,4 @@
-// Mail domains and aliases over the live API (docs/email.md#mail-domains).
+// Mail domains, aliases and mailboxes over the live API (docs/email.md#mail-domains).
 import { apiRequest, apiRequestVoid } from './api';
 import type { DnsReport, DomainChangeBody, MailDomainsView, PendingDomainChange } from './mailDomains';
 

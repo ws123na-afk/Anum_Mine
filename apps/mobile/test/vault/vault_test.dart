@@ -24,6 +24,7 @@ Map<String, Object?> docJson(String id,
         int? days = 20,
         String status = 'active',
         bool isOwner = true,
+        Map<String, Object?>? receipt,
         List<Map<String, Object?>>? links}) =>
     {
       'id': id,
@@ -43,7 +44,7 @@ Map<String, Object?> docJson(String id,
       'assistant_may_read': false,
       'reminder_days': null,
       'retention_until': null,
-      'receipt': null,
+      'receipt': receipt,
       'source': 'web',
       'owner_user_id': 'user_me',
       'is_owner': isOwner,
@@ -125,8 +126,9 @@ Map<String, Object?> metaJson({bool canWrite = true}) => {
     };
 
 class VaultApi {
-  VaultApi({this.empty = false, this.canWrite = true});
-  bool empty, canWrite;
+  VaultApi({this.empty = false, this.canWrite = true, this.receipt = false});
+  bool empty, canWrite, receipt;
+  String? linkedPayment;
   bool trashed = false;
   final links = <Map<String, Object?>>[];
   late final api = FakeApi(route);
@@ -175,7 +177,28 @@ class VaultApi {
     }
     if (r.method == 'GET' && path == '$base/vdoc_1') {
       return ok(docJson('vdoc_1',
-          status: trashed ? 'deleted' : 'active', links: links));
+          status: trashed ? 'deleted' : 'active',
+          links: links,
+          receipt: receipt
+              ? {
+                  'total': '86.40',
+                  'currency': 'SAR',
+                  'date': '2026-11-10',
+                  'merchant': 'Alnoor Pharmacy',
+                  'items': <Object?>[],
+                }
+              : null));
+    }
+    // Receipt matches (docs/documents.md#receipt-matches).
+    if (r.method == 'GET' && path == '$base/vdoc_1/matches') {
+      return ok(matchesJson());
+    }
+    if (r.method == 'POST' && path == '$base/vdoc_1/matches/accept') {
+      if (r.body!['target_id'] != 'fin_je_1') {
+        return ok({'detail': 'This match is no longer proposed.'}, 409);
+      }
+      linkedPayment = 'fin_je_1';
+      return ok(matchesJson());
     }
     if (r.method == 'POST' && path == '$base/vdoc_1/number') {
       return ok({'number': 'X1234'});
@@ -257,6 +280,38 @@ class FakeSaver implements VaultFileSaver {
   Future<void> save(String documentId, String name,
           {String? versionId}) async =>
       saved.add((documentId, name, versionId));
+}
+
+extension on VaultApi {
+  Map<String, Object?> matchesJson() => {
+        'document_id': 'vdoc_1',
+        'receipt': {
+          'total': '86.40',
+          'currency': 'SAR',
+          'on': '2026-11-10',
+          'merchant': 'Alnoor Pharmacy'
+        },
+        'reason': null,
+        'can_edit': true,
+        'payments': [
+          if (linkedPayment == null)
+            {
+              'kind': 'payment',
+              'target_id': 'fin_je_1',
+              'on': '2026-11-10',
+              'amount': '86.40',
+              'currency': 'SAR',
+              'label': 'ALNOOR PHARMACY',
+              'merchant_agrees': true,
+              'confidence': '0.9',
+            }
+        ],
+        'payments_unavailable': null,
+        'purchases': <Object?>[],
+        'purchases_unavailable': 'purchase_access',
+        'linked_payments': [if (linkedPayment != null) linkedPayment],
+        'linked_purchases': <Object?>[],
+      };
 }
 
 Future<(FakeUploads, FakeSaver)> pumpVault(WidgetTester tester, VaultApi fake,
@@ -404,6 +459,40 @@ void main() {
       expect(fake.api.sent('POST', '/api/v1/documents/vdoc_1/restore'),
           hasLength(1));
       expectClean(tester);
+    });
+
+    testWidgets('a confirmed receipt offers its payment; Link payment links it',
+        (tester) async {
+      final fake = VaultApi(receipt: true);
+      await pumpVault(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('doc-vdoc_1')));
+      expect(find.byKey(const Key('vault-matches')), findsOneWidget);
+      expect(find.text('ALNOOR PHARMACY'), findsOneWidget);
+      expect(find.textContaining('Same merchant, 90% match'), findsOneWidget);
+      expect(
+          find.text(
+              'Purchases are shown to people who may use Purchases in this workspace.'),
+          findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('match-take-fin_je_1')));
+      expect(
+          fake.api
+              .sent('POST', '/api/v1/documents/vdoc_1/matches/accept')
+              .single
+              .body,
+          {'kind': 'payment', 'target_id': 'fin_je_1'});
+      expect(find.text('Linked to a payment in Finance as its receipt.'),
+          findsOneWidget);
+      expect(find.byKey(const Key('match-take-fin_je_1')), findsNothing);
+      expectClean(tester);
+    });
+
+    testWidgets('a document without a confirmed receipt asks for no matches',
+        (tester) async {
+      final fake = VaultApi();
+      await pumpVault(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('doc-vdoc_1')));
+      expect(find.byKey(const Key('vault-matches')), findsNothing);
+      expect(fake.api.sent('GET', '/api/v1/documents/vdoc_1/matches'), isEmpty);
     });
 
     testWidgets('a category with nothing in it offers to clear the filters',

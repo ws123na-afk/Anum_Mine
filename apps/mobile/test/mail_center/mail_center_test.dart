@@ -6,6 +6,7 @@
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/features/mail_center/mail_all_inboxes.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_controller.dart';
+import 'package:anum_mobile/features/mail_center/mail_save_purchase.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_models.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_repository.dart';
 import 'package:anum_mobile/features/mail_center/mail_center_screens.dart';
@@ -234,6 +235,28 @@ class FakeMailRepository implements MailCenterRepository {
       ],
       30,
       uids.last > 1 ? uids.last : null,
+    );
+  }
+
+  final purchases = <Map<String, Object?>>[];
+  Object? purchaseError;
+
+  @override
+  Future<({String status, String purchaseId, String message})> saveAsPurchase(
+      String accountId, String folder, int uid,
+      {int? attachmentIndex, String ownership = 'personal'}) async {
+    if (purchaseError != null) throw purchaseError!;
+    purchases.add({
+      'account_id': accountId,
+      'folder': folder,
+      'uid': uid,
+      'attachment_index': attachmentIndex,
+      'ownership': ownership
+    });
+    return (
+      status: 'created',
+      purchaseId: 'pur_1',
+      message: 'Saved Noon under Purchases as a draft. Check its details.'
     );
   }
 
@@ -1061,6 +1084,59 @@ void main() {
     await tester.pumpAndSettle();
     expect(repo.approved, [_hash]);
     expect(find.text(_en('mc.d.sentText')), findsOneWidget);
+  });
+
+  testMail(
+      'save as purchase: the PDF as the receipt, and a refusal stays in the dialog',
+      (tester) async {
+    final repo = FakeMailRepository();
+    final c = MailCenterController(repo);
+    await c.loadSetup();
+    await c.openAccount(c.accounts.single);
+    await c.openFolder(c.folders.first);
+    await pumpMail(tester, c);
+    await tester.tap(find.text(_address));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Inbox'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Quote request 30'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('mc-save-purchase')));
+    await tester.tap(find.byKey(const Key('mc-save-purchase')));
+    await tester.pumpAndSettle();
+    expect(find.text(_en('mc.purchase.title')), findsOneWidget);
+    expect(find.text(_en('mc.purchase.private')), findsOneWidget);
+    repo.purchaseError = const ApiException(403,
+        'Keeping the attachment needs the document vault (owners and members).');
+    await tester.tap(find.byKey(const Key('mc-purchase-save')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mc-purchase-error')), findsOneWidget);
+    repo.purchaseError = null;
+    await tester.tap(find.byKey(const Key('mc-purchase-owner-business')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mc-purchase-save')));
+    await tester.pumpAndSettle();
+    expect(find.text(_en('mc.purchase.title')), findsNothing);
+    expect(repo.purchases.single, {
+      'account_id': c.account!.id,
+      'folder': 'INBOX',
+      'uid': 30,
+      'attachment_index': 0,
+      'ownership': 'business'
+    });
+    expect(c.savedPurchaseId, 'pur_1');
+    expect(find.textContaining('Saved Noon under Purchases'), findsOneWidget);
+  });
+
+  test('receipt choices offer downloadable files, PDFs then images first', () {
+    final files = [
+      const MailAttachment('logo.gif', 'image/gif', 10, index: 0),
+      const MailAttachment('photo.JPG', 'image/jpeg', 10, index: 1),
+      const MailAttachment('invoice.pdf', 'application/pdf', 10, index: 2),
+      const MailAttachment('huge.pdf', 'application/pdf', 10,
+          index: 3, downloadable: false),
+    ];
+    expect(receiptChoices(files).map((f) => f.index), [2, 1, 0]);
   });
 
   testMail('a move archives and returns to the list', (tester) async {

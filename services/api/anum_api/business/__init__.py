@@ -33,6 +33,7 @@ from .api_pipeline import router as _pipeline_router
 from .api_portal_admin import router as _portal_admin_router
 from .api_support import router as _support_router
 from .portal import router as _portal_router
+from .portal_signin import router as _portal_signin_router
 from .tools import register_business_tools
 
 router = APIRouter()
@@ -48,6 +49,7 @@ router.include_router(_invoice_send_router)
 router.include_router(_invoice_schedules_router)
 router.include_router(_portal_admin_router)
 router.include_router(_portal_router)
+router.include_router(_portal_signin_router)
 router.include_router(_support_router)
 
 __all__ = ["register_business_tools", "router"]

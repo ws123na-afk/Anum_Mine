@@ -112,6 +112,9 @@ PUBLIC_ROUTES: dict[str, str] = {
     "GET /api/v1/portal/tickets/{ticket_id}": "Customer portal link token.",
     "POST /api/v1/portal/tickets": "Customer portal link token.",
     "POST /api/v1/portal/tickets/{ticket_id}/messages": "Customer portal link token (one client account; 20 messages a day per link).",
+    "POST /api/v1/portal/sign-in/code": "Public, off unless the workspace owner turns it on: the same 202 answer for every address, a code only to a contact with active portal access, 5 an hour and 10 a day per address, 20 an hour per IP, only hashes stored.",
+    "POST /api/v1/portal/sign-in/verify": "Public: the six-digit code (HMAC-hashed, 10 minutes, 5 tries, once) of a challenge; makes a 12-hour session token for that one access.",
+    "POST /api/v1/portal/sign-in/end": "Customer portal session token (signs that session out only).",
 }
 
 # Authenticated routes with no workspace permission check. Each acts only on the caller's

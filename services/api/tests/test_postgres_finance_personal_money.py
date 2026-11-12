@@ -99,6 +99,12 @@ def test_records_are_the_owners_alone_and_lending_is_a_transfer(client: TestClie
     assert client.post(f"{API}/people-loans/{loan['id']}/links", headers=ME, json={"canonical_id": handed, "kind": "handed"}).status_code == 201
     month = client.get(f"{API}/summary", headers=ME, params={"month": "2026-11"}).json()
     assert month["spend"] == []
+    # The Guardian reads the same links on its own finance unit of work: the lent payment is no spend against a cap.
+    change = client.post(f"{API}/guardian/changes", headers=ME, json={"rules": {
+        "category_caps": [{"category": "other", "currency": "AED", "amount": "500"}]}}).json()
+    assert client.post(f"{API}/guardian/changes/{change['id']}/confirm", headers=ME, json={"payload_hash": change["payload_hash"]}).status_code == 200
+    assert client.get(f"{API}/guardian/alerts", headers=ME, params={"month": "2026-11"}).json()["alerts"] == []
+    assert client.get(f"{API}/guardian/review", headers=ME, params={"month": "2026-11"}).json()["counts"]["flagged"] == 0
     for table in TABLES:
         assert len(_rows(app_session, "user_test", f"select id from {table}")) == 1
         assert _rows(app_session, "colleague", f"select id from {table}") == []

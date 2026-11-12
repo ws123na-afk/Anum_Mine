@@ -48,6 +48,9 @@ describe('a repayment split across loans', () => {
       role: 'deposit' as const, treatment: null, category: null, project_id: null };
     const action = { kind: 'link' as const, transaction_ids: [], category: null, subcategory_id: null, transaction_type: null, link: null, parts: [part, { ...part, target_id: 'b' }] };
     assert.equal(variantOf({ kind: 'loan_repayment', params: { direction: 'lent', split: '2' }, action }), 'lent_split');
+    // A vehicle record proposed from its scanned receipt (docs/vehicles.md#payments).
+    assert.equal(variantOf({ kind: 'attribution', params: { dimension: 'vehicle', record: 'vehicle_fuel_entry', source: 'receipt' }, action }), 'vehicle_receipt');
+    assert.equal(variantOf({ kind: 'attribution', params: { dimension: 'vehicle', record: 'vehicle_fuel_entry' }, action }), 'vehicle');
     assert.equal(variantOf({ kind: 'loan_repayment', params: { direction: 'borrowed', split: '2' }, action }), 'borrowed_split');
     assert.equal(acceptMode({ action }), 'link');
   });

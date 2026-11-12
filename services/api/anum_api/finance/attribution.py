@@ -8,7 +8,9 @@ record it belongs to in another module, each with a confidence and the reason in
   same treatment and project as the last time. The cost centre the business gave that allocation is named in the
   evidence; classifying the row stays the business's own step in Books, Allocations.
 * **vehicle**: a fuel, parking, toll or service payment and a fuel entry or service record of the vehicles module with
-  the same amount and currency within three days (seven for a service), not linked to a payment yet.
+  the same amount and currency within three days (seven for a service), not linked to a payment yet. A record's figure is
+  its typed total, else the total of the receipt scanned for it and confirmed in the vault (``vault.receipts``); a
+  payment that names the scanned receipt's merchant is proposed even without fuel or service words.
 * **purchase**: a purchase of the purchases module with the same total and currency within seven days, not paid yet;
   merchant words that agree make it strong.
 * **debt**: a payment whose words name one of the owner's debts (or pays its minimum exactly).
@@ -178,11 +180,26 @@ def _allocations(snap: SG.Snapshot, workspace: str) -> dict[str, Any]:
 # -- vehicles and purchases ------------------------------------------------------------------------------------------------
 
 
+def _scanned(snap: SG.Snapshot, records: list[Any]) -> dict[str, Any]:
+    """The confirmed values of the receipts scanned for these vehicle records (``vault.receipts``), by document id."""
+    ids = {r.document_id for r in records if getattr(r, "document_id", None)}
+    if not ids:
+        return {}
+    try:
+        from ..vault.receipts import values
+    except ModuleNotFoundError:  # the vault is not installed
+        return {}
+    return values(snap.context, ids)
+
+
 def vehicles(snap: SG.Snapshot, live: list[Any]) -> list[SG.Suggestion]:
+    """A fuel or service payment and the vehicle record it pays. The record's figure is its typed pump or receipt total,
+    else the total of the receipt scanned for it (confirmed in the vault): then the receipt's date counts too, and a
+    payment whose words name the receipt's merchant is proposed even without fuel or service words."""
     from ..vehicles.store import open_vehicle_store
 
     linked = {l.canonical_id for l in live if l.dimension == "vehicle"}
-    rows = [t for t in _spend_rows(snap) if snap.canon[t.id] not in linked and VEHICLE_WORDS.search(t.description or "")]
+    rows = [t for t in _spend_rows(snap) if snap.canon[t.id] not in linked]
     if not rows:
         return []
     since = snap.today - timedelta(days=RECENT_DAYS + 7)
@@ -191,37 +208,67 @@ def vehicles(snap: SG.Snapshot, live: list[Any]) -> list[SG.Suggestion]:
         fuel, _ = store.list_records(snap.context, "fuel", None, query=None, start=since, end=None, limit=2_000, offset=0)
         service, _ = store.list_records(snap.context, "service", None, query=None, start=since, end=None, limit=2_000, offset=0)
     names = {v.id: (v.nickname or v.registration) for v in vehicles_}
-    open_fuel = [f for f in fuel if (f.payment is None or f.payment.status == "void") and f.total is not None and f.owner_user_id == snap.context.user_id]
-    open_service = [s for s in service if (s.payment is None or s.payment.status == "void") and s.receipt_total is not None
-                    and s.owner_user_id == snap.context.user_id]
+    mine_open = [r for r in [*fuel, *service] if (r.payment is None or r.payment.status == "void") and r.owner_user_id == snap.context.user_id]
+    scans = _scanned(snap, mine_open)
+    # (record, day, total, target, window, scanned receipt or None)
+    candidates: list[tuple[Any, Any, Decimal, str, int, Any]] = []
+    for record in mine_open:
+        is_fuel = hasattr(record, "filled_at")
+        day = record.filled_at.date() if is_fuel else record.service_on
+        typed = record.total if is_fuel else record.receipt_total
+        scan = scans.get(record.document_id or "")
+        if scan is not None and scan.currency != record.currency:
+            scan = None
+        total = typed if typed is not None else (scan.total if scan is not None else None)
+        if total is None:
+            continue
+        if scan is not None and typed is not None and scan.total != typed:
+            scan = None  # the scan and the typed figure disagree: propose on the typed one, without the receipt's backing
+        if scan is not None and typed is None:
+            day = scan.on
+        candidates.append((record, day, total, "vehicle_fuel_entry" if is_fuel else "vehicle_service_record", 3 if is_fuel else 7, scan))
     taken: set[str] = set()
     out = []
     for t in rows:
         amount = -t.amount
+        worded = bool(VEHICLE_WORDS.search(t.description or ""))
         found = None
-        for record, day, total, target, window in (
-                [(f, f.filled_at.date(), f.total, "vehicle_fuel_entry", 3) for f in open_fuel]
-                + [(s, s.service_on, s.receipt_total, "vehicle_service_record", 7) for s in open_service]):
+        for record, day, total, target, window, scan in candidates:
             if record.id in taken or record.currency != t.currency or total != amount or abs((day - t.posted_on).days) > window:
                 continue
-            found = (record, target, day)
+            agrees = merchants_agree(scan.merchant, t.description) if scan is not None else None
+            if agrees is False or not (worded or agrees):
+                continue  # the receipt names another merchant, or nothing says this payment is for a vehicle
+            found = (record, target, day, scan, agrees)
             break
         canonical = snap.canon[t.id]
         if found is not None:
-            record, target, day = found
+            record, target, day, scan, agrees = found
             taken.add(record.id)
             vehicle = names.get(record.vehicle_id, "")
             kind = "fuel entry" if target == "vehicle_fuel_entry" else "service record"
+            params = {"vehicle": vehicle[:80], "record": target, "day": day.isoformat()}
+            evidence = [SG.Evidence(label=vehicle[:120] or "Vehicle", ref_type="vehicle", ref_id=record.vehicle_id, value=f"{day.isoformat()} {record.currency} {amount}")]
+            if scan is not None:
+                params["source"] = "receipt"
+                params["merchant"] = scan.merchant[:80]
+                evidence.append(SG.Evidence(label=(scan.merchant or "Receipt")[:120], ref_type="other", ref_id=record.document_id or "",
+                                            value=f"{scan.on.isoformat()} {scan.currency} {scan.total}"))
+                detected = f"This payment may be the {kind} of {vehicle} on {day.isoformat()}, from its scanned receipt."
+                why = "The scanned receipt's total and currency are the payment's, within a few days" + (
+                    ", and the receipt names the same merchant." if agrees else ", and the words say fuel, parking or a service.")
+                confidence = Decimal("0.9") if agrees else Decimal("0.85")
+            else:
+                detected = f"This payment may be the {kind} of {vehicle} on {day.isoformat()}."
+                why = "Same amount and currency within a few days, and the words say fuel, parking or a service."
+                confidence = Decimal("0.85")
             out.append(_suggest(
-                t, canonical, f"attribution:vehicle:{t.id}:{record.id}", "vehicle", f"This payment may be the {kind} of {vehicle} on {day.isoformat()}.",
-                "Same amount and currency within a few days, and the words say fuel, parking or a service.",
-                params={"vehicle": vehicle[:80], "record": target, "day": day.isoformat()},
-                evidence=[SG.Evidence(label=vehicle[:120] or "Vehicle", ref_type="vehicle", ref_id=record.vehicle_id, value=f"{day.isoformat()} {record.currency} {amount}")],
-                confidence=Decimal("0.85"),
+                t, canonical, f"attribution:vehicle:{t.id}:{record.id}", "vehicle", detected, why, params=params, evidence=evidence,
+                confidence=confidence,
                 link=SG.LinkProposal(canonical_id=canonical, dimension="vehicle", target_type=target, target_id=record.id, amount=amount, currency=t.currency),
                 href="#vehicles",
             ))
-        elif len(vehicles_) == 1 and t.posted_on >= snap.today - timedelta(days=30):
+        elif worded and len(vehicles_) == 1 and t.posted_on >= snap.today - timedelta(days=30):
             vehicle = names[vehicles_[0].id]
             service_like = bool(SERVICE_WORDS.search(t.description or ""))
             out.append(_suggest(

@@ -24,6 +24,8 @@ export interface MailMockOptions {
   scannerRefuses?: string[];
   /** The scheduled list answers 503. */
   scheduledFails?: boolean;
+  /** Attachments every opened message lists (default none). */
+  readerAttachments?: { index: number; filename: string; content_type: string; size: number; downloadable: boolean }[];
 }
 
 export interface MailCalls {
@@ -154,7 +156,7 @@ export async function mockMailApi(page: Page, options: MailMockOptions = {}): Pr
       const found = state.messages.find((m) => m.uid === uid && m.folder === url.searchParams.get('folder'));
       if (!found) return error(404, 'That message is gone. It may have been moved or deleted.', 'not_found');
       found.seen = true;
-      return json({ message: view(found), reply_to: [], text: found.text, text_truncated: false, html: null, remote_images_blocked: 0, inline_images_hidden: 0, attachments: [] });
+      return json({ message: view(found), reply_to: [], text: found.text, text_truncated: false, html: null, remote_images_blocked: 0, inline_images_hidden: 0, attachments: options.readerAttachments ?? [] });
     }
     if (path === `/api/v1/mail/accounts/${mailAccount.id}/flags` && method === 'POST') {
       const body = request.postDataJSON() as MailCalls['flags'][number];

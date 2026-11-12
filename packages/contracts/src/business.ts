@@ -379,6 +379,18 @@ export interface InvoicePayment extends Scoped {
   idempotency_key?: string | null;
   /** A payment Moyasar or Stripe reported (a payment link), recorded once per provider payment id. */
   provider?: CardProvider | null; provider_payment_id?: string | null;
+  /** What the provider charged the card: more than `amount` when the card paid above the balance. */
+  provider_amount?: number | null;
+}
+
+/** A refund made in the Stripe or Moyasar dashboard, synced from the provider's webhook (docs/business.md#refunds-made-in-the-provider-dashboard). */
+export interface InvoiceRefund extends Scoped {
+  invoice_id: string; payment_id: string; provider: CardProvider; provider_refund_id: string; provider_payment_id: string; currency: BusinessCurrency;
+  /** What the provider gave back. */
+  provider_amount: number;
+  /** What it took off the invoice's amount paid (nothing for money the card took above the balance). */
+  amount: number;
+  refunded_on: string; status: 'recorded' | 'reversed'; note: string; recorded_by: string; reversed_at: string | null;
 }
 
 export type InvoiceMessageKind = 'invoice' | 'reminder';
@@ -435,6 +447,8 @@ export interface BusinessInvoice extends Scoped {
   voided_by: string | null; voided_at: string | null; void_reason: string; decision_note: string; created_by: string;
   account_name: string; project_name: string | null; balance: number; overdue: boolean; days_overdue: number; payment_state: InvoicePaymentState;
   payments: InvoicePayment[];
+  /** Refunds made in the card provider's dashboard (older servers send none). */
+  refunds?: InvoiceRefund[];
   credit_notes: CreditNote[];
   payment_notices: PaymentNotice[];
   approval_state: ApprovalState;
@@ -560,6 +574,8 @@ export interface PortalDecisionRow {
 
 export interface PortalMe {
   business_name: string; account_name: string; contact_name: string; expires_at: string; can_decide: boolean;
+  /** "code" after signing in with an emailed code (the customer can sign out); older servers send none. */
+  signed_in_with?: 'link' | 'code';
   counts: { offers_waiting: number; change_orders_waiting: number; invoices_open: number; invoices_overdue: number; tickets_open: number };
   projects: { id: string; name: string }[];
 }
@@ -592,6 +608,8 @@ export interface PortalInvoice extends PortalInvoiceSummary {
   subtotal: number; tax: number; notes: string; payment_terms: string; bill_to_name: string; bill_to_address: string; bill_to_tax_number: string;
   seller: { legal_name: string; address: string; tax_label: string; tax_number: string; email: string; phone: string; bank_details: string };
   payments: { paid_on: string; amount: number; method: PaymentMethod; reference: string }[];
+  /** Card refunds the business made (docs/business-portal.md); older servers send none. */
+  refunds?: { refunded_on: string; amount: number }[];
   credit_notes: { number: string; issue_date: string; amount: number; reason: string; status: CreditNoteStatus }[];
   payment_notices: { id: string; amount: number; paid_on: string; method: PaymentMethod; reference: string; status: PaymentNoticeStatus; decision_note: string; created_at: string }[];
   /** A sent invoice with a balance, on a link that may act, in a workspace that is not paused. */
@@ -614,4 +632,15 @@ export interface PortalTicket extends PortalTicketSummary {
   can_reply?: boolean;
 }
 export interface PortalMessageInput { body: string; idempotency_key: string }
+/** Signing in to the portal with an emailed code (docs/business-portal.md#signing-in-with-an-emailed-code). */
+export interface PortalCodeRequest { workspace: string; email: string }
+export interface PortalCodeAnswer { challenge_id: string; expires_in_seconds: number; message: string }
+export interface PortalCodeVerify { workspace: string; challenge_id: string; code: string }
+export interface PortalCodeSession { token: string; expires_at: string }
+/** The owner's switch (Business, Customer portal). */
+export interface PortalSignInSettings {
+  enabled: boolean; email_configured: boolean;
+  /** `/portal#signin=<tenant>.<workspace>`: put the app's address in front. */
+  sign_in_path: string; codes_last_30_days: number; sign_ins_last_30_days: number;
+}
 export interface PortalTicketInput { title: string; description: string; severity?: 'low' | 'normal' | 'high'; project_id?: string | null }

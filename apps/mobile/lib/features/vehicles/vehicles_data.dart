@@ -11,15 +11,52 @@ class VehiclePayment {
     required this.amount,
     required this.currency,
     required this.recordedAsCash,
+    this.statusReason,
+    this.source = 'link',
+    this.sourceRef,
   });
   factory VehiclePayment.fromJson(JsonReader j) => VehiclePayment(
         status: j.string('status'),
+        statusReason: j.optString('status_reason'),
         amount: j.string('amount'),
         currency: j.string('currency'),
         recordedAsCash: j.optBool('recorded_as_cash') ?? false,
+        source: j.optString('source') ?? 'link',
+        sourceRef: j.optString('source_ref'),
       );
   final String status, amount, currency;
+  final String? statusReason, sourceRef;
   final bool recordedAsCash;
+
+  /// `allocation`: a business vehicle's cost paid from a personal card and
+  /// allocated to the business in Finance (docs/vehicles.md#business-allocations).
+  final String source;
+  bool get isAllocation => source == 'allocation';
+}
+
+/// One of this business's allocations the caller made that no vehicle
+/// record counts yet (`GET /vehicles/allocations`).
+class VehicleAllocation {
+  const VehicleAllocation({
+    required this.id,
+    required this.postedOn,
+    required this.amount,
+    required this.currency,
+    required this.category,
+    required this.sourceRef,
+    this.memo,
+  });
+  factory VehicleAllocation.fromJson(JsonReader j) => VehicleAllocation(
+        id: j.string('allocation_id'),
+        postedOn: j.string('posted_on'),
+        amount: j.string('amount'),
+        currency: j.string('currency'),
+        category: j.optString('category') ?? '',
+        sourceRef: j.optString('source_ref') ?? '',
+        memo: j.optString('memo'),
+      );
+  final String id, postedOn, amount, currency, category, sourceRef;
+  final String? memo;
 }
 
 class VehicleDue {
@@ -296,6 +333,9 @@ abstract interface class VehiclesRepository {
       {String query, String? around, String? amount});
   Future<VehiclePayment> linkPayment(String costKind, String recordId,
       {required String canonicalId, required String idempotencyKey});
+  Future<List<VehicleAllocation>> allocations({String? around, String? amount});
+  Future<VehiclePayment> useAllocation(
+      String costKind, String recordId, String allocationId);
 }
 
 class ApiVehiclesRepository implements VehiclesRepository {
@@ -397,6 +437,25 @@ class ApiVehiclesRepository implements VehiclesRepository {
               'POST', '$_base/costs/$costKind/${_id(recordId)}/payment',
               body: {'canonical_id': canonicalId},
               headers: {'Idempotency-Key': idempotencyKey}))
+          .object('payment'));
+
+  @override
+  Future<List<VehicleAllocation>> allocations(
+          {String? around, String? amount}) async =>
+      JsonReader(await api.request(
+              'GET',
+              '$_base/allocations${recordsQuery({
+                    'around': around,
+                    'amount': amount
+                  })}'))
+          .optObjects('items', VehicleAllocation.fromJson);
+
+  @override
+  Future<VehiclePayment> useAllocation(
+          String costKind, String recordId, String allocationId) async =>
+      VehiclePayment.fromJson(JsonReader(await api.request(
+              'POST', '$_base/costs/$costKind/${_id(recordId)}/allocation',
+              body: {'allocation_id': allocationId}))
           .object('payment'));
 }
 

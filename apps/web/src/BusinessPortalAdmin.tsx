@@ -3,8 +3,8 @@
 // decided on a proposal or a change order. The link is a credential: it is held in this component's
 // state until it is closed and is never written to storage or the address bar.
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Copy, KeyRound } from 'lucide-react';
-import type { BusinessContact, BusinessSetup, PortalAccessCreated, PortalAccessItem, PortalDecisionRow, PortalDecisionSummary } from '@anum/contracts';
+import { Copy, KeyRound, Mail } from 'lucide-react';
+import type { BusinessContact, BusinessSetup, PortalAccessCreated, PortalAccessItem, PortalDecisionRow, PortalDecisionSummary, PortalSignInSettings } from '@anum/contracts';
 import { t } from './lib/i18n';
 import { copyText } from './lib/clipboard';
 import { accessLabel, accessState, accessTone, buildPortalLink, decisionLine } from './lib/portal';
@@ -56,12 +56,53 @@ export function PortalAccessBlock({ setup, accountId }: { setup: BusinessSetup; 
           {contacts.length === 0 && <span className="muted bzHint">{t('inv.portal.noContacts')}</span>}</div>
         : <p className="muted bzHint">{t('inv.portal.ownersOnly')}</p>}
     </>}
+    <CodeSignInSwitch manage={manage} />
     <PortalDecisions accountId={accountId} />
     {creating && <CreateLinkDialog accountId={accountId} contacts={contacts} onClose={() => setCreating(false)} onCreated={(link) => { setCreating(false); setCreated(link); void reload(); }} />}
     {created && <LinkShown link={created} onClose={() => setCreated(null)} />}
     {revoking && <ConfirmDialog title={t('inv.portal.revokeTitle', { name: revoking.contact_name })} confirmLabel={t('inv.portal.revoke')} danger onCancel={() => setRevoking(null)} onConfirm={() => void revoke(revoking)}>
       <p>{t('inv.portal.revokeText')}</p></ConfirmDialog>}
   </section>;
+}
+
+/**
+ * The workspace's switch for signing in with an emailed code (docs/business-portal.md#signing-in-with-an-emailed-code):
+ * customers who already have access may sign in at the business's sign-in address with a code sent to their contact's email.
+ */
+export function CodeSignInSwitch({ manage }: { manage: boolean }) {
+  const [state, setState] = useState<PortalSignInSettings | null>(null), [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
+  const heading = useId(), toggleId = useId();
+  const load = useCallback(async () => {
+    setProblem(null);
+    try { setState(await inv.getPortalSignIn()); } catch (error) { setProblem(failure(error, t('inv.portal.code.title'))); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  async function toggle(enabled: boolean) {
+    setBusy(true); setProblem(null);
+    try { setState(await inv.setPortalSignIn(enabled)); } catch (error) { setProblem(failure(error, t('inv.portal.code.title'))); } finally { setBusy(false); }
+  }
+  const address = state ? buildPortalLink(window.location.origin, state.sign_in_path) : '';
+  return <div className="invCodeSignIn" role="group" aria-labelledby={heading}>
+    <p id={heading} className="bzInline"><Mail aria-hidden="true" /><strong>{t('inv.portal.code.title')}</strong>
+      {state && <Badge tone={state.enabled ? 'success' : 'neutral'}>{state.enabled ? t('inv.portal.code.on') : t('inv.portal.code.off')}</Badge>}</p>
+    <p className="muted bzHint">{t('inv.portal.code.help')}</p>
+    {state === null && !problem && <Note>{t('biz.loading')}</Note>}
+    {problem && <Note error>{problem} {state === null && <button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button>}</Note>}
+    {state && <>
+      {manage
+        ? <label className="bzCheck" htmlFor={toggleId}><input id={toggleId} type="checkbox" checked={state.enabled} disabled={busy || (!state.enabled && !state.email_configured)}
+            onChange={(event) => void toggle(event.target.checked)} />{t('inv.portal.code.toggle')}</label>
+        : <p className="muted bzHint">{t('inv.portal.code.ownersOnly')}</p>}
+      {!state.email_configured && <p className="muted bzHint">{t('inv.portal.code.noMail')}</p>}
+      {state.enabled && <div className="bzInline">
+        <code className="invLinkUrl" dir="ltr">{address}</code>
+        <button type="button" className="secondary" onClick={() => void copyText(address).then(() => setCopied(true))}><Copy aria-hidden="true" />{t('inv.portal.code.copy')}</button>
+        <span aria-live="polite" className="muted">{copied ? t('inv.portal.code.copied') : ''}</span>
+      </div>}
+      {state.enabled && <small className="muted">{t('inv.portal.code.counts', { codes: state.codes_last_30_days, sign_ins: state.sign_ins_last_30_days })}</small>}
+    </>}
+  </div>;
 }
 
 const DECISIONS_PAGE = 10;

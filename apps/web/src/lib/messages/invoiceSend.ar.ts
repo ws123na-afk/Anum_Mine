@@ -54,4 +54,10 @@ export const invoiceSendAr = {
   'inv.credit.pdf': 'ملف الإشعار الدائن',
   'inv.pay.viaMoyasar': 'دُفعت بالبطاقة عبر Moyasar',
   'inv.pay.viaStripe': 'دُفعت بالبطاقة عبر Stripe',
+  'inv.refund.title': 'مبالغ مستردة من لوحة {provider}',
+  'inv.refund.line': 'استُرد {amount} في {date}',
+  'inv.refund.surplus': 'منها {amount} أخذتها البطاقة فوق الرصيد، فلا تُخصم من الفاتورة.',
+  'inv.refund.reversed': 'أبلغت {provider} بأن هذا الاسترداد فشل، فلم يعد يُحتسب.',
+  'inv.refund.owed': 'المبلغ المسترد مستحق من جديد. أصدر إشعارًا دائنًا إذا لم يعد العميل مدينًا به.',
+  'inv.refund.keep': 'على هذه الدفعة بالبطاقة مبالغ مستردة، فتبقى سجلًا لها.',
 } satisfies Record<keyof typeof invoiceSendEn, Message>;

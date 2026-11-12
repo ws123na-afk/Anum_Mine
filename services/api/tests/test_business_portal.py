@@ -644,8 +644,17 @@ def test_an_archived_workspace_is_read_only_in_the_portal(monkeypatch: pytest.Mo
 # -- audit walk -----------------------------------------------------------------------------------------------------------
 
 
-def test_every_state_changing_portal_route_is_audited_without_content() -> None:
+def test_every_state_changing_portal_route_is_audited_without_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    import re
+
     from audit_probe import AuditProbe
+
+    from anum_api import notifications
+    from anum_api.notifications import MailOutcome
+
+    mailed: list[str] = []
+    monkeypatch.setattr(notifications, "email_configured", lambda: True)
+    monkeypatch.setattr(notifications, "send_with_retries", lambda to, subject, text, **_: mailed.append(text) or MailOutcome(status="sent", attempts=1, error=None))
 
     set_profile()
     pending = sent_proposal(company="Desert Tyres")
@@ -656,6 +665,7 @@ def test_every_state_changing_portal_route_is_audited_without_content() -> None:
     spare = admin_probe.call("POST", f"{ADMIN}/access", OWNER, json={"account_id": project["account_id"], "contact_id": contact_of(project["account_id"])["id"]}).json()
     token, other_token = created["token"], spare["token"]
     admin_probe.call("POST", f"{ADMIN}/access/{created['id']}/revoke", OWNER)
+    admin_probe.call("PUT", f"{ADMIN}/sign-in", OWNER, json={"enabled": True})
     fresh = grant(pending["account_id"])["token"]
     assert client.get(f"{PORTAL}/me", headers=bearer(token)).status_code == 401
     scope = {"x-tenant-id": TENANT, "x-workspace-id": WORKSPACE}
@@ -670,6 +680,14 @@ def test_every_state_changing_portal_route_is_audited_without_content() -> None:
                 json={"title": "Dashboard is slow", "description": "It takes a minute to load the page."}).json()
     portal_probe.call("POST", f"{PORTAL}/tickets/{asked['id']}/messages", {**bearer(fresh), **scope}, sent=["Still slow on Monday mornings"],
                       json={"body": "Still slow on Monday mornings", "idempotency_key": "audit-message-0001"})
+    # Signing in with an emailed code: never the address or the code in the audit log.
+    address = contact_of(project["account_id"])["email"]
+    workspace = f"{TENANT}.{WORKSPACE}"
+    challenge = portal_probe.call("POST", f"{PORTAL}/sign-in/code", scope, sent=[address], json={"workspace": workspace, "email": address}).json()["challenge_id"]
+    code = re.search(r"\b(\d{6})\b", mailed[-1]).group(1)  # type: ignore[union-attr]
+    session = portal_probe.call("POST", f"{PORTAL}/sign-in/verify", scope, sent=[code], json={"workspace": workspace, "challenge_id": challenge, "code": code}).json()
+    portal_probe.secrets.append(session["token"])
+    portal_probe.call("POST", f"{PORTAL}/sign-in/end", {**bearer(session["token"]), **scope})
     admin_probe.assert_covered()
     set_profile()
     billed = send(ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}), 201))

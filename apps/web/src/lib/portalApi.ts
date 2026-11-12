@@ -3,7 +3,7 @@
 // signed-in app's client, so nothing authenticated runs on the public page.
 import type {
   PortalChange, PortalChangeSummary, PortalDecisionInput, PortalInvoice, PortalInvoiceSummary, PortalMe, PortalOffer, PortalOfferSummary, PortalPaymentNoticeInput,
-  PortalTicket, PortalTicketInput, PortalMessageInput, PortalTicketSummary,
+  PortalTicket, PortalTicketInput, PortalMessageInput, PortalTicketSummary, PortalCodeAnswer, PortalCodeSession,
 } from '@anum/contracts';
 import { ApiError, apiErrorFromResponse } from './errors';
 import { getLocale } from './i18n';
@@ -58,3 +58,25 @@ export async function downloadInvoicePdf(invoiceId: string): Promise<string> {
   const response = await send(`/invoices/${id(invoiceId)}/pdf`);
   return saveBlob(await response.blob(), fileNameFromDisposition(response.headers.get('content-disposition'), 'invoice.pdf'));
 }
+
+// ---- signing in with an emailed code (docs/business-portal.md#signing-in-with-an-emailed-code) ----------------------
+
+async function publicPost<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}${path}`, {
+      method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer',
+      headers: { 'content-type': 'application/json', 'accept-language': getLocale() }, body: JSON.stringify(body),
+    });
+  } catch { throw new ApiError(0, null, null); }
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return response.json() as Promise<T>;
+}
+
+/** Ask for a code. The answer is the same whether or not the address may sign in. */
+export const requestCode = (workspace: string, email: string) => publicPost<PortalCodeAnswer>('/sign-in/code', { workspace, email });
+/** Use the code once: a session token comes back, used like an access link. */
+export const verifyCode = (workspace: string, challengeId: string, code: string) =>
+  publicPost<PortalCodeSession>('/sign-in/verify', { workspace, challenge_id: challengeId, code });
+/** Sign out of a code session. */
+export async function endSession(): Promise<void> { await send('/sign-in/end', { method: 'POST' }); }

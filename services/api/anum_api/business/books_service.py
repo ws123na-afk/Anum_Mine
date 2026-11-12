@@ -480,6 +480,8 @@ def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
         truncated = truncated or total > MAX_SCAN
         payments, total = business.find("invoice_payments", Query(order_by="created_at", limit=MAX_SCAN))
         truncated = truncated or total > MAX_SCAN
+        refunds, total = business.find("invoice_refunds", Query(order_by="created_at", limit=MAX_SCAN))
+        truncated = truncated or total > MAX_SCAN
         notes, total = business.find("credit_notes", Query(order_by="created_at", limit=MAX_SCAN))
         truncated = truncated or total > MAX_SCAN
         projects, total = business.find("projects", Query(order_by="created_at", limit=MAX_SCAN))
@@ -489,7 +491,7 @@ def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
     allocations = list(allocations_by_id(context).values())
     truncated = truncated or len(allocations) >= MAX_SCAN
     return Inputs(
-        settings=settings, invoices=invoices, payments=payments, credit_notes=notes, allocations=allocations,
+        settings=settings, invoices=invoices, payments=payments, refunds=refunds, credit_notes=notes, allocations=allocations,
         tags={tag.allocation_id: tag for tag in found["allocation_tags"]}, bills=found["bills"], bill_payments=found["bill_payments"],
         adjustments=found["adjustments"], intercompany=found["intercompany"], budgets=found["budgets"], rates=found["rates"],
         projects={p.id: (p.name, p.account_id) for p in projects}, accounts={a.id: a.name for a in accounts},

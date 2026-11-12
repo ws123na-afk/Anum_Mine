@@ -203,6 +203,22 @@ export interface PurchaseListFilters {
 }
 
 /** `POST /api/v1/purchases/device/share` answer (the iPhone, or Import order on the web). */
+/** Save as purchase from the Email Center (docs/purchases.md#save-as-purchase-from-the-email-center). */
+export interface PurchaseFromMailInput {
+  account_id: string; folder: string; uid: number;
+  /** The message attachment to keep as the purchase's receipt (its index), or none. */
+  attachment_index?: number | null;
+  ownership?: 'personal' | 'business';
+}
+export interface PurchaseFromMailResult {
+  status: 'created' | 'updated' | 'replayed';
+  purchase_id: string;
+  message: string;
+  /** The private vault document the attachment became, when it was kept. */
+  document_id?: string | null;
+  attachment_kept?: boolean;
+}
+
 export interface PurchaseShareResult {
   status: 'created' | 'updated' | 'replayed' | 'test_ok';
   purchase_id?: string;

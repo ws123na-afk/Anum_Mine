@@ -6,6 +6,10 @@
 .ptBrand p { margin: 0; overflow-wrap: anywhere; }
 .ptBusiness { font-size: var(--text-base); font-weight: 700; }
 .ptLang { display: flex; gap: var(--d-s2); }
+.ptHeaderEnd { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.ptSignIn form { display: grid; gap: var(--d-s2); }
+.ptSignIn input { max-width: 100%; }
+.ptCode { font-size: var(--text-lg); font-variant-numeric: tabular-nums; letter-spacing: 0.2em; max-width: 12ch; }
 .ptLang button[aria-pressed="true"] { border-color: var(--d-accent); box-shadow: inset 0 0 0 1px var(--d-accent); }
 .ptTabs { margin-bottom: 0; }
 .ptTabs button { align-items: center; display: inline-flex; gap: var(--d-s2); }

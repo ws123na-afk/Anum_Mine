@@ -156,3 +156,59 @@ def test_a_pick_on_a_row_that_is_already_recorded_is_ignored() -> None:
     do_import(s["card"]["id"], ROW, decisions=[{"line": 2, "split": ids}])
     again = do_import(s["card"]["id"], ROW, decisions=[{"line": 2, "split": ids}])
     assert (again["split_matched"], again["held_for_review"], again["duplicate_count"]) == (0, 0, 2)
+
+
+def test_undoing_the_import_detaches_a_single_row_attachment_and_is_complete() -> None:
+    """A row attached to one recorded payment loses its reconciled mark when the whole import is undone; a row held in
+    Review goes with the import; a second import of the same statement attaches again."""
+    s = sms_setup()
+    send_sms(s["token"], FIRST)
+    single = "Date,Description,Amount\n2026-11-03,POS EXAMPLE MARKET RIYADH,-100.00\n"
+    done = do_import(s["card"]["id"], single)
+    assert done["reconciled"] == 1
+    entries = [e for e in sms_memory_store.entries.values() if e.source.value in ("sms", "device")]
+    assert entries and all(e.reconciled_at is not None for e in entries)
+    statement = [m for m in sms_memory_store.messages.values() if m.source == "statement"]
+    assert [m.status for m in statement] == ["attached"]
+    assert client.delete(f"{API}/imports/{done['id']}", headers=VIEWER).status_code == 403
+    assert client.delete(f"{API}/imports/{done['id']}", headers=OWNER).status_code == 204
+    assert all(e.reconciled_at is None for e in sms_memory_store.entries.values() if e.source.value in ("sms", "device"))
+    assert {(m.status, m.reason) for m in sms_memory_store.messages.values() if m.source == "statement"} == {("dismissed", "import_undone")}
+    # Idempotent: the import is gone, a second undo changes nothing.
+    assert client.delete(f"{API}/imports/{done['id']}", headers=OWNER).status_code == 404
+    assert svc_detach(done["id"]) == 0
+    # The payment is free again: the same statement attaches to it once more.
+    again = preview(s["card"]["id"], single)["rows"][0]["match"]
+    assert again["status"] == "matched_existing"
+
+
+def test_undoing_one_import_keeps_a_record_another_import_still_confirms() -> None:
+    s = sms_setup()
+    send_sms(s["token"], FIRST)
+    single = "Date,Description,Amount\n2026-11-03,POS EXAMPLE MARKET RIYADH,-100.00\n"
+    first = do_import(s["card"]["id"], single)
+    # A second statement source for the same payment (another import), written the way the import writes it.
+    from anum_api.finance import statement_ledger as SL
+    from anum_api.schemas import utc_now
+
+    message = next(m for m in sms_memory_store.messages.values() if m.source == "statement")
+    other = message.model_copy(update={"id": "fin_sms_other", "idem_key": "other", "parsed": {**message.parsed, "import_id": "fin_imp_other"}})
+    sms_memory_store.messages[other.id] = other
+    assert client.delete(f"{API}/imports/{first['id']}", headers=OWNER).status_code == 204
+    assert all(e.reconciled_at is not None for e in sms_memory_store.entries.values() if e.source.value in ("sms", "device"))
+    assert SL.detach_import(sms_memory_store, _context(), "fin_imp_other", now=utc_now()) == 1
+    assert all(e.reconciled_at is None for e in sms_memory_store.entries.values() if e.source.value in ("sms", "device"))
+
+
+def _context():  # type: ignore[no-untyped-def]
+    message = next(m for m in sms_memory_store.messages.values() if m.source == "statement")
+    from anum_api.schemas import TenantContext
+
+    return TenantContext(tenant_id=message.tenant_id, workspace_id=message.workspace_id, user_id=message.owner_user_id)
+
+
+def svc_detach(import_id: str) -> int:
+    from anum_api.finance import statement_ledger as SL
+    from anum_api.schemas import utc_now
+
+    return SL.detach_import(sms_memory_store, _context(), import_id, now=utc_now())

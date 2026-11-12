@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
@@ -25,10 +26,10 @@ test('domains show their DNS, flag a dangerous SPF and list the records to set',
   const legacy = pane.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'legacy-shop.example' }) });
   await expect(legacy.getByText('Not allowed', { exact: true })).toBeVisible();
   await expect(legacy.getByRole('button', { name: 'Remove from Mailcow' })).toHaveCount(0);
-  await pane.getByLabel('Search domains and aliases').fill('sales@');
+  await pane.getByLabel('Search domains, aliases and mailboxes').fill('sales@');
   await expect(pane.getByRole('heading', { name: 'easyvoicequote.com' })).toHaveCount(0);
-  await pane.getByLabel('Search domains and aliases').fill('nothing-here');
-  await expect(pane.getByText('No domain or alias matches the search.')).toBeVisible();
+  await pane.getByLabel('Search domains, aliases and mailboxes').fill('nothing-here');
+  await expect(pane.getByText('No domain, alias or mailbox matches the search.')).toBeVisible();
 });
 
 test('adding a domain and an alias waits for approval, then runs', async ({ page }) => {
@@ -58,6 +59,45 @@ test('adding a domain and an alias waits for approval, then runs', async ({ page
   await expect(pane.getByRole('group', { name: 'Changes waiting for approval' })).toHaveCount(0);
 });
 
+test('a mailbox is asked with its first password, waits for approval and never shows the password', async ({ page }) => {
+  await mockWorkspaceApi(page, { mailDomains: 'ok' });
+  await page.goto('/#organisations');
+  const pane = page.getByRole('region', { name: 'Mail domains' });
+  const main = pane.getByRole('listitem').filter({ has: page.getByRole('heading', { name: 'anum360os.com', exact: true }) }).first();
+  await expect(main.getByRole('heading', { name: 'Mailboxes' })).toBeVisible();
+  await expect(main.getByText('omar@anum360os.com', { exact: false }).first()).toBeVisible();
+  await expect(main.getByText(/10240.* MiB, .*31%.* used/)).toBeVisible();
+  const form = main.getByRole('form', { name: 'Add a mailbox' });
+  const submit = form.getByRole('button', { name: 'Ask to add the mailbox' });
+  await submit.click();
+  await expect(form.getByRole('alert')).toHaveText(/Enter the part before the @/);
+  await form.getByLabel('Mailbox name').fill('accounts');
+  await form.getByLabel('Name of the person or team').fill('Accounts team');
+  await form.getByLabel('First password').fill('short1');
+  await submit.click();
+  await expect(form.getByRole('alert')).toHaveText('The first password must be 12 to 128 characters.');
+  await form.getByLabel('First password').fill('accounts-pass-2026');
+  await submit.click();
+  await expect(form.getByRole('alert')).toHaveText('The first password cannot contain the mailbox name.');
+  await form.getByLabel('First password').fill('example-first-42');
+  await form.getByLabel('Quota in MiB').fill('2048');
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/v1/platform/mail/domains/changes') && r.method() === 'POST');
+  await submit.click();
+  const body = (await sent).postDataJSON() as Record<string, unknown>;
+  expect(body).toEqual({ operation: 'add_mailbox', address: 'accounts@anum360os.com', name: 'Accounts team', password: 'example-first-42', quota_mb: 2048 });
+  // The form forgets the password at once; the page never shows it.
+  await expect(form.getByLabel('First password')).toHaveValue('');
+  const waiting = pane.getByRole('group', { name: 'Changes waiting for approval' });
+  await expect(waiting.getByText(/Add the mailbox .*accounts@anum360os\.com.* for .*Accounts team/)).toBeVisible();
+  await expect(main.getByText(/accounts@anum360os\.com.* waits for an approval\./)).toBeVisible();
+  await expect(page.getByText('example-first-42')).toHaveCount(0);
+  await waiting.getByRole('button', { name: 'Approve' }).click();
+  await expect(pane.getByText(/Done: Add the mailbox/)).toBeVisible();
+  await expect(main.getByText('accounts@anum360os.com', { exact: false }).first()).toBeVisible();
+  await expect(main.getByText('4 mailboxes')).toBeVisible();
+  expect(await page.content()).not.toContain('example-first-42');
+});
+
 test('changes off, a failure and a non-operator are each explained', async ({ page }) => {
   await mockWorkspaceApi(page, { mailDomains: 'readOnly' });
   await page.goto('/#organisations');
@@ -65,6 +105,8 @@ test('changes off, a failure and a non-operator are each explained', async ({ pa
   await expect(pane.getByText(/Changes are off: .*ANUM_MAILCOW_WRITE_ENABLED/)).toBeVisible();
   await expect(pane.getByRole('button', { name: 'Add to Mailcow' })).toHaveCount(0);
   await expect(pane.getByRole('form', { name: 'Add an alias' })).toHaveCount(0);
+  await expect(pane.getByRole('form', { name: 'Add a mailbox' })).toHaveCount(0);
+  await expect(pane.getByRole('heading', { name: 'Mailboxes' }).first()).toBeVisible();
 });
 
 test('a failed load offers a retry', async ({ page }) => {
@@ -106,6 +148,10 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
       const pane = page.locator('.mailDomainsPane');
       const box = await pane.boundingBox();
       expect(box && box.x >= -1 && box.x + box.width <= width + 1).toBe(true);
+      // The mailbox and alias forms included: no serious or critical axe finding in either language.
+      await expect(page.getByRole('form', { name: locale === 'ar' ? 'أضف صندوق بريد' : 'Add a mailbox' }).first()).toBeVisible();
+      const axe = await new AxeBuilder({ page }).include('.mailDomainsPane').analyze();
+      expect(axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([]);
       await pane.screenshot({ path: `test-results/mail-domains-${locale}-${width}.png` });
     });
   }

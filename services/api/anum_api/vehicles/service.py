@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -411,12 +412,17 @@ def _undo_cash(context: TenantContext, transaction_id: str) -> None:
 
 
 def unlink_payment(context: TenantContext, kind: str, record_id: str) -> None:
-    """Remove the record's link (the Finance transaction stays). Repeating it changes nothing."""
+    """Remove the record's link (the Finance transaction stays). Repeating it changes nothing. A business allocation
+    used as the record's cost is let go the same way (the allocation stays in Finance)."""
     from ..finance import links as K
 
     target, _vehicle = payment_target(context, kind, record_id)
     current = _current_payment(target)
     if current is None:
+        return
+    if current.source == "allocation":
+        with open_vehicle_store(context) as store:
+            _set_payment(store, context, kind, record_id, None)
         return
     if current.status != "void":
         try:
@@ -491,6 +497,119 @@ def plug_finance_links() -> None:
 
 
 # -- payment picker ----------------------------------------------------------------------------------
+
+
+# -- business allocations as a vehicle's cost (docs/vehicles.md#business-allocations) ----------------------------------
+
+_allocation_lock = threading.Lock()  # in-process; PostgreSQL adds a workspace advisory lock
+ALLOCATION_KINDS = ("fuel_entry", "service_record")
+
+
+def _allocations(context: TenantContext) -> list[Any]:
+    """This business workspace's live allocation rows the caller made (their own payments), newest first."""
+    from ..finance.links_store import open_workspace_allocations
+
+    with open_workspace_allocations(context) as links:
+        rows, _ = links.list_allocations(context, currency=None, limit=5_000, offset=0)
+    return [r for r in rows if r.allocated_by == context.user_id and r.status == "active"]
+
+
+def _used_allocations(store: VehicleStore, context: TenantContext) -> dict[str, str]:
+    """allocation id -> the record using it, over every vehicle record the caller can see."""
+    ids = [v.id for archived in (False, True) for v in store.list_vehicles(context, query=None, archived=archived, limit=10_000, offset=0)[0]]
+    used: dict[str, str] = {}
+    for kind in ("fuel", "service"):
+        for record in store.records_for(context, kind, ids) if ids else []:  # type: ignore[arg-type]
+            payment = record.payment
+            if payment is not None and payment.source == "allocation" and payment.allocation_id and payment.status != "void":
+                used[payment.allocation_id] = record.id
+    return used
+
+
+def allocation_candidates(context: TenantContext, *, around: date | None, amount: Decimal | None, limit: int) -> list[dict[str, Any]]:
+    """Allocations of this business the caller made that no vehicle record uses yet, ranked by the record's figure and
+    date. Only the business's own view of the payment: date, amount, currency, category, memo and the source reference."""
+    rows = _allocations(context)
+    if not rows:
+        return []
+    with open_vehicle_store(context) as store:
+        used = _used_allocations(store, context)
+    centre = around or utc_now().date()
+    free = [r for r in rows if r.id not in used]
+
+    def rank(row: Any) -> tuple[Any, ...]:
+        gap = abs(row.amount - amount) if amount is not None else Decimal(0)
+        return (gap, abs((row.posted_on - centre).days), row.id)
+
+    return [{"allocation_id": r.id, "posted_on": r.posted_on.isoformat(), "amount": A.money(r.amount), "currency": r.currency,
+             "category": r.category, "memo": r.memo, "source_ref": r.source_ref} for r in sorted(free, key=rank)[:limit]]
+
+
+def use_allocation(context: TenantContext, kind: str, record_id: str, allocation_id: str) -> tuple[PaymentRef, bool]:
+    """Count a business allocation the caller made as this business vehicle record's cost. Returns the read copy and
+    whether it was already so. One allocation is one record's cost; a record has one cost (a link or an allocation)."""
+    if kind not in ALLOCATION_KINDS:
+        raise VehicleError(422, "A business allocation is a fuel or service cost. Link the vehicle's purchase as a payment.", "invalid_kind")
+    target, vehicle = payment_target(context, kind, record_id)
+    if vehicle.ownership != Ownership.BUSINESS:
+        raise VehicleError(422, "Only a business vehicle's record can use a business allocation. Link your payment to a personal vehicle instead.",
+                           "not_business_vehicle")
+    current = _current_payment(target)
+    if current is not None and current.status != "void":
+        if current.source == "allocation" and current.allocation_id == allocation_id:
+            return current, True
+        raise VehicleError(409, "This record already has its cost. Remove it first.", "already_linked")
+    row = next((r for r in _allocations(context) if r.id == allocation_id), None)
+    if row is None:
+        raise VehicleError(404, "Allocation not found in this business. Allocate the payment to this business under Finance first.",
+                           "allocation_not_found")
+    if row.currency != getattr(target, "currency", row.currency):
+        raise VehicleError(422, f"The allocation is in {row.currency} and the record in {target.currency}.", "currency_mismatch",
+                           {"currency": row.currency})
+    payment = PaymentRef(link_id="", canonical_id="", status="active", amount=row.amount, currency=row.currency, paid_by=context.user_id,
+                         linked_at=utc_now(), source="allocation", allocation_id=row.id, source_ref=row.source_ref)
+    from sqlalchemy import text
+
+    with _allocation_lock, open_vehicle_store(context) as store:
+        session = getattr(store, "session", None)
+        if session is not None:  # two requests using one allocation at once: the second waits, then sees the first
+            session.execute(text("select pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+                            {"k": f"vehicle_allocation:{context.tenant_id}:{context.workspace_id}"})
+        used = _used_allocations(store, context)
+        if used.get(allocation_id) not in (None, record_id):
+            raise VehicleError(409, "Another vehicle record already counts this allocation as its cost.", "allocation_used")
+        fresh = store.get_record(context, "fuel" if kind == "fuel_entry" else "service", record_id)
+        if fresh is None:
+            raise not_found("Record")
+        if fresh.payment is not None and fresh.payment.status != "void":
+            raise VehicleError(409, "This record already has its cost. Remove it first.", "already_linked")
+        _set_payment(store, context, kind, record_id, payment)
+    return payment, False
+
+
+def refresh_allocations(context: TenantContext, records: list[Any]) -> list[Any]:
+    """Bring each record whose cost is a business allocation in line with the allocation row as it is now: removed (the
+    owner took the allocation back, or the payment was undone) reads ``void`` with ``allocation_removed`` and is not
+    counted. Read only: the stored copy is not changed (records come from a closed unit of work)."""
+    pending = [r for r in records if getattr(r, "payment", None) is not None and r.payment.source == "allocation"]
+    if not pending:
+        return records
+    if not has_permission(context, Permission.BUSINESS_READ):
+        live: dict[str, Any] = {}
+    else:
+        from ..finance.links_store import open_workspace_allocations
+
+        with open_workspace_allocations(context) as links:
+            rows, _ = links.list_allocations(context, currency=None, limit=10_000, offset=0)
+        live = {r.id: r for r in rows if r.status == "active"}
+    for record in pending:
+        row = live.get(record.payment.allocation_id or "")
+        if row is None:
+            record.payment = record.payment.model_copy(update={"status": "void", "status_reason": "allocation_removed"})
+        else:
+            record.payment = record.payment.model_copy(update={"status": "active", "status_reason": None, "amount": row.amount,
+                                                               "currency": row.currency})
+    return records
 
 
 def payment_candidates(context: TenantContext, *, query: str | None, around: date | None, amount: Decimal | None, limit: int) -> list[dict[str, Any]]:

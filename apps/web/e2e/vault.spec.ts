@@ -112,6 +112,43 @@ test('a scanned receipt is reviewed: the warning shows, a wrong value is refused
   await expect(page.getByRole('heading', { name: 'Nothing to review' })).toBeVisible();
 });
 
+test('a confirmed receipt proposes its payment and purchase; Link payment links it (docs/documents.md#receipt-matches)', async ({ page }) => {
+  const mock = await open(page, 'vault-review');
+  const card = page.locator('.vaultReviewCard', { hasText: 'Fuel receipt' });
+  await card.getByRole('button', { name: 'Confirm values' }).click();
+  await expect(page.getByText('Confirmed the values of Fuel receipt.')).toBeVisible();
+  await page.goto('/#vault-documents?doc=vdoc_receipt');
+  const detail = page.getByRole('region', { name: 'Fuel receipt' });
+  const matches = detail.locator('.vaultSub', { has: page.getByRole('heading', { name: 'Suggested matches' }) });
+  await expect(matches.getByText('AL NOOR STATION RIYADH')).toBeVisible();
+  await expect(matches.getByText('Same merchant')).toBeVisible();
+  await expect(matches.getByText('90% match')).toBeVisible();
+  await expect(matches.getByRole('button', { name: /^Attach to purchase Example station shop/ })).toBeVisible();
+  const results = await new AxeBuilder({ page }).include('.vaultDetail').analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+  await matches.getByRole('button', { name: /^Link payment AL NOOR STATION RIYADH/ }).click();
+  await expect(page.getByText('Receipt linked to the payment.')).toBeVisible();
+  await expect(matches.getByText('Linked to a payment in Finance as its receipt.')).toBeVisible();
+  await expect(matches.getByRole('button', { name: /^Link payment/ })).toHaveCount(0);
+  expect(mock.calls.find((c) => c.path === '/vdoc_receipt/matches/accept')?.body).toEqual({ kind: 'payment', target_id: 'fin_je_fuel' });
+});
+
+test('receipt matches in Arabic, and the purchases section says who may see them', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('anum.locale', 'ar'));
+  await mockWorkspaceApi(page);
+  await mockVault(page, { noPurchases: true });
+  await page.goto('/#vault-review');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await page.locator('.vaultReviewCard').getByRole('button', { name: 'تأكيد القيم' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'خزنة المستندات' })).toBeVisible();
+  await page.goto('/#vault-documents?doc=vdoc_receipt');
+  const matches = page.locator('.vaultSub', { has: page.getByRole('heading', { name: 'تطابقات مقترحة' }) });
+  await expect(matches.getByRole('button', { name: /^اربط الدفعة/ })).toBeVisible();
+  await expect(matches.getByText(/تظهر المشتريات لمن يُسمح له/)).toBeVisible();
+  const results = await new AxeBuilder({ page }).include('.vaultDetail').analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+});
+
 test('trash: restore, and delete for good after confirming', async ({ page }) => {
   const mock = await open(page, 'vault-trash');
   await page.getByRole('button', { name: 'Delete for good: Old visa' }).click();

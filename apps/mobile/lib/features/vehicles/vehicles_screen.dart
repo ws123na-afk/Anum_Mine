@@ -608,6 +608,54 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
     }
   }
 
+  Future<void> _allocate(VehicleRecordKind kind, VehicleRecord record) async {
+    final s = VehiclesStrings.of(context);
+    final around = switch (record) {
+      VehicleFuel(:final filledAt) => filledAt.substring(0, 10),
+      VehicleService(:final serviceOn) => serviceOn,
+      _ => null,
+    };
+    final used = await showRecordsSheet<bool>(
+      context,
+      (_) => PaymentPickerSheet(
+        text: PaymentPickerText(
+          title: s.t('allocTitle'),
+          help: s.t('allocHelp'),
+          search: s.t('allocSearch'),
+          empty: s.t('allocEmpty'),
+          remaining: s.t('linkRemaining'),
+          already: s.t('linkAlready'),
+        ),
+        load: (query) async => [
+          for (final a in await _c.repository.allocations(around: around))
+            if (query.isEmpty ||
+                '${a.category} ${a.memo ?? ''} ${a.sourceRef}'
+                    .toLowerCase()
+                    .contains(query.toLowerCase()))
+              PaymentChoice(
+                id: a.id,
+                postedOn: a.postedOn,
+                merchant: s.t('allocLine', {
+                  'category': a.category,
+                  'ref': a.sourceRef,
+                  'memo': a.memo ?? '',
+                }).trim(),
+                amount: a.amount,
+                currency: a.currency,
+                remaining: a.amount,
+                alreadyLinked: false,
+              ),
+        ],
+        link: (choice, _) =>
+            _c.repository.useAllocation(kind.costKind!, record.id, choice.id),
+      ),
+    );
+    if (used ?? false) {
+      await _c.linked(kind);
+      if (mounted) recordsToast(context, s.t('allocated'));
+    }
+  }
+
   Future<void> _delete(VehicleRecordKind kind, VehicleRecord record) async {
     final s = VehiclesStrings.of(context);
     final k = KitStrings.of(context);
@@ -709,6 +757,13 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                         onLink: _tab.costKind != null && record.canEdit
                             ? () => _link(_tab, record)
                             : null,
+                        // A business vehicle paid from a personal card
+                        // (docs/vehicles.md#business-allocations).
+                        onAllocate: _tab.costKind != null &&
+                                record.canEdit &&
+                                vehicle.ownership == 'business'
+                            ? () => _allocate(_tab, record)
+                            : null,
                         onDelete:
                             record.canEdit ? () => _delete(_tab, record) : null,
                       ),
@@ -802,16 +857,24 @@ class _Summary extends StatelessWidget {
 }
 
 class _RecordRow extends StatelessWidget {
-  const _RecordRow({required this.record, this.onLink, this.onDelete});
+  const _RecordRow(
+      {required this.record, this.onLink, this.onAllocate, this.onDelete});
   final VehicleRecord record;
-  final VoidCallback? onLink, onDelete;
+  final VoidCallback? onLink, onAllocate, onDelete;
 
   String _payment(BuildContext context, VehiclePayment? payment) {
     final s = VehiclesStrings.of(context);
     if (payment == null) return s.t('noPayment');
     if (payment.status == 'needs_review') return s.t('paymentReview');
+    if (payment.status == 'void' &&
+        payment.statusReason == 'allocation_removed') {
+      return s.t('allocationRemoved');
+    }
     final amount = formatMoneyText(payment.amount, payment.currency,
         locale: Localizations.localeOf(context));
+    if (payment.isAllocation) {
+      return s.t('paymentAllocated', {'amount': amount});
+    }
     return s.t(payment.recordedAsCash ? 'paymentCash' : 'paymentLinked',
         {'amount': amount});
   }
@@ -887,14 +950,22 @@ class _RecordRow extends StatelessWidget {
           : PopupMenuButton<String>(
               key: Key('record-menu-${record.id}'),
               tooltip: s.t('details'),
-              onSelected: (value) =>
-                  value == 'link' ? onLink?.call() : onDelete?.call(),
+              onSelected: (value) => switch (value) {
+                'link' => onLink?.call(),
+                'allocate' => onAllocate?.call(),
+                _ => onDelete?.call(),
+              },
               itemBuilder: (_) => [
                 if (onLink != null && payable && pay == null)
                   PopupMenuItem(
                       key: const Key('menu-link'),
                       value: 'link',
                       child: Text(s.t('linkPayment'))),
+                if (onAllocate != null && payable && pay == null)
+                  PopupMenuItem(
+                      key: const Key('menu-allocate'),
+                      value: 'allocate',
+                      child: Text(s.t('useAllocation'))),
                 if (onDelete != null)
                   PopupMenuItem(
                       key: const Key('menu-delete'),

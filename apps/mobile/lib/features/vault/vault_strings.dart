@@ -96,6 +96,28 @@ class VaultStrings extends ModuleStrings {
     'linkHelp':
         'A finance payment link needs Finance access and the payment\'s id; it never adds money.',
     'linkAdded': 'Link added',
+    'matches': 'Suggested matches',
+    'matchesIntro':
+        'Payments and purchases with this receipt\'s total and currency, close to its date. Nothing is linked until you choose one.',
+    'matchesNotConfirmed':
+        'Confirm the scanned values on the web first (Document vault, To review). Matches use the confirmed total, currency and date.',
+    'matchesNone':
+        'No payment or purchase fits this receipt yet. A payment shows here once it is in Finance.',
+    'matchesNoFinance':
+        'Payments are shown to people with Finance access in this workspace.',
+    'matchesNoPurchases':
+        'Purchases are shown to people who may use Purchases in this workspace.',
+    'matchesLinkedPayment': 'Linked to a payment in Finance as its receipt.',
+    'matchesLinkedPurchase': 'Attached to a purchase as its receipt.',
+    'matchPayment': 'Payment',
+    'matchPurchase': 'Purchase',
+    'matchLine': '{currency} {amount}, {date}',
+    'matchAgrees': 'Same merchant, {percent}% match',
+    'matchSure': '{percent}% match',
+    'matchLinkPayment': 'Link payment',
+    'matchAttachPurchase': 'Attach to purchase',
+    'matchLinked': 'Receipt linked to the payment',
+    'matchAttached': 'Receipt attached to the purchase',
     'linkRemoved': 'Link removed',
     'removeLink': 'Remove this link',
     'link.vehicle': 'Vehicle',
@@ -222,6 +244,28 @@ class VaultStrings extends ModuleStrings {
         'هل تريد نقل هذا المستند إلى المحذوفات؟ يمكن استعادته حتى يُزال نهائيًا.',
     'deleted': 'نُقل إلى المحذوفات',
     'restore': 'استعادة',
+    'matches': 'تطابقات مقترحة',
+    'matchesIntro':
+        'دفعات ومشتريات بنفس إجمالي هذا الإيصال وعملته، وفي تاريخ قريب منه. لا يُربط شيء حتى تختار.',
+    'matchesNotConfirmed':
+        'أكّد القيم الممسوحة أولًا على الويب (خزنة المستندات، للمراجعة). تعتمد المطابقة على الإجمالي والعملة والتاريخ المؤكدة.',
+    'matchesNone':
+        'لا توجد دفعة أو عملية شراء تطابق هذا الإيصال بعد. تظهر الدفعة هنا عندما تُسجَّل في المالية.',
+    'matchesNoFinance':
+        'تظهر الدفعات لمن لديه صلاحية المالية في مساحة العمل هذه.',
+    'matchesNoPurchases':
+        'تظهر المشتريات لمن يُسمح له باستخدام المشتريات في مساحة العمل هذه.',
+    'matchesLinkedPayment': 'مربوط بدفعة في المالية بوصفه إيصالها.',
+    'matchesLinkedPurchase': 'مرفق بعملية شراء بوصفه إيصالها.',
+    'matchPayment': 'دفعة',
+    'matchPurchase': 'عملية شراء',
+    'matchLine': '{currency} {amount}، {date}',
+    'matchAgrees': 'نفس التاجر، تطابق {percent}%',
+    'matchSure': 'تطابق {percent}%',
+    'matchLinkPayment': 'اربط الدفعة',
+    'matchAttachPurchase': 'أرفق بعملية الشراء',
+    'matchLinked': 'رُبط الإيصال بالدفعة',
+    'matchAttached': 'أُرفق الإيصال بعملية الشراء',
     'restored': 'تمت الاستعادة',
     'purgeOn': 'يُزال نهائيًا في {date}',
     'readOnly':

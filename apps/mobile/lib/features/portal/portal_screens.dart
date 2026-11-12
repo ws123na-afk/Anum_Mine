@@ -17,6 +17,7 @@ import '../business/invoice_models.dart' show dayOfDate;
 import 'portal_controller.dart';
 import 'portal_link.dart';
 import 'portal_models.dart';
+import 'portal_repository.dart' show PortalCodeChallenge, PortalCodeClient;
 
 /// The customer portal on the phone (docs/business-portal.md): a customer pastes
 /// the link a business sent, then reads their offers, change orders, invoices
@@ -108,10 +109,15 @@ class PortalEntryScreen extends StatefulWidget {
   const PortalEntryScreen({
     required this.createSession,
     this.saver = const FilePickerInvoiceSaver(),
+    this.codes,
     super.key,
   });
   final PortalSessionFactory createSession;
   final InvoiceDocumentSaver saver;
+
+  /// Signing in with an emailed code at a business's sign-in address; without
+  /// it a sign-in address is refused like a link with no access code.
+  final PortalCodeClient? codes;
 
   @override
   State<PortalEntryScreen> createState() => _PortalEntryState();
@@ -144,6 +150,24 @@ class _PortalEntryState extends State<PortalEntryScreen> {
     switch (result) {
       case PortalLinkInvalid(:final reason):
         setState(() => problem = l.t('portal.link.$reason'));
+      case PortalSignInAddress(:final workspace):
+        final codes = widget.codes;
+        if (codes == null) {
+          setState(() => problem = l.t('portal.link.noToken'));
+          return;
+        }
+        setState(() => problem = null);
+        link.clear();
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PortalCodeSignInScreen(
+              workspace: workspace,
+              codes: codes,
+              createSession: widget.createSession,
+              saver: widget.saver,
+            ),
+          ),
+        );
       case PortalLinkOk(:final token):
         setState(() => problem = null);
         final session = widget.createSession(token);
@@ -204,6 +228,207 @@ class _PortalEntryState extends State<PortalEntryScreen> {
           ]),
           Text(l.t('portal.entry.privacy'),
               style: TextStyle(color: context.palette.muted)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Signing in at a business's sign-in address with a code emailed to the
+/// customer (docs/business-portal.md#signing-in-with-an-emailed-code): the
+/// address, then the six digits, then the portal. The session token lives only
+/// in the portal's memory, like a link, and leaving signs it out.
+class PortalCodeSignInScreen extends StatefulWidget {
+  const PortalCodeSignInScreen({
+    required this.workspace,
+    required this.codes,
+    required this.createSession,
+    this.saver = const FilePickerInvoiceSaver(),
+    super.key,
+  });
+  final String workspace;
+  final PortalCodeClient codes;
+  final PortalSessionFactory createSession;
+  final InvoiceDocumentSaver saver;
+
+  @override
+  State<PortalCodeSignInScreen> createState() => _PortalCodeSignInState();
+}
+
+final _emailShape =
+    RegExp(r'''^[^@\s<>"']{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$''');
+
+/// Six digits as typed (spaces and dashes dropped), or null.
+String? cleanPortalCode(String input) {
+  final digits = input.replaceAll(RegExp(r'[\s-]'), '');
+  return RegExp(r'^\d{6}$').hasMatch(digits) ? digits : null;
+}
+
+class _PortalCodeSignInState extends State<PortalCodeSignInScreen> {
+  final email = TextEditingController();
+  final code = TextEditingController();
+  final codeFocus = FocusNode();
+  PortalCodeChallenge? challenge;
+  String? problem;
+  bool busy = false;
+
+  @override
+  void dispose() {
+    email.dispose();
+    code.dispose();
+    codeFocus.dispose();
+    super.dispose();
+  }
+
+  String _say(Object error) {
+    final l = context.anum;
+    if (error is ApiException) {
+      if (error.statusCode == 401) return l.t('portal.code.wrong');
+      if (error.statusCode == 429) return l.t('portal.code.limit');
+      return error.message;
+    }
+    return readableError(error);
+  }
+
+  Future<void> _ask() async {
+    final l = context.anum;
+    final address = email.text.trim();
+    if (!_emailShape.hasMatch(address)) {
+      setState(() => problem = l.t('portal.code.emailInvalid'));
+      return;
+    }
+    setState(() {
+      busy = true;
+      problem = null;
+    });
+    try {
+      final next = await widget.codes.requestCode(widget.workspace, address);
+      if (!mounted) return;
+      setState(() {
+        challenge = next;
+        code.clear();
+      });
+      codeFocus.requestFocus();
+    } catch (e) {
+      if (mounted) setState(() => problem = _say(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _verify() async {
+    final l = context.anum;
+    final digits = cleanPortalCode(code.text);
+    final current = challenge;
+    if (digits == null || current == null) {
+      setState(() => problem = l.t('portal.code.codeInvalid'));
+      return;
+    }
+    setState(() {
+      busy = true;
+      problem = null;
+    });
+    try {
+      final token =
+          await widget.codes.verify(widget.workspace, current.id, digits);
+      if (!mounted) return;
+      code.clear();
+      final session = widget.createSession(token);
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              PortalHomeScreen(controller: session, saver: widget.saver),
+        ),
+      );
+    } catch (e) {
+      if (mounted) setState(() => problem = _say(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.anum;
+    final waiting = challenge;
+    return Scaffold(
+      appBar: AppBar(title: Text(l.t('portal.title'))),
+      body: AnumPage(
+        children: [
+          AnumHeader(
+              eyebrow: l.t('portal.eyebrow'),
+              title: l.t('portal.code.title'),
+              subtitle: waiting == null
+                  ? l.t('portal.code.help')
+                  : l.t('portal.code.sent')),
+          if (waiting == null) ...[
+            TextField(
+              key: const Key('portal-code-email'),
+              controller: email,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [AutofillHints.email],
+              autocorrect: false,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                  labelText: l.t('portal.code.email'),
+                  errorText: problem,
+                  errorMaxLines: 4),
+              onSubmitted: (_) => _ask(),
+            ),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              FilledButton.icon(
+                key: const Key('portal-code-send'),
+                onPressed: busy ? null : _ask,
+                icon: const Icon(Icons.mail_outline),
+                label: Text(busy
+                    ? l.t('portal.code.sending')
+                    : l.t('portal.code.send')),
+              ),
+            ]),
+            Text(l.t('portal.code.linkInstead'),
+                style: TextStyle(color: context.palette.muted)),
+          ] else ...[
+            TextField(
+              key: const Key('portal-code-digits'),
+              controller: code,
+              focusNode: codeFocus,
+              keyboardType: TextInputType.number,
+              autofillHints: const [AutofillHints.oneTimeCode],
+              maxLength: 9,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                  labelText: l.t('portal.code.code'),
+                  helperText: l.t('portal.code.codeHelp'),
+                  helperMaxLines: 3,
+                  errorText: problem,
+                  errorMaxLines: 4),
+              onSubmitted: (_) => _verify(),
+            ),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              FilledButton(
+                key: const Key('portal-code-verify'),
+                onPressed: busy ? null : _verify,
+                child: Text(busy
+                    ? l.t('portal.code.checking')
+                    : l.t('portal.code.signIn')),
+              ),
+              OutlinedButton(
+                key: const Key('portal-code-again'),
+                onPressed: busy ? null : _ask,
+                child: Text(l.t('portal.code.again')),
+              ),
+              TextButton(
+                key: const Key('portal-code-other'),
+                onPressed: busy
+                    ? null
+                    : () => setState(() {
+                          challenge = null;
+                          problem = null;
+                        }),
+                child: Text(l.t('portal.code.other')),
+              ),
+            ]),
+          ],
         ],
       ),
     );
@@ -1456,6 +1681,20 @@ class _PortalInvoiceState extends State<PortalInvoiceScreen>
                   subtitle: '${p.paidOn}, ${l.t('biz.inv.method.${p.method}')}',
                   detail: p.reference.isEmpty ? null : p.reference,
                 ),
+            ],
+          ),
+        ),
+      if (i.refunds.isNotEmpty)
+        AnumSurface(
+          key: const Key('portal-refunds'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AnumHeader(title: l.t('portal.invoice.refunds')),
+              for (final (day, amount) in i.refunds)
+                AnumRow(
+                    title: m(amount),
+                    subtitle: l.f('portal.invoice.refundLine', {'date': day})),
             ],
           ),
         ),

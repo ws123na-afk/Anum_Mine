@@ -13,6 +13,9 @@
 #   backup.sh fetch <name prefix>    download matching off-site files into <backup dir>/fetched
 #   backup.sh reconcile [--delete]   list off-site objects no backup manifest references (dry run);
 #                                    --delete removes those older than 35 days (backup_reconcile.py)
+#   backup.sh files-reconcile [--delete]  list Files bucket objects no database row references
+#                                    (dry run); --delete removes those older than 7 days
+#                                    (anum_api.files_reconcile, in the retention job's container)
 #   backup.sh drill                  restore drill: backup -> restore into a scratch
 #                                    database -> verify (rows per tenant, RLS) -> drop
 #   backup.sh restore <dump>         restore an ANUM dump (path under the backup dir) into a
@@ -152,6 +155,12 @@ case "${1:-}" in
     command -v python3 >/dev/null || die "python3 is needed for the reconcile"
     python3 "$ORACLE_DIR/backup_reconcile.py" --compose-dir "$ORACLE_DIR" "${@:2}"
     ;;
+  files-reconcile)
+    # One-off: Files bucket objects whose rows were purged before November 2026. Dry run unless
+    # --delete (docs/deploy-oracle.md#reconciling-the-files-bucket). The retention job's container
+    # has the API's bucket settings and the application login.
+    dc run --rm --no-deps retention python -m anum_api.files_reconcile "${@:2}"
+    ;;
   drill)
     dc run --rm restore-tools drill --work-dir /backups/drill
     ;;
@@ -207,7 +216,7 @@ case "${1:-}" in
     echo "Done. The previous Keycloak database is kept as $previous (backup.sh drop-database $previous)."
     ;;
   *)
-    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

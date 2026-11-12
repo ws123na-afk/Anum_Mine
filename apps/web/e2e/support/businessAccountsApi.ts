@@ -68,6 +68,7 @@ export async function mockBusinessAccounts(page: Page, options: { role?: 'owner'
     if (parts[0] === 'portal') {
       if (parts[1] === 'access' && method === 'GET') return json([]);
       if (parts[1] === 'decisions') return json([]);
+      if (parts[1] === 'sign-in' && method === 'GET') return json({ enabled: false, email_configured: true, sign_in_path: '/portal#signin=tenant_local.workspace_foundation', codes_last_30_days: 0, sign_ins_last_30_days: 0 });
       return denied();
     }
 

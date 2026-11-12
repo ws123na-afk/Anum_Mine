@@ -252,9 +252,14 @@ class Suggestion {
   String? get variant {
     if (kind == 'attribution') {
       final dimension = params['dimension'] ?? 'business';
-      return dimension == 'vehicle' && params['record'] == 'none'
-          ? 'vehicle_record'
-          : dimension;
+      if (dimension == 'vehicle' && params['record'] == 'none') {
+        return 'vehicle_record';
+      }
+      // From the receipt scanned for the record (docs/vehicles.md#payments).
+      if (dimension == 'vehicle' && params['source'] == 'receipt') {
+        return 'vehicle_receipt';
+      }
+      return dimension;
     }
     if (kind == 'payment_match') return actionKind == 'link' ? 'link' : null;
     if (kind == 'fx_fee') {

@@ -63,6 +63,13 @@ const invoiceEn = <String, String>{
   'biz.inv.lineFigures': 'Net {net}, tax {tax}, total {total}',
   'biz.inv.dueIn': '{days} days after it is sent',
   'biz.inv.noPayments': 'No payment recorded yet.',
+  'biz.inv.refund.line': 'Refunded in {provider} on {date}',
+  'biz.inv.refund.surplus':
+      '{amount} of it was money the card took above the balance, so it is not taken off the invoice.',
+  'biz.inv.refund.reversed':
+      'The provider reported this refund failed, so it no longer counts.',
+  'biz.inv.refund.owed':
+      'A refunded amount is owed again. Issue a credit note if the customer no longer owes it.',
   'biz.inv.saved': 'Saved.',
   'biz.inv.deleteTitle': 'Delete this draft?',
   'biz.inv.deleteBody':
@@ -514,6 +521,13 @@ const invoiceAr = <String, String>{
   'biz.inv.lineFigures': 'الصافي {net}، الضريبة {tax}، الإجمالي {total}',
   'biz.inv.dueIn': 'بعد {days} يومًا من إرسالها',
   'biz.inv.noPayments': 'لم تُسجَّل دفعة بعد.',
+  'biz.inv.refund.line': 'استُرد عبر {provider} في {date}',
+  'biz.inv.refund.surplus':
+      'منها {amount} أخذتها البطاقة فوق الرصيد، فلا تُخصم من الفاتورة.',
+  'biz.inv.refund.reversed':
+      'أبلغت جهة الدفع بأن هذا الاسترداد فشل، فلم يعد يُحتسب.',
+  'biz.inv.refund.owed':
+      'المبلغ المسترد مستحق من جديد. أصدر إشعارًا دائنًا إذا لم يعد العميل مدينًا به.',
   'biz.inv.saved': 'تم الحفظ.',
   'biz.inv.deleteTitle': 'حذف هذه المسودة؟',
   'biz.inv.deleteBody':

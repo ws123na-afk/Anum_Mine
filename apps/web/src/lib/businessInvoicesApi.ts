@@ -4,6 +4,7 @@ import type {
   InvoiceAutomation, InvoiceSchedule, InvoiceScheduleDetail, InvoiceScheduleFields, ScheduleRunResult, ScheduleStatus,
   Billable, BillingProfile, BusinessInvoice, BusinessPage, BusinessPaymentProvider, CreditNoteInput, InvoiceCreate, InvoiceEmailInput, InvoiceEmailResult,
   InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
+  PortalSignInSettings,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -90,6 +91,9 @@ export const rejectPaymentNotice = (invoiceId: string, noticeId: string, reason:
 export const listPortalAccess = (accountId: string) => apiRequest<PortalAccessItem[]>(`${BASE}/portal/access${query({ account_id: accountId })}`, { method: 'GET' });
 export const createPortalAccess = (body: PortalAccessInput) => apiRequest<PortalAccessCreated>(`${BASE}/portal/access`, json('POST', body));
 export const revokePortalAccess = (accessId: string) => apiRequest<PortalAccessItem>(`${BASE}/portal/access/${id(accessId)}/revoke`, json('POST'));
+/** The workspace's emailed code sign-in switch (docs/business-portal.md#signing-in-with-an-emailed-code). */
+export const getPortalSignIn = () => apiRequest<PortalSignInSettings>(`${BASE}/portal/sign-in`, { method: 'GET' });
+export const setPortalSignIn = (enabled: boolean) => apiRequest<PortalSignInSettings>(`${BASE}/portal/sign-in`, json('PUT', { enabled }));
 export const listPortalDecisions = (q: { account_id?: string; subject_id?: string }) => apiRequest<PortalDecisionRow[]>(`${BASE}/portal/decisions${query(q)}`, { method: 'GET' });
 
 // ---- recurring invoices and the daily pass (docs/business.md#recurring-invoices) ----------------------------------

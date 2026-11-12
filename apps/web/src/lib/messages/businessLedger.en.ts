@@ -218,6 +218,7 @@ export const businessLedgerEn = {
   'ledger.source.invoice': 'Invoice',
   'ledger.source.credit_note': 'Credit note',
   'ledger.source.invoice_payment': 'Invoice payment',
+  'ledger.source.invoice_refund': 'Card refund',
   'ledger.source.bill': 'Bill',
   'ledger.source.bill_payment': 'Bill payment',
   'ledger.source.allocation': 'Paid by a member',

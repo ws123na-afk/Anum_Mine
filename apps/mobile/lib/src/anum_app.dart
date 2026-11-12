@@ -256,6 +256,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
   /// calls the configured API with the token as a bearer header, no
   /// workspace header, and keeps the token in memory only.
   late final PortalSessionFactory _portalSessions;
+  late final PortalCodeClient _portalCodes;
   late final DeveloperAssist chatDeveloper;
   late final DeveloperAssist voiceDeveloper;
   late final LibraryRepository library;
@@ -524,6 +525,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         deals: ApiDealsRepository(api));
     _portalSessions =
         (token) => PortalController(ApiPortalRepository(api, token));
+    _portalCodes = ApiPortalCodeClient(api);
     chatDeveloper = DeveloperAssist(
       repository: developerRepository,
       source: 'text',
@@ -640,6 +642,8 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
     'theme': 'device preference',
     'intro': 'device preference',
     '_portalSessions': 'factory; the portal token lives with its page',
+    '_portalCodes':
+        'stateless client; codes and sessions live with the portal page',
     'agentChat': 'builder; each chat page has its own controller',
     'agentCall': 'builder; each call page has its own controller',
     'records': 'routes; each page has its own controller',
@@ -990,7 +994,8 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
   void _openPortal() {
     _navigator.currentState?.push(
       MaterialPageRoute<void>(
-        builder: (_) => PortalEntryScreen(createSession: _portalSessions),
+        builder: (_) => PortalEntryScreen(
+            createSession: _portalSessions, codes: _portalCodes),
       ),
     );
   }

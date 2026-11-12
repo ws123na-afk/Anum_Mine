@@ -181,12 +181,13 @@ export function integrationBadge(status: string): { label: string; tone: 'succes
 /** The health a row shows: what the probe measured, or "not yet probed"; never a typed status. */
 export function targetHealth(target: RoutingTarget): { label: string; tone: 'success' | 'warning' | 'neutral' | 'danger'; detail: string } {
   if (!(target.enabled ?? true)) return { label: t('ent.health.disabled'), tone: 'neutral', detail: t('ent.health.disabledDetail') };
-  if (!target.last_checked_at) return { label: t('ent.health.unprobed'), tone: 'neutral', detail: t('ent.health.unprobedDetail') };
+  if (!target.last_checked_at) return { label: t('ent.health.unprobed'), tone: 'neutral', detail: t('ent.health.unprobedDetail', { provider: target.provider }) };
   const when = formatDateTime(target.last_checked_at);
   if (target.status === 'healthy') return { label: t('ent.status.healthy'), tone: 'success', detail: t('ent.health.measured', { latency: target.measured_latency_ms ?? 0, when }) };
   if (target.status === 'degraded') return { label: t('ent.status.degraded'), tone: 'warning', detail: target.last_error ? t('ent.health.failedAt', { when, error: target.last_error }) : when };
   if (target.status === 'offline') return { label: t('ent.status.offline'), tone: 'danger', detail: target.last_error ? t('ent.health.failedAt', { when, error: target.last_error }) : when };
-  return { label: t('ent.health.unprobed'), tone: 'neutral', detail: target.last_error ?? when };
+  // Checked, but the probe could not reach the provider through the workspace's configuration.
+  return { label: t('ent.health.unverified'), tone: 'neutral', detail: target.last_error ? t('ent.health.failedAt', { when, error: target.last_error }) : when };
 }
 
 /** Why a target cannot be deleted yet, or null when it can (mirrors the API's 409). */

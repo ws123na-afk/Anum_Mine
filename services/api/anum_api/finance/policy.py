@@ -39,18 +39,27 @@ def current_rules(store: FinanceStore, context: TenantContext) -> tuple[Guardian
     return (policy.rules, policy.version) if policy else (GuardianRules(), 0)
 
 
-def _spend(rows: list[Transaction], exclude_id: str | None = None) -> list[Transaction]:
+def _spend(rows: list[Transaction], exclude_id: str | None = None, lending: frozenset[str] | None = None) -> list[Transaction]:
     # The shared rule (flows.py): purchases less the refunds filed in their category count towards a cap. Money out that
-    # no rule recognised (uncategorized) may be spending, so the Guardian watches it too until the owner files it.
-    spend = {t.id for t in spend_rows(rows)}
-    return [t for t in rows if t.id != exclude_id and (t.id in spend or (t.amount < 0 and flow_of(t) == Flow.UNCATEGORIZED))]
+    # no rule recognised (uncategorized) may be spending, so the Guardian watches it too until the owner files it. Money
+    # lent to or borrowed from a person, and its repayments (``lending``), is a transfer whatever its category.
+    spend = {t.id for t in spend_rows(rows, None, lending)}
+    return [t for t in rows if t.id != exclude_id
+            and (t.id in spend or (t.amount < 0 and flow_of(t, None, lending) == Flow.UNCATEGORIZED))]
+
+
+def lending_ids(store: FinanceStore, context: TenantContext) -> frozenset[str]:
+    """Transactions lent or borrowed with a person, read on the store's own unit of work (``obligations.py``)."""
+    from .obligations import lending_ids_on
+
+    return lending_ids_on(store, context)
 
 
 def ledger_state(store: FinanceStore, context: TenantContext, day: date, *, exclude_id: str | None = None) -> LedgerState:
     """The month of ``day`` up to and including it, and ``day`` itself."""
     settings = settings_for(store, context)
     start = day.replace(day=1)
-    rows = _spend(store.transactions_between(context, start, day), exclude_id)
+    rows = _spend(store.transactions_between(context, start, day), exclude_id, lending_ids(store, context))
     month: dict[tuple[Category, str], Decimal] = {}
     today: dict[str, Decimal] = {}
     for t in rows:
@@ -69,8 +78,8 @@ def check_record(store: FinanceStore, context: TenantContext, transaction: Trans
     if transaction.amount >= 0 or transaction.category in NOT_SPEND:
         return None
     rules, _ = current_rules(store, context)
-    if rules.is_empty():
-        return None
+    if rules.is_empty() or transaction.id in lending_ids(store, context):
+        return None  # money lent or borrowed with a person is a transfer, never spending
     action = GuardianAction(
         kind=ActionKind.RECORD, amount=-transaction.amount, currency=transaction.currency, category=transaction.category,
         merchant=transaction.description, at=now,
@@ -100,7 +109,7 @@ def month_alerts(store: FinanceStore, context: TenantContext, month: str | None 
     alerts: list[GuardianAlert] = []
     if rules.is_empty():
         return GuardianAlerts(month=label, version=version, alerts=alerts)
-    rows = _spend(store.transactions_between(context, start, end))
+    rows = _spend(store.transactions_between(context, start, end), lending=lending_ids(store, context))
     by_cat: dict[tuple[Category, str], Decimal] = {}
     by_day: dict[tuple[date, str], Decimal] = {}
     for t in rows:

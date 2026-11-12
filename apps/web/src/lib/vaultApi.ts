@@ -3,7 +3,7 @@ import type { DocumentAccessGrant, DocumentExtraction, DocumentLink, VaultCatego
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { ApiError, apiErrorFrom, apiErrorFromResponse } from './errors';
 import { t } from './i18n';
-import type { VaultDevice, VaultDeviceCreated, VaultDocumentDetail, VaultDocumentPage, VaultMeta, VaultReviewItem, VaultVersionPage } from './vault';
+import type { VaultDevice, VaultDeviceCreated, VaultDocumentDetail, VaultDocumentPage, VaultMeta, VaultReceiptMatches, VaultReviewItem, VaultVersionPage } from './vault';
 
 const BASE = '/api/v1/documents';
 const id = encodeURIComponent;
@@ -26,6 +26,10 @@ export const unshare = (documentId: string, userId: string) => apiRequest<Docume
 export const getPeople = () => apiRequest<{ user_id: string }[]>(`${BASE}/people`, { method: 'GET' });
 export const addLink = (documentId: string, body: { target_type: string; target_id: string; label: string }) => apiRequest<DocumentLink>(`${BASE}/${id(documentId)}/links`, { method: 'POST', ...json(body) });
 export const removeLink = (documentId: string, linkId: string) => apiRequestVoid(`${BASE}/${id(documentId)}/links/${id(linkId)}`, { method: 'DELETE' });
+/** What a confirmed receipt may belong to, and confirming one (docs/documents.md#receipt-matches). */
+export const getMatches = (documentId: string) => apiRequest<VaultReceiptMatches>(`${BASE}/${id(documentId)}/matches`, { method: 'GET' });
+export const acceptMatch = (documentId: string, kind: 'payment' | 'purchase', targetId: string) =>
+  apiRequest<VaultReceiptMatches>(`${BASE}/${id(documentId)}/matches/accept`, { method: 'POST', ...json({ kind, target_id: targetId }) });
 export const extract = (documentId: string) => apiRequest<DocumentExtraction>(`${BASE}/${id(documentId)}/extract`, { method: 'POST' });
 export const confirmExtraction = (extractionId: string, fields: Record<string, string>, items?: DocumentExtraction['items']) =>
   apiRequest<VaultDocument>(`${BASE}/extractions/${id(extractionId)}/confirm`, { method: 'POST', ...json({ fields, items }) });

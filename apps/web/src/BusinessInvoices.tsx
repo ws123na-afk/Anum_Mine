@@ -8,7 +8,7 @@ import { Suspense, lazy, useCallback, useEffect, useId, useState, type FormEvent
 import { PaymentLinkBlock, SendBlock } from './BusinessInvoiceSend';
 import { Download, Plus, Printer, Search, Send, Trash2 } from 'lucide-react';
 import type {
-  Billable, BusinessAccountRow, BusinessCurrency, BusinessInvoice, BusinessProject, BusinessSetup, CreditNote, InvoiceSummary, PaymentMethod, PaymentNotice,
+  Billable, BusinessAccountRow, BusinessCurrency, BusinessInvoice, BusinessProject, BusinessSetup, CreditNote, InvoiceRefund, InvoiceSummary, PaymentMethod, PaymentNotice,
 } from '@anum/contracts';
 import { SALES_TAX_CODES, type SalesTaxCode } from '@anum/contracts';
 import { getLocale, t, type MessageKey } from './lib/i18n';
@@ -489,6 +489,7 @@ async function saveTo(fn: () => Promise<string>, what: string, { onSaved, onErro
 
 function PaymentsBlock({ invoice, canRemove, busy, onRemove, onSaved, onError }: { invoice: BusinessInvoice; canRemove: boolean; busy: boolean; onRemove: (paymentId: string) => void } & FileNotes) {
   if (invoice.status === 'draft' || invoice.status === 'pending_approval') return null;
+  const refundsOf = (paymentId: string) => (invoice.refunds ?? []).filter((item) => item.payment_id === paymentId);
   return <section className="bzBlock" aria-labelledby={`pay-${invoice.id}`}>
     <h3 id={`pay-${invoice.id}`}>{t('inv.pay.title')}</h3>
     {invoice.payments.length === 0 ? <p className="muted">{t('inv.pay.none')}</p>
@@ -496,12 +497,30 @@ function PaymentsBlock({ invoice, canRemove, busy, onRemove, onSaved, onError }:
         <div className="bzInline"><strong>{money(payment.amount, invoice.currency)}</strong><span>{day(payment.paid_on)}</span><span className="muted">{paymentMethodLabel(payment.method)}</span>
           <button type="button" className="secondary" onClick={() => void saveTo(() => inv.downloadReceipt(invoice.id, payment.id), t('inv.receipt.button'), { onSaved, onError })}>
             <Download aria-hidden="true" />{t('inv.receipt.button')}</button>
-          {canRemove && <button type="button" className="secondary" disabled={busy} onClick={() => onRemove(payment.id)}>{t('inv.pay.remove')}</button>}</div>
+          {canRemove && !refundsOf(payment.id).length && <button type="button" className="secondary" disabled={busy} onClick={() => onRemove(payment.id)}>{t('inv.pay.remove')}</button>}</div>
         {payment.provider === 'moyasar' && <small>{t('inv.pay.viaMoyasar')}</small>}
         {payment.provider === 'stripe' && <small>{t('inv.pay.viaStripe')}</small>}
         <small dir="auto">{[payment.reference, payment.note].filter(Boolean).join(' / ')}</small>
-        <small>{t('inv.pay.recordedBy', { by: payment.recorded_by })}</small></li>)}</ul>}
+        <small>{t('inv.pay.recordedBy', { by: payment.recorded_by })}</small>
+        <RefundList refunds={refundsOf(payment.id)} invoice={invoice} canRemove={canRemove} /></li>)}</ul>}
   </section>;
+}
+
+/** Refunds made in the Stripe or Moyasar dashboard on one card payment (docs/business.md#refunds-made-in-the-provider-dashboard). */
+function RefundList({ refunds, invoice, canRemove }: { refunds: InvoiceRefund[]; invoice: BusinessInvoice; canRemove: boolean }) {
+  if (!refunds.length) return null;
+  const provider = refunds[0].provider === 'stripe' ? 'Stripe' : 'Moyasar';
+  const owed = refunds.some((item) => item.status === 'recorded' && item.amount > 0) && invoice.status === 'sent';
+  return <div className="bzRefunds" role="group" aria-label={t('inv.refund.title', { provider })}>
+    <strong>{t('inv.refund.title', { provider })}</strong>
+    <ul>{refunds.map((item) => <li key={item.id} className={item.status === 'reversed' ? 'muted' : undefined}>
+      <span>{t('inv.refund.line', { amount: money(item.provider_amount, invoice.currency), date: day(item.refunded_on) })}</span>
+      {item.status === 'reversed' ? <small>{t('inv.refund.reversed', { provider })}</small>
+        : item.amount < item.provider_amount && <small>{t('inv.refund.surplus', { amount: money(item.provider_amount - item.amount, invoice.currency) })}</small>}
+    </li>)}</ul>
+    {owed && <small>{t('inv.refund.owed')}</small>}
+    {canRemove && <small className="muted">{t('inv.refund.keep')}</small>}
+  </div>;
 }
 
 function PaymentDialog({ invoice, onCancel, onSaved }: { invoice: BusinessInvoice; onCancel: () => void; onSaved: (next: BusinessInvoice) => void }) {

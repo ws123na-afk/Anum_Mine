@@ -10,6 +10,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from anum_api import file_policy, files
 from anum_api.dependencies import memory_repository
@@ -18,6 +19,7 @@ from anum_api.files_organize import BULK_MAX_FILES, MAX_FOLDER_DEPTH, archive_en
 from anum_api.main import app
 from anum_api.retrieval import memory_retrieval_store
 from anum_api.schemas import utc_now
+from anum_api.settings import Settings, settings
 
 client = TestClient(app)
 TENANT, WORKSPACE = "tenant_folders", "workspace_folders"
@@ -373,14 +375,23 @@ def test_bulk_download_refuses_quarantined_files_oversized_selections_and_missin
     file_store.records[bad["id"]] = file_store.records[bad["id"]].model_copy(update={"scan_status": "infected", "scan_signature": "Eicar"})
     refused = client.post("/api/v1/files/bulk/download", headers=MEMBER, json={"file_ids": [a["id"], bad["id"]]})
     assert refused.status_code == 409 and "quarantined" in message(refused)
-    monkeypatch.setattr("anum_api.files_organize.BULK_DOWNLOAD_MAX_BYTES", 3)
+    # The operator's limit (ANUM_FILES_BULK_DOWNLOAD_MAX_BYTES), read on every request.
+    monkeypatch.setattr(settings, "files_bulk_download_max_bytes", 3)
     big = client.post("/api/v1/files/bulk/download", headers=MEMBER, json={"file_ids": [a["id"]]})
-    assert big.status_code == 413 and "Select fewer files" in message(big)
-    monkeypatch.setattr("anum_api.files_organize.BULK_DOWNLOAD_MAX_BYTES", 1 << 30)
+    assert big.status_code == 413 and "Select fewer files" in message(big) and "at most 3 B" in message(big)
+    monkeypatch.setattr(settings, "files_bulk_download_max_bytes", 1 << 30)
     file_store.storage.objects.clear()
     lost = client.post("/api/v1/files/bulk/download", headers=MEMBER, json={"file_ids": [a["id"]]})
     assert lost.status_code == 404 and "missing from storage" in message(lost)
     assert not audits("file.bulk_downloaded"), "a refused download is not recorded as one"
+
+
+def test_the_bulk_download_limit_is_an_operator_setting_with_bounds() -> None:
+    assert Settings(_env_file=None).files_bulk_download_max_bytes == 1 << 30
+    assert Settings(_env_file=None, files_bulk_download_max_bytes=5 << 30).files_bulk_download_max_bytes == 5 << 30
+    for bad in (0, (1 << 20) - 1, (8 << 30) + 1):
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, files_bulk_download_max_bytes=bad)
 
 
 def test_fixed_paths_are_never_read_as_file_ids() -> None:

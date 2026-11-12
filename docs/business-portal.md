@@ -23,13 +23,27 @@ A customer is not a member of the workspace. Instead an owner creates an access 
 - A customer can open at most 5 support requests a day per link, and write at most 20 messages a day inside their requests.
 - Browsers send the link only to this API (CORS allows the `Authorization` header and never credentials); the API's global rate limit applies to portal routes like every other route.
 
+## Signing in with an emailed code
+
+Next to the link, an owner may let customers sign in with a one-time code (`business/portal_signin.py`). It is off by default and set per workspace: Business, Accounts, a client's **Customer portal** block, **Sign in with an emailed code** (`PUT /api/v1/business/portal/sign-in`, owners only; members see it). It is refused while the ANUM server has no mail server (`409`), because no code could be sent. When it is on, the block shows the business's sign-in address `/portal#signin=<tenant id>.<workspace id>` (identifiers, not a secret) with a copy button, and the codes asked for and sign-ins of the last 30 days.
+
+- **Who can sign in.** Only a contact who already has an active, unexpired portal link, whose contact and account are not do not contact. The code goes to that contact's email address in ANUM. The session signs in to that access (the newest one when the address has several), with its read-only setting, and acts as `portal:<access id>` like the link.
+- **Never says whether an address exists.** `POST /api/v1/portal/sign-in/code` (`{workspace, email}`) always answers `202` with a challenge id and the same sentence. An address with no access gets a challenge too: nothing is sent, and it counts towards the limits. The email is sent after the answer (a background task, no transaction open), so the time the answer takes says nothing either. A business that has it off answers `403` for every address.
+- **The code.** Six digits from a cryptographic random source, valid for 10 minutes, five tries, used once. Only its HMAC-SHA256 is stored (a key derived from `ANUM_SECRETS_KEY`), so a database read cannot recover it quickly. The email is in English and Arabic and says the code works once and for 10 minutes.
+- **Limits** (stored in the workspace, so every API server counts the same): five codes an hour and ten a day per address, twenty an hour per IP address; above them `429` with a plain sentence, for known and unknown addresses alike.
+- **The session.** `POST /api/v1/portal/sign-in/verify` (`{workspace, challenge_id, code}`) answers a token in the link's own shape (`anum_portal.<tenant>.<workspace>.<sign-in id>.<secret>`; only the SHA-256 of the secret is stored), used exactly like a link: in memory and the tab's session storage, sent as `Authorization: Bearer`. It lasts 12 hours and never past the access's own expiry, and it stops at once when the customer signs out (`POST /api/v1/portal/sign-in/end`), the owner turns the link off, or the owner turns code sign-in off. A wrong, expired or used code answers `401` with one sentence.
+- **Stored.** `business_portal_sign_ins` keeps only hashes: the address and the IP address (SHA-256 with a fixed label), the code (HMAC) and the session, with the status, the attempts and the times. Never the address, the IP address or the code in clear.
+- **Audit.** Every code asked for, sign-in, failed try, limit and sign-out is in the audit log (`business.portal.sign_in_code_requested`, `signed_in_with_code`, `sign_in_failed`, `sign_in_limited`, `signed_out`) with ids only; a code sent, a sign-in and five failed tries are in the account's activity trail by contact name, never the address.
+
+On the web the sign-in address opens the sign-in page of `PortalApp.tsx`: the email step, then the code step (numeric, `autocomplete="one-time-code"`, a new code, another address), and the portal with **Sign out** after it. A link still opens the portal directly. On the phone the portal screen (`apps/mobile/lib/features/portal/`) takes the same sign-in address and codes ([Phone](#phone)).
+
 ## What the customer sees
 
 | Section | What is shown | What they can do |
 |---|---|---|
 | Offers | Proposals that were sent for acceptance (not drafts, not withdrawn): summary, scope, deliverables, exclusions, assumptions, acceptance criteria, lines, milestones, tax, total, payment terms, validity | Approve or decline the exact version shown (typed name, optional note) |
 | Change orders | Change orders waiting for approval and approved ones: the request, added and removed lines, the price and timeline impact | Approve or decline the exact change order shown |
-| Invoices | Invoices that were sent (open, paid) and voided ones marked void: lines, tax, total, payments received, credit notes, reports they made, how to pay | Open the printable copy, download the PDF, report a payment they made |
+| Invoices | Invoices that were sent (open, paid) and voided ones marked void: lines, tax, total, payments received, card refunds the business made ([refunds](business.md#refunds-made-in-the-provider-dashboard)), credit notes, reports they made, how to pay | Open the printable copy, download the PDF, report a payment they made |
 | Requests | Their account's support requests: status, their text, the resolution, replies that were actually sent to them, and the conversation inside the request | Open a new request (title, details, severity low to high, optionally a project); write inside a request ([below](#replying-inside-a-request)) |
 
 There is no online payment: ANUM collects no money and has no payment gateway. The invoice shows the owner's bank details and the customer pays outside ANUM; the business records the payment ([invoices](business.md#invoices)), or confirms the customer's report of it ([below](#reporting-a-payment)).
@@ -78,6 +92,7 @@ Owners: Business, **Accounts** tab: pick a client account and use its "Customer 
 | `GET /api/v1/business/portal/access?account_id=` | owner, member | The account's links (no token, no hash) |
 | `POST /api/v1/business/portal/access` | owner | Creates a link; the response carries `token` and `portal_path` once |
 | `POST /api/v1/business/portal/access/{id}/revoke` | owner | Turns a link off (idempotent) |
+| `GET`, `PUT /api/v1/business/portal/sign-in` | owner, member (read); owner (change) | The workspace's emailed code sign-in switch, its sign-in address and counts ([above](#signing-in-with-an-emailed-code)) |
 | `GET /api/v1/business/portal/decisions?account_id=&subject_id=` | owner, member | What customers decided, newest first (the newest 100). The account's "Customer portal" block lists them under **What this customer decided** (approved or declined, proposal or change order and its version, who signed, when, and the note), ten a page with the shared Pager, with a line when the 100 limit is reached. |
 
 | Customer route (`/api/v1/portal`) | Does |
@@ -89,10 +104,13 @@ Owners: Business, **Accounts** tab: pick a client account and use its "Customer 
 | `POST /invoices/{id}/payment-notices` | Report a payment (body: `payer_name`, `amount`, `paid_on`, `method`, `reference`, `note`); 201 with the invoice, 200 when the same report already waits |
 | `GET /tickets`, `GET /tickets/{id}`, `POST /tickets` | Requests |
 | `POST /tickets/{id}/messages` | Write inside a request (body: `body`, `idempotency_key`); 201 with the request, 200 when the same key was sent before |
+| `POST /sign-in/code`, `POST /sign-in/verify`, `POST /sign-in/end` | Sign in with an emailed code (public, off unless the owner turned it on), and sign out of that session ([above](#signing-in-with-an-emailed-code)) |
 
 ## Storage
 
 Migration `0089_business_invoices_portal` creates `business_portal_access` (the contact's link: SHA-256 of the secret, expiry, revocation, last use) and `business_portal_decisions` (one decision per exact version) under forced row-level security with scoped composite foreign keys, plus the purge grants and policies of organisation and workspace deletion ([lifecycle](organisation-lifecycle.md)). `token_hash` is never exported. Expand only.
+
+Migration `0177_business_refunds_otp` adds `business_portal_sign_ins` (hashes of the address, the IP address, the code and the session; a scoped foreign key to the access, cascade) and `business_settings.portal_code_sign_in` (off) under the same rules.
 
 ## Tests
 
@@ -102,9 +120,15 @@ Migration `0089_business_invoices_portal` creates `business_portal_access` (the 
 - `apps/web/test/businessInvoices.test.ts`, `apps/web/test/portal.test.ts` and the Playwright specs `apps/web/e2e/business-invoices.spec.ts` and `apps/web/e2e/portal.spec.ts`; `apps/mobile/test/portal_test.dart` and `apps/mobile/test/business_invoices_test.dart`.
 - `services/api/tests/test_business_portal_replies.py`: writing inside a request and answering it (the conversation on both sides, a waiting request moving on, a resolved one reopening, a closed one shut, the same key once, cleaned text, the daily limit, another account's request, permissions and scope, an active link required for an answer, read marks, the archived workspace, the audit without the text); `test_postgres_business_depth.py` under forced RLS; `apps/web/e2e/portal.spec.ts` and `apps/web/e2e/businessSupport.spec.ts`; `apps/mobile/test/portal_test.dart` and `apps/mobile/test/business_support_test.dart`.
 
+- `services/api/tests/test_business_portal_signin.py`: the owner's switch (owners only, refused without a mail server, kept by the general settings route), a code signing in to one access only, the same answer and no email for an unknown address, five wrong codes, an expired code, a code used once, the limits per address and per IP address, only hashes stored, signing out, the switch or the link turned off ending the session, a forged session; the audit walk in `test_business_portal.py`; `test_postgres_business_refunds_otp.py` under forced RLS. Web: `apps/web/test/portal.test.ts`, `apps/web/e2e/portal-sign-in.spec.ts` (both steps, wrong code, limit, off, sign out, the gate at five sizes in English and Arabic) and `apps/web/e2e/business-portal-code-refunds.spec.ts`. Phone: `apps/mobile/test/portal_test.dart`.
+
+## Phone
+
+The phone's portal screen accepts the business's sign-in address as well as a link: the same email and code steps, then the portal, and Sign out for a code session.
+
 ## Not in this release
 
-- Online payment (a gateway) and payment reminders: ANUM collects no money; the business records payments by hand or confirms a customer's report. An Arabic PDF is not made (Latin-only fonts); the printable page covers Arabic.
+- Payment reminders from the portal, and a gateway other than the business's Moyasar or Stripe payment link: ANUM collects no money itself; the business records payments by hand or confirms a customer's report. An Arabic PDF is not made (Latin-only fonts); the printable page covers Arabic.
 - File attachments in a request, a public status page and e-signature of a certified kind (the typed name and the stored hash are the record).
-- Notifications to the customer: nothing is sent. The owner shares the link and, for an invoice, the printed copy, through the inbox's own approved path.
-- Customer sign-in with a password, SSO or one-time codes: a link is the credential; a code sent by e-mail is a later step.
+- Notifications to the customer: nothing is sent but the sign-in code they ask for (through the ANUM server's own mail server, like workspace invitations). The owner shares the link and, for an invoice, the printed copy, through the inbox's own approved path.
+- Customer sign-in with a password or SSO: a link, or an emailed code for a contact who has one ([above](#signing-in-with-an-emailed-code)), is the credential.

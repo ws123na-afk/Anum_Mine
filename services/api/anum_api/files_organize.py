@@ -62,6 +62,7 @@ from .files import (
     quarantine_message,
 )
 from .schemas import TenantContext, new_id, utc_now
+from .settings import settings
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
 
@@ -70,7 +71,6 @@ MAX_TAGS = 500
 MAX_TAG_NAME = 64
 BULK_MAX_FILES = 500
 FOLDER_DELETE_MAX_FILES = 2000
-BULK_DOWNLOAD_MAX_BYTES = 1024 * 1024 * 1024
 FOLDER_MANAGE_DENIED = "Only the person who created this folder or a workspace owner can rename, move or delete it."
 TAG_MANAGE_DENIED = "Only the person who created this tag or a workspace owner can rename or delete it."
 # A folder's contents when it is deleted: refuse unless empty, move everything one level up, or
@@ -542,7 +542,7 @@ def archive_entry_name(folder_path: str | None, name: str, used: set[str]) -> st
 def bulk_download(body: BulkFiles, context: TenantContext = Depends(tenant_context)) -> StreamingResponse:
     """The selected files as one zip, their folders as directories. Each file's bytes stream from
     object storage into a temporary file, which is then sent in chunks; the response never holds
-    a whole file in memory. Quarantined files and more than ``BULK_DOWNLOAD_MAX_BYTES`` are refused."""
+    a whole file in memory. Quarantined files and more than ``ANUM_FILES_BULK_DOWNLOAD_MAX_BYTES`` are refused."""
     _require(context, Permission.FILE_READ, READ_DENIED)
     with open_file_metadata_store(context) as store:
         records = _bulk_records(store, context, body.file_ids)
@@ -551,11 +551,12 @@ def bulk_download(body: BulkFiles, context: TenantContext = Depends(tenant_conte
     if quarantined:
         raise HTTPException(409, quarantine_message(quarantined[0]))
     total = sum(r.size_bytes for r in records)
-    if total > BULK_DOWNLOAD_MAX_BYTES:
+    limit = settings.files_bulk_download_max_bytes
+    if total > limit:
         raise HTTPException(
             413,
             f"The selected files add up to {human_bytes(total)}; one download can be at most "
-            f"{human_bytes(BULK_DOWNLOAD_MAX_BYTES)}. Select fewer files.",
+            f"{human_bytes(limit)}. Select fewer files.",
         )
     archive_file = tempfile.TemporaryFile()
     used: set[str] = set()

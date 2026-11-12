@@ -1,15 +1,17 @@
 """Optional Mailcow API for the platform operator (docs/email.md#operator-view, #mail-domains).
 
 Off unless ``ANUM_MAILCOW_API_ENABLED=true``. Reads use ``ANUM_MAILCOW_API_KEY`` (a Mailcow
-*read-only* API key). Changes (add or remove a domain or an alias) are a second, separate
+*read-only* API key). Changes (add or remove a domain or an alias, add a mailbox) are a second, separate
 switch: ``ANUM_MAILCOW_WRITE_ENABLED=true`` with ``ANUM_MAILCOW_API_WRITE_KEY`` (a read-write
 key), and they run only from an approved ``change_mail_domains`` call (``domains_api.py``).
 Neither key is ever returned, logged or audited. Only the fixed paths below are ever called.
 
 Reads are reduced to counts and states: the server version, which containers are not running,
 how many messages wait in the queue, per domain how many mailboxes exist and how full the quota
-is, the aliases of the domains (address and destinations) and each domain's DKIM public key
-(never the private key). Queue items and mailbox names are counted, never returned.
+is, the aliases of the domains (address and destinations), the mailboxes of the domains (address,
+display name, quota and use, for the domains page only) and each domain's DKIM public key (never
+the private key). Queue items are counted, never returned; the status view counts mailboxes only.
+A new mailbox's first password is passed to Mailcow once and never returned, logged or audited.
 
 Reading and sending mail never go through this client: the Email Center talks IMAP and SMTP as
 each person (``server.py``).
@@ -34,6 +36,7 @@ READ_PATHS = {
     "domains": "/api/v1/get/domain/all",
 }
 ALIASES_PATH = "/api/v1/get/alias/all"
+MAILBOXES_PATH = "/api/v1/get/mailbox/all"
 DKIM_PATH = "/api/v1/get/dkim/{domain}"
 # The only Mailcow endpoints that change anything; called with the write key after an approval.
 WRITE_PATHS = {
@@ -41,6 +44,7 @@ WRITE_PATHS = {
     "remove_domain": "/api/v1/delete/domain",
     "add_alias": "/api/v1/add/alias",
     "remove_alias": "/api/v1/delete/alias",
+    "add_mailbox": "/api/v1/add/mailbox",
 }
 
 
@@ -172,6 +176,14 @@ class MailcowAlias(BaseModel):
     active: bool
 
 
+class MailcowMailbox(BaseModel):
+    address: str
+    name: str
+    active: bool
+    quota_mb: int | None = None
+    used_percent: float | None = None
+
+
 class MailcowDkim(BaseModel):
     selector: str
     txt: str
@@ -185,6 +197,8 @@ class MailcowDirectory(BaseModel):
     message: str | None = None
     domains: list[MailcowDomain] = Field(default_factory=list)
     aliases: list[MailcowAlias] = Field(default_factory=list)
+    mailboxes: list[MailcowMailbox] = Field(default_factory=list)
+    mailboxes_read: bool = False
 
 
 class WriteResult(BaseModel):
@@ -212,6 +226,26 @@ def _aliases(payload: Any) -> list[MailcowAlias]:
     return sorted(out, key=lambda a: a.address)
 
 
+def _mailboxes(payload: Any) -> list[MailcowMailbox]:
+    """Mailcow's mailbox list reduced to address, display name, state, quota and use."""
+    out: list[MailcowMailbox] = []
+    for item in payload if isinstance(payload, list) else []:
+        if not isinstance(item, dict) or not item.get("username"):
+            continue
+        quota = _int(item.get("quota"))
+        used = item.get("percent_in_use")
+        try:
+            used_percent = round(float(used), 1) if used not in (None, "", "-") else None
+        except (TypeError, ValueError):
+            used_percent = None
+        out.append(MailcowMailbox(
+            address=str(item["username"]).strip().lower()[:254], name=" ".join(str(item.get("name") or "").split())[:120],
+            active=str(item.get("active", "1")) in {"1", "True", "true"},
+            quota_mb=quota // (1024 * 1024) if quota else None, used_percent=used_percent,
+        ))
+    return sorted(out, key=lambda m: m.address)
+
+
 def read_directory(cfg: MailcowSettings | None = None) -> MailcowDirectory:
     """Domains and aliases through the read-only key, or why they were not read."""
     cfg = cfg or mailcow_settings
@@ -233,9 +267,20 @@ def read_directory(cfg: MailcowSettings | None = None) -> MailcowDirectory:
                 if response.status_code != 200:
                     return MailcowDirectory(state="unreachable", message=f"Mailcow answered {response.status_code} for {name}.")
                 answers[name] = response.json()
+            # The mailbox list is a separate read: when it fails the domains and aliases still show,
+            # and no mailbox can be added until it reads again (``mailboxes_read`` false).
+            try:
+                response = http.get(MAILBOXES_PATH)
+                if response.status_code == 200:
+                    answers["mailboxes"] = response.json()
+            except (httpx.HTTPError, ValueError):
+                pass
     except (httpx.HTTPError, ValueError):
         return MailcowDirectory(state="unreachable", message="Mailcow's API could not be reached or did not answer with JSON.")
-    return MailcowDirectory(state="ok", domains=_domains(answers.get("domains")), aliases=_aliases(answers.get("aliases")))
+    return MailcowDirectory(
+        state="ok", domains=_domains(answers.get("domains")), aliases=_aliases(answers.get("aliases")),
+        mailboxes=_mailboxes(answers.get("mailboxes")), mailboxes_read=isinstance(answers.get("mailboxes"), list),
+    )
 
 
 def read_dkim(domain: str, cfg: MailcowSettings | None = None) -> MailcowDkim | None:
@@ -326,3 +371,18 @@ def add_alias(address: str, goto: list[str], cfg: MailcowSettings | None = None)
 
 def remove_alias(alias_id: str, cfg: MailcowSettings | None = None) -> WriteResult:
     return write("remove_alias", [alias_id], cfg)
+
+
+def add_mailbox(address: str, name: str, password: str, quota_mb: int, cfg: MailcowSettings | None = None) -> WriteResult:
+    """Create a mailbox whose owner must change the first password at the first sign-in.
+
+    The password goes to Mailcow in this one request body and nowhere else; Mailcow's answer is
+    scrubbed of it before the message is returned (Mailcow does not echo it, this is a guard)."""
+    local, domain = address.split("@", 1)
+    result = write("add_mailbox", {
+        "local_part": local, "domain": domain, "name": name, "password": password, "password2": password,
+        "quota": str(quota_mb), "active": "1", "force_pw_update": "1", "tls_enforce_in": "1", "tls_enforce_out": "1",
+    }, cfg)
+    if password and password in result.message:
+        result = WriteResult(ok=result.ok, message=result.message.replace(password, "[REDACTED]"))
+    return result
