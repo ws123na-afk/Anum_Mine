@@ -27,8 +27,14 @@ How it works:
   failed, and a step refused by the budget or the emergency stop stay as they are; the person
   continues them with "Start the remaining steps" (``POST /commands/{id}/start``).
 
-The queue is in process and bounded: a continuation lost to a restart between a step
-completing and the next one starting is recovered by "Start the remaining steps".
+- **Each waiting step is tried once.** Whatever the outcome (started, already started, refused),
+  the server records that it tried the step (``command_step_continuations``, migration
+  ``0182_command_sweep``), so a step refused by the budget or the emergency stop is never started
+  later on its own, for example after the stop is lifted.
+
+The queue is in process and bounded. A completion that never reaches it (a run the durable worker
+finished without NATS, or a restart between a step completing and the next one starting) is found
+by the sweep (``command_sweep.py``, docs/command.md#the-sweep), which continues each such step once.
 """
 
 from __future__ import annotations
@@ -97,6 +103,62 @@ def _creator_context(item: Finished) -> TenantContext | None:
     except StepFailed:
         logger.info("command_continuation_skipped reason=creator_inactive")
         return None
+
+
+# -- the record of tried steps (migration 0182_command_sweep) ---------------------------------
+
+OUTCOMES = ("started", "already_started", "refused")
+
+
+class _MemoryAttempts:
+    """``ANUM_REPOSITORY_BACKEND=memory``: the tried steps, lost on restart like the rest."""
+
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, str, str], tuple[str, str, str]] = {}
+        self._lock = threading.Lock()
+
+    def clear(self) -> None:
+        with self._lock:
+            self.rows.clear()
+
+    def tried(self, tenant_id: str, workspace_id: str, task_id: str) -> bool:
+        with self._lock:
+            return (tenant_id, workspace_id, task_id) in self.rows
+
+    def add(self, tenant_id: str, workspace_id: str, task_id: str, command_id: str, outcome: str, source: str) -> None:
+        with self._lock:
+            self.rows.setdefault((tenant_id, workspace_id, task_id), (command_id, outcome, source))
+
+
+memory_attempts = _MemoryAttempts()
+
+
+def record_attempts(context: TenantContext, command_id: str, outcomes: dict[str, str], source: str) -> None:
+    """Record that the server tried these steps of ``command_id`` (first try wins). Blocking: call it in
+    a worker thread, in its own short unit of work in the command's tenant and workspace."""
+    if not outcomes:
+        return
+    from .settings import settings
+
+    if settings.repository_backend != "postgresql":
+        for task_id, outcome in outcomes.items():
+            memory_attempts.add(context.tenant_id, context.workspace_id, task_id, command_id, outcome, source)
+        return
+    from sqlalchemy import text
+
+    from .dependencies import _unit_of_work
+
+    with _unit_of_work(context, require_membership=False) as repository:
+        session = repository.session
+        for task_id, outcome in outcomes.items():
+            session.execute(
+                text(
+                    "insert into command_step_continuations (tenant_id, workspace_id, task_id, command_id, outcome, source) "
+                    "values (:t, :w, :task, :command, :outcome, :source) on conflict do nothing"
+                ),
+                {"t": context.tenant_id, "w": context.workspace_id, "task": task_id, "command": command_id,
+                 "outcome": outcome, "source": source},
+            )
 
 
 def steps_after(item: Finished) -> tuple[TenantContext, str, list[str]] | None:
@@ -216,26 +278,39 @@ class CommandContinuer:
         if found is None:
             return []
         creator, command_id, ready = found
-        if not ready:
+        return await self.start_steps(creator, command_id, ready, source="event")
+
+    async def start_steps(self, creator: TenantContext, command_id: str, ready: Sequence[str], *, source: str) -> list[str]:
+        """Start ``ready`` (steps of ``command_id`` that can start now) as ``creator``, together, and
+        record that each was tried. Returns the ones started."""
+        if self.runner is None or not ready:
             return []
         runner = self.runner
         results = await asyncio.gather(*(runner(creator, task_id) for task_id in ready), return_exceptions=True)
         started: list[str] = []
+        outcomes: dict[str, str] = {}
         for task_id, result in zip(ready, results, strict=True):
             if isinstance(result, BaseException) and not isinstance(result, Exception):
                 raise result
             if isinstance(result, HTTPException) and result.status_code == status.HTTP_409_CONFLICT:
                 self.already_started += 1  # another replica, tab or finishing step started it first
+                outcomes[task_id] = "already_started"
             elif isinstance(result, Exception):
                 self.refused += 1
+                outcomes[task_id] = "refused"
                 logger.info(
                     "command_step_not_continued",
                     extra={"anum_command_continuation": {"command_id": command_id, "task_id": task_id,
-                                                          "reason": type(result).__name__}},
+                                                          "reason": type(result).__name__, "source": source}},
                 )
             else:
                 self.started += 1
+                outcomes[task_id] = "started"
                 started.append(task_id)
+        try:
+            await asyncio.to_thread(record_attempts, creator, command_id, outcomes, source)
+        except Exception:  # the steps already ran or were refused; a lost record only means one more try
+            logger.exception("command_continuation_record_failed")
         return started
 
     async def _guarded(self, item: Finished) -> None:
@@ -296,4 +371,7 @@ class CommandContinuer:
 
 command_continuer = CommandContinuer()
 
-__all__ = ["CONTINUE_EVENTS", "CommandContinuer", "Finished", "command_continuer", "finished_of", "steps_after"]
+__all__ = [
+    "CONTINUE_EVENTS", "CommandContinuer", "Finished", "command_continuer", "finished_of", "memory_attempts",
+    "record_attempts", "steps_after",
+]
