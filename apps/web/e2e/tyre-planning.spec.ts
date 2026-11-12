@@ -158,8 +158,8 @@ test('a member sends a report by email or WhatsApp; it waits for an approval', a
   await expect(report.getByRole('alert')).toContainText('international format');
   await channel.selectOption('email');
   await report.getByRole('button', { name: 'Request sending' }).click();
-  await expect(report.getByRole('status').filter({ hasText: 'Approvals' })).toBeVisible();
-  await expect(report.locator('.tyreDeliveries')).toContainText('Email');
+  await expect(report.locator('.tyreDeliveries')).toContainText('Waiting for approval');
+  await expect(report.locator('.tyreDeliveries')).toContainText('Email → fleet@example.com');
   expect(state.requests).toContain('POST /reports/r1/deliver');
   const scan = await new AxeBuilder({ page }).include('.tyreReport').analyze();
   expect(scan.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
