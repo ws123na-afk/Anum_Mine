@@ -12,6 +12,7 @@ import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
 import { mockBrevo } from './brevoApi';
 import { mockBilling } from './billingApi';
+import { mockSystemHealth } from './systemHealthApi';
 import { mockVault } from './vaultApi';
 import { VIEWS } from '../../src/lib/shell.ts';
 import { TABS as BUSINESS_TABS } from '../../src/lib/business.ts';
@@ -53,6 +54,7 @@ const mail = async (page: Page) => { await mockWorkspaceApi(page); await mockMai
 const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true });
 const headquarters = async (page: Page) => { await mockHq(page, { commerce: 'connected', tyre: 'none', meetings: 'live' }); };
 const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
+const health = async (page: Page) => { await billing(page); await mockSystemHealth(page); };
 const vault = async (page: Page) => { await mockWorkspaceApi(page); await mockVault(page); };
 const contacts = async (page: Page) => { await mockWorkspaceApi(page); await mockContacts(page); };
 /** The pages that read several modules: the workspace, the business books and the document vault. */
@@ -166,6 +168,8 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'developer', view: 'developer', mock: mockDeveloper, ready: '.devLayout' },
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
+  // System health in the platform console (docs/system-health.md), opened by link as the owner notices do.
+  { hash: 'platformBilling-health', view: 'platformBilling', mock: health, ready: '.hlList .hlItem' },
   { hash: 'billing', view: 'settings', mock: billing, ready: '.blPlanNow' },
   { hash: 'attendance', view: 'attendance', mock: workspace, ready: '.attRosterTable tbody tr, .attTimeline li, .attStatus h2' },
   { hash: 'vehicles', view: 'vehicles', mock: workspace, ready: '.opsVehTable tbody tr' },
@@ -200,8 +204,8 @@ export const DEEP_LINKS: readonly string[] = [
   ...tabLinks('purchases', PURCHASE_TABS),
   ...tabLinks('contacts', CONTACT_TABS),
   ...tabLinks('integrations', INTEGRATION_TABS),
-  // Settings sections and the Integrations connection setup (shell.ts viewFromHash).
-  'notifications', 'language', 'privacy', 'appearance', 'connections',
+  // Settings sections, the Integrations connection setup and System health (shell.ts viewFromHash).
+  'notifications', 'language', 'privacy', 'appearance', 'connections', 'platformBilling-health',
 ];
 
 /** The page a deep link belongs to, and the mock that fills it. */

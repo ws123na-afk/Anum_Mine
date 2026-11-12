@@ -79,6 +79,7 @@ import { portalEn } from './portal.en.ts';
 import { brevoEn } from './brevo.en.ts';
 import { agentControlsEn } from './agentControls.en.ts';
 import { billingEn } from './billing.en.ts';
+import { systemHealthEn } from './systemHealth.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
 import { recordRetentionEn } from './recordRetention.en.ts';
 import { attendanceEn } from './attendance.en.ts';
@@ -188,6 +189,7 @@ export const en = {
   ...brevoEn,
   ...agentControlsEn,
   ...billingEn,
+  ...systemHealthEn,
   ...lifecycleEn,
   ...recordRetentionEn,
   ...attendanceEn,

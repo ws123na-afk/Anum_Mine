@@ -2,7 +2,8 @@
 // summary, every customer subscription with search, status filter and paging, one organisation's
 // billing and invoices, the plan catalog, and the issuer's settings (bank details, tax, dunning,
 // Stripe and Moyasar), the company details and legal facts, and the Ready to sell checklist
-// (docs/selling-readiness.md). Only platform operators; anyone else gets the API's refusal.
+// (docs/selling-readiness.md) and System health (docs/system-health.md, opened by link as #platformBilling-health).
+// Only platform operators; anyone else gets the API's refusal.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { Lock, Play, Plus, ReceiptText, RefreshCw } from 'lucide-react';
 import type { OrganisationSummary } from '@anum/contracts';
@@ -24,20 +25,29 @@ import { ConsoleSettings } from './ConsoleSettings';
 import { ConsoleMoyasar } from './ConsoleMoyasar';
 import { ConsoleCompany } from './ConsoleCompany';
 import { ConsoleReadiness } from './ConsoleReadiness';
+import { ConsoleHealth } from './ConsoleHealth';
 
-type Tab = 'subscriptions' | 'plans' | 'settings' | 'company' | 'ready';
-const TABS: Tab[] = ['subscriptions', 'plans', 'settings', 'company', 'ready'];
+type Tab = 'subscriptions' | 'plans' | 'settings' | 'company' | 'ready' | 'health';
+const TABS: Tab[] = ['subscriptions', 'plans', 'settings', 'company', 'ready', 'health'];
+/** The tab a link opens: #platformBilling-health is System health (the owner notices link there). */
+const tabFromHash = (hash: string): Tab => (hash === '#platformBilling-health' ? 'health' : 'subscriptions');
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' | 'error'; message: string };
 const failed = (e: unknown): Load<never> => ({ state: isPermissionDenied(e) ? 'denied' : 'error', message: describeError(e) });
 
 export function BillingConsole() {
-  const [tab, setTab] = useState<Tab>('subscriptions');
+  const [tab, setTab] = useState<Tab>(() => tabFromHash(location.hash));
   const [summary, setSummary] = useState<Load<ConsoleSummary>>({ state: 'loading' });
   const [org, setOrg] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ text: string; error?: boolean } | null>(null);
   const [running, setRunning] = useState(false), [starting, setStarting] = useState(false), [tick, setTick] = useState(0);
   const loadSummary = useCallback(async () => { try { setSummary({ state: 'ready', value: await b.getSummary() }); } catch (e) { setSummary(failed(e)); } }, []);
   useEffect(() => { void loadSummary(); }, [loadSummary, tick]);
+  useEffect(() => {
+    // A notice opened while the console is already showing still lands on System health.
+    const follow = () => { if (location.hash === '#platformBilling-health') { setTab('health'); setOrg(null); } };
+    window.addEventListener('hashchange', follow);
+    return () => window.removeEventListener('hashchange', follow);
+  }, []);
   const refresh = () => setTick((n) => n + 1);
   const run = async () => {
     setRunning(true); setFlash(null);
@@ -62,7 +72,7 @@ export function BillingConsole() {
   return <div className="blConsole">
     <PageSummary label={t('billing.console.summary')} figures={figures} onRetry={() => void loadSummary()} />
     <div className="blConsoleBar">
-      <nav className="settingsTabs blTabs" aria-label={t('billing.console.sections')}>{TABS.map((id) => <button key={id} type="button" aria-current={tab === id && !org ? 'page' : undefined} onClick={() => { setTab(id); setOrg(null); }}>{t(`billing.console.tab.${id}` as MessageKey)}</button>)}</nav>
+      <nav className="settingsTabs blTabs" aria-label={t('billing.console.sections')}>{TABS.map((id) => <button key={id} type="button" aria-current={tab === id && !org ? 'page' : undefined} onClick={() => { setTab(id); setOrg(null); history.replaceState(null, '', id === 'health' ? '#platformBilling-health' : '#platformBilling'); }}>{t(`billing.console.tab.${id}` as MessageKey)}</button>)}</nav>
       <div className="actions blInline">
         <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => setStarting(true)}><Plus aria-hidden="true" />{t('billing.console.start')}</button>
         <button type="button" disabled={running} onClick={() => void run()} aria-describedby="console-run-hint"><Play aria-hidden="true" />{running ? t('billing.console.running') : t('billing.console.run')}</button>
@@ -75,6 +85,7 @@ export function BillingConsole() {
       : tab === 'plans' ? <ConsolePlans />
       : tab === 'company' ? <ConsoleCompany />
       : tab === 'ready' ? <ConsoleReadiness onOpenTab={(next) => { setTab(next); setOrg(null); }} />
+      : tab === 'health' ? <ConsoleHealth />
       : <div className="blStack"><ConsoleMoyasar /><ConsoleSettings /></div>}
     {starting && <StartDialog onClose={() => setStarting(false)} onStarted={(name, tenantId) => { setStarting(false); setFlash({ text: t('billing.console.started', { name }) }); refresh(); setOrg(tenantId); }} />}
   </div>;

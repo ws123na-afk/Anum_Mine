@@ -55,6 +55,8 @@ export const webLeadsAr = {
   'ntf.kind.work_overdue': 'عمل متأخر',
   'ntf.kind.calendar_reminder': 'تذكيرات التقويم',
   'ntf.kind.approval_reminder': 'تذكيرات الموافقات',
+  'ntf.kind.system_health': 'صحة النظام',
+  'ntf.kind.system_restart': 'إعادة تشغيل غير متوقعة',
   'ntf.kind.budget_alert': 'ميزانية النموذج',
   'ntf.kind.agent_controls': 'ضوابط الوكلاء',
   'ntf.kind.skill_signing': 'توقيع المهارات',

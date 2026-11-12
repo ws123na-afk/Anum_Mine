@@ -99,7 +99,7 @@ test('every new message exists in English and Arabic with the same placeholders'
 
 test('the console has the Ready to sell and Company tabs and the refund dialog keeps one key per attempt', () => {
   const consoleSource = read('apps/web/src/billing/BillingConsole.tsx');
-  assert.match(consoleSource, /'company', 'ready'\]/);
+  assert.match(consoleSource, /'company', 'ready', 'health'\]/);
   const org = read('apps/web/src/billing/ConsoleOrganisation.tsx');
   assert.match(org, /const \[key\] = useState\(\(\) => newIdempotencyKey\(\)\)/);
   const readiness = read('apps/web/src/billing/ConsoleReadiness.tsx');
