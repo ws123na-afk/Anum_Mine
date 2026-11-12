@@ -21,6 +21,7 @@ Code: `services/api/anum_api/vault/` (`models.py`, `store.py`, `service.py`, `ap
 - [Scanning from an iPhone](#scanning-from-an-iphone)
 - [Links](#links)
 - [Receipt matches](#receipt-matches)
+- [Vehicle papers](#vehicle-papers)
 - [The assistant](#the-assistant)
 - [Privacy](#privacy)
 - [API](#api)
@@ -121,7 +122,19 @@ A receipt, invoice, maintenance invoice or purchase order whose scanned values t
 - **Confirm.** `POST /api/v1/documents/{id}/matches/accept {kind: payment|purchase, target_id}` works the proposals out again and refuses one that is no longer proposed (`409`). A payment goes through the same path as a link typed by hand: the document's `finance_transaction` link and an `evidence` link on the payment through the finance links foundation (`finance:manage`, never money, [Finance links](finance-links.md)); removing it in the vault voids it on the ledger. A purchase gets the document as its receipt through the purchase's own rules (`purchase:write`, the purchase's edit right, `409 has_receipt` when it has one already) and the vault shows the purchase link. Only someone who may change the document confirms (`403` otherwise).
 - **Where.** The web document pane shows **Suggested matches** under the receipt with **Link payment** and **Attach to purchase** (loading, error with Retry, not confirmed yet, nothing fits, no access, read only); the phone's document page has the same section ([Mobile](#mobile)). A fuel receipt scanned for a vehicle's fuel entry also helps Finance propose that entry's payment ([Vehicles](vehicles.md#payments)).
 
-Tests: `services/api/tests/test_receipt_matches.py`, web `apps/web/test/vault.test.ts` and `e2e/vault.spec.ts`, phone `apps/mobile/test/vault/vault_test.dart`.
+- **Dismiss and restore.** A proposal the person says is wrong is dismissed: `POST /api/v1/documents/{id}/matches/dismiss {kind, target_id}` (only one proposed now, `409` otherwise; only someone who may change the document, `403` otherwise; repeating it changes nothing). It is stored once per document, kind and target in `vault_match_dismissals` (migration `0178_refund_requests_vault`, forced RLS, removed with its document) with what it was ("AL NOOR STATION SAR 150.00 (2026-10-14)"), who dismissed it and when, and is never proposed again for that document, whoever asks. `GET .../matches` lists them as `dismissed`; `POST .../matches/restore {kind, target_id}` forgets one, so it is proposed again while it still fits. Both are in the document's access log (`match_dismissed`, `match_restored`). The web pane and the phone show **Not this one** next to each proposal and a **Dismissed matches** list with **Restore**.
+
+Tests: `services/api/tests/test_receipt_matches.py`, `tests/test_postgres_vault_dismissals.py`, web `apps/web/test/vault.test.ts` and `e2e/vault.spec.ts`, phone `apps/mobile/test/vault/vault_test.dart`.
+
+## Vehicle papers
+
+An **insurance** or **vehicle registration** document with an expiry date is proposed to the vehicles it may belong to (`vault/vehicle_papers.py`, [Vehicles](vehicles.md#reminders)), and the person confirms one. Nothing is linked by itself.
+
+- **Proposals.** `GET /api/v1/documents/{id}/vehicle-proposals`: the caller's active vehicles they may change (their own, or a business vehicle for someone who manages vehicles), up to 200, first those whose registration or VIN appears in the document's title, issuer, description or tags (`matches_registration`), then the ones already linked, then by name. Each says the vehicle's current date and whether confirming changes it. The answer names the vehicle date the document sets (`insurance_expires_on` for insurance, `registration_expires_on` for a registration), the first reminder's day at the person's reminder days, or why nothing is proposed: `not_a_vehicle_paper`, `no_expiry` (add the expiry date first), `in_trash`, and `vehicles_unavailable: vehicle_access` for someone without `vehicle:write`.
+- **Confirm.** `POST /api/v1/documents/{id}/vehicle {vehicle_id}` needs the document's edit right (`403`) and a proposed vehicle (`404` for one the caller may not change). It sets the vehicle's date from the document through the vehicle's own version check (`409` when it changed meanwhile), then adds a `vehicle` link to the document (once). The vehicle's renewal reminder follows the new date from the next daily run, at the person's reminder days, then 7 days, 1 day and on the day ([Vehicles](vehicles.md#reminders)): that is the reminder the confirmation creates. Logged in the access log (`vehicle_paper_confirmed`). Repeating it changes nothing.
+- **Where.** The web document pane shows **Vehicle** under an insurance or registration document (loading, error with Retry, no expiry, no access, no vehicle yet, read only) with **Link and set date** per vehicle; the phone's document page has the same section.
+
+Tests: `services/api/tests/test_vault_vehicle_papers.py`, web `e2e/vault.spec.ts`, phone `apps/mobile/test/vault/vault_test.dart`.
 
 ## The assistant
 
@@ -149,7 +162,8 @@ All under `/api/v1/documents` (contracts in `packages/contracts/src/documents.ts
 | `GET/POST /{id}/versions`; `POST /{id}/versions/{v}/restore`; `DELETE /{id}/versions/{v}` | Versions |
 | `POST /{id}/access`; `DELETE /{id}/access/{user}` | Sharing |
 | `POST /{id}/links`; `DELETE /{id}/links/{link}` | Links |
-| `GET /{id}/matches`; `POST /{id}/matches/accept` | [Receipt matches](#receipt-matches): proposals, then the person's pick |
+| `GET /{id}/matches`; `POST /{id}/matches/accept`, `/dismiss`, `/restore` | [Receipt matches](#receipt-matches): proposals, then the person's pick, a wrong one dismissed or restored |
+| `GET /{id}/vehicle-proposals`; `POST /{id}/vehicle` | [Vehicle papers](#vehicle-papers): the vehicles an insurance or registration document may belong to, then linking one and setting its date |
 | `POST /{id}/extract`; `POST /extractions/{id}/confirm`; `POST /extractions/{id}/reject` | Scanning |
 
 ## The web page
@@ -164,7 +178,7 @@ Every list has loading, empty, error and permission states; viewers get the expl
 
 ## Mobile
 
-Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record modules](mobile.md#record-modules)): the summary, search, a category, **Expiring soon**, **Expired** and the trash, with cursor paging; each document shows its masked number and an expiry badge in words. A document shows its details, **Show number** (the owner only, `POST /{id}/number`, logged), its file, **Save a copy** (`GET /{id}/content` with the session, saved with the system dialog), **Upload a new version**, older versions to save or make current, links to a vehicle, person, business, purchase or Finance payment (add and remove), and **Move to trash** or **Restore**. **Add document** picks a file with the system picker (the vault's types and size limit are checked first), streams it with progress, and on the duplicate refusal offers **Add anyway** (`allow_duplicate=true`). From 840 px the list and the document sit side by side. Camera scanning is not on the phone: the app has no camera plugin, so photos come from the files the phone already has or from the iPhone Shortcut. Sharing, scan review, settings and categories stay on the web. Tests: `apps/mobile/test/vault/vault_test.dart`. A document with confirmed receipt values shows **Suggested matches** ([Receipt matches](#receipt-matches)): the payments and purchases it may belong to with their date, amount and match, **Link payment** or **Attach to purchase** for someone who may change it, and why a section is missing without access.
+Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record modules](mobile.md#record-modules)): the summary, search, a category, **Expiring soon**, **Expired** and the trash, with cursor paging; each document shows its masked number and an expiry badge in words. A document shows its details, **Show number** (the owner only, `POST /{id}/number`, logged), its file, **Save a copy** (`GET /{id}/content` with the session, saved with the system dialog), **Upload a new version**, older versions to save or make current, links to a vehicle, person, business, purchase or Finance payment (add and remove), and **Move to trash** or **Restore**. **Add document** picks a file with the system picker (the vault's types and size limit are checked first), streams it with progress, and on the duplicate refusal offers **Add anyway** (`allow_duplicate=true`). From 840 px the list and the document sit side by side. Camera scanning is not on the phone: the app has no camera plugin, so photos come from the files the phone already has or from the iPhone Shortcut. Sharing, scan review, settings and categories stay on the web. Tests: `apps/mobile/test/vault/vault_test.dart`. A document with confirmed receipt values shows **Suggested matches** ([Receipt matches](#receipt-matches)): the payments and purchases it may belong to with their date, amount and match, **Link payment** or **Attach to purchase** for someone who may change it, **Not this one** and the dismissed matches with **Restore**, and why a section is missing without access. An insurance or registration document shows **Vehicle** ([Vehicle papers](#vehicle-papers)) with **Link and set date**.
 
 ## Tests
 
@@ -175,7 +189,7 @@ Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record m
 
 ## Not in this release
 
-- Linking insurance to a vehicle reminder, and attaching a receipt to a vehicle's fuel entry from the vault (the fuel entry names its receipt in Vehicles). A purchase or return that names a vault document as its receipt or proof adds a `purchase` link on that document when its owner may edit it ([Purchases](purchases.md#records)). Receipt matches are proposals the person confirms ([Receipt matches](#receipt-matches)); a dismissed proposal is not remembered (it is simply not picked).
+- Attaching a receipt to a vehicle's fuel entry from the vault (the fuel entry names its receipt in Vehicles). A purchase or return that names a vault document as its receipt or proof adds a `purchase` link on that document when its owner may edit it ([Purchases](purchases.md#records)). Receipt matches and vehicle papers are proposals the person confirms ([Receipt matches](#receipt-matches), [Vehicle papers](#vehicle-papers)). An inspection certificate is not read as a vehicle paper (only insurance and registration).
 - The shared iPhone integrations page and generalised device tokens (after #364).
 - Native iPhone camera, VisionKit scanner and Share Sheet extension (Shortcuts only), and camera capture in the Flutter app (no camera plugin yet; the phone screens upload files the phone already has). On the phone: sharing, scan review, editing a document's details, settings and categories (on the web).
 - OCR of scanned PDFs (send them as images), Hijri date conversion, and the OCR service in the Helm chart (compose profile only, like the browser service).
