@@ -609,8 +609,8 @@ void main() {
       expect(find.text('Google Calendar sync needs attention'), findsOneWidget);
       expect(
           find.text('What went wrong: Token has been expired'), findsOneWidget);
-      expect(
-          find.textContaining('connects it again under Connections'), findsOneWidget);
+      expect(find.textContaining('connects it again under Connections'),
+          findsOneWidget);
       expect(find.text('Sync now'), findsNothing);
     });
 
