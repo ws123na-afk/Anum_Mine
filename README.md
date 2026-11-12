@@ -319,6 +319,7 @@ x-user-roles: owner,member
 - [Pending work and owner steps (handoff)](docs/pending-work.md)
 - [Full skills audit (October 2026)](docs/audits/2026-10-12-full-skills-audit.md)
 - [Finance and Business Books audit (November 2026)](docs/audits/2026-11-09-finance-accounting-audit.md)
+- [Honest product and commercial review (12 November 2026)](docs/audits/2026-11-12-product-review.md)
 - [Figma mobile design system](docs/figma-mobile-design.md)
 - [ANUM 360 redesign (owner mockups)](docs/design/anum360.md)
 - [Visual identity: graphite and jade](docs/design/visual-identity.md)
