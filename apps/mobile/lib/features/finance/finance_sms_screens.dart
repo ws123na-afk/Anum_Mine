@@ -8,6 +8,7 @@ import '../records_kit/records_widgets.dart';
 import 'finance_models.dart';
 import 'finance_more_data.dart';
 import 'finance_review_models.dart';
+import 'finance_sms_setup.dart';
 import 'finance_strings.dart';
 import 'finance_tools_data.dart';
 import 'finance_tools_strings.dart';
@@ -17,9 +18,9 @@ import 'finance_tools_strings.dart';
 /// status and paged, each opened to record it as read, correct it, confirm
 /// the sender's format, teach a format, ask the AI for the fields (when the
 /// person turned AI help on), dismiss it or undo a recorded one; a message
-/// pasted by hand; and the formats ANUM learned. The safety check, the
-/// devices and their tokens, and the Shortcut set-up stay on the web
-/// (docs/pending-work.md says why).
+/// pasted by hand; and the formats ANUM learned. **Set up forwarding** opens
+/// the safety check, the devices and their tokens, and the Shortcut steps
+/// (`finance_sms_setup.dart`).
 
 String _when(BuildContext context, String? value) =>
     value == null || value.isEmpty ? '-' : recordsDateTime(context, value);
@@ -110,6 +111,12 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
     if (changed == true && mounted) await _reload();
   }
 
+  Future<void> _setup() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => SmsSetupScreen(repository: widget.repository)));
+    if (mounted) await _reload();
+  }
+
   Future<void> _paste() async {
     final t = FinanceToolsStrings.of(context);
     String? answer;
@@ -185,15 +192,20 @@ class _SmsReviewScreenState extends State<SmsReviewScreen> {
               RecordsField(t.t('sms.waiting'), '${st.reviewCount}'),
               if (!st.ready) Text(t.t('sms.setupOnWeb'), style: muted),
             ]),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: OutlinedButton.icon(
+          Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
+            FilledButton.icon(
+              key: const Key('sms-setup'),
+              onPressed: _setup,
+              icon: const Icon(Icons.settings_outlined),
+              label: Text(SmsSetupStrings.of(context).t('open')),
+            ),
+            OutlinedButton.icon(
               key: const Key('sms-paste'),
               onPressed: _paste,
               icon: const Icon(Icons.content_paste),
               label: Text(t.t('sms.paste')),
             ),
-          ),
+          ]),
           AnumHeader(title: t.t('sms.review'), subtitle: t.t('sms.reviewSub')),
           RecordsFilterChips(
             options: {
