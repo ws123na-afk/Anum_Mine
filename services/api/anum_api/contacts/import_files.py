@@ -116,7 +116,7 @@ def read_workbook(data: bytes, *, max_rows: int, max_columns: int) -> Table:
             raise _unprocessable("The workbook has no sheet to read.")
         strings = _shared_strings(package, budget)
         header: list[str] | None = None
-        header_number = 1
+        header_number, last_number = 1, 0
         rows: list[tuple[int, list[str]]] = []
         for _, element in package.events(first):
             if _local(element.tag) != "row":
@@ -138,7 +138,9 @@ def read_workbook(data: bytes, *, max_rows: int, max_columns: int) -> Table:
                     value = _plain_number(value)
                 cells[position] = value
                 position += 1
-            number = int(element.get("r") or (rows[-1][0] + 1 if rows else 1))
+            written = element.get("r") or ""
+            number = int(written) if written.isdigit() and len(written) <= 7 else last_number + 1
+            last_number = number
             element.clear()
             width = max(cells) + 1 if cells else 0
             line = [cells.get(i, "") for i in range(width)]

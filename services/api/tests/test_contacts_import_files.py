@@ -140,6 +140,11 @@ def test_a_hostile_or_unreadable_workbook_is_refused_with_what_to_do() -> None:
     bomb = workbook(extra={"xl/media/blank.bin": b"\x00" * (60 * 1024 * 1024)})
     response = preview({"format": "xlsx", "file_base64": b64(bomb)})
     assert response.status_code == 422 and "expands too much" in response.json()["error"]["message"]
+    # Rows without a reference (or a broken one) are counted in order, never a server error.
+    loose = workbook(_sheet('<row><c t="inlineStr"><is><t>Name</t></is></c><c t="inlineStr"><is><t>Phone</t></is></c></row>'
+                            '<row r="x"><c t="inlineStr"><is><t>Rana</t></is></c><c t="inlineStr"><is><t>0507770000</t></is></c></row>'))
+    loose_plan = preview({"format": "xlsx", "file_base64": b64(loose)}).json()
+    assert [(r["row"], r["name"], r["phones"]) for r in loose_plan["rows"]] == [(2, "Rana", ["+971507770000"])]
     rows = "".join(f'<row r="{n}"><c r="A{n}" t="inlineStr"><is><t>P{n}</t></is></c></row>' for n in range(1, 2003))
     assert preview({"format": "xlsx", "file_base64": b64(workbook(_sheet(rows)))}).status_code == 413
     assert preview({"format": "xlsx", "file_base64": "not base64!"}).status_code == 422
