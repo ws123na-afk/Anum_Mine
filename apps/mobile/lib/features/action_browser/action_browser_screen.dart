@@ -19,8 +19,14 @@ AnumTone _tone(BrowserRun run) => switch (run.status) {
 /// newest first, a page at a time; a run opens its steps and approvals.
 class ActionBrowserScreen extends StatefulWidget {
   const ActionBrowserScreen(
-      {required this.controller, required this.openRun, super.key});
+      {required this.controller,
+      required this.openRun,
+      this.openVault,
+      super.key});
   final ActionBrowserController controller;
+
+  /// Opens the saved logins and cards (owners; others are told who can).
+  final Future<void> Function(BuildContext context)? openVault;
 
   /// Opens one run; reloads the list when it closes.
   final Future<void> Function(BuildContext context, BrowserRun run) openRun;
@@ -46,6 +52,12 @@ class _ActionBrowserScreenState extends State<ActionBrowserScreen> {
           final p = context.palette;
           return Scaffold(
             appBar: AppBar(title: Text(l.t('od.ab.title')), actions: [
+              if (widget.openVault != null)
+                IconButton(
+                    key: const Key('ab-vault'),
+                    tooltip: l.t('ab.vaultTitle'),
+                    onPressed: () => widget.openVault!(context),
+                    icon: const Icon(Icons.key_outlined)),
               IconButton(
                   key: const Key('ab-refresh'),
                   tooltip: l.t('od.refresh'),
@@ -165,11 +177,16 @@ class BrowserRunScreen extends StatefulWidget {
   const BrowserRunScreen(
       {required this.controller,
       this.pollEvery = const Duration(seconds: 4),
+      this.framePollEvery = const Duration(milliseconds: 1500),
       super.key});
   final BrowserRunController controller;
 
   /// How often an active run is read again; null turns it off (tests).
   final Duration? pollEvery;
+
+  /// How often the live picture is read while a browser is open; null turns
+  /// the timer off (tests call [BrowserRunController.loadFrame] themselves).
+  final Duration? framePollEvery;
 
   @override
   State<BrowserRunScreen> createState() => _BrowserRunScreenState();
@@ -177,22 +194,33 @@ class BrowserRunScreen extends StatefulWidget {
 
 class _BrowserRunScreenState extends State<BrowserRunScreen> {
   BrowserRunController get c => widget.controller;
-  Timer? _poll;
+  Timer? _poll, _frames;
+  final _typed = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    c.load();
+    c.load().then((_) => c.loadFrame());
     final every = widget.pollEvery;
-    if (every == null) return;
-    _poll = Timer.periodic(every, (_) {
-      if (mounted && (c.run?.active ?? false) && c.busy == null) c.load();
-    });
+    if (every != null) {
+      _poll = Timer.periodic(every, (_) {
+        if (mounted && (c.run?.active ?? false) && c.busy == null) c.load();
+      });
+    }
+    final frames = widget.framePollEvery;
+    if (frames != null) {
+      _frames = Timer.periodic(frames, (_) {
+        final run = c.run;
+        if (mounted && run != null && run.live && run.canWatch) c.loadFrame();
+      });
+    }
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    _frames?.cancel();
+    _typed.dispose();
     super.dispose();
   }
 
@@ -344,6 +372,8 @@ class _BrowserRunScreenState extends State<BrowserRunScreen> {
           ],
         ]),
       ),
+      if (run.active) _picture(context, run),
+      if (run.needsYou && run.canWatch) _handoff(context, run),
       if (run.active) _approvals(context, run),
       _steps(context, run),
       AnumSurface(
@@ -356,6 +386,143 @@ class _BrowserRunScreenState extends State<BrowserRunScreen> {
         ]),
       ),
     ];
+  }
+
+  /// The live picture (masked by the browser service, held in memory only).
+  /// While the run needs the owner, a tap on it is a click on the page.
+  Widget _picture(BuildContext context, BrowserRun run) {
+    final l = AnumLocalizations.of(context);
+    final p = context.palette;
+    Widget body;
+    if (!run.canWatch) {
+      body = Text(l.t('ab.pictureMembers'),
+          style: TextStyle(color: p.muted, fontSize: AnumType.sm));
+    } else if (!run.live) {
+      body = Text(l.t('ab.noPicture'),
+          style: TextStyle(color: p.muted, fontSize: AnumType.sm));
+    } else {
+      final bytes = c.picture;
+      final label = l.f('ab.pictureAlt', {'url': run.currentUrl ?? ''});
+      final image = AspectRatio(
+        aspectRatio: browserFrameWidth / browserFrameHeight,
+        child: bytes == null
+            ? Center(
+                child: Text(
+                    l.t(c.pictureFailed
+                        ? 'ab.pictureFailed'
+                        : 'ab.loadingLive'),
+                    style: TextStyle(color: p.muted, fontSize: AnumType.sm)))
+            : Image.memory(bytes,
+                key: const Key('ab-picture'),
+                gaplessPlayback: true,
+                fit: BoxFit.contain,
+                semanticLabel: label),
+      );
+      body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AnumRadius.md),
+          child: DecoratedBox(
+            decoration: BoxDecoration(border: Border.all(color: p.line)),
+            child: run.needsYou && bytes != null
+                ? Semantics(
+                    button: true,
+                    label: label,
+                    child: LayoutBuilder(
+                      builder: (context, box) => GestureDetector(
+                        key: const Key('ab-picture-tap'),
+                        onTapUp: (d) {
+                          final point = browserPagePoint(
+                              d.localPosition.dx,
+                              d.localPosition.dy,
+                              box.maxWidth,
+                              box.maxWidth *
+                                  browserFrameHeight /
+                                  browserFrameWidth);
+                          if (point != null) {
+                            c.send(
+                                {'kind': 'click', 'x': point.x, 'y': point.y});
+                          }
+                        },
+                        child: image,
+                      ),
+                    ),
+                  )
+                : image,
+          ),
+        ),
+        const SizedBox(height: AnumSpacing.xxs),
+        Text(l.t('ab.pictureMasked'),
+            style: TextStyle(color: p.faint, fontSize: AnumType.xs)),
+      ]);
+    }
+    return AnumSurface(
+      key: const Key('ab-live'),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        DeskSectionTitle(
+            title: l.t('ab.liveTitle'), icon: Icons.desktop_windows_outlined),
+        const SizedBox(height: AnumSpacing.sm),
+        body,
+      ]),
+    );
+  }
+
+  /// "Needs you": the owner types on the page and presses keys, then
+  /// approves the step to let the agent continue.
+  Widget _handoff(BuildContext context, BrowserRun run) {
+    final l = AnumLocalizations.of(context);
+    final p = context.palette;
+    void sendText() {
+      final text = _typed.text;
+      if (text.isEmpty) return;
+      c.send({'kind': 'text', 'text': text});
+      _typed.clear();
+      setState(() {});
+    }
+
+    return AnumSurface(
+      key: const Key('ab-handoff'),
+      accent: p.warn,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        DeskSectionTitle(
+            title: l.t('ab.handoffTitle'), icon: Icons.back_hand_outlined),
+        const SizedBox(height: AnumSpacing.xxs),
+        Text(l.t('ab.handoffText'),
+            style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
+        const SizedBox(height: AnumSpacing.sm),
+        TextField(
+          key: const Key('ab-type'),
+          controller: _typed,
+          maxLength: 200,
+          autocorrect: false,
+          enableSuggestions: false,
+          onChanged: (_) => setState(() {}),
+          onSubmitted: (_) => sendText(),
+          decoration: InputDecoration(labelText: l.t('ab.typeHere')),
+        ),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: FilledButton(
+              key: const Key('ab-type-send'),
+              onPressed: _typed.text.isEmpty ? null : sendText,
+              child: Text(l.t('ab.sendText'))),
+        ),
+        const SizedBox(height: AnumSpacing.sm),
+        Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
+          for (final key in browserOwnerKeys)
+            OutlinedButton(
+                key: Key('ab-key-$key'),
+                onPressed: () => c.send({'kind': 'key', 'key': key}),
+                child: Text(l.f('ab.key', {'key': key}))),
+        ]),
+        if (c.inputError != null) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          DeskMessage(
+              key: const Key('ab-input-error'),
+              text: l.f('ab.inputFailed', {'error': c.inputError!}),
+              failed: true),
+        ],
+      ]),
+    );
   }
 
   Widget _approvals(BuildContext context, BrowserRun run) {
@@ -377,16 +544,18 @@ class _BrowserRunScreenState extends State<BrowserRunScreen> {
         else if (c.approvals.isEmpty)
           Text(l.t('od.ab.noApprovals'),
               style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
-        for (final a in c.approvals) _approval(context, a),
+        for (final a in c.approvals) _approval(context, run, a),
       ]),
     );
   }
 
-  Widget _approval(BuildContext context, WorkspaceApproval a) {
+  Widget _approval(BuildContext context, BrowserRun run, WorkspaceApproval a) {
     final l = AnumLocalizations.of(context);
     final p = context.palette;
     final facts = BrowserStepFacts.of(a);
-    final webOnly = a.needsCardCodeOnWeb || facts.handoff;
+    // The card security code is typed on the web; a "Needs you" step is
+    // done here by an owner with the picture and input above.
+    final webOnly = a.needsCardCodeOnWeb || (facts.handoff && !run.canWatch);
     return Container(
       key: Key('ab-approval-${a.id}'),
       margin: const EdgeInsets.only(bottom: AnumSpacing.sm),

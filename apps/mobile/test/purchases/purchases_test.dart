@@ -419,7 +419,7 @@ void main() {
             'carrier_name': 'UPS',
             'url': 'https://www.ups.com/track?tracknum=1Z999AA10123456784',
             'detected_from': 'number',
-            'candidates': [],
+            'candidates': <Object?>[],
             'status_provider': 'off',
           },
         })

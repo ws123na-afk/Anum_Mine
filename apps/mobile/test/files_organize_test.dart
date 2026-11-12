@@ -973,6 +973,9 @@ class _FailingOnce implements FilesRepository {
 class _Zip implements ApiDownloads {
   final calls = <String>[];
   @override
+  Future<Uint8List> fetch(String path, {int maxBytes = 0}) async =>
+      throw UnimplementedError();
+  @override
   Future<bool> save(String method, String path,
       {Map<String, Object?>? body,
       required String fileName,

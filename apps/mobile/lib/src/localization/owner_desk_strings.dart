@@ -1209,7 +1209,7 @@ const _phoneEn = <String, String>{
   'od.ab.handoffWeb':
       'This step needs your hands on the page. Open the task on the web to see the picture and complete the check.',
   'od.ab.webOnly':
-      'Saved logins and cards, the live picture and steps that need your hands on the page are on the web.',
+      'A step that needs the card security code is approved on the web, where the code is typed.',
 };
 
 const _phoneAr = <String, String>{
@@ -1329,5 +1329,5 @@ const _phoneAr = <String, String>{
   'od.ab.handoffWeb':
       'تحتاج هذه الخطوة إلى يدك على الصفحة. افتح المهمة على الويب لترى الصورة وتكمل التحقق.',
   'od.ab.webOnly':
-      'بيانات الدخول والبطاقات المحفوظة والصورة المباشرة والخطوات التي تحتاج يدك على الصفحة موجودة على الويب.',
+      'الخطوة التي تحتاج رمز أمان البطاقة يوافق عليها على الويب حيث يكتب الرمز.',
 };
