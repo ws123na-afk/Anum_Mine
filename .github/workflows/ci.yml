@@ -554,6 +554,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: 3.47.9
           cache: true
       - uses: actions/setup-java@v6
         with:
@@ -872,6 +873,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: 3.47.9
           cache: true
       # android/ and ios/ are committed; test/configure_native_test.dart fails if they drift.
       - run: flutter pub get
@@ -953,6 +955,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: 3.47.9
           cache: true
       - run: flutter pub get
       - name: Build iOS (debug, no code signing)
