@@ -573,6 +573,11 @@ class _Fleet:
         self.readings: dict[str, list[OdometerReading]] = {v.id: store.readings(context, v.id) for v in active}
         self.records: list[Any] = store.records_for(context, RECORD_KIND[kind], [v.id for v in active]) if kind in RECORD_KIND else []
         self.idem = {r.idem_key for r in self.records if r.owner_user_id == context.user_id}
+        # Records by vehicle and day, so a 5,000-row file is checked against them without comparing every pair.
+        self.by_day: dict[tuple[str, date], list[Any]] = defaultdict(list)
+        for record in self.records:
+            day = record.filled_at.date() if kind == "fuel" else record.service_on
+            self.by_day[(record.vehicle_id, day)].append(record)
 
 
 def _vehicle_for(fleet: _Fleet, row: _Row, context: TenantContext) -> Vehicle | None:
@@ -606,12 +611,11 @@ def _exists(kind: str, fleet: _Fleet, row: _Row) -> bool:
         km, moment, _source = row.readings[0]
         return any(r.reading_km == km and r.read_at.date() == moment.date() for r in fleet.readings.get(vehicle.id, []))
     record = row.record
-    for other in fleet.records:
-        if other.vehicle_id != vehicle.id:
-            continue
-        if kind == "fuel" and other.filled_at.date() == record.filled_at.date() and other.litres == record.litres and _same_figure(other.total, record.total):
+    day = record.filled_at.date() if kind == "fuel" else record.service_on
+    for other in fleet.by_day.get((vehicle.id, day), []):
+        if kind == "fuel" and other.litres == record.litres and _same_figure(other.total, record.total):
             return True
-        if kind == "service" and other.service_on == record.service_on and other.kind == record.kind and _same_figure(other.receipt_total, record.receipt_total):
+        if kind == "service" and other.kind == record.kind and _same_figure(other.receipt_total, record.receipt_total):
             return True
     return False
 
