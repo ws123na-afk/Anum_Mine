@@ -42,6 +42,8 @@ class CalendarConnectionRecord(Base, WorkspaceScopedMixin):
     last_error: Mapped[str | None] = mapped_column(Text)
     last_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     sync_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The account's calendars and which sync (0182_calendar_choices).
+    calendars: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -66,7 +68,7 @@ class CalendarOAuthRequestRecord(Base, WorkspaceScopedMixin):
 _CONNECTION_FIELDS = (
     "provider", "email", "display_name", "connected_by", "status", "scopes", "access_token_enc", "refresh_token_enc",
     "access_expires_at", "sync_cursor", "last_sync_at", "last_sync_status", "last_error", "last_summary",
-    "sync_lease_until", "created_at", "updated_at",
+    "sync_lease_until", "calendars", "created_at", "updated_at",
 )
 _PENDING_FIELDS = ("user_id", "provider", "code_verifier_enc", "code_enc", "error", "created_at", "expires_at")
 
@@ -75,10 +77,14 @@ def _plain(value: Any) -> Any:
     return value.value if isinstance(value, Enum) else value
 
 
+def _item(value: Any) -> Any:
+    return value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+
+
 def _copy(source: Any, record: Any, fields: tuple[str, ...]) -> None:
     for name in fields:
         value = getattr(source, name)
-        setattr(record, name, list(value) if isinstance(value, list) else dict(value) if isinstance(value, dict) else _plain(value))
+        setattr(record, name, [_item(v) for v in value] if isinstance(value, list) else dict(value) if isinstance(value, dict) else _plain(value))
 
 
 def _values(record: Any, fields: tuple[str, ...]) -> dict[str, Any]:

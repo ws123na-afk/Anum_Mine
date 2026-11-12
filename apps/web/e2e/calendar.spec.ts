@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 import { createCalendarMock, pinCalendarClock, type CalendarMockOptions } from './support/calendarApi';
@@ -165,6 +166,25 @@ test('a connected calendar shows its health, syncs on request and disconnects af
   await expect(page.getByText(/Google Calendar is disconnected/)).toBeVisible();
   expect(state.disconnected).toEqual(['cal_1']);
   await expect(page.getByRole('heading', { name: 'No calendar connected yet' })).toBeVisible();
+});
+
+test('an owner chooses which other calendars of the account sync, read only', async ({ page }) => {
+  const state = await openCalendar(page, { sync: 'connected' });
+  await syncTab(page).click();
+  const connections = page.getByRole('region', { name: 'Connected calendars' });
+  await connections.getByRole('button', { name: 'Choose calendars' }).click();
+  const choices = page.getByRole('region', { name: 'Calendars of owner@example.com' });
+  const primary = choices.getByRole('checkbox', { name: /Owner/ });
+  await expect(primary).toBeChecked();
+  await expect(primary).toBeDisabled();
+  await choices.getByRole('checkbox', { name: /Team/ }).check();
+  await choices.getByRole('button', { name: 'Save choice' }).click();
+  await expect(page.getByText('Saved. 1 other calendar(s) of owner@example.com sync now.')).toBeVisible();
+  expect(state.chosen).toEqual([['team@group.calendar.google.com']]);
+  await expect(connections.getByText('Also synced, read only: Team')).toBeVisible();
+  const scan = await new AxeBuilder({ page }).include('.calendarSync').analyze();
+  expect(scan.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+  expect(await noHorizontalOverflow(page)).toBe(true);
 });
 
 test('a revoked grant says what to do and offers to connect again', async ({ page }) => {

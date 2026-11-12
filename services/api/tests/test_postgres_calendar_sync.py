@@ -214,3 +214,23 @@ def test_rls_refuses_rows_written_for_another_workspace(database_engine: Engine,
             with pytest.raises(DBAPIError):
                 raw.execute(text(statement), {"t": TENANT_B, "w": WORKSPACE_B})
             transaction.rollback()
+
+
+def test_chosen_calendars_persist_and_their_copies_are_scoped(client: TestClient, database_engine: Engine, fake: FakeCalendars) -> None:
+    """0182_calendar_choices: the choice is stored on the connection and read back after a restart;
+    the copies of another calendar are linked to the connection and removed when it is no longer chosen."""
+    connection = _connect(client)
+    url = f"/api/v1/calendar/sync/connections/{connection['id']}/calendars"
+    assert client.put(url, headers=A, json={"selected": ["team@group.calendar.google.com"]}).status_code == 200
+    with database_engine.connect() as raw:
+        stored = raw.execute(text("select calendars from calendar_connections")).scalar_one()
+    assert [(c["name"], c["selected"]) for c in stored] == [("Owner One", True), ("Holidays", False), ("Team", True)]
+    calendar_backend.clear()
+    sync_backend.clear()  # restart: read back from PostgreSQL
+    setup = client.get("/api/v1/calendar/sync", headers=A).json()["connections"][0]
+    assert [c["name"] for c in setup["calendars"] if c["selected"]] == ["Owner One", "Team"]
+    copies = [e for e in _events(client) if e["source_ref"] == "calendar_copy"]
+    assert [e["title"] for e in copies] == ["Team offsite"]
+    assert client.get(url, headers=A2).status_code == 404
+    assert client.put(url, headers=A, json={"selected": []}).status_code == 200
+    assert _count(database_engine, "select count(*) from calendar_events where source_ref = 'calendar_copy'") == 0

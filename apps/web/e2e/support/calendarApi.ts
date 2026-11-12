@@ -41,7 +41,7 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
     : options.sync === 'reauth' ? [connection({ status: 'reauth_required', last_sync_status: 'error', last_error: 'Google Calendar answered 400: Token has been expired or revoked.' })] : [];
   const state = {
     events, created: [] as unknown[], updates: [] as unknown[], deleted: [] as string[], responses: [] as unknown[],
-    connections: initial as Record<string, unknown>[], syncs: [] as string[], disconnected: [] as string[], invitations: [] as string[], connectStarts: [] as string[],
+    connections: initial as Record<string, unknown>[], syncs: [] as string[], disconnected: [] as string[], invitations: [] as string[], connectStarts: [] as string[], chosen: [] as string[][],
     retries: [] as string[],
   };
   const providers = () => [
@@ -98,6 +98,19 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
       if (path === '/api/v1/calendar/sync/oauth/complete' && method === 'POST') {
         state.connections = [connection()];
         return json(state.connections[0], 201);
+      }
+      const choose = /^\/api\/v1\/calendar\/sync\/connections\/([^/]+)\/calendars$/.exec(path);
+      if (choose) {
+        // The account's calendars (docs/calendar.md#choosing-calendars): the primary always syncs.
+        const picked = method === 'PUT' ? (request.postDataJSON() as { selected: string[] }).selected : (state.chosen.at(-1) ?? []);
+        if (method === 'PUT') state.chosen.push(picked);
+        const calendars = [
+          { id: 'owner@example.com', name: 'Owner', primary: true, selected: true, can_edit: true, color: '#3366cc' },
+          { id: 'team@group.calendar.google.com', name: 'Team', primary: false, selected: picked.includes('team@group.calendar.google.com'), can_edit: true, color: '#0b8043' },
+          { id: 'holidays@group.v.calendar.google.com', name: 'UAE holidays', primary: false, selected: picked.includes('holidays@group.v.calendar.google.com'), can_edit: false, color: null },
+        ];
+        if (method === 'PUT') state.connections = state.connections.map((c) => (c.id === choose[1] ? { ...c, calendars } : c));
+        return json({ connection: choose[1], calendars, max_extra: 10 });
       }
       const act = /^\/api\/v1\/calendar\/sync\/connections\/([^/]+)(\/sync)?$/.exec(path);
       if (act && act[2] && method === 'POST') {

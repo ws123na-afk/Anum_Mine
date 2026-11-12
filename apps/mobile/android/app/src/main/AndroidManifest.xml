@@ -56,9 +56,20 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- The app handles no route from a link itself: an incoming link only brings it
+                 to the front (docs/calendar.md#connecting-on-the-phone). -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- A calendar sign-in started on the phone returns here from the browser; the
+                 app then finishes the request it started. Carries no secret. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.anum.app" android:path="/calendar-connected" />
             </intent-filter>
         </activity>
         <!-- Explicit AppAuth callback for Keycloak's custom-scheme redirect. -->

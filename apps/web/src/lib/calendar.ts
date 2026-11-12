@@ -60,10 +60,13 @@ export type SyncState = 'synced' | 'pending_push' | 'local';
 export type SyncProvider = 'google' | 'microsoft';
 export type ConnectionStatus = 'connected' | 'error' | 'reauth_required';
 export interface SyncProviderSetup { provider: SyncProvider; name: string; configured: boolean; missing: string[]; scopes: string[] }
-export interface SyncSummary { created?: number; updated?: number; deleted?: number; skipped?: number; pushed?: number; push_failed?: number; conflicts_remote_won?: number; conflicts_local_won?: number; full?: boolean }
+export interface SyncSummary { created?: number; updated?: number; deleted?: number; skipped?: number; pushed?: number; push_failed?: number; conflicts_remote_won?: number; conflicts_local_won?: number; full?: boolean; calendars_read?: number; calendar_errors?: string[] }
+/** One calendar of a connected account and whether it syncs (docs/calendar.md#choosing-calendars). */
+export interface CalendarChoice { id: string; name: string; primary: boolean; selected: boolean; can_edit: boolean; color: string | null }
+export interface CalendarChoices { connection: string; calendars: CalendarChoice[]; max_extra: number }
 export interface SyncConnection {
   id: string; provider: SyncProvider; provider_name: string; email: string; display_name: string | null; connected_by: string; status: ConnectionStatus; fix: string;
-  last_sync_at: string | null; last_sync_status: string | null; last_error: string | null; last_summary: SyncSummary; events_synced: number; created_at: string;
+  last_sync_at: string | null; last_sync_status: string | null; last_error: string | null; last_summary: SyncSummary; events_synced: number; calendars?: CalendarChoice[]; created_at: string;
 }
 export interface SyncSetup { providers: SyncProviderSetup[]; redirect_uri: string; can_manage: boolean; connections: SyncConnection[] }
 export interface InvitationRequest { status: 'waiting_approval'; summary: string; attendees: string[]; approval: { id: string } }
@@ -404,6 +407,17 @@ export function readCalendarConnectReturn(href: string): { connection: string | 
 }
 
 /** The connection new events are sent to: the oldest one that works (as the API chooses it). */
+/** The other calendars of a connection that sync read only (the primary one always syncs). */
+export function extraCalendars(connection: Pick<SyncConnection, 'calendars'>): CalendarChoice[] {
+  return (connection.calendars ?? []).filter((c) => c.selected && !c.primary);
+}
+
+/** The ids to send when saving a choice: the chosen calendars besides the primary one, at most `max`. */
+export function chosenIds(calendars: readonly CalendarChoice[], picked: ReadonlySet<string>, max: number): { ok: true; ids: string[] } | { ok: false; count: number } {
+  const ids = calendars.filter((c) => !c.primary && picked.has(c.id)).map((c) => c.id);
+  return ids.length > max ? { ok: false, count: ids.length } : { ok: true, ids };
+}
+
 export function syncTarget(connections: readonly SyncConnection[]): SyncConnection | null {
   return connections.find((connection) => connection.status === 'connected') ?? null;
 }

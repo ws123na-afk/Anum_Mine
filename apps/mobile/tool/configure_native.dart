@@ -13,6 +13,10 @@ const applicationId = 'com.anum.app';
 /// Name shown under the launcher icon and on the iOS home screen.
 const displayName = 'ANUM';
 
+/// Where a calendar sign-in started on the phone returns (the API's
+/// `ANUM_CALENDAR_APP_RETURN_URL` default, docs/calendar.md#connecting-on-the-phone).
+const calendarReturnPath = '/calendar-connected';
+
 /// Configures the committed `android/` and `ios/` projects. They were made by
 /// `flutter create --platforms=android,ios --org com.anum
 /// --project-name anum_mobile .`; run this again after regenerating them.
@@ -105,6 +109,37 @@ String configureAndroidManifest(String manifest) {
       '<application android:allowBackup="false" '
           'android:fullBackupContent="false"',
     );
+  }
+  // A calendar sign-in started on the phone returns to the app through its own
+  // scheme (docs/calendar.md#connecting-on-the-phone). The link only brings
+  // the app to the front, so Flutter's own URL routing stays off.
+  // A manifest without the launcher activity (a fragment) is left as it is.
+  if (!value.contains(calendarReturnPath) &&
+      value.contains('android.intent.category.LAUNCHER')) {
+    const launcher =
+        '                <category android:name="android.intent.category.LAUNCHER"/>\n'
+        '            </intent-filter>\n';
+    value = value.replaceFirst(
+        launcher,
+        '$launcher'
+        '            <!-- A calendar sign-in started on the phone returns here from the browser; the\n'
+        '                 app then finishes the request it started. Carries no secret. -->\n'
+        '            <intent-filter>\n'
+        '                <action android:name="android.intent.action.VIEW" />\n'
+        '                <category android:name="android.intent.category.DEFAULT" />\n'
+        '                <category android:name="android.intent.category.BROWSABLE" />\n'
+        '                <data android:scheme="$oidcRedirectScheme" android:path="$calendarReturnPath" />\n'
+        '            </intent-filter>\n');
+  }
+  if (!value.contains('flutter_deeplinking_enabled')) {
+    const main = '            <intent-filter>\n'
+        '                <action android:name="android.intent.action.MAIN"/>';
+    value = value.replaceFirst(
+        main,
+        '            <!-- The app handles no route from a link itself: an incoming link only brings it\n'
+        '                 to the front (docs/calendar.md#connecting-on-the-phone). -->\n'
+        '            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />\n'
+        '$main');
   }
   return value.replaceFirst(
     RegExp(r'android:label="[^"]*"'),
@@ -274,6 +309,12 @@ if (file("google-services.json").exists()) {
 
 String configureIosInfoPlist(String plist) {
   var value = plist;
+  // Links only bring the app to the front (the calendar sign-in return);
+  // Flutter's own URL routing stays off (docs/calendar.md#connecting-on-the-phone).
+  if (!value.contains('FlutterDeepLinkingEnabled')) {
+    value = value.replaceFirst('<dict>\n',
+        '<dict>\n\t<key>FlutterDeepLinkingEnabled</key>\n\t<false/>\n');
+  }
   const privacy = '''
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ANUM uses the microphone while you record a voice command or are in a call with a teammate.</string>
