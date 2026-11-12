@@ -88,6 +88,9 @@ class VaultController extends ChangeNotifier {
 }
 
 /// One document with its versions.
+/// Categories a vehicle's renewal date can come from (docs/documents.md#vehicle-papers).
+const vehiclePaperCategories = {'insurance', 'vehicle_registration'};
+
 class VaultDocumentController extends ChangeNotifier {
   VaultDocumentController(this.repository, this.documentId, {this.onChanged});
   final VaultRepository repository;
@@ -125,6 +128,11 @@ class VaultDocumentController extends ChangeNotifier {
         document!.hasReceipt) {
       await loadMatches();
     }
+    if (phase == RecordsPhase.ready &&
+        !document!.inTrash &&
+        vehiclePaperCategories.contains(document!.category)) {
+      await loadPapers();
+    }
   }
 
   /// What a confirmed receipt may belong to (docs/documents.md#receipt-matches).
@@ -136,6 +144,35 @@ class VaultDocumentController extends ChangeNotifier {
       matchesError = RecordsFailure.from(error).message;
     }
     _notify();
+  }
+
+  /// Says a proposal is wrong (or restores one said wrong); remembered on the document.
+  Future<void> dismissMatch(String kind, String targetId,
+      {bool restore = false}) async {
+    matches = await repository.dismissMatch(documentId, kind, targetId,
+        restore: restore);
+    _notify();
+  }
+
+  /// The vehicles an insurance or registration document may belong to
+  /// (docs/documents.md#vehicle-papers).
+  VaultVehiclePapers? papers;
+  String? papersError;
+
+  Future<void> loadPapers() async {
+    try {
+      papers = await repository.vehiclePapers(documentId);
+      papersError = null;
+    } on Object catch (error) {
+      papersError = RecordsFailure.from(error).message;
+    }
+    _notify();
+  }
+
+  /// Links the document to the vehicle and sets the vehicle's date from it.
+  Future<void> confirmVehicle(String vehicleId) async {
+    papers = await repository.confirmVehicle(documentId, vehicleId);
+    await load();
   }
 
   /// Confirms one proposal; the server checks it is still proposed.

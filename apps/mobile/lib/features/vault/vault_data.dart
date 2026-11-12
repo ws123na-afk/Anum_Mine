@@ -205,7 +205,8 @@ class VaultMatches {
       this.paymentsUnavailable,
       this.purchasesUnavailable,
       this.linkedPayments = const [],
-      this.linkedPurchases = const []});
+      this.linkedPurchases = const [],
+      this.dismissed = const []});
   factory VaultMatches.fromJson(JsonReader j) => VaultMatches(
       canEdit: j.optBool('can_edit') ?? false,
       reason: j.optString('reason'),
@@ -214,14 +215,79 @@ class VaultMatches {
       paymentsUnavailable: j.optString('payments_unavailable'),
       purchasesUnavailable: j.optString('purchases_unavailable'),
       linkedPayments: j.optStrings('linked_payments') ?? const [],
-      linkedPurchases: j.optStrings('linked_purchases') ?? const []);
+      linkedPurchases: j.optStrings('linked_purchases') ?? const [],
+      dismissed: j.optObjects('dismissed', VaultDismissedMatch.fromJson));
   final bool canEdit;
+
+  /// Matches the person said are wrong; not proposed again until restored.
+  final List<VaultDismissedMatch> dismissed;
   final String? reason, paymentsUnavailable, purchasesUnavailable;
   final List<VaultMatch> payments, purchases;
   final List<String> linkedPayments, linkedPurchases;
 
   bool get hasProposals => payments.isNotEmpty || purchases.isNotEmpty;
   bool get linked => linkedPayments.isNotEmpty || linkedPurchases.isNotEmpty;
+}
+
+class VaultDismissedMatch {
+  const VaultDismissedMatch(
+      {required this.kind,
+      required this.targetId,
+      required this.label,
+      required this.dismissedBy});
+  factory VaultDismissedMatch.fromJson(JsonReader j) => VaultDismissedMatch(
+      kind: j.string('kind'),
+      targetId: j.string('target_id'),
+      label: j.optString('label') ?? '',
+      dismissedBy: j.optString('dismissed_by') ?? '');
+  final String kind, targetId, label, dismissedBy;
+}
+
+/// The vehicles an insurance or registration document may belong to
+/// (docs/documents.md#vehicle-papers).
+class VaultVehiclePapers {
+  const VaultVehiclePapers(
+      {required this.canEdit,
+      this.field,
+      this.expiryDate,
+      this.reason,
+      this.vehiclesUnavailable,
+      this.vehicles = const [],
+      this.reminderFrom,
+      this.reminderDays});
+  factory VaultVehiclePapers.fromJson(JsonReader j) => VaultVehiclePapers(
+      canEdit: j.optBool('can_edit') ?? false,
+      field: j.optString('field'),
+      expiryDate: j.optString('expiry_date'),
+      reason: j.optString('reason'),
+      vehiclesUnavailable: j.optString('vehicles_unavailable'),
+      vehicles: j.optObjects('vehicles', VaultVehicleChoice.fromJson),
+      reminderFrom: j.optString('reminder_from'),
+      reminderDays: j.optInt('reminder_days'));
+  final bool canEdit;
+  final String? field, expiryDate, reason, vehiclesUnavailable, reminderFrom;
+  final int? reminderDays;
+  final List<VaultVehicleChoice> vehicles;
+}
+
+class VaultVehicleChoice {
+  const VaultVehicleChoice(
+      {required this.vehicleId,
+      required this.label,
+      this.currentExpiry,
+      this.wouldChange = true,
+      this.matchesRegistration = false,
+      this.linked = false});
+  factory VaultVehicleChoice.fromJson(JsonReader j) => VaultVehicleChoice(
+      vehicleId: j.string('vehicle_id'),
+      label: j.optString('label') ?? '',
+      currentExpiry: j.optString('current_expiry'),
+      wouldChange: j.optBool('would_change') ?? true,
+      matchesRegistration: j.optBool('matches_registration') ?? false,
+      linked: j.optBool('linked') ?? false);
+  final String vehicleId, label;
+  final String? currentExpiry;
+  final bool wouldChange, matchesRegistration, linked;
 }
 
 class VaultVersion {
@@ -279,6 +345,12 @@ abstract interface class VaultRepository {
   Future<void> removeLink(String id, String linkId);
   Future<VaultMatches> matches(String id);
   Future<VaultMatches> acceptMatch(String id, String kind, String targetId);
+
+  /// Dismiss (or, with `restore`, forget dismissing) a proposed match.
+  Future<VaultMatches> dismissMatch(String id, String kind, String targetId,
+      {bool restore = false});
+  Future<VaultVehiclePapers> vehiclePapers(String id);
+  Future<VaultVehiclePapers> confirmVehicle(String id, String vehicleId);
   Future<VaultDocument> upload(
     String path, {
     required String name,
@@ -382,6 +454,25 @@ class ApiVaultRepository implements VaultRepository {
       VaultMatches.fromJson(JsonReader(await api.request(
           'POST', '$_base/${_id(id)}/matches/accept',
           body: {'kind': kind, 'target_id': targetId})));
+
+  @override
+  Future<VaultMatches> dismissMatch(String id, String kind, String targetId,
+          {bool restore = false}) async =>
+      VaultMatches.fromJson(JsonReader(await api.request('POST',
+          '$_base/${_id(id)}/matches/${restore ? 'restore' : 'dismiss'}',
+          body: {'kind': kind, 'target_id': targetId})));
+
+  @override
+  Future<VaultVehiclePapers> vehiclePapers(String id) async =>
+      VaultVehiclePapers.fromJson(JsonReader(
+          await api.request('GET', '$_base/${_id(id)}/vehicle-proposals')));
+
+  @override
+  Future<VaultVehiclePapers> confirmVehicle(
+          String id, String vehicleId) async =>
+      VaultVehiclePapers.fromJson(JsonReader(await api.request(
+          'POST', '$_base/${_id(id)}/vehicle',
+          body: {'vehicle_id': vehicleId})));
 
   MeetingUploadTransfer _transfer() {
     final found = transfer;

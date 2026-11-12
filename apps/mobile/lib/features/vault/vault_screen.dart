@@ -609,30 +609,44 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
     Widget row(VaultMatch item) {
       final percent = item.percent;
       final payment = item.kind == 'payment';
-      return AnumRow(
-        key: Key('match-${item.targetId}'),
-        icon: payment ? Icons.payments_outlined : Icons.shopping_bag_outlined,
-        title: item.label.isEmpty
-            ? s.t(payment ? 'matchPayment' : 'matchPurchase')
-            : item.label,
-        subtitle: [
-          s.t('matchLine', {
-            'currency': item.currency,
-            'amount': item.amount,
-            'date': recordsDate(context, item.on),
-          }),
-          if (percent != null)
-            s.t(item.merchantAgrees == true ? 'matchAgrees' : 'matchSure',
-                {'percent': percent}),
-        ].join(' · '),
-        trailing: m!.canEdit
-            ? TextButton(
-                key: Key('match-take-${item.targetId}'),
-                onPressed: () => _run(() => _c.acceptMatch(item),
-                    s.t(payment ? 'matchLinked' : 'matchAttached')),
-                child: Text(
-                    s.t(payment ? 'matchLinkPayment' : 'matchAttachPurchase')))
-            : null,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AnumRow(
+            key: Key('match-${item.targetId}'),
+            icon:
+                payment ? Icons.payments_outlined : Icons.shopping_bag_outlined,
+            title: item.label.isEmpty
+                ? s.t(payment ? 'matchPayment' : 'matchPurchase')
+                : item.label,
+            subtitle: [
+              s.t('matchLine', {
+                'currency': item.currency,
+                'amount': item.amount,
+                'date': recordsDate(context, item.on),
+              }),
+              if (percent != null)
+                s.t(item.merchantAgrees == true ? 'matchAgrees' : 'matchSure',
+                    {'percent': percent}),
+            ].join(' · '),
+          ),
+          // The actions sit under the row so a phone never cuts them off.
+          if (m!.canEdit)
+            Wrap(spacing: 4, children: [
+              TextButton(
+                  key: Key('match-take-${item.targetId}'),
+                  onPressed: () => _run(() => _c.acceptMatch(item),
+                      s.t(payment ? 'matchLinked' : 'matchAttached')),
+                  child: Text(s.t(
+                      payment ? 'matchLinkPayment' : 'matchAttachPurchase'))),
+              TextButton(
+                  key: Key('match-dismiss-${item.targetId}'),
+                  onPressed: () => _run(
+                      () => _c.dismissMatch(item.kind, item.targetId),
+                      s.t('matchDismissed')),
+                  child: Text(s.t('matchDismiss'))),
+            ]),
+        ],
       );
     }
 
@@ -661,6 +675,89 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
               Text(s.t('matchesNoPurchases'), style: muted),
             if (m.hasProposals && !m.canEdit)
               Text(s.t('readOnly'), style: muted),
+            if (m.dismissed.isNotEmpty) ...[
+              Text(s.t('matchesDismissed'),
+                  style: Theme.of(context).textTheme.titleSmall),
+              for (final d in m.dismissed)
+                AnumRow(
+                  key: Key('match-dismissed-${d.targetId}'),
+                  icon: Icons.block_outlined,
+                  title: d.label,
+                  subtitle: s.t('matchDismissedBy', {'by': d.dismissedBy}),
+                  trailing: m.canEdit
+                      ? TextButton(
+                          key: Key('match-restore-${d.targetId}'),
+                          onPressed: () => _run(
+                              () => _c.dismissMatch(d.kind, d.targetId,
+                                  restore: true),
+                              s.t('matchRestored')),
+                          child: Text(s.t('matchRestore')))
+                      : null,
+                ),
+            ],
+          ],
+        ]);
+  }
+
+  /// An insurance or registration document and its vehicle
+  /// (docs/documents.md#vehicle-papers): the person links one, and the
+  /// vehicle's renewal reminder follows the document's expiry.
+  Widget _papers(BuildContext context, VaultStrings s) {
+    final p = _c.papers;
+    final muted = TextStyle(color: context.palette.muted);
+    return RecordsSection(
+        key: const Key('vault-papers'),
+        title: s.t('papers'),
+        children: [
+          if (_c.papersError != null)
+            Text(_c.papersError!, style: TextStyle(color: context.palette.stop))
+          else if (p == null)
+            const LinearProgressIndicator()
+          else if (p.reason == 'no_expiry')
+            Text(s.t('papersNoExpiry'), style: muted)
+          else if (p.vehiclesUnavailable != null)
+            Text(s.t('papersNoAccess'), style: muted)
+          else if (p.reason == null) ...[
+            Text(
+                s.t('papersIntro',
+                    {'date': recordsDate(context, p.expiryDate ?? '')}),
+                style: muted),
+            if (p.reminderFrom != null && p.reminderDays != null)
+              Text(
+                  s.t('papersReminder', {
+                    'days': p.reminderDays!,
+                    'date': recordsDate(context, p.reminderFrom!)
+                  }),
+                  style: muted),
+            if (p.vehicles.isEmpty) Text(s.t('papersNone'), style: muted),
+            for (final v in p.vehicles) ...[
+              AnumRow(
+                key: Key('papers-${v.vehicleId}'),
+                icon: Icons.directions_car_outlined,
+                title: v.label,
+                subtitle: [
+                  v.currentExpiry == null
+                      ? s.t('papersCurrentNone')
+                      : s.t('papersCurrent',
+                          {'date': recordsDate(context, v.currentExpiry!)}),
+                  if (v.matchesRegistration) s.t('papersMatches'),
+                ].join(' · '),
+              ),
+              if (v.linked && !v.wouldChange)
+                Text(s.t('papersLinked'),
+                    style: TextStyle(color: context.palette.ok))
+              else if (p.canEdit)
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton(
+                      key: Key('papers-link-${v.vehicleId}'),
+                      onPressed: () => _run(
+                          () => _c.confirmVehicle(v.vehicleId),
+                          s.t('papersSaved')),
+                      child: Text(s.t('papersLink'))),
+                ),
+            ],
+            if (!p.canEdit) Text(s.t('readOnly'), style: muted),
           ],
         ]);
   }
@@ -823,6 +920,8 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
                     ),
               ]),
             if (d.hasReceipt && !d.inTrash) _matches(context, s),
+            if (vehiclePaperCategories.contains(d.category) && !d.inTrash)
+              _papers(context, s),
             RecordsSection(
               title: s.t('links'),
               trailing: editable

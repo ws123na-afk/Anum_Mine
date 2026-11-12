@@ -16,6 +16,7 @@ import 'invoice_controller.dart';
 import 'invoice_document.dart';
 import 'invoice_form.dart';
 import 'invoice_models.dart';
+import 'invoice_refunds.dart';
 import 'recurring_invoices.dart';
 
 /// Invoices on the phone (docs/business.md#invoices): the per-currency
@@ -266,6 +267,17 @@ class _InvoicesViewState extends State<InvoicesView> {
             icon: const Icon(Icons.event_repeat_outlined),
             label: Text(l.t('biz.rinv.title')),
           ),
+        OutlinedButton.icon(
+          key: const Key('inv-refund-reviews'),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => RefundReviewsScreen(
+                  repository: c.repository, owner: c.permissions.manage),
+            ),
+          ),
+          icon: const Icon(Icons.fact_check_outlined),
+          label: Text(l.t('biz.inv.rv.open')),
+        ),
         OutlinedButton.icon(
           key: const Key('inv-profile'),
           onPressed: _profile,
@@ -577,6 +589,37 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
         l.t('biz.inv.paymentRecorded'));
   }
 
+  Future<void> _refund(InvoicePayment p) async {
+    final inv = invoice!;
+    final l = context.anum;
+    final body = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (context) => RefundDialog(
+          max: inv.refundable[p.id] ?? 0,
+          currency: inv.currency,
+          provider: p.provider ?? 'stripe'),
+    );
+    if (body == null) return;
+    // One key for this submit: a retry after a lost answer is the same request.
+    final key = newRefundKey();
+    await act(
+        () => c.repository.requestRefund(inv.id, p.id,
+            amount: body['amount']! as double,
+            reason: body['reason']! as String,
+            idempotencyKey: key),
+        l.t('biz.inv.rr.asked'));
+  }
+
+  Future<void> _withdrawRefund(RefundRequest r) async {
+    final l = context.anum;
+    if (!await _confirm(l.t('biz.inv.rr.withdrawTitle'),
+        l.t('biz.inv.rr.withdrawBody'), l.t('biz.inv.rr.withdraw'))) {
+      return;
+    }
+    await act(() => c.repository.withdrawRefund(widget.invoiceId, r.id),
+        l.t('biz.inv.rr.withdrawn'));
+  }
+
   Future<void> _removePayment(InvoicePayment p) async {
     final l = context.anum;
     if (!await _confirm(
@@ -832,7 +875,8 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
                     if (p.note.isNotEmpty) p.note,
                   ].join(' · '),
                   trailing: inv.can.removePayment &&
-                          !inv.refunds.any((r) => r.paymentId == p.id)
+                          !inv.refunds.any((r) => r.paymentId == p.id) &&
+                          !inv.refundRequests.any((r) => r.paymentId == p.id)
                       ? IconButton(
                           key: Key('inv-payment-remove-${p.id}'),
                           tooltip: l.t('biz.inv.removePayment'),
@@ -841,6 +885,20 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
                         )
                       : null,
                 ),
+              for (final p in inv.payments) ...[
+                ...refundRequestRows(context, inv, p.id,
+                    busy: busy, onWithdraw: _withdrawRefund),
+                if (inv.can.refund && (inv.refundable[p.id] ?? 0) > 0)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      key: Key('inv-rr-ask-${p.id}'),
+                      onPressed: busy ? null : () => _refund(p),
+                      icon: const Icon(Icons.undo_outlined),
+                      label: Text(l.t('biz.inv.rr.ask')),
+                    ),
+                  ),
+              ],
               for (final r in inv.refunds)
                 AnumRow(
                   key: Key('inv-refund-${r.id}'),

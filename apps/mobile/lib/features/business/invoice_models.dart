@@ -116,10 +116,15 @@ class InvoicePayment {
     required this.method,
     required this.reference,
     required this.note,
+    this.provider,
   });
   final String id, paidOn, method, reference, note;
   final double amount;
+
+  /// `stripe` or `moyasar` for a card payment a provider reported, else null.
+  final String? provider;
   factory InvoicePayment.fromJson(JsonReader r) => InvoicePayment(
+        provider: r.optString('provider'),
         id: r.string('id'),
         amount: r.number('amount'),
         paidOn: dayOf(r.string('paid_on')),
@@ -153,6 +158,82 @@ class InvoiceRefund {
         amount: r.number('amount'),
         refundedOn: dayOf(r.string('refunded_on')),
         status: r.optString('status') ?? 'recorded',
+      );
+}
+
+/// A refund of a card payment asked for from ANUM; it waits for an owner's
+/// approval (docs/business.md#refunds-from-anum).
+class RefundRequest {
+  const RefundRequest({
+    required this.id,
+    required this.paymentId,
+    required this.provider,
+    required this.amount,
+    required this.reason,
+    required this.status,
+    required this.detail,
+    required this.requestedBy,
+    required this.createdAt,
+    this.payloadHash,
+  });
+  final String id, paymentId, provider, reason, status, detail, requestedBy;
+  final String createdAt;
+  final String? payloadHash;
+  final double amount;
+  bool get waiting => status == 'waiting_approval';
+  factory RefundRequest.fromJson(JsonReader r) => RefundRequest(
+        id: r.string('id'),
+        paymentId: r.string('payment_id'),
+        provider: r.optString('provider') ?? 'stripe',
+        amount: r.number('amount'),
+        reason: r.optString('reason') ?? '',
+        status: r.optString('status') ?? 'waiting_approval',
+        detail: r.optString('detail') ?? '',
+        requestedBy: r.optString('requested_by') ?? '',
+        createdAt: dayOf(r.optString('created_at') ?? ''),
+        payloadHash: r.optString('payload_hash'),
+      );
+}
+
+/// A refund the provider reported for a card payment ANUM never recorded, for
+/// an owner to check (docs/business.md#refunds-anum-could-not-match).
+class RefundReview {
+  const RefundReview({
+    required this.id,
+    required this.provider,
+    required this.providerRefundId,
+    required this.providerPaymentId,
+    required this.currency,
+    required this.amount,
+    required this.status,
+    required this.note,
+    required this.createdAt,
+    this.invoiceId,
+    this.invoiceNumber = '',
+    this.checkedBy,
+    this.checkedAt,
+  });
+  final String id, provider, providerRefundId, providerPaymentId, currency;
+  final String status, note, createdAt, invoiceNumber;
+  final String? invoiceId, checkedBy, checkedAt;
+  final double amount;
+  bool get open => status == 'open';
+  factory RefundReview.fromJson(JsonReader r) => RefundReview(
+        id: r.string('id'),
+        provider: r.optString('provider') ?? 'stripe',
+        providerRefundId: r.optString('provider_refund_id') ?? '',
+        providerPaymentId: r.optString('provider_payment_id') ?? '',
+        currency: r.optString('currency') ?? '',
+        amount: r.number('amount'),
+        status: r.optString('status') ?? 'open',
+        note: r.optString('note') ?? '',
+        createdAt: dayOf(r.optString('created_at') ?? ''),
+        invoiceId: r.optString('invoice_id'),
+        invoiceNumber: r.optString('invoice_number') ?? '',
+        checkedBy: r.optString('checked_by'),
+        checkedAt: r.optString('checked_at') == null
+            ? null
+            : dayOf(r.string('checked_at')),
       );
 }
 
@@ -236,6 +317,7 @@ class InvoiceCan {
     this.creditEnabled = true,
     this.voidCreditNote = false,
     this.decideNotice = false,
+    this.refund = false,
   });
   final bool edit,
       requestSend,
@@ -247,7 +329,8 @@ class InvoiceCan {
       credit,
       creditEnabled,
       voidCreditNote,
-      decideNotice;
+      decideNotice,
+      refund;
   factory InvoiceCan.fromJson(JsonReader r) => InvoiceCan(
         edit: r.boolean('edit'),
         requestSend: r.boolean('request_send'),
@@ -260,6 +343,7 @@ class InvoiceCan {
         creditEnabled: r.optBool('credit_enabled') ?? true,
         voidCreditNote: r.optBool('void_credit_note') ?? false,
         decideNotice: r.optBool('decide_notice') ?? false,
+        refund: r.optBool('refund') ?? false,
       );
 }
 
@@ -297,6 +381,8 @@ class Invoice {
     this.creditNotes = const [],
     this.paymentNotices = const [],
     this.refunds = const [],
+    this.refundRequests = const [],
+    this.refundable = const {},
     this.projectId,
     this.projectName,
     this.number,
@@ -318,6 +404,11 @@ class Invoice {
   final bool overdue;
   final List<InvoicePayment> payments;
   final List<InvoiceRefund> refunds;
+
+  /// Refunds asked for from ANUM (newest first) and what each card payment
+  /// can still give back, by payment id (docs/business.md#refunds-from-anum).
+  final List<RefundRequest> refundRequests;
+  final Map<String, double> refundable;
   final List<CreditNote> creditNotes;
   final List<PaymentNotice> paymentNotices;
   final List<String> issues;
@@ -364,6 +455,8 @@ class Invoice {
         paymentState: r.optString('payment_state') ?? 'unpaid',
         payments: r.optObjects('payments', InvoicePayment.fromJson),
         refunds: r.optObjects('refunds', InvoiceRefund.fromJson),
+        refundRequests: r.optObjects('refund_requests', RefundRequest.fromJson),
+        refundable: _amounts(r.optObject('refundable')),
         creditNotes: r.optObjects('credit_notes', CreditNote.fromJson),
         paymentNotices: r.optObjects('payment_notices', PaymentNotice.fromJson),
         approvalState: r.optString('approval_state') ?? 'none',
@@ -777,4 +870,12 @@ class PortalAccessCreated {
         r.string('token'),
         r.string('portal_path'),
       );
+}
+
+Map<String, double> _amounts(JsonReader? r) {
+  if (r == null) return const {};
+  return {
+    for (final key in r.json.keys)
+      if ((r.optNumber(key) ?? 0) > 0) key: r.optNumber(key)!,
+  };
 }

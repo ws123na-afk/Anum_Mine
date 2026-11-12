@@ -180,6 +180,7 @@ class VehicleFuel extends VehicleRecord {
     this.total,
     this.odometerKm,
     this.payment,
+    this.allocationProposal,
   });
   factory VehicleFuel.fromJson(JsonReader j) => VehicleFuel(
         id: j.string('id'),
@@ -194,11 +195,16 @@ class VehicleFuel extends VehicleRecord {
         total: j.optString('total'),
         odometerKm: j.optString('odometer_km'),
         payment: j.optObject('payment')?.let(VehiclePayment.fromJson),
+        allocationProposal:
+            j.optObject('allocation_proposal')?.let(VehicleAllocation.fromJson),
       );
   final String filledAt, litres, fuelType, currency;
   final bool fullTank;
   final String? station, total, odometerKm;
   final VehiclePayment? payment;
+
+  /// A business allocation that fits this record (docs/vehicles.md#business-allocations).
+  final VehicleAllocation? allocationProposal;
 }
 
 class VehicleTrip extends VehicleRecord {
@@ -250,6 +256,7 @@ class VehicleService extends VehicleRecord {
     this.nextDueKm,
     this.receiptTotal,
     this.payment,
+    this.allocationProposal,
   });
   factory VehicleService.fromJson(JsonReader j) => VehicleService(
         id: j.string('id'),
@@ -265,11 +272,16 @@ class VehicleService extends VehicleRecord {
         nextDueKm: j.optString('next_due_km'),
         receiptTotal: j.optString('receipt_total'),
         payment: j.optObject('payment')?.let(VehiclePayment.fromJson),
+        allocationProposal:
+            j.optObject('allocation_proposal')?.let(VehicleAllocation.fromJson),
       );
   final String kind, serviceOn, currency;
   final String? odometerKm, workshop, description, nextDueOn, nextDueKm;
   final String? receiptTotal;
   final VehiclePayment? payment;
+
+  /// A business allocation that fits this record (docs/vehicles.md#business-allocations).
+  final VehicleAllocation? allocationProposal;
 }
 
 /// One of the caller's own Finance payments, offered when linking a cost.
