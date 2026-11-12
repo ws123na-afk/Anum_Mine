@@ -31,6 +31,8 @@ export interface VaultMockOptions {
   manyDocuments?: number;
   /** Receipt matches: the caller may not use Purchases (the section says why). */
   noPurchases?: boolean;
+  /** A motor insurance document with an expiry, and the caller's vehicles (docs/documents.md#vehicle-papers). */
+  insurance?: boolean;
 }
 
 export interface VaultMock {
@@ -45,6 +47,16 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
   const receipt = vaultDocument('vdoc_receipt', { title: 'Fuel receipt', category: 'receipt', expiry_date: null, expiry_state: 'none', days_left: null, number_masked: null, source: 'device',
     file: { name: 'scan.jpg', content_type: 'image/jpeg', size_bytes: 1200, version: 1, kind: 'image', previewable: true, scan_status: 'clean' } });
   const docs: Json[] = options.empty ? [] : [vaultDocument('vdoc_passport'), iqama, lease, receipt];
+  if (options.insurance) docs.push(vaultDocument('vdoc_insurance', { title: 'Motor insurance ABC 1234', category: 'insurance', expiry_date: day(25), expiry_state: 'soon', days_left: 25, number_masked: null }));
+  const vehicles: Json[] = [
+    { vehicle_id: 'veh_family', label: 'Family car (ABC 1234)', registration: 'ABC 1234', ownership: 'personal', current_expiry: day(-10), would_change: true, matches_registration: true, linked: false },
+    { vehicle_id: 'veh_van', label: 'Delivery van (XYZ 9876)', registration: 'XYZ 9876', ownership: 'business', current_expiry: null, would_change: true, matches_registration: false, linked: false },
+  ];
+  const vehiclePapers = (doc: Json): Json => ({
+    document_id: doc.id, category: doc.category, field: doc.category === 'insurance' ? 'insurance_expires_on' : 'registration_expires_on', expiry_date: doc.expiry_date,
+    reason: doc.expiry_date ? null : 'no_expiry', can_edit: true, vehicles, vehicles_unavailable: null, linked_vehicles: vehicles.filter((v) => v.linked).map((v) => v.vehicle_id),
+    reminder_from: doc.expiry_date ? day(-5) : undefined, reminder_days: 30,
+  });
   for (let index = 0; index < (options.manyDocuments ?? 0); index++) docs.push(vaultDocument(`vdoc_more_${index}`, { title: `Warranty ${index + 1}`, category: 'warranty', expiry_state: 'valid', days_left: 300 }));
   const trash: Json[] = options.empty ? [] : [vaultDocument('vdoc_old', { title: 'Old visa', category: 'visa', status: 'deleted', deleted_at: now, purge_after: '2026-12-04T09:00:00.000Z' })];
   let extraction: Json | null = options.empty ? null : {
@@ -62,16 +74,19 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
   const calls: VaultMock['calls'] = [];
   const linkedPayments: string[] = [];
   const linkedPurchases: string[] = [];
+  const dismissed: Json[] = [];
+  const isDismissed = (kind: string, target: string) => dismissed.some((d) => d.kind === kind && d.target_id === target);
   const matchesOf = (doc: Json): Json => {
     const r = doc.receipt as Json | null;
     if (!r) return { document_id: doc.id, receipt: null, reason: 'not_confirmed', can_edit: true, payments: [], payments_unavailable: null, purchases: [], purchases_unavailable: null, linked_payments: [], linked_purchases: [] };
     const on = String(r.date ?? '2026-10-14');
     return {
       document_id: doc.id, receipt: { total: r.total, currency: r.currency, on, merchant: r.merchant ?? '' }, reason: null, can_edit: true,
-      payments: linkedPayments.length ? [] : [{ kind: 'payment', target_id: 'fin_je_fuel', on, amount: r.total, currency: r.currency, label: 'AL NOOR STATION RIYADH', merchant_agrees: true, confidence: '0.9' }],
+      payments: linkedPayments.length || isDismissed('payment', 'fin_je_fuel') ? [] : [{ kind: 'payment', target_id: 'fin_je_fuel', on, amount: r.total, currency: r.currency, label: 'AL NOOR STATION RIYADH', merchant_agrees: true, confidence: '0.9' }],
       payments_unavailable: null,
       purchases: linkedPurchases.length || options.noPurchases ? [] : [{ kind: 'purchase', target_id: 'pur_1', on, amount: r.total, currency: r.currency, label: 'Example station shop', merchant_agrees: null, confidence: '0.6' }],
       purchases_unavailable: options.noPurchases ? 'purchase_access' : null, linked_payments: [...linkedPayments], linked_purchases: [...linkedPurchases],
+      dismissed: [...dismissed],
     };
   };
   const meta = () => ({
@@ -160,6 +175,23 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
       if (rest === 'content') return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: 'bytes' });
       // Receipt matches (docs/documents.md#receipt-matches): a payment and a purchase fit the confirmed receipt.
       if (rest === 'matches' && method === 'GET') return json(matchesOf(doc));
+      if ((rest === 'matches/dismiss' || rest === 'matches/restore') && method === 'POST') {
+        const pick = body as Json;
+        if (rest === 'matches/restore') { const index = dismissed.findIndex((d) => d.kind === pick.kind && d.target_id === pick.target_id); if (index >= 0) dismissed.splice(index, 1); return json(matchesOf(doc)); }
+        const known = matchesOf(doc);
+        const found = ((pick.kind === 'payment' ? known.payments : known.purchases) as Json[]).find((p) => p.target_id === pick.target_id);
+        if (!found) return error(409, 'conflict', 'This match is no longer proposed: the receipt, the payment or the purchase changed, or it was linked already.');
+        dismissed.push({ kind: pick.kind, target_id: pick.target_id, label: `${found.label} ${found.currency} ${found.amount} (${found.on})`, dismissed_by: 'user_local', dismissed_at: now });
+        return json(matchesOf(doc));
+      }
+      // Vehicle papers (docs/documents.md#vehicle-papers): the vehicles an insurance document may belong to.
+      if (rest === 'vehicle-proposals' && method === 'GET') return json(vehiclePapers(doc));
+      if (rest === 'vehicle' && method === 'POST') {
+        const chosen = vehicles.find((v) => v.vehicle_id === (body as Json).vehicle_id);
+        if (!chosen) return error(404, 'not_found', 'Vehicle not found among the vehicles you may change.');
+        Object.assign(chosen, { linked: true, would_change: false, current_expiry: doc.expiry_date });
+        return json(vehiclePapers(doc));
+      }
       if (rest === 'matches/accept' && method === 'POST') {
         const pick = body as Json;
         const known = matchesOf(doc);

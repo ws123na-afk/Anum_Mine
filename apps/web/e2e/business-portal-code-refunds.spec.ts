@@ -52,7 +52,7 @@ test('a dashboard refund shows on its card payment, which can no longer be remov
   const mock = await mockInvoices(page);
   const id = mock.seedSent(refundedInvoice());
   await page.goto(`/#business-invoices/${id}`);
-  const refunds = page.getByRole('dialog').getByRole('group', { name: 'Refunds made in Stripe' });
+  const refunds = page.getByRole('dialog').getByRole('group', { name: 'Refunds through Stripe' });
   await expect(refunds.getByText(/SAR\s?350\.00 refunded on/)).toBeVisible();
   await expect(refunds.getByText(/SAR\s?50\.00 of it was money the card took above the balance/)).toBeVisible();
   await expect(refunds.getByText('Stripe reported this refund failed, so it no longer counts.')).toBeVisible();
@@ -67,7 +67,7 @@ test('the refunds and the switch pass the layout and axe checks in English and A
     const id = mock.seedSent(refundedInvoice());
     await useSavedLocale(tab, locale);
     await tab.goto(`/#business-invoices/${id}`);
-    await expect(tab.getByRole('dialog').getByRole('group', { name: locale === 'ar' ? /مبالغ مستردة من لوحة/ : 'Refunds made in Stripe' })).toBeVisible();
+    await expect(tab.getByRole('dialog').getByRole('group', { name: locale === 'ar' ? /مبالغ مستردة عبر/ : 'Refunds through Stripe' })).toBeVisible();
     await sweep(tab, `${locale} invoice refunds`);
     await tab.goto('/#business-accounts/bacc_1');
     await expect(tab.getByRole('dialog').getByRole('group', { name: locale === 'ar' ? /الدخول برمز يصل بالبريد/ : /Sign in with an emailed code/ })).toBeVisible();

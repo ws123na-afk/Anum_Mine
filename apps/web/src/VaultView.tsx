@@ -24,6 +24,7 @@ import {
   type VaultReceiptMatches, type VaultReceiptProposal, type VaultReviewItem, type VaultSort, type VaultTab, type VaultVersionPage,
 } from './lib/vault';
 import * as api from './lib/vaultApi';
+import { VEHICLE_PAPER_CATEGORIES, VehiclePapers } from './VaultVehiclePapers';
 import './admin.css';
 import './vault.css';
 
@@ -494,6 +495,7 @@ function DocumentDetail({ id, meta, onClose, onChanged }: { id: string; meta: Va
     </section>}
 
     {doc.receipt && <ReceiptMatches doc={doc} onChanged={(text) => { void fetch(); onChanged(text); }} />}
+    {VEHICLE_PAPER_CATEGORIES.includes(doc.category) && doc.status === 'active' && <VehiclePapers doc={doc} onChanged={(text) => { void fetch(); onChanged(text); }} />}
     <Extractions doc={doc} />
     <Versions doc={doc} onChanged={() => { void fetch(); onChanged(); }} />
     {(doc.can_share || doc.shared_with.length > 0) && <Sharing doc={doc} onChanged={() => { void fetch(); onChanged(); }} />}
@@ -650,6 +652,13 @@ function ReceiptMatches({ doc, onChanged }: { doc: VaultDocumentDetail; onChange
     (error) => setLoad(isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) })),
   [doc.id]);
   useEffect(() => { void fetch(); }, [fetch, doc.row_version]);
+  const dismiss = async (kind: 'payment' | 'purchase', targetId: string, action: 'dismiss' | 'restore') => {
+    setBusy(`${action}:${targetId}`); setProblem(null);
+    try {
+      setLoad({ state: 'ready', value: await api.dismissMatch(doc.id, kind, targetId, action) });
+      onChanged(t(action === 'dismiss' ? 'vault.match.dismissed' : 'vault.match.restored'));
+    } catch (error) { setProblem(describeError(error)); void fetch(); } finally { setBusy(null); }
+  };
   const take = async (item: VaultReceiptProposal) => {
     setBusy(item.target_id); setProblem(null);
     try {
@@ -679,9 +688,13 @@ function ReceiptMatches({ doc, onChanged }: { doc: VaultDocumentDetail; onChange
         {m.can_edit && <button type="button" className="secondary" disabled={busy !== null}
           aria-label={t(label, { label: item.label, amount, day: day(item.on) })} onClick={() => void take(item)}>
           <Check aria-hidden="true" />{busy === item.target_id ? t('vault.saving') : t(verb)}</button>}
+        {m.can_edit && <button type="button" className="secondary" disabled={busy !== null}
+          aria-label={t('vault.match.dismissLabel', { label: item.label, amount, day: day(item.on) })} onClick={() => void dismiss(item.kind, item.target_id, 'dismiss')}>
+          <X aria-hidden="true" />{busy === `dismiss:${item.target_id}` ? t('vault.saving') : t('vault.match.dismiss')}</button>}
       </span>
     </li>;
   };
+  const dismissed = m.dismissed ?? [];
   return <section className="vaultSub" aria-labelledby="vault-matches">{heading}
     {state === 'not_confirmed' ? <p className="muted">{t('vault.match.notConfirmed')}</p> : <>
       <p className="muted">{t('vault.match.intro')}</p>
@@ -693,6 +706,13 @@ function ReceiptMatches({ doc, onChanged }: { doc: VaultDocumentDetail; onChange
       {m.payments_unavailable && <p className="muted">{t('vault.match.noFinance')}</p>}
       {m.purchases_unavailable && <p className="muted">{t('vault.match.noPurchases')}</p>}
       {state === 'proposals' && !m.can_edit && <p className="muted vaultReadOnly"><Lock aria-hidden="true" />{t('vault.match.readOnly')}</p>}
+      {dismissed.length > 0 && <><h4>{t('vault.match.dismissedTitle')}</h4><ul className="vaultMatches">{dismissed.map((item) => <li key={`${item.kind}:${item.target_id}`} className="vaultMatch">
+        <span className="vaultMatchText"><bdi dir="auto">{item.label}</bdi>
+          <small className="muted">{t('vault.match.dismissedBy', { by: item.dismissed_by, day: when(item.dismissed_at) })}</small></span>
+        {m.can_edit && <span className="vaultMatchActions"><button type="button" className="secondary" disabled={busy !== null}
+          aria-label={t('vault.match.restoreLabel', { label: item.label })} onClick={() => void dismiss(item.kind, item.target_id, 'restore')}>
+          <RotateCcw aria-hidden="true" />{busy === `restore:${item.target_id}` ? t('vault.saving') : t('vault.match.restore')}</button></span>}
+      </li>)}</ul></>}
     </>}
     {problem && <Notice error>{problem}</Notice>}
   </section>;

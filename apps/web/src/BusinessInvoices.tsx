@@ -6,6 +6,8 @@
 // approves it in Approvals with the hash they were shown, and only then does the invoice get its number or the email go out.
 import { Suspense, lazy, useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { PaymentLinkBlock, SendBlock } from './BusinessInvoiceSend';
+import { PaymentRefunds } from './BusinessInvoiceRefunds';
+import { REVIEWS_VIEW } from './lib/invoiceRefunds';
 import { Download, Plus, Printer, Search, Send, Trash2 } from 'lucide-react';
 import type {
   Billable, BusinessAccountRow, BusinessCurrency, BusinessInvoice, BusinessProject, BusinessSetup, CreditNote, InvoiceRefund, InvoiceSummary, PaymentMethod, PaymentNotice,
@@ -35,19 +37,41 @@ const dayText = (value: string | null) => (value ? day(value) : '-');
 const RecurringInvoices = lazy(() => import('./BusinessRecurringInvoices').then((module) => ({ default: module.RecurringInvoices })));
 export const RECURRING_VIEW = 'recurring';
 
-function InvoiceViews({ recurring, onPick }: { recurring: boolean; onPick: (recurring: boolean) => void }) {
+// Card refunds the provider reported for payments ANUM never recorded (docs/business.md#refunds-anum-could-not-match): #business-invoices/refunds.
+const RefundReviews = lazy(() => import('./BusinessRefundReviews').then((module) => ({ default: module.RefundReviews })));
+type InvoiceView = 'all' | 'recurring' | 'refunds';
+const VIEW_ROUTE: Record<InvoiceView, string | null> = { all: null, recurring: RECURRING_VIEW, refunds: REVIEWS_VIEW };
+
+function InvoiceViews({ view, onOpen }: { view: InvoiceView; onOpen: (id: string | null) => void }) {
   return <div className="segmented invViews" role="group" aria-label={t('rinv.views')}>
-    <button type="button" aria-pressed={!recurring} onClick={() => onPick(false)}>{t('rinv.view.all')}</button>
-    <button type="button" aria-pressed={recurring} onClick={() => onPick(true)}>{t('rinv.view.recurring')}</button>
+    <button type="button" aria-pressed={view === 'all'} onClick={() => onOpen(VIEW_ROUTE.all)}>{t('rinv.view.all')}</button>
+    <button type="button" aria-pressed={view === 'recurring'} onClick={() => onOpen(VIEW_ROUTE.recurring)}>{t('rinv.view.recurring')}</button>
+    <button type="button" aria-pressed={view === 'refunds'} onClick={() => onOpen(VIEW_ROUTE.refunds)}>{t('rinv.view.reviews')}</button>
   </div>;
 }
 
 export function InvoicesTab({ setup, openId, onOpen, onChanged }: { setup: BusinessSetup; openId: string | null; onOpen: (id: string | null) => void; onChanged: () => void }) {
   if (openId === RECURRING_VIEW) return <section className="bzSection" aria-label={t('biz.tab.invoices')}>
-    <InvoiceViews recurring onPick={(recurring) => onOpen(recurring ? RECURRING_VIEW : null)} />
+    <InvoiceViews view="recurring" onOpen={onOpen} />
     <Suspense fallback={<Note>{t('biz.loading')}</Note>}><RecurringInvoices setup={setup} onOpenInvoice={(id) => onOpen(id)} /></Suspense>
   </section>;
+  if (openId === REVIEWS_VIEW) return <section className="bzSection" aria-label={t('biz.tab.invoices')}>
+    <InvoiceViews view="refunds" onOpen={onOpen} />
+    <Suspense fallback={<Note>{t('biz.loading')}</Note>}><RefundReviews setup={setup} onOpenInvoice={(id) => onOpen(id)} /></Suspense>
+  </section>;
   return <InvoiceList setup={setup} openId={openId} onOpen={onOpen} onChanged={onChanged} />;
+}
+
+/** One line on the invoice list when the provider refunded payments ANUM has no record of. */
+function ReviewsBanner({ reload, onOpen }: { reload: number; onOpen: () => void }) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let live = true;
+    inv.listRefundReviews({ state: 'open', limit: 1, offset: 0 }).then((page) => { if (live) setCount(page.total); }, () => { if (live) setCount(0); });
+    return () => { live = false; };
+  }, [reload]);
+  if (count <= 0) return null;
+  return <Note>{t('inv.rv.banner', { count })} <button type="button" className="secondary" onClick={onOpen}>{t('inv.rv.open')}</button></Note>;
 }
 
 function InvoiceList({ setup, openId, onOpen, onChanged }: { setup: BusinessSetup; openId: string | null; onOpen: (id: string | null) => void; onChanged: () => void }) {
@@ -62,7 +86,8 @@ function InvoiceList({ setup, openId, onOpen, onChanged }: { setup: BusinessSetu
   const clear = () => { setFilters(defaultInvoiceFilters()); setSearch(''); };
   const empty = list.load.kind === 'ready' && list.items.length === 0;
   return <section className="bzSection" aria-label={t('biz.tab.invoices')}>
-    <InvoiceViews recurring={false} onPick={(recurring) => onOpen(recurring ? RECURRING_VIEW : null)} />
+    <InvoiceViews view="all" onOpen={onOpen} />
+    <ReviewsBanner reload={tick} onOpen={() => onOpen(REVIEWS_VIEW)} />
     <SummaryBand reload={tick} />
     <div className="bzToolbar">
       <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(filters.q.trim()); setTick((value) => value + 1); }}>
@@ -380,7 +405,8 @@ export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: Busine
 
       <SendBlock invoice={invoice} write={setup.permissions.write} onChanged={(next, message) => { setItem(next); setNotice(message); onChanged(); }} />
       <PaymentLinkBlock invoice={invoice} write={setup.permissions.write} onChanged={(next, message) => { setItem(next); setNotice(message); onChanged(); }} />
-      <PaymentsBlock invoice={invoice} canRemove={can.remove_payment} busy={busy} onRemove={(paymentId) => setAsking({ payment: paymentId })} onSaved={setPdfNote} onError={setProblem} />
+      <PaymentsBlock invoice={invoice} canRemove={can.remove_payment} busy={busy} onRemove={(paymentId) => setAsking({ payment: paymentId })} onSaved={setPdfNote} onError={setProblem}
+        onInvoice={(next, message) => { setItem(next); setNotice(message); onChanged(); }} />
       <NoticesBlock invoice={invoice} canDecide={can.decide_notice} busy={busy} onConfirm={(notice) => setAsking({ confirm: notice })} onReject={(notice) => setAsking({ reject: notice })} />
       <CreditNotesBlock invoice={invoice} manage={setup.permissions.manage} busy={busy} onIssue={() => setAsking('credit')} onVoid={(note) => setAsking({ voidCredit: note })} onSaved={setPdfNote} onError={setProblem} />
     </div>
@@ -487,9 +513,11 @@ async function saveTo(fn: () => Promise<string>, what: string, { onSaved, onErro
   try { onSaved(t('inv.receipt.saved', { name: await fn() })); } catch (error) { onSaved(''); onError(failure(error, what)); }
 }
 
-function PaymentsBlock({ invoice, canRemove, busy, onRemove, onSaved, onError }: { invoice: BusinessInvoice; canRemove: boolean; busy: boolean; onRemove: (paymentId: string) => void } & FileNotes) {
+function PaymentsBlock({ invoice, canRemove, busy, onRemove, onSaved, onError, onInvoice }: { invoice: BusinessInvoice; canRemove: boolean; busy: boolean; onRemove: (paymentId: string) => void;
+  onInvoice: (next: BusinessInvoice, message: string) => void } & FileNotes) {
   if (invoice.status === 'draft' || invoice.status === 'pending_approval') return null;
   const refundsOf = (paymentId: string) => (invoice.refunds ?? []).filter((item) => item.payment_id === paymentId);
+  const askedOf = (paymentId: string) => (invoice.refund_requests ?? []).filter((item) => item.payment_id === paymentId);
   return <section className="bzBlock" aria-labelledby={`pay-${invoice.id}`}>
     <h3 id={`pay-${invoice.id}`}>{t('inv.pay.title')}</h3>
     {invoice.payments.length === 0 ? <p className="muted">{t('inv.pay.none')}</p>
@@ -497,12 +525,13 @@ function PaymentsBlock({ invoice, canRemove, busy, onRemove, onSaved, onError }:
         <div className="bzInline"><strong>{money(payment.amount, invoice.currency)}</strong><span>{day(payment.paid_on)}</span><span className="muted">{paymentMethodLabel(payment.method)}</span>
           <button type="button" className="secondary" onClick={() => void saveTo(() => inv.downloadReceipt(invoice.id, payment.id), t('inv.receipt.button'), { onSaved, onError })}>
             <Download aria-hidden="true" />{t('inv.receipt.button')}</button>
-          {canRemove && !refundsOf(payment.id).length && <button type="button" className="secondary" disabled={busy} onClick={() => onRemove(payment.id)}>{t('inv.pay.remove')}</button>}</div>
+          {canRemove && !refundsOf(payment.id).length && !askedOf(payment.id).length && <button type="button" className="secondary" disabled={busy} onClick={() => onRemove(payment.id)}>{t('inv.pay.remove')}</button>}</div>
         {payment.provider === 'moyasar' && <small>{t('inv.pay.viaMoyasar')}</small>}
         {payment.provider === 'stripe' && <small>{t('inv.pay.viaStripe')}</small>}
         <small dir="auto">{[payment.reference, payment.note].filter(Boolean).join(' / ')}</small>
         <small>{t('inv.pay.recordedBy', { by: payment.recorded_by })}</small>
-        <RefundList refunds={refundsOf(payment.id)} invoice={invoice} canRemove={canRemove} /></li>)}</ul>}
+        <RefundList refunds={refundsOf(payment.id)} invoice={invoice} canRemove={canRemove} />
+        <PaymentRefunds invoice={invoice} payment={payment} onChanged={onInvoice} /></li>)}</ul>}
   </section>;
 }
 

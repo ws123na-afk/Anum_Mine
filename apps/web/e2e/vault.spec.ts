@@ -133,6 +133,53 @@ test('a confirmed receipt proposes its payment and purchase; Link payment links 
   expect(mock.calls.find((c) => c.path === '/vdoc_receipt/matches/accept')?.body).toEqual({ kind: 'payment', target_id: 'fin_je_fuel' });
 });
 
+test('a wrong receipt match is dismissed, remembered, and restored (docs/documents.md#receipt-matches)', async ({ page }) => {
+  const mock = await open(page, 'vault-review');
+  await page.locator('.vaultReviewCard', { hasText: 'Fuel receipt' }).getByRole('button', { name: 'Confirm values' }).click();
+  await expect(page.getByText('Confirmed the values of Fuel receipt.')).toBeVisible();
+  await page.goto('/#vault-documents?doc=vdoc_receipt');
+  const matches = page.getByRole('region', { name: 'Fuel receipt' }).locator('.vaultSub', { has: page.getByRole('heading', { name: 'Suggested matches' }) });
+  await matches.getByRole('button', { name: /^Not this one: AL NOOR STATION RIYADH/ }).click();
+  await expect(page.getByText('Match dismissed. It is not proposed again.')).toBeVisible();
+  await expect(matches.getByRole('button', { name: /^Link payment/ })).toHaveCount(0);
+  await expect(matches.getByRole('heading', { name: 'Dismissed matches' })).toBeVisible();
+  await expect(matches.getByText(/Dismissed by user_local/)).toBeVisible();
+  expect(mock.calls.find((c) => c.path === '/vdoc_receipt/matches/dismiss')?.body).toEqual({ kind: 'payment', target_id: 'fin_je_fuel' });
+  const results = await new AxeBuilder({ page }).include('.vaultDetail').analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+  await matches.getByRole('button', { name: /^Restore AL NOOR STATION RIYADH/ }).click();
+  await expect(page.getByText('Match restored. It is proposed again while it still fits.')).toBeVisible();
+  await expect(matches.getByRole('button', { name: /^Link payment AL NOOR STATION RIYADH/ })).toBeVisible();
+  await expect(matches.getByRole('heading', { name: 'Dismissed matches' })).toHaveCount(0);
+});
+
+test('an insurance document links to its vehicle and sets the renewal date (docs/documents.md#vehicle-papers)', async ({ page }) => {
+  const mock = await open(page, 'vault-documents?doc=vdoc_insurance', { insurance: true });
+  const section = page.getByRole('region', { name: 'Motor insurance ABC 1234' }).locator('.vaultSub', { has: page.getByRole('heading', { name: 'Vehicle' }) });
+  await expect(section.getByText(/insurance expiry becomes/)).toBeVisible();
+  await expect(section.getByText('Registration named in the document')).toBeVisible();
+  await expect(section.getByText(/The first reminder comes 30 days before/)).toBeVisible();
+  const results = await new AxeBuilder({ page }).include('.vaultDetail').analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+  await section.getByRole('button', { name: /^Link and set date: Family car/ }).click();
+  await expect(page.getByText(/Linked to the vehicle\. Its renewal reminder follows this document/)).toBeVisible();
+  await expect(section.getByText('Linked', { exact: true })).toBeVisible();
+  await expect(section.getByRole('button', { name: /^Link and set date: Family car/ })).toHaveCount(0);
+  expect(mock.calls.find((c) => c.path === '/vdoc_insurance/vehicle')?.body).toEqual({ vehicle_id: 'veh_family' });
+});
+
+test('the vehicle section in Arabic passes axe', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('anum.locale', 'ar'));
+  await mockWorkspaceApi(page);
+  await mockVault(page, { insurance: true });
+  await page.goto('/#vault-documents?doc=vdoc_insurance');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  const section = page.locator('.vaultSub', { has: page.getByRole('heading', { name: 'المركبة' }) });
+  await expect(section.getByRole('button', { name: /^اربط واضبط التاريخ/ }).first()).toBeVisible();
+  const results = await new AxeBuilder({ page }).include('.vaultDetail').analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+});
+
 test('receipt matches in Arabic, and the purchases section says who may see them', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('anum.locale', 'ar'));
   await mockWorkspaceApi(page);

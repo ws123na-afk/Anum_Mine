@@ -116,6 +116,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-catalog', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-invoices', view: 'business', mock: mockInvoicesWithData, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-invoices/recurring', view: 'business', mock: (page) => mockSchedules(page), ready: '.rinvAuto .bzFieldset' },
+  { hash: 'business-invoices/refunds', view: 'business', mock: mockInvoicesWithData, ready: '.bzEmpty, .bzTable' },
   { hash: 'business-settings', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-books', view: 'business', mock: (page) => mockBooks(page), ready: '.bkDashBills tbody tr' },
   { hash: 'business-books/bills', view: 'business', mock: (page) => mockBooks(page), ready: '.bzTable tbody tr' },

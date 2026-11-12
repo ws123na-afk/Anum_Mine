@@ -198,7 +198,17 @@ export function vehiclesReply(state: VehiclesState, method: string, url: URL, bo
   }
   if (part && ['fuel', 'trips', 'service'].includes(part)) {
     const kind = part as 'fuel' | 'trips' | 'service';
-    if (method === 'GET') return page(state[kind].filter((r) => r.vehicle_id === vehicleId));
+    if (method === 'GET') {
+      // A business allocation with the record's own figure, proposed as its cost (docs/vehicles.md#business-allocations).
+      const business = state.vehicles.find((v) => v.id === vehicleId)?.ownership === 'business';
+      const figure = (r: Row) => String(kind === 'fuel' ? r.total : r.receipt_total);
+      const proposal = (r: Row) => {
+        if (!business || kind === 'trips' || r.payment) return null;
+        const fits = state.allocations.find((a) => a.amount === figure(r) && a.currency === r.currency);
+        return fits ? { ...fits, days_apart: 1 } : null;
+      };
+      return page(state[kind].filter((r) => r.vehicle_id === vehicleId).map((r) => ({ ...r, allocation_proposal: proposal(r) })));
+    }
     const created = child(`v${kind}_${state[kind].length + 10}`, vehicleId, { payment: null, currency: 'SAR', document_id: null, ...b, ...(kind === 'trips' ? { status: b.ended_at ? 'closed' : 'open', source: 'web', distance_km: null, distance_basis: null } : {}) });
     state[kind].unshift(created);
     return { status: 201, body: { ...created, replayed: false } };
