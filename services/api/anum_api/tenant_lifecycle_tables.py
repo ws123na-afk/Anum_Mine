@@ -212,6 +212,8 @@ _ORDER = (
     "mail_accounts",
     "finance_links",
     "finance_device_events",
+    "finance_match_records",
+    "finance_backfill_runs",
     "business_ledger_allocations",
     "finance_statement_templates",
     "finance_advisor_reports",

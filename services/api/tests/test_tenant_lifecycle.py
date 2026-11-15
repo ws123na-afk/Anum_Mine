@@ -244,6 +244,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "app_call_rooms": "0180_app_call_rooms",
             "attendance_workspace_settings": "0181_attendance_manager_view",
             "command_step_continuations": "0182_command_sweep",
+            **{name: "0184_pf_matching" for name in ("finance_match_records", "finance_backfill_runs")},
             **{name: "0152_finance_rules_learning" for name in (
                 "finance_rules", "finance_merchant_aliases", "finance_subcategories", "finance_suggestion_decisions", "finance_rule_batches",
                 "finance_automation_settings")},

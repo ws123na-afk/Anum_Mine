@@ -36,6 +36,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .match_policy import MatchingPolicy
 from .merchant_match import STOP_WORDS, _fold
 from .models import Category, CategoryRule, CategorySource, Transaction, TransactionType, _Owned
 
@@ -427,8 +428,15 @@ def history_suggestion(row: Transaction, past: list[Transaction], aliases: Alias
 # -- automation ------------------------------------------------------------------------------------------
 
 # What an owner policy may automate, and what is never automated whatever a policy says.
-AUTOMATABLE = frozenset({"classify", "notify"})
-NEVER_AUTOMATED = frozenset({"post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period", "link_loan_payments"})
+# Record linking (docs/finance-matching.md): only a strong, unique match, linked under the owner's approved and audited
+# matching policy, reversible without losing the transaction. A link writes no journal entry and moves no money.
+LINKING_ACTIONS = frozenset({"match_transactions", "reconcile_installments", "link_recurring_bills", "link_card_repayments",
+                             "link_bank_loan_repayment", "prevent_duplicates", "reprocess_history"})
+AUTOMATABLE = frozenset({"classify", "notify"}) | LINKING_ACTIONS
+# ``link_loan_payments`` is a bank loan's found-payments batch (salary months included); a loan with a person is only ever
+# suggested; a policy never changes itself.
+NEVER_AUTOMATED = frozenset({"post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period", "link_loan_payments",
+                             "link_person_loan_payments", "change_policy"})
 
 
 class AutomationRefused(PermissionError):
@@ -436,7 +444,7 @@ class AutomationRefused(PermissionError):
 
 
 def require_automatable(action: str) -> None:
-    """Refuse anything a policy may not do. Only classification and notifications are ever automated."""
+    """Refuse anything a policy may not do: only classification, notifications and low-risk record linking are ever automated."""
     if action in NEVER_AUTOMATED or action not in AUTOMATABLE:
         raise AutomationRefused(f"'{action}' is never automated: the owner does it by hand.")
 
@@ -459,6 +467,8 @@ class AutomationPolicy(BaseModel):
     notices: list[NoticeKind] = Field(default_factory=list, max_length=5)
     notice_exception_days: int = Field(default=7, ge=1, le=90)  # open reconciliation exceptions older than this
     notice_uncategorized_min: Decimal = Field(default=Decimal("500"), ge=0, le=Decimal("1e9"))  # per currency, never added across
+    # Record linking (docs/finance-matching.md#the-policy): off until the owner turns it on and approves it.
+    matching: MatchingPolicy = Field(default_factory=MatchingPolicy)
 
     @field_validator("notices")
     @classmethod
@@ -474,7 +484,7 @@ class AutomationSettings(_Owned):
 
 
 __all__ = [
-    "NOTICE_KINDS", "NoticeKind", "AUTOMATABLE", "ActiveRule", "AliasBook", "AutomationPolicy", "AutomationRefused", "AutomationSettings", "FinanceRule", "HistoryHint",
+    "LINKING_ACTIONS", "NOTICE_KINDS", "NoticeKind", "AUTOMATABLE", "ActiveRule", "AliasBook", "AutomationPolicy", "AutomationRefused", "AutomationSettings", "FinanceRule", "HistoryHint",
     "MAX_ALIASES", "MAX_RULES", "MAX_SUBCATEGORIES", "MAX_VERSIONS", "MerchantAlias", "NEVER_AUTOMATED", "Row", "RuleContent", "RuleMatch",
     "active_rules", "current_versions", "first_match", "fold", "from_legacy", "has_phrase", "history_index", "history_suggestion", "learnable", "merchant_key",
     "ordered", "payload_hash", "require_automatable", "Subcategory",

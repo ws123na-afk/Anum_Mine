@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from anum_api.finance.links_store import BusinessAllocation, DeviceEvent, EventSummary, FinanceLink, LinkStatus
+from anum_api.finance.match_store import BackfillRun, MatchRecord
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -91,7 +92,71 @@ class FinanceDeviceEventRecord(Base):
     created_at: Mapped[datetime] = mapped_column(TS)
 
 
-RECORDS = (FinanceLinkRecord, FinanceDeviceEventRecord)
+class FinanceMatchRecordRow(Base):
+    """Migration 0184_pf_matching: one matching decision per transaction and target (docs/finance-matching.md)."""
+
+    __tablename__ = "finance_match_records"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80))
+    workspace_id: Mapped[str] = mapped_column(String(80))
+    owner_user_id: Mapped[str] = mapped_column(String(160))
+    canonical_id: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(20))
+    dimension: Mapped[str] = mapped_column(String(20))
+    target_type: Mapped[str] = mapped_column(String(40))
+    target_id: Mapped[str] = mapped_column(String(80))
+    label: Mapped[str] = mapped_column(String(160))
+    due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    posted_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(20, 4))
+    currency: Mapped[str] = mapped_column(String(3))
+    outcome: Mapped[str] = mapped_column(String(14))
+    evidence_state: Mapped[str] = mapped_column(String(12))
+    reason_code: Mapped[str] = mapped_column(String(40))
+    confidence: Mapped[Decimal] = mapped_column(Numeric(4, 3))
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    flags: Mapped[list[str]] = mapped_column(JSONB)
+    competitors: Mapped[int] = mapped_column(Integer)
+    policy_version: Mapped[str] = mapped_column(String(40))
+    run_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    link_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    decided_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+    version: Mapped[int] = mapped_column(Integer)
+
+
+class FinanceBackfillRunRow(Base):
+    """Migration 0184_pf_matching: one historical reprocessing run, its checkpoint and its counts."""
+
+    __tablename__ = "finance_backfill_runs"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80))
+    workspace_id: Mapped[str] = mapped_column(String(80))
+    owner_user_id: Mapped[str] = mapped_column(String(160))
+    mode: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(10))
+    start_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    cursor_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    batches: Mapped[int] = mapped_column(Integer)
+    counts: Mapped[dict[str, int]] = mapped_column(JSONB)
+    policy_version: Mapped[str] = mapped_column(String(40))
+    error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[str] = mapped_column(String(160))
+    started_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+    finished_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    undone_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    version: Mapped[int] = mapped_column(Integer)
+
+
+RECORDS = (FinanceLinkRecord, FinanceDeviceEventRecord, FinanceMatchRecordRow, FinanceBackfillRunRow)
 
 
 def _mine(record: Any, context: TenantContext) -> tuple[Any, ...]:
@@ -233,6 +298,63 @@ class SqlAlchemyLinkStore:
         rows = self.session.scalars(select(record).where(*where).order_by(record.created_at.desc(), record.id.desc()).offset(offset).limit(limit))
         return [_load(r, DeviceEvent) for r in rows], total
 
+    # match records and backfill runs (0184_pf_matching)
+    def get_match(self, context: TenantContext, record_id: str) -> MatchRecord | None:
+        record = FinanceMatchRecordRow
+        row = self.session.scalar(select(record).where(*_mine(record, context), record.id == record_id))
+        return _load(row, MatchRecord) if row else None
+
+    def match_for_pair(self, context: TenantContext, canonical_id: str, target_id: str) -> MatchRecord | None:
+        record = FinanceMatchRecordRow
+        row = self.session.scalar(select(record).where(*_mine(record, context), record.canonical_id == canonical_id, record.target_id == target_id))
+        return _load(row, MatchRecord) if row else None
+
+    def add_match(self, record: MatchRecord) -> bool:
+        statement = insert(FinanceMatchRecordRow).values(**_json_values(record)).on_conflict_do_nothing(
+            index_elements=["tenant_id", "workspace_id", "owner_user_id", "canonical_id", "target_id"])
+        return bool(self.session.execute(statement).rowcount)
+
+    def save_match(self, record: MatchRecord, *, expected_version: int) -> bool:
+        table = FinanceMatchRecordRow
+        values = {k: v for k, v in _json_values(record).items() if k not in ("id", "tenant_id", "workspace_id", "owner_user_id")}
+        result = self.session.execute(update(table).where(*_mine(table, _ctx(record)), table.id == record.id, table.version == expected_version)
+                                      .values(**values))
+        return bool(result.rowcount)
+
+    def list_matches(self, context: TenantContext, *, outcome: str | None = None, kind: str | None = None, run_id: str | None = None,
+                     limit: int = 50, offset: int = 0) -> tuple[list[MatchRecord], int]:
+        record = FinanceMatchRecordRow
+        where = [*_mine(record, context)]
+        for column, value in ((record.outcome, outcome), (record.kind, kind), (record.run_id, run_id)):
+            if value is not None:
+                where.append(column == value)
+        total = int(self.session.scalar(select(func.count()).select_from(record).where(*where)) or 0)
+        rows = self.session.scalars(select(record).where(*where).order_by(record.updated_at.desc(), record.id.desc()).offset(offset).limit(limit))
+        return [_load(r, MatchRecord) for r in rows], total
+
+    def add_run(self, run: BackfillRun) -> bool:
+        statement = insert(FinanceBackfillRunRow).values(**_json_values(run)).on_conflict_do_nothing()
+        return bool(self.session.execute(statement).rowcount)
+
+    def get_run(self, context: TenantContext, run_id: str) -> BackfillRun | None:
+        record = FinanceBackfillRunRow
+        row = self.session.scalar(select(record).where(*_mine(record, context), record.id == run_id))
+        return _load(row, BackfillRun) if row else None
+
+    def save_run(self, run: BackfillRun, *, expected_version: int) -> bool:
+        table = FinanceBackfillRunRow
+        values = {k: v for k, v in _json_values(run).items() if k not in ("id", "tenant_id", "workspace_id", "owner_user_id")}
+        result = self.session.execute(update(table).where(*_mine(table, _ctx(run)), table.id == run.id, table.version == expected_version)
+                                      .values(**values))
+        return bool(result.rowcount)
+
+    def list_runs(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[BackfillRun], int]:
+        record = FinanceBackfillRunRow
+        total = int(self.session.scalar(select(func.count()).select_from(record).where(*_mine(record, context))) or 0)
+        rows = self.session.scalars(select(record).where(*_mine(record, context)).order_by(record.started_at.desc(), record.id.desc())
+                                    .offset(offset).limit(limit))
+        return [_load(r, BackfillRun) for r in rows], total
+
     # privacy
     def _allocation_workspaces(self, context: TenantContext) -> list[str]:
         record = FinanceLinkRecord
@@ -255,6 +377,10 @@ class SqlAlchemyLinkStore:
             "business_allocations_made": made,
             "device_events": [_load(r, DeviceEvent).model_dump(mode="json")
                               for r in self.session.scalars(select(FinanceDeviceEventRecord).where(*_mine(FinanceDeviceEventRecord, context)))],
+            "match_records": [_load(r, MatchRecord).model_dump(mode="json")
+                              for r in self.session.scalars(select(FinanceMatchRecordRow).where(*_mine(FinanceMatchRecordRow, context)))],
+            "backfill_runs": [_load(r, BackfillRun).model_dump(mode="json")
+                              for r in self.session.scalars(select(FinanceBackfillRunRow).where(*_mine(FinanceBackfillRunRow, context)))],
         }
 
     def count_everything(self, context: TenantContext) -> int:
@@ -275,7 +401,17 @@ class SqlAlchemyLinkStore:
         return removed
 
 
-def _ctx(link: FinanceLink) -> TenantContext:
+def _json_values(model: Any) -> dict[str, Any]:
+    """Column values, with nested models (evidence) and dictionaries as JSON."""
+    dumped = model.model_dump(mode="json")
+    out = _values(model)
+    for key in ("evidence", "flags", "counts"):
+        if key in out:
+            out[key] = dumped[key]
+    return out
+
+
+def _ctx(link: Any) -> TenantContext:
     return TenantContext(tenant_id=link.tenant_id, workspace_id=link.workspace_id, user_id=link.owner_user_id)
 
 

@@ -194,7 +194,7 @@ class Created:
 
 
 def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str, Any] | None = None, now: datetime | None = None,
-           review: bool = False) -> Created:
+           review: bool = False, review_reason: str = "weak_match") -> Created:
     """Link (part of) a canonical transaction to a target; for ``business``, also write the allocation row.
 
     ``review``: the link is proposed, not settled (``needs_review``, reason ``weak_match``): a statement import found
@@ -247,7 +247,7 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
                 raise LinkError(409, f"Only {remaining} {request.currency} of this payment is left to link as {request.dimension}.", "over_allocated",
                                 {"remaining": str(max(remaining, Decimal(0))), "currency": request.currency})
         sources = store.entry_sources(context, [e.id for e in chain])
-        link = _new_link(context, request, key, sources, now, review=review)
+        link = _new_link(context, request, key, sources, now, review=review, review_reason=review_reason)
         links.add_link(link)
         _observe(links, link)
         if request.dimension == "business" and allocation is not None:
@@ -260,13 +260,14 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
     return Created(link)
 
 
-def _new_link(context: TenantContext, request: LinkRequest, key: str, sources: dict[str, Any], now: datetime, *, review: bool = False) -> FinanceLink:
+def _new_link(context: TenantContext, request: LinkRequest, key: str, sources: dict[str, Any], now: datetime, *, review: bool = False,
+              review_reason: str = "weak_match") -> FinanceLink:
     return FinanceLink(
         id=new_id("fin_link"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
         canonical_id=request.canonical_id, dimension=request.dimension, role=request.role, target_type=request.target_type,
         target_id=request.target_id, target_workspace_id=request.target_id if request.dimension == "business" else None,
         amount=request.amount, currency=request.currency, status=LinkStatus.NEEDS_REVIEW if review else LinkStatus.ACTIVE,
-        status_reason="weak_match" if review else None, document_id=request.document_id,
+        status_reason=review_reason if review else None, document_id=request.document_id,
         source_event_ids=sorted({m.id for rows in sources.values() for m in rows})[:50], idem_key=key, created_by=context.user_id,
         created_at=now, updated_at=now,
     )

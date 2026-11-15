@@ -916,7 +916,8 @@ class AutomationView(BaseModel):
     never_automated: list[str]
 
 
-NEVER_TEXT = ["post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period", "link_loan_payments"]
+NEVER_TEXT = ["post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period", "link_loan_payments",
+              "link_person_loan_payments", "change_policy"]
 
 
 @router.get("/automation", response_model=AutomationView)
@@ -939,6 +940,9 @@ def put_automation(body: AutomationPolicy, context: TenantContext = Depends(tena
         require_automatable("notify")
     now = utc_now()
     with open_rule_stores(context) as (_finance, store):
+        # The record-linking policy changes only through PUT /automation/matching (its own approval and audit), never here.
+        found = store.get_automation(context)
+        body = body.model_copy(update={"matching": found.policy.matching if found else AutomationPolicy().matching})
         store.save_automation(AutomationSettings(tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
                                                  policy=body, updated_at=now, updated_by=context.user_id))
     _audit(repository, context, "finance.automation.update", context.user_id,

@@ -200,6 +200,7 @@ from .finance.card_fx_api import router as finance_card_fx_router  # docs/financ
 from .finance.reconciliation_api import router as finance_reconciliation_router
 from .finance.forecast_api import router as finance_forecast_router  # docs/finance.md#forecast
 from .finance.rules_api import router as finance_rules_router
+from .finance.matching_api import router as finance_matching_router
 from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
 from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.research_api import router as finance_research_router
@@ -636,6 +637,7 @@ app.include_router(commerce_router)
 # Before the finance router: GET /accounts/overview must not be read as an account id.
 app.include_router(finance_register_router)
 app.include_router(finance_rules_router)
+app.include_router(finance_matching_router)
 app.include_router(finance_router)
 app.include_router(finance_plan_router)
 app.include_router(finance_trading_router)
