@@ -1,6 +1,7 @@
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
 import '../meetings/meetings_repository.dart' show MeetingUploadTransfer;
+import '../records_kit/records_export.dart' show fetchCsv;
 import '../records_kit/records_kit.dart';
 import '../vault/vault_data.dart';
 import 'finance_core_models.dart';
@@ -33,6 +34,19 @@ class FinanceCoreRepository {
                 'limit': limit,
                 'offset': offset
               })}')));
+
+  /// The register's rows as the web's Download CSV (`/transactions/export.csv`,
+  /// at most 10,000 rows): search, account, category, direction and dates.
+  Future<String> exportCsv(RegisterFilters filters) => fetchCsv(
+      api,
+      '$base/transactions/export.csv${recordsQuery({
+            if (filters.query.isNotEmpty) 'q': filters.query,
+            'account_id': filters.accountId,
+            'category': filters.category,
+            'direction': filters.direction,
+            'from': filters.from,
+            'to': filters.to,
+          })}');
 
   Future<RegisterDetail> detail(String id) async => RegisterDetail.fromJson(
       JsonReader.of(await api.request('GET', '$base/register/${_id(id)}')));

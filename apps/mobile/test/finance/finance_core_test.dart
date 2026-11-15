@@ -17,6 +17,7 @@ import 'package:anum_mobile/features/finance/finance_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../records/fake_export_saver.dart';
 import '../records/records_harness.dart';
 
 Map<String, Object?> fixtureJson() =>
@@ -66,13 +67,23 @@ class CoreApi {
       final limit = int.parse(q['limit'] ?? '25');
       final review = q['status'] == 'needs_review';
       final count = review ? 1 : total;
+      final one = q['account_id'] != null;
       return ApiResponse(statusCode: 200, body: {
         'items': [
           for (var i = offset; i < count && i < offset + limit; i++)
-            rowJson(i, status: review ? 'needs_review' : 'recorded')
+            {
+              ...rowJson(i, status: review ? 'needs_review' : 'recorded'),
+              'running_balance': one ? '${900 - i}.00' : null,
+            }
         ],
         'total': count,
+        'balances': [
+          {'currency': 'SAR', 'beginning': '1000.00', 'ending': '1250.50'}
+        ],
       });
+    }
+    if (r.method == 'GET' && path == '/transactions/export.csv') {
+      return ok({'csv': 'date,account,description\n2026-11-15,Example,X\n'});
     }
     if (r.method == 'GET' && path == '/register/txn_0') {
       return ApiResponse(statusCode: 200, body: {
@@ -273,6 +284,58 @@ void main() {
       await tester.tap(find.byKey(const Key('reg-txn_0')));
       await tester.pumpAndSettle();
       expect(opened, ['txn_0']);
+    });
+
+    testWidgets(
+        'balances for the view, the balance after each row for one account and Download CSV',
+        (tester) async {
+      final api = CoreApi();
+      final saver = FakeExportSaver();
+      await pumpModule(
+          tester,
+          RegisterScreen(
+              repository: api.repo(),
+              accounts: const [
+                FinanceAccount(
+                    id: 'acc_current',
+                    name: 'Example Current',
+                    kind: 'bank',
+                    currency: 'SAR',
+                    balance: '1.00')
+              ],
+              initial: const RegisterFilters(
+                  accountId: 'acc_current', from: '2026-11-01'),
+              saver: saver,
+              openTransaction: (_, __) async {}));
+      await tester.pumpAndSettle();
+      expect(find.text('Balances (Example Current)'), findsOneWidget);
+      expect(find.text('Beginning balance'), findsOneWidget);
+      expect(find.textContaining('1,250.50'), findsOneWidget);
+      expect(find.textContaining('Balance after: '), findsWidgets);
+      await tester.tap(find.byKey(const Key('register-download')));
+      await tester.pumpAndSettle();
+      final sent =
+          api.fake.sent('GET', '/api/v1/finance/transactions/export.csv').single;
+      expect(sent.uri.queryParameters,
+          {'account_id': 'acc_current', 'from': '2026-11-01'});
+      expect(saver.saved['anum-transactions.csv'], contains('2026-11-15'));
+      expect(find.text('Saved anum-transactions.csv.'), findsOneWidget);
+    });
+
+    testWidgets('Download CSV is off when the view is empty', (tester) async {
+      final api = CoreApi()..total = 0;
+      await pumpModule(
+          tester,
+          RegisterScreen(
+              repository: api.repo(),
+              accounts: const [],
+              openTransaction: (_, __) async {}));
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<IconButton>(find.byKey(const Key('register-download')))
+              .onPressed,
+          isNull);
     });
 
     testWidgets('the evidence: who set the category, links, refunds and note',

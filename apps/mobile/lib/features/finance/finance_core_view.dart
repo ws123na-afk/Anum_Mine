@@ -4,6 +4,7 @@ import '../../data/api_client.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import '../records_kit/records_export.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import '../vault/vault_transfer.dart' show VaultFilePicker, pickVaultFile;
@@ -309,10 +310,15 @@ class RegisterScreen extends StatefulWidget {
       required this.accounts,
       required this.openTransaction,
       this.initial = const RegisterFilters(),
+      this.saver = const SystemExportSaver(),
       super.key});
   final FinanceCoreRepository repository;
   final List<FinanceAccount> accounts;
   final RegisterFilters initial;
+
+  /// Where Download CSV hands the file (the system save dialog; a fake in
+  /// tests).
+  final ExportSaver saver;
 
   /// Opens one transaction; completes when it is closed.
   final Future<void> Function(BuildContext context, RegisterRow row)
@@ -328,8 +334,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   RecordsPhase _phase = RecordsPhase.loading;
   RecordsFailure? _failure;
   final List<RegisterRow> _rows = [];
+  List<RegisterBalance> _balances = const [];
   int _total = 0;
   bool _more = false;
+  bool _exporting = false;
+
+  Future<void> _download() async {
+    setState(() => _exporting = true);
+    await exportCsvFile(context,
+        load: () => widget.repository.exportCsv(_filters),
+        fileName: 'anum-transactions.csv',
+        saver: widget.saver);
+    if (mounted) setState(() => _exporting = false);
+  }
 
   @override
   void initState() {
@@ -353,6 +370,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           .register(_filters, offset: append ? _rows.length : 0);
       if (!append) _rows.clear();
       _rows.addAll(page.items);
+      if (!append) _balances = page.balances;
       _total = page.total;
       _failure = null;
       _phase = RecordsPhase.ready;
@@ -387,6 +405,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final names = {for (final a in widget.accounts) a.id: a.name};
     return Scaffold(
       appBar: AppBar(title: Text(s.t('reg.title')), actions: [
+        IconButton(
+            key: const Key('register-download'),
+            tooltip: _phase == RecordsPhase.ready && _total == 0
+                ? s.t('reg.downloadNone')
+                : s.t('reg.download'),
+            onPressed: _exporting || _phase != RecordsPhase.ready || _total == 0
+                ? null
+                : _download,
+            icon: const Icon(Icons.download_outlined)),
         IconButton(
             key: const Key('register-filters'),
             tooltip: s.t('reg.filters'),
@@ -463,6 +490,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       icon: Icons.receipt_long_outlined)
             ],
           RecordsPhase.ready => [
+              if (_balances.isNotEmpty)
+                AnumSurface(
+                  key: const Key('register-balances'),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        AnumHeader(
+                            title: s.t('reg.balances', {
+                          'where': _filters.accountId == null
+                              ? s.t('reg.allAccounts')
+                              : names[_filters.accountId] ??
+                                  s.t('reg.allAccounts'),
+                        })),
+                        for (final b in _balances) ...[
+                          RecordsField(s.t('reg.beginning'),
+                              formatAmount(b.beginning, b.currency)),
+                          RecordsField(s.t('reg.ending'),
+                              formatAmount(b.ending, b.currency)),
+                        ],
+                        Text(s.t('reg.balancesHint'),
+                            style: TextStyle(
+                                color: context.palette.muted,
+                                fontSize: AnumType.sm)),
+                      ]),
+                ),
               AnumSurface(
                 padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
                 child: Column(children: [
@@ -479,7 +531,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         if (r.status != 'recorded' && r.status != 'linked')
                           s.t('reg.status.${r.status}'),
                       ].join(' · '),
-                      detail: formatAmount(r.amount, r.currency),
+                      detail: r.runningBalance == null
+                          ? formatAmount(r.amount, r.currency)
+                          : '${formatAmount(r.amount, r.currency)}\n${s.t('reg.balanceAfter', {
+                                  'amount': formatAmount(
+                                      r.runningBalance!, r.currency)
+                                })}',
                       icon: r.status == 'recorded' || r.status == 'linked'
                           ? (r.moneyIn ? Icons.south_west : Icons.north_east)
                           : Icons.help_outline,
