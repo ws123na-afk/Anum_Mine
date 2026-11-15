@@ -15,6 +15,9 @@ export interface CalendarMockOptions {
 // instant (`pinCalendarClock`), so an event at 23:00 is still "today, later" when a CI run crosses midnight (UTC or local) and the
 // agenda's week cannot roll over under it. Nothing sleeps or waits for the clock.
 const RUN_MIDDAY = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d; })();
+
+/** A copy of the fixture's "today" at midday: specs build their own dates from it, never from the real clock. */
+export const calendarToday = (): Date => new Date(RUN_MIDDAY);
 const at = (dayOffset: number, hour: number, minute = 0) => { const d = new Date(RUN_MIDDAY); d.setDate(d.getDate() + dayOffset); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
 
 /** Makes `Date` in the page read the fixture's midday (timers keep running), so the fixture's days match the page's "today". */
