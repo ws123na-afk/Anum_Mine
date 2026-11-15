@@ -10,6 +10,7 @@ import '../../src/widgets/depth.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'finance_more_data.dart';
+import 'finance_sms_settings.dart';
 
 /// Finance, iPhone SMS set-up on the phone (docs/finance-sms.md#on-the-phone),
 /// the web's Set-up section: the safety check with its results, forwarding on
@@ -28,7 +29,7 @@ import 'finance_more_data.dart';
 /// minute later if it still holds the token.
 ///
 /// The settings form (card and account last four digits, Apple Wallet cards,
-/// extra senders, AI help, retention) stays on the web.
+/// extra senders, AI help, retention) opens from here: [SmsSettingsScreen].
 
 /// Where a pasted address leads: the API's ingest path on this server.
 String smsIngestUrl(Uri base, String path) => base.resolve(path).toString();
@@ -287,10 +288,11 @@ class SmsSetupStrings extends ModuleStrings {
     'wstep.3':
         'Add the JSON fields: source = apple_wallet (text), amount = Shortcut Input, Amount; merchant = Shortcut Input, Merchant; card = Shortcut Input, Card or Pass; name = Shortcut Input, Name.',
     'wstep.4':
-        'Map each Wallet card to its account in Finance, iPhone SMS on the web (Settings). A payment and its bank message then become one transaction, whichever arrives first.',
+        'Map each Wallet card to its account under Settings on this page. A payment and its bank message then become one transaction, whichever arrives first.',
     'url.placeholder': 'the address above',
     'webSettings':
-        'Card and account numbers, Apple Wallet cards, extra sender names, AI help and how long message text is kept are set in Finance, iPhone SMS on the web.',
+        'Card and account numbers, Apple Wallet cards, extra sender names, AI help and how long message text is kept are set under Settings.',
+    'openSettings': 'Open settings',
   };
 
   static const _ar = <String, String>{
@@ -404,10 +406,11 @@ class SmsSetupStrings extends ModuleStrings {
     'wstep.3':
         'أضف حقول JSON: source = apple_wallet (نص)، و amount = مدخل الاختصار، المبلغ؛ و merchant = مدخل الاختصار، التاجر؛ و card = مدخل الاختصار، البطاقة أو البطاقة الرقمية؛ و name = مدخل الاختصار، الاسم.',
     'wstep.4':
-        'اربط كل بطاقة في المحفظة بحسابها في المالية، رسائل SMS من iPhone على الويب (الإعدادات). عندها تصبح الدفعة ورسالة البنك عنها معاملة واحدة، أيهما وصل أولا.',
+        'اربط كل بطاقة في المحفظة بحسابها من الإعدادات في هذه الصفحة. عندها تصبح الدفعة ورسالة البنك عنها معاملة واحدة، أيهما وصل أولا.',
     'url.placeholder': 'العنوان أعلاه',
     'webSettings':
-        'أرقام البطاقات والحسابات، وبطاقات Apple Wallet، وأسماء المرسلين الإضافية، والمساعدة بالذكاء الاصطناعي، ومدة الاحتفاظ بنص الرسالة تُضبط في المالية، رسائل SMS من iPhone على الويب.',
+        'أرقام البطاقات والحسابات، وبطاقات Apple Wallet، وأسماء المرسلين الإضافية، والمساعدة بالذكاء الاصطناعي، ومدة الاحتفاظ بنص الرسالة تُضبط من الإعدادات.',
+    'openSettings': 'افتح الإعدادات',
   };
 }
 
@@ -734,6 +737,19 @@ class _SmsSetupScreenState extends State<SmsSetupScreen> {
       ),
       SmsShortcutSteps(url: url),
       Text(s.t('webSettings'), style: muted),
+      Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: OutlinedButton.icon(
+          key: const Key('sms-setup-settings'),
+          onPressed: () => unawaited(Navigator.of(context)
+              .push(MaterialPageRoute<void>(
+                  builder: (_) =>
+                      SmsSettingsScreen(repository: widget.repository)))
+              .then((_) => _load())),
+          icon: const Icon(Icons.tune),
+          label: Text(s.t('openSettings')),
+        ),
+      ),
     ]);
   }
 
