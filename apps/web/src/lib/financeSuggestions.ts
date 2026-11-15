@@ -148,4 +148,5 @@ export const RULE_CATEGORIES = [
 ] as const;
 
 /** Never automated, in the order the Automation tab lists them (docs/finance.md#automation-policies). */
-export const NEVER_AUTOMATED = ['post_adjustment', 'delete_record', 'change_bank_mapping', 'approve_payment', 'change_period', 'link_loan_payments'] as const;
+export const NEVER_AUTOMATED = ['post_adjustment', 'delete_record', 'change_bank_mapping', 'approve_payment', 'change_period', 'link_loan_payments',
+  'link_person_loan_payments', 'change_policy'] as const;

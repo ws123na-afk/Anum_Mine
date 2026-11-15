@@ -2,6 +2,7 @@
 // (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
 // round amounts, never real account numbers.
 import { equityBody } from './financeEquity';
+import { matchingReply, matchingState, type MatchingState } from './financeMatchingApi';
 import { suggestionsReply, suggestionsState, type SuggestionsState } from './financeSuggestionsApi';
 import { planningReply } from './financePlanningApi';
 import { reportDetail, reportList } from './financeReports';
@@ -49,6 +50,8 @@ export interface FinanceState {
   trading: TradingState;
   /** Finance, Suggestions: the queue, rules, spellings and automation (made on first use unless a spec sets it). */
   suggestions?: SuggestionsState;
+  /** Automatic matching (docs/finance-matching.md): made on first use unless a spec sets it. */
+  matching?: MatchingState;
 }
 
 export interface TradingState {
@@ -706,6 +709,8 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   const ok = (value: unknown, status = 200) => ({ status, body: value });
   const sub = path.slice('/api/v1/finance'.length);
   if (sub.startsWith('/advisor')) return advisorReply((state.advisor ??= advisorState(1)), method, url, body);
+  const matched = matchingReply((state.matching ??= matchingState()), method, sub, url, body);
+  if (matched) return matched;
   const learned = suggestionsReply((state.suggestions ??= suggestionsState()), method, sub, url, body);
   if (learned) return learned;
   const stages = financeStagesReply(state, method, sub, body, url);

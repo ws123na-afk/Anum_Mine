@@ -30,6 +30,7 @@ import { financeDepthAr } from './financeDepth.ar.ts';
 import { financeDepth2Ar } from './financeDepth2.ar.ts';
 import { financeLastGapsAr } from './financeLastGaps.ar.ts';
 import { financeLoansAr } from './financeLoans.ar.ts';
+import { financeMatchingAr } from './financeMatching.ar.ts';
 import { financeSuggestionsAr } from './financeSuggestions.ar.ts';
 import { financePlanningAr } from './financePlanning.ar.ts';
 import { financeRefundsAr } from './financeRefunds.ar.ts';
@@ -168,6 +169,7 @@ export const ar: Record<MessageKey, Message> = {
   ...financeDepth2Ar,
   ...financeLastGapsAr,
   ...financeLoansAr,
+  ...financeMatchingAr,
   ...financeSuggestionsAr,
   ...financePlanningAr,
   ...financeRefundsAr,

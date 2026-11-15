@@ -20,6 +20,7 @@ import { Denied, FormError, LoadError, Money, Notice, failed, type Load } from '
 import { FinCard, FinancePageHead } from './FinanceShell';
 import { PlanDialog } from './FinancePlan';
 import { ReserveCard } from './FinanceForecast';
+import { FinanceMatchingSection } from './FinanceMatching';
 import './financePages.css';
 
 const CATEGORIES: FinanceCategory[] = [
@@ -84,6 +85,8 @@ export function FinanceSettingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => v
           <li><a href="#privacy">{t('fset.privacy.delete')}</a><small className="muted">{t('fset.privacy.deleteText')}</small></li>
         </ul>
       </FinCard>
+      {/* Automatic matching, history reprocessing, installments and capture health (docs/finance-matching.md). */}
+      <FinanceMatchingSection />
     </div>
     {planOpen && <PlanDialog onClose={(saved) => { setPlanOpen(false); if (saved) { reloadPlan(); setNotice(t('finance.safe.saved')); } }} />}
   </div>;

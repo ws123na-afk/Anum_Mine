@@ -281,6 +281,7 @@ export * from './officeVisitors.js';
 export * from './tyreEventTimes.js';
 export * from './attendance.js';
 export * from './financeLinks.js';
+export * from './financeMatching.js';
 export * from './financePlanning.js';
 export * from './financePersonal.js';
 export * from './financeRegister.js';
