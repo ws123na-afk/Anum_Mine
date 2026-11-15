@@ -438,6 +438,17 @@ class _FinanceScreenState extends State<FinanceScreen> {
             'left': formatAmount(line.params['left'] ?? '0', line.currency),
             'n': line.params['months'] ?? '1'
           }),
+        'installment_due' ||
+        'installment_overdue' =>
+          s.t('safe.note.${line.note}', {
+            'number': line.params['number'] ?? '',
+            'of': line.params['of'] ?? '',
+            'date': line.params['date'] ?? ''
+          }),
+        'budget_reserve' => s.t('safe.note.budget_reserve', {
+            'spent': formatAmount(line.params['spent'] ?? '0', line.currency),
+            'amount': formatAmount(line.params['amount'] ?? '0', line.currency)
+          }),
         _ => s.t('safe.note.${line.note}'),
       };
 

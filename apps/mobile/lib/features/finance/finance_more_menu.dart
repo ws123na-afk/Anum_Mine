@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../records_kit/records_export.dart';
 import 'finance_advisor_screens.dart';
+import 'finance_budget_data.dart';
+import 'finance_budget_screens.dart';
+import 'finance_budget_strings.dart';
 import 'finance_controller.dart';
 import 'finance_debts_data.dart';
 import 'finance_debts_screens.dart';
@@ -47,6 +50,9 @@ enum FinanceMorePage {
   cards,
   alerts,
   ask,
+  budgets,
+  recurring,
+  categories,
 }
 
 class FinanceMoreMenu extends StatelessWidget {
@@ -72,7 +78,8 @@ class FinanceMoreMenu extends StatelessWidget {
             PopupMenuItem(
               key: Key('finance-more-${page.name}'),
               value: page,
-              child: Text(FinanceDebtsStrings.of(context)
+              child: Text(FinanceBudgetStrings.of(context).maybe('menu.${page.name}') ??
+                  FinanceDebtsStrings.of(context)
                       .maybe('menu.${page.name}') ??
                   FinanceToolsStrings.of(context).maybe('menu.${page.name}') ??
                       FinanceMatchingStrings.of(context)
@@ -123,6 +130,13 @@ Future<void> openFinanceMore(
         FinancialAlertsScreen(repository: FinanceDebtsRepository(more.api)),
       FinanceMorePage.ask =>
         AdvisorAskScreen(repository: FinanceDebtsRepository(more.api)),
+      // docs/finance.md#budgets-and-planning, #recurring-payments, #category-ontology
+      FinanceMorePage.budgets =>
+        BudgetsScreen(repository: FinanceBudgetRepository(more.api)),
+      FinanceMorePage.recurring =>
+        RecurringScreen(repository: FinanceBudgetRepository(more.api)),
+      FinanceMorePage.categories =>
+        SpendingCategoriesScreen(repository: FinanceBudgetRepository(more.api)),
     },
   ));
   if (!context.mounted) return;
@@ -135,7 +149,10 @@ Future<void> openFinanceMore(
   // Statement imports, SMS and rules change what Finance shows.
   if (page == FinanceMorePage.import ||
       page == FinanceMorePage.sms ||
-      page == FinanceMorePage.rules) {
+      page == FinanceMorePage.rules ||
+      page == FinanceMorePage.budgets ||
+      page == FinanceMorePage.recurring ||
+      page == FinanceMorePage.categories) {
     await controller.load();
   }
 }
