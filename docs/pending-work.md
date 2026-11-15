@@ -1,4 +1,12 @@
-# Pending work (handoff, 4 November 2026; updated 12 November 2026)
+# Pending work (handoff, 4 November 2026; updated 15 November 2026)
+
+Update 15 November 2026 (session state for the next session):
+
+- **Merged to `main` on 15 November:** #459 (system health, fleet pilot path, phone gaps), #460 (Personal Finance: matching engine, Tamara, history backfill, budgets and categories, debts, cards, alerts, advisor, dashboard; migrations `0184_pf_matching`, `0185_pf_budgets`, `0186_pf_debts`), #461 (alerts by push and email, cross-currency matching `0188_pf_fx_matching`, budget rollover `0187_pf_budget_rollover`, loans from Contacts), #462 (matching, alert and budget polish, phone parity for corrections), #463 (`infra/oracle/verify.sh`, Stripe refund fixes, safe SMTP, FCM pruning, quiet `/health`, mail/SPF and B2 docs). Migration head `0188_pf_fx_matching`.
+- **Owner steps open (in order):** on the VM `cd ~/anum && sudo bash infra/oracle/update.sh`, then `sudo bash infra/oracle/verify.sh` and paste the summary back; System health `.env` lines; `sudo ./backup.sh drill` and the two reconcile dry runs; Finance Settings, Automatic matching: tick accounts, Save and approve; Reprocess your history: Preview, send the counts before Apply; card statements and terms under Debts, Cards; SPF (`v=spf1 include:spf.brevo.com ~all` if Brevo only) and Mailcow relay; `ANUM_FCM_SERVICE_ACCOUNT_JSON`; UptimeRobot monitors; Google `calendar.calendarlist.readonly` scope; Stripe refund events; delete the unused B2 key; VAT filing period; real iPhone checks. Claude cannot reach the VM, DNS or provider consoles from its sandbox.
+- **In progress (gap batch, branch `claude/festive-ride-ghttk0`):** four agents on the remaining code gaps: `gap/finance` (FCM drop retry, refused statement and Tamara Gmail failures in `capture_failed`, hand-linked card repayments against the statement, cross-currency card and combined payments), `gap/phone` (iPhone SMS settings form, transaction edit and CSV download, running balance, purchase and return items, fleet import on the phone), `gap/business` (Moyasar payment after refund, failed Stripe refund in review, per-calendar incremental sync, report email from the owner's inbox), `gap/fleet` (report notes stored, report by email with approval, trips and multi-sheet import, AI summary from computed figures). Owner, 15 November: merge as each lands, CI follow-ups afterwards.
+- **Owner decisions open:** CallKit, Twilio Voice, parcel tracking provider, fleet pilot focus or freeze; whether a carried budget surplus should loosen the payment gate (currently only an overspend tightens it).
+
 
 Update 12 November 2026 (session state for the next session):
 
