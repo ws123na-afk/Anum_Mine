@@ -30,7 +30,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0186_pf_debts"
-down_revision = "0183_calendar_choices"  # the coordinator rechains it after 0185_pf_budgets
+down_revision = "0184_pf_matching"  # rechained after 0185_pf_budgets once that lands
 branch_labels = None
 depends_on = None
 
