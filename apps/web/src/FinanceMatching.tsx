@@ -207,10 +207,10 @@ function FxEvidenceBlock({ record }: { record: FinanceMatchRecord }) {
     {basis === 'bank' && <>
       <p>{t('fmatch.fx.pays', { settled: money(record.amount, record.currency), bank: money(fx.bank_amount, fx.bank_currency) })}</p>
       <dl className="fmatchFxFacts">
-        <div><dt>{t('fmatch.fx.original')}</dt><dd dir="ltr">{money(fx.original_amount, fx.original_currency ?? record.currency)}</dd></div>
+        <div><dt>{t('fmatch.fxe.original')}</dt><dd dir="ltr">{money(fx.original_amount, fx.original_currency ?? record.currency)}</dd></div>
         {fx.billed_amount && <div><dt>{t('fmatch.fx.billed')}</dt><dd dir="ltr">{money(fx.billed_amount, fx.bank_currency)}</dd></div>}
-        <div><dt>{t('fmatch.fx.rate')}</dt><dd>{fx.rate && <bdi dir="ltr">{plainRate(fx.rate)} </bdi>}<small className="muted">{t(rateKey({ rate: fx.rate, rate_kind: fx.rate_kind }) as MessageKey)}</small></dd></div>
-        {fx.fee_amount && <div><dt>{t('fmatch.fx.fee')}</dt><dd><bdi dir="ltr">{money(fx.fee_amount, fx.fee_currency ?? fx.bank_currency)}</bdi>
+        <div><dt>{t('fmatch.fxe.rate')}</dt><dd>{fx.rate && <bdi dir="ltr">{plainRate(fx.rate)} </bdi>}<small className="muted">{t(rateKey({ rate: fx.rate, rate_kind: fx.rate_kind }) as MessageKey)}</small></dd></div>
+        {fx.fee_amount && <div><dt>{t('fmatch.fxe.fee')}</dt><dd><bdi dir="ltr">{money(fx.fee_amount, fx.fee_currency ?? fx.bank_currency)}</bdi>
           {fx.fee_source && <small className="muted"> {t(`ffx.feeSource.${fx.fee_source}` as MessageKey)}</small>}</dd></div>}
       </dl>
     </>}

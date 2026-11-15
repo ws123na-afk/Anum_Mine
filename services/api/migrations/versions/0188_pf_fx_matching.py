@@ -12,8 +12,7 @@ docs/finance-matching.md#across-currencies.
 
 Both tables already have forced RLS with the tenant and owner-only policies; new columns need no new policy.
 
-Chained after ``0187_pf_alert_channels`` on ``main``. Developed on a branch where ``0186_pf_debts`` was the head; renumber or
-re-point at merge if the chain moved.
+Chained after ``0187_pf_budget_rollover``.
 
 Expand only. The previous release ignores the new columns (every existing row reads null: a link in one currency, as
 before). Rollback: ``alembic downgrade`` drops the columns (only for an empty test workspace; production restores a backup,
@@ -25,7 +24,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0188_pf_fx_matching"
-down_revision = "0186_pf_debts"
+down_revision = "0187_pf_budget_rollover"
 branch_labels = None
 depends_on = None
 
