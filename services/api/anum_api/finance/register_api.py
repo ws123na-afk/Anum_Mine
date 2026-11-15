@@ -34,7 +34,7 @@ from .money import quantize
 from .sms_service import settings_for as sms_settings_for
 from .sms_store import MessageStatus, SmsMessage, source_kind
 from .store import MAX_PAGE, MAX_SUMMARY_ROWS, TransactionFilter
-from .summary import settings_for, today_in, upcoming_bills
+from .summary import AccountFreshness, account_balances, freshness, settings_for, source_facts, today_in, upcoming_bills
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
@@ -111,6 +111,38 @@ class SourceView(BaseModel):
     kept_until: datetime | None
 
 
+LinkEvidence = Literal["pending", "provisional", "verified"]
+
+
+class LinkedRecord(BaseModel):
+    """One record this payment is linked to (a bill due date, a debt, a loan, a payslip, a receipt), with the
+    evidence behind it (docs/finance.md#transaction-detail)."""
+
+    id: str
+    dimension: str
+    role: str
+    target_type: str
+    target_id: str
+    target_name: str | None = None  # bills, debts and goals by name; other records by their kind
+    amount: Decimal | None
+    currency: str | None
+    status: Literal["active", "needs_review"]
+    evidence: LinkEvidence
+    reason: str | None = None
+    created_at: datetime
+
+
+class RelatedRow(BaseModel):
+    """A transaction tied to this one: the purchase a refund gives back, the refunds of a purchase, a fee row."""
+
+    id: str
+    relation: Literal["refund_of", "refunded_by", "fee_of", "fee", "related"]
+    posted_on: date
+    amount: Decimal
+    currency: str
+    description: str
+
+
 class RegisterDetail(BaseModel):
     row: RegisterRow
     account_name: str
@@ -125,6 +157,11 @@ class RegisterDetail(BaseModel):
     sources: list[SourceView]
     receipt_document_ids: list[str]
     duplicate: RegisterRow | None
+    # What decided the category (rule, learned or the owner) and whether a person chose it.
+    category_by: Literal["owner", "learned", "rule", "match", "system", "none"] = "none"
+    links: list[LinkedRecord] = []
+    related: list[RelatedRow] = []
+    split_count: int = 0  # active payment links on different records: the payment is split across them
 
 
 def _active_entries(entries: list[JournalEntry]) -> dict[str, JournalEntry]:
@@ -369,6 +406,21 @@ def _source_view(message: SmsMessage, now: datetime) -> SourceView:
                       text=message.body_masked if kept else None, kept_until=message.body_purge_at if kept else None)
 
 
+def link_evidence(status: str, row: RegisterRow, account_kind: AccountKind | None) -> LinkEvidence:
+    """The evidence state behind a link (docs/finance.md#transaction-detail): ``pending`` while the link waits for
+    review; ``verified`` once a bank statement carries the payment (imported or reconciled) or the money is cash the
+    person counted; otherwise ``provisional`` (an SMS, an Apple Pay event or a typed entry alone is not settlement)."""
+    if status == "needs_review":
+        return "pending"
+    if "statement" in row.sources or row.reconciled or account_kind == AccountKind.CASH:
+        return "verified"
+    return "provisional"
+
+
+CATEGORY_BY: dict[CategorySource, str] = {CategorySource.MANUAL: "owner", CategorySource.OWNER_RULE: "learned", CategorySource.RULE: "rule",
+                                          CategorySource.MATCH: "match", CategorySource.SYSTEM: "system", CategorySource.NONE: "none"}
+
+
 @router.get("/register/{transaction_id}", response_model=RegisterDetail)
 def register_detail(transaction_id: str, context: TenantContext = Depends(tenant_context)) -> RegisterDetail:
     """One transaction for the details drawer: its sources (with the masked SMS while it is kept), receipts,
@@ -376,9 +428,15 @@ def register_detail(transaction_id: str, context: TenantContext = Depends(tenant
     _read(context)
     from .rules_store import owner_rules
 
+    from .commitments import parse_bill_target
+    from .refunds import REFUND_LOOKBACK_DAYS
+
     with open_link_stores(context) as (finance, _sms, _links):
         txn = finance.get_transaction(context, transaction_id)
         rules = owner_rules(finance, context)
+        names = {(kind, item.id): item.name for kind in ("bill", "debt", "goal") for item in finance.list_items(context, kind)}  # type: ignore[arg-type]
+        nearby = finance.transactions_between(context, txn.posted_on - timedelta(days=REFUND_LOOKBACK_DAYS),
+                                              txn.posted_on + timedelta(days=REFUND_LOOKBACK_DAYS)) if txn is not None else []
     if txn is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found. It may have been deleted.")
     facts = _Facts(context, start=txn.posted_on, end=txn.posted_on)
@@ -398,11 +456,45 @@ def register_detail(transaction_id: str, context: TenantContext = Depends(tenant
     canonical = row.canonical_id or ""
     receipts = [link.target_id for link in facts.links.get(canonical, [])
                 if link.status != "void" and link.dimension == "document" and link.role == "evidence"]
+    linked: list[LinkedRecord] = []
+    for link in facts.links.get(canonical, []):
+        if link.status == "void" or link.dimension == "document":
+            continue
+        key = parse_bill_target(link.target_id) if link.dimension == "bill" else None
+        name = names.get(("bill", key[0])) if key else names.get((link.dimension, link.target_id))
+        linked.append(LinkedRecord(id=link.id, dimension=link.dimension, role=link.role, target_type=link.target_type, target_id=link.target_id,
+                                   target_name=name, amount=link.amount, currency=link.currency, status=link.status,
+                                   evidence=link_evidence(link.status, row, account.kind if account else None), reason=link.status_reason,
+                                   created_at=link.created_at))
+    by_id = {t.id: t for t in nearby}
+    related: list[RelatedRow] = []
+
+    def relate(other: Transaction, relation: str) -> None:
+        related.append(RelatedRow(id=other.id, relation=relation, posted_on=other.posted_on, amount=other.amount,  # type: ignore[arg-type]
+                                  currency=other.currency, description=other.description[:200]))
+
+    own_type = row.transaction_type
+    if txn.related_transaction_id and (other := by_id.get(txn.related_transaction_id) or finance_get(context, txn.related_transaction_id)):
+        relate(other, "refund_of" if own_type == TransactionType.REFUND else "fee_of" if own_type == TransactionType.BANK_FEE else "related")
+    for other in sorted(nearby, key=lambda t: (t.posted_on, t.id)):
+        if other.related_transaction_id == txn.id and other.id != txn.id:
+            relate(other, "refunded_by" if other.transaction_type == TransactionType.REFUND else
+                   "fee" if other.transaction_type == TransactionType.BANK_FEE else "related")
+    payments = {(link.dimension, link.target_id) for link in linked if link.role == "payment" and link.status == "active"}
     return RegisterDetail(row=row, account_name=account.name if account else "", kind=entry.kind if entry else None,
                           merchant=entry.merchant if entry else None, reference=entry.reference if entry else None,
                           suggested_category=suggestion.category, suggested_by=suggestion.source, suggested_type=suggestion.type,
                           suggested_type_by=suggestion.typed.source, sources=sources, receipt_document_ids=receipts,
-                          duplicate=_row(match, facts, duplicates, None) if match else None)
+                          duplicate=_row(match, facts, duplicates, None) if match else None,
+                          category_by=CATEGORY_BY.get(txn.category_source, "none"),  # type: ignore[arg-type]
+                          links=sorted(linked, key=lambda r: (r.created_at, r.id)), related=related,
+                          split_count=len(payments) if len(payments) > 1 else 0)
+
+
+def finance_get(context: TenantContext, transaction_id: str) -> Transaction | None:
+    """A related row outside the refund window (a fee row tied to an old purchase)."""
+    with open_link_stores(context) as (finance, _sms, _links):
+        return finance.get_transaction(context, transaction_id)
 
 
 # -- accounts overview ------------------------------------------------------------------------
@@ -455,6 +547,9 @@ class AccountOverview(BaseModel):
                                   "reconciliation_changed"]]
     payment_due: PaymentDue | None
     last_statement: StatementCheck | None = None
+    # How current the account is (the summary's own ``freshness``, docs/finance.md#dashboard): last SMS and Apple Pay
+    # capture, verified against estimated balance, current, stale or typed by hand.
+    freshness: AccountFreshness | None = None
     # The latest completed (or open, or changed) reconciliation; ``last_reconciled_at`` is its completion once there is one.
     reconciliation: AccountReconciliation | None = None
 
@@ -480,7 +575,9 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
     statement and reconciliation, what needs attention, and a card's limit and next payment due."""
     _read(context)
     facts = _Facts(context, start=None, end=None)
+    sources = source_facts(context, today_in(facts.settings))
     with open_link_stores(context) as (finance, sms, _links):
+        balances = account_balances(finance, context)
         settings = sms_settings_for(sms, context)
         observed = sms.latest_observations(context)
         bills = upcoming_bills([b for b in finance.list_items(context, "bill") if getattr(b, "active", True)], today_in(facts.settings), days=60)
@@ -521,6 +618,8 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
                 # the ledger (imported or attached), reconciles the account.
                 item = per[record.account_id]
                 item["reconciled"] = max(item["reconciled"] or record.created_at, record.created_at)
+    fresh = {f.account_id: f for f in freshness(balances, sources, {k: v["last"] for k, v in per.items() if v["last"]},
+                                                 list(facts.imports.values()), utc_now())}
     out: list[AccountOverview] = []
     for account in facts.accounts.values():
         item = per[account.id]
@@ -575,7 +674,7 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             observed_at=seen[1] if seen else None, difference=difference, last_activity_on=item["last"], last_import_at=last_import.get(account.id),
             last_reconciled_at=reconciled, imported=item["imported"], matched=item["matched"], needs_attention=attention,
             payment_due=PaymentDue(name=due.name, due_on=due.due_on, amount=due.amount, currency=due.currency) if due else None,
-            last_statement=statement, reconciliation=latest,
+            last_statement=statement, reconciliation=latest, freshness=fresh.get(account.id),
         ))
     stamps = [a.last_reconciled_at for a in out if a.last_reconciled_at]
     return AccountsOverview(accounts=out, review_count=facts.review_count, last_reconciled_at=max(stamps) if stamps else None,

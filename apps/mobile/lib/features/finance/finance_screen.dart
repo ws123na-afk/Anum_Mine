@@ -8,6 +8,10 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'finance_controller.dart';
+import 'finance_core_models.dart';
+import 'finance_core_repository.dart';
+import 'finance_core_strings.dart';
+import 'finance_core_view.dart';
 import 'finance_depth_strings.dart';
 import 'finance_depth_view.dart';
 import 'finance_intel_view.dart';
@@ -871,6 +875,21 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 ? s.t('none')
                 : formatAmounts(d.minimumPayments)),
       ]),
+      FinanceDashboardCards(
+        summary: d,
+        onOpenTransactions: _core(c) == null
+            ? () => c.select(FinanceSection.transactions)
+            : () => _openRegister(
+                context, c, const RegisterFilters(status: 'needs_review')),
+        onOpenSms: c.more == null
+            ? null
+            : () => openFinanceMore(context, c, FinanceMorePage.sms),
+        onOpenBills: () => c.select(FinanceSection.bills),
+        onOpenSalary: _core(c) == null
+            ? null
+            : () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => SalaryHistoryScreen(repository: _core(c)!))),
+      ),
       AnumSurface(
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -886,25 +905,26 @@ class _FinanceScreenState extends State<FinanceScreen> {
                       top <= 0 ? 0 : (double.tryParse(row.amount) ?? 0) / top),
         ]),
       ),
-      AnumSurface(
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          AnumHeader(title: s.t('upcoming')),
-          if (d.upcomingBills.isEmpty)
-            Text(s.t('noBillsDue'))
-          else
-            for (final bill in d.upcomingBills.take(6))
-              AnumRow(
-                  title: bill.name,
-                  icon: Icons.event_outlined,
-                  tone: bill.daysUntil <= 3 ? AnumTone.warn : null,
-                  subtitle:
-                      '${bill.dueOn} · ${bill.daysUntil <= 0 ? s.t('dueToday') : s.t('dueIn', {
-                              'n': bill.daysUntil
-                            })}',
-                  detail: formatAmount(bill.amount, bill.currency)),
-        ]),
-      ),
+      if (!d.dashboard.hasDashboard)
+        AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumHeader(title: s.t('upcoming')),
+            if (d.upcomingBills.isEmpty)
+              Text(s.t('noBillsDue'))
+            else
+              for (final bill in d.upcomingBills.take(6))
+                AnumRow(
+                    title: bill.name,
+                    icon: Icons.event_outlined,
+                    tone: bill.daysUntil <= 3 ? AnumTone.warn : null,
+                    subtitle:
+                        '${bill.dueOn} · ${bill.daysUntil <= 0 ? s.t('dueToday') : s.t('dueIn', {
+                                'n': bill.daysUntil
+                              })}',
+                    detail: formatAmount(bill.amount, bill.currency)),
+          ]),
+        ),
       if (d.netWorth.isNotEmpty) _netWorth(context, d),
       if (d.accounts.isNotEmpty)
         AnumSurface(
@@ -913,11 +933,16 @@ class _FinanceScreenState extends State<FinanceScreen> {
             AnumHeader(title: s.t('accounts')),
             for (final a in d.accounts.where((a) => !a.archived))
               AnumRow(
+                  key: Key('overview-account-${a.id}'),
                   title: a.name,
                   icon: Icons.account_balance_outlined,
                   subtitle: [
                     s.t('kind.${a.kind}'),
                     if (a.last4 != null) s.t('endingIn', {'last4': a.last4!}),
+                    if (freshnessText(FinanceCoreStrings.of(context),
+                            d.dashboard.freshnessFor(a.id), a.currency)
+                        case final fresh?)
+                      fresh,
                   ].join(' · '),
                   detail: formatAmount(a.balance, a.currency)),
           ]),
@@ -997,13 +1022,24 @@ class _FinanceScreenState extends State<FinanceScreen> {
           labelText: s.t('search'), prefixIcon: const Icon(Icons.search)),
       onSubmitted: c.search,
     );
-    final add = Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: FilledButton.icon(
-          onPressed:
-              c.accounts.isEmpty ? null : () => _addTransaction(context, c, s),
-          icon: const Icon(Icons.add),
-          label: Text(s.t('addTransaction'))),
+    final add = Wrap(
+      spacing: AnumSpacing.sm,
+      runSpacing: AnumSpacing.xs,
+      children: [
+        FilledButton.icon(
+            onPressed: c.accounts.isEmpty
+                ? null
+                : () => _addTransaction(context, c, s),
+            icon: const Icon(Icons.add),
+            label: Text(s.t('addTransaction'))),
+        if (_core(c) != null)
+          OutlinedButton.icon(
+              key: const Key('finance-open-register'),
+              onPressed: () =>
+                  _openRegister(context, c, const RegisterFilters()),
+              icon: const Icon(Icons.filter_list),
+              label: Text(FinanceCoreStrings.of(context).t('reg.open'))),
+      ],
     );
     if (c.transactionsState == FinanceLoad.loading && c.transactions.isEmpty) {
       return [
@@ -1125,6 +1161,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => TransactionScreen(
           repository: repository,
+          core: _core(c),
           transactionId: id,
           row: row,
           onChanged: () => Future.wait([
@@ -1133,6 +1170,42 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 if (c.section == FinanceSection.suggestions)
                   c.loadSuggestions(),
               ])),
+    ));
+  }
+
+  /// The register, a transaction's evidence and the salary history read the
+  /// same API client as the More pages; null without one (then not offered).
+  FinanceCoreRepository? _core(FinanceController c) =>
+      c.more == null ? null : FinanceCoreRepository(c.more!.api);
+
+  Future<void> _openRegister(BuildContext context, FinanceController c,
+      RegisterFilters filters) async {
+    final core = _core(c);
+    if (core == null) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => RegisterScreen(
+        repository: core,
+        accounts: c.accounts,
+        initial: filters,
+        openTransaction: (context, row) async =>
+            _openTransactionById(context, c, row.id),
+      ),
+    ));
+    if (context.mounted) {
+      await Future.wait([c.loadTransactions(), c.loadSummary()]);
+    }
+  }
+
+  Future<void> _openTransactionById(
+      BuildContext context, FinanceController c, String id) async {
+    final repository = c.depth?.repository;
+    if (repository == null) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => TransactionScreen(
+          repository: repository,
+          core: _core(c),
+          transactionId: id,
+          onChanged: () async {}),
     ));
   }
 
@@ -1178,12 +1251,23 @@ class _FinanceScreenState extends State<FinanceScreen> {
         child: Column(children: [
           for (final a in c.accounts)
             AnumRow(
+              key: Key('account-${a.id}'),
               title: a.name,
               icon: Icons.account_balance_outlined,
+              onTap: c.more == null ||
+                      (c.summary?.dashboard.freshnessFor(a.id)?.state ??
+                              'manual') ==
+                          'manual'
+                  ? null
+                  : () => openFinanceMore(context, c, FinanceMorePage.sms),
               subtitle: [
                 s.t('kind.${a.kind}'),
                 a.currency,
                 if (a.last4 != null) s.t('endingIn', {'last4': a.last4!}),
+                if (freshnessText(FinanceCoreStrings.of(context),
+                        c.summary?.dashboard.freshnessFor(a.id), a.currency)
+                    case final fresh?)
+                  fresh,
               ].join(' · '),
               detail: formatAmount(a.balance, a.currency),
               trailing: IconButton(

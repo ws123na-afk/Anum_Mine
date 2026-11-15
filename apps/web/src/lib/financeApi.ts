@@ -33,7 +33,8 @@ export function query(params: Record<string, string | number | null | undefined>
 
 export interface TransactionQuery { q?: string; account_id?: string; category?: string; from?: string; to?: string; direction?: 'in' | 'out' | ''; limit: number; offset: number }
 
-export const getSummary = (month?: string) => get<FinanceSummary>(`/summary${query({ month })}`);
+/** `figures` (the charts' other months) skips the salary, income breakdown, review counts and freshness (docs/finance.md#dashboard). */
+export const getSummary = (month?: string, detail?: 'full' | 'figures') => get<FinanceSummary>(`/summary${query({ month, detail })}`);
 export const getSettings = () => get<FinanceSettings>('/settings');
 export const saveSettings = (body: Omit<FinanceSettings, 'updated_at'>) => send<FinanceSettings>('PUT', '/settings', body);
 export const getFormats = () => get<FinanceFormats>('/formats');

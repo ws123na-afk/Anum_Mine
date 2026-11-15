@@ -45,7 +45,7 @@ export function FinanceSafePage({ onOpen, onChanged }: { onOpen: (tab: FinanceTa
   const [currency, setCurrency] = useState<string | null>(null);
   const [safe, reloadSafe] = useLoad(api.getSafeToSpend);
   const month = safe.kind === 'ready' ? safe.value.month : null;
-  const loadSummaries = useMemo(() => (month ? () => Promise.all([api.getSummary(month), api.getSummary(shiftMonth(month, -1))]) : null), [month]);
+  const loadSummaries = useMemo(() => (month ? () => Promise.all([api.getSummary(month), api.getSummary(shiftMonth(month, -1), 'figures')]) : null), [month]);
   const [summaries, reloadSummaries] = useLoad(loadSummaries);
   const loadBills = useCallback(() => api.upcomingBills(45), []);
   const [bills, reloadBills] = useLoad(loadBills);

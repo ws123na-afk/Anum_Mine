@@ -1,0 +1,23 @@
+/* Personal Finance dashboard parts (FinanceCoreParts.tsx): shared tokens only, content-driven heights. */
+.fcoreFigures { display: grid; gap: var(--d-s2); margin: 0; }
+.fcoreFigures > div { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
+.fcoreFigures dt { color: var(--d-muted); font-size: var(--text-sm); }
+.fcoreFigures dd { font-size: var(--text-sm); font-weight: 600; margin: 0; text-align: end; }
+.fcoreSubhead { align-items: center; display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: var(--d-s3) 0 var(--d-s1); }
+.fcoreSubhead svg, .fcoreTxn h3 svg, .fcoreNote label svg, .fcoreInline { height: 16px; vertical-align: -3px; width: 16px; }
+.fcoreInline { margin-inline-end: var(--d-s1); }
+.fcoreSalary { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); margin-top: var(--d-s2); padding-top: var(--d-s2); }
+.fcoreSalary p { font-size: var(--text-sm); margin: 0; }
+.fcoreReview { grid-template-columns: 1fr; }
+.fcoreFresh { color: var(--d-muted); display: block; flex-basis: 100%; font-size: var(--text-xs); overflow-wrap: anywhere; }
+.fcoreFresh.stale { color: var(--d-text); }
+.facctFresh { padding: 0 var(--d-s3) var(--d-s2); }
+.fcoreTxn { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
+.fcoreTxn h3 { align-items: center; display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0; }
+.fcoreTxn p { font-size: var(--text-sm); margin: 0; }
+.fcoreTxn .cmLinkButton { text-align: start; }
+.fcoreNote { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); padding-top: var(--d-s3); }
+.fcoreNote label { align-items: center; display: flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s2); }
+.fcoreNote textarea { min-width: 0; resize: vertical; width: 100%; }
+.fcoreNote button { justify-self: start; }
+.fcoreTop { align-self: start; }

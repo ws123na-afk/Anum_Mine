@@ -8,7 +8,7 @@ decision on the profile; nothing here posts, links or moves money. Audit records
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -244,9 +244,9 @@ def delete_salary_profile(context: TenantContext = Depends(tenant_context), repo
 
 
 def _rows(context: TenantContext, profile: P.SalaryProfile, today: date) -> list[Transaction]:
-    start = max(profile.joined_on, today.replace(day=1) - timedelta(days=31 * SAL.MAX_MONTHS)) - timedelta(days=SAL.WINDOW_BEFORE)
+    start, end = SAL.rows_window(profile, today)
     with open_finance_store(context) as store:
-        return [t for t in store.transactions_between(context, start, today + timedelta(days=1)) if t.amount > 0 and t.currency == profile.currency]
+        return SAL.salary_rows(store.transactions_between(context, start, end), profile)
 
 
 @router.get("/salary/months", response_model=SalaryMonthsPage)

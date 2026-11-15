@@ -57,7 +57,7 @@ export function FinanceReportsPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
       const first = await api.getSummary(month ?? undefined);
       if (!current()) return;
       if (!month) { setMonth(first.month); setToday(first.today); return; }
-      const others = await Promise.all(monthsEnding(month, MONTHS).slice(0, -1).map((m) => api.getSummary(m)));
+      const others = await Promise.all(monthsEnding(month, MONTHS).slice(0, -1).map((m) => api.getSummary(m, 'figures')));
       if (!current()) return;
       setToday(first.today);
       setPersonal({ kind: 'ready', value: { months: [...others, first], current: first, previous: others[others.length - 1] ?? null } });

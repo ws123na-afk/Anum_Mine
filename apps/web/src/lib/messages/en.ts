@@ -35,6 +35,7 @@ import { financeSuggestionsEn } from './financeSuggestions.en.ts';
 import { financePlanningEn } from './financePlanning.en.ts';
 import { financeBudgetsEn } from './financeBudgets.en.ts';
 import { financeRefundsEn } from './financeRefunds.en.ts';
+import { financeCoreEn } from './financeCore.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { hqEn } from './hq.en.ts';
@@ -176,6 +177,7 @@ export const en = {
   ...financePlanningEn,
   ...financeBudgetsEn,
   ...financeRefundsEn,
+  ...financeCoreEn,
   ...financeIntelActionsEn,
   ...teamEn,
   ...appCallsEn,

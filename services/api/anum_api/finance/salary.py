@@ -225,6 +225,17 @@ def _score(t: Transaction, reference: Decimal, pay_on: date, payers: set[str], e
     return amount + when + who
 
 
+def rows_window(profile: SalaryProfile, today: date) -> tuple[date, date]:
+    """The dates the salary check reads (``/salary/months`` and the summary read the same rows)."""
+    start = max(profile.joined_on, today.replace(day=1) - timedelta(days=31 * MAX_MONTHS)) - timedelta(days=WINDOW_BEFORE)
+    return start, today + timedelta(days=1)
+
+
+def salary_rows(transactions: list[Transaction], profile: SalaryProfile) -> list[Transaction]:
+    """Money in, in the salary's currency: the only rows a salary can be."""
+    return [t for t in transactions if t.amount > 0 and t.currency == profile.currency]
+
+
 def salary_months(profile: SalaryProfile, transactions: list[Transaction], accounts: list[Account], today: date, payslips: list[Payslip],
                   *, lending_ids: frozenset[str] = frozenset(), payslip_credits: dict[str, set[str]] | None = None) -> list[SalaryMonth]:
     """Every month from the joining month to this month, oldest first (at most ``MAX_MONTHS``).
@@ -349,7 +360,6 @@ def monthly_income(*, currency: str, today: date, transactions: list[Transaction
     return MonthlyIncome(currency, found, "records" if found is not None else None)
 
 
-__all__ = [
-    "Candidate", "Deducted", "Expected", "LATE_DAYS", "MonthlyIncome", "SalaryMonth", "WINDOW_AFTER", "WINDOW_BEFORE", "advance_left", "advance_repaid",
-    "expected_for", "month_key", "monthly_income", "next_payday", "pay_date", "records_income", "salary_months",
-]
+__all__ = ["LATE_DAYS", "WINDOW_AFTER", "WINDOW_BEFORE", "Candidate", "Deducted", "Expected", "MonthlyIncome", "SalaryMonth", "advance_left",
+    "advance_repaid", "expected_for", "month_key", "monthly_income", "next_payday", "pay_date", "records_income", "rows_window", "salary_months",
+    "salary_rows"]

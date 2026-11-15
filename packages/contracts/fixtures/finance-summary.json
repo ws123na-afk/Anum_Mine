@@ -1,0 +1,77 @@
+{
+  "month": "2026-11",
+  "start": "2026-11-01",
+  "end": "2026-11-30",
+  "today": "2026-11-15",
+  "base_currency": "SAR",
+  "timezone": "Asia/Riyadh",
+  "accounts": [
+    {"id": "acc_current", "name": "Example Current", "kind": "bank", "currency": "SAR", "institution": "Example Bank", "last4": "1111", "balance": "8450.25", "archived": false},
+    {"id": "acc_card", "name": "Example Card", "kind": "card", "currency": "SAR", "institution": "Example Bank", "last4": "2222", "balance": "-1320.50", "archived": false},
+    {"id": "acc_cash", "name": "Cash wallet", "kind": "cash", "currency": "SAR", "institution": null, "last4": null, "balance": "300.00", "archived": false},
+    {"id": "acc_usd", "name": "Example Dollar", "kind": "bank", "currency": "USD", "institution": "Example Bank", "last4": "3333", "balance": "1200.00", "archived": false},
+    {"id": "acc_old", "name": "Old account", "kind": "bank", "currency": "SAR", "institution": null, "last4": null, "balance": "0.00", "archived": true}
+  ],
+  "balances": [{"currency": "SAR", "amount": "7429.75"}, {"currency": "USD", "amount": "1200.00"}],
+  "spend_by_category": [
+    {"category": "groceries", "currency": "SAR", "amount": "820.00", "count": 6},
+    {"category": "dining", "currency": "SAR", "amount": "310.50", "count": 4},
+    {"category": "subscriptions", "currency": "USD", "amount": "15.99", "count": 1}
+  ],
+  "income": [{"currency": "SAR", "amount": "15250.00"}],
+  "cashback": [{"currency": "SAR", "amount": "12.40"}],
+  "refunds": [{"currency": "SAR", "amount": "45.00"}],
+  "spend": [{"currency": "SAR", "amount": "1130.50"}, {"currency": "USD", "amount": "15.99"}],
+  "net": [{"currency": "SAR", "amount": "14176.90"}, {"currency": "USD", "amount": "-15.99"}],
+  "transaction_count": 21,
+  "upcoming_bills": [
+    {"id": "bill_rent", "name": "Rent", "amount": "2500.00", "currency": "SAR", "cadence": "monthly", "due_on": "2026-11-20", "days_until": 5, "category": "housing", "overdue": false}
+  ],
+  "bills_due": [{"currency": "SAR", "amount": "2500.00"}],
+  "debts": [{"currency": "SAR", "amount": "1320.50"}],
+  "unlinked_debts": [],
+  "net_worth": [{"currency": "SAR", "amount": "7179.75"}, {"currency": "USD", "amount": "1200.00"}],
+  "net_worth_parts": [
+    {"currency": "SAR", "accounts": "7429.75", "receivables": "0.00", "holdings_at_cost": "0.00", "debts": "0.00", "installments": "250.00", "net": "7179.75"},
+    {"currency": "USD", "accounts": "1200.00", "receivables": "0.00", "holdings_at_cost": "0.00", "debts": "0.00", "installments": "0.00", "net": "1200.00"}
+  ],
+  "net_worth_excluded": [],
+  "minimum_payments": [{"currency": "SAR", "amount": "66.03"}],
+  "debt_count": 1,
+  "goals": [],
+  "month_rows_capped": false,
+  "uncategorized_count": 2,
+  "uncategorized_in": [],
+  "uncategorized_out": [{"currency": "SAR", "amount": "37.00"}],
+  "detail": "full",
+  "excluded": [
+    {"kind": "own_transfer", "currency": "SAR", "money_in": "2000.00", "money_out": "2000.00", "count": 2},
+    {"kind": "card_payment", "currency": "SAR", "money_in": "1500.00", "money_out": "1500.00", "count": 2},
+    {"kind": "loan_principal", "currency": "SAR", "money_in": "0.00", "money_out": "1800.00", "count": 1}
+  ],
+  "positions": [
+    {"currency": "SAR", "cash": "8750.25", "investments": "0.00", "card_owed": "1320.50", "card_in_credit": "0.00", "card_limit": "15000.00", "card_available": "13679.50", "loans_owed": "0.00"},
+    {"currency": "USD", "cash": "1200.00", "investments": "0.00", "card_owed": "0.00", "card_in_credit": "0.00", "card_limit": null, "card_available": null, "loans_owed": "0.00"}
+  ],
+  "upcoming_payments": [
+    {"kind": "installment", "id": "tamara:ord_1:2", "name": "Shop Alpha 2/4", "provider": "tamara", "amount": "125.00", "currency": "SAR", "due_on": "2026-11-18", "days_until": 3, "overdue": false, "status": "pending"},
+    {"kind": "installment", "id": "tamara:ord_2:2", "name": "Shop Beta 2/4", "provider": "tamara", "amount": "125.00", "currency": "SAR", "due_on": "2026-11-18", "days_until": 3, "overdue": false, "status": "needs_review"},
+    {"kind": "bill", "id": "bill_rent", "name": "Rent", "provider": null, "amount": "2500.00", "currency": "SAR", "due_on": "2026-11-20", "days_until": 5, "overdue": false, "status": "pending"}
+  ],
+  "payments_due": [{"currency": "SAR", "amount": "2750.00"}],
+  "income_breakdown": [
+    {"kind": "salary", "currency": "SAR", "amount": "15000.00", "count": 1},
+    {"kind": "interest", "currency": "SAR", "amount": "50.00", "count": 1},
+    {"kind": "other_income", "currency": "SAR", "amount": "200.00", "count": 1},
+    {"kind": "cashback", "currency": "SAR", "amount": "12.40", "count": 2},
+    {"kind": "refunds", "currency": "SAR", "amount": "45.00", "count": 1}
+  ],
+  "salary": {"month": "2026-11", "currency": "SAR", "pay_on": "2026-11-01", "expected_net": "15000.00", "received": "15000.00", "difference": "0.00", "status": "received", "basis": "confirmed", "transaction_id": "txn_salary", "waiting": 0, "missing": 0},
+  "review": {"uncategorized": 2, "sms_review": 1, "links_need_review": 0, "installments_review": 1, "total": 4},
+  "freshness": [
+    {"account_id": "acc_current", "sources": ["manual", "sms", "statement"], "last_activity_on": "2026-11-14", "last_import_at": "2026-11-02T08:00:00Z", "last_sms_at": "2026-11-14T17:20:00Z", "last_apple_pay_at": null, "verified_balance": "8450.25", "verified_at": "2026-11-14T17:20:00Z", "verified_by": "sms", "difference": "0.00", "balance_kind": "verified", "state": "current", "credit_limit": null},
+    {"account_id": "acc_card", "sources": ["apple_wallet", "manual", "sms"], "last_activity_on": "2026-11-15", "last_import_at": null, "last_sms_at": "2026-11-15T09:05:00Z", "last_apple_pay_at": "2026-11-15T09:04:00Z", "verified_balance": "-1300.00", "verified_at": "2026-11-10T12:00:00Z", "verified_by": "sms", "difference": "20.50", "balance_kind": "estimated", "state": "current", "credit_limit": "15000.00"},
+    {"account_id": "acc_cash", "sources": ["manual"], "last_activity_on": "2026-11-12", "last_import_at": null, "last_sms_at": null, "last_apple_pay_at": null, "verified_balance": null, "verified_at": null, "verified_by": null, "difference": null, "balance_kind": "estimated", "state": "manual", "credit_limit": null},
+    {"account_id": "acc_usd", "sources": ["manual", "statement"], "last_activity_on": "2026-09-30", "last_import_at": "2026-10-01T10:00:00Z", "last_sms_at": null, "last_apple_pay_at": null, "verified_balance": "1200.00", "verified_at": "2026-10-01T10:00:00Z", "verified_by": "statement", "difference": null, "balance_kind": "estimated", "state": "stale", "credit_limit": null}
+  ]
+}

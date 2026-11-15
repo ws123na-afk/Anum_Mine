@@ -244,13 +244,24 @@ def formats(context: TenantContext = Depends(tenant_context)) -> FormatsView:
 @router.get("/summary", response_model=FinanceSummary)
 def summary(
     month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    detail: Literal["full", "figures"] = Query(default="full"),
     context: TenantContext = Depends(tenant_context),
 ) -> FinanceSummary:
-    """Balances, the month's spend by category, income versus spend, bills due in 30 days, debts."""
+    """The dashboard contract (docs/finance.md#dashboard): balances, cash against card credit, the month's income and
+    spend (and what was left out of both), upcoming payments, debts, goals; with ``detail=full`` (the default) also the
+    salary month, income by kind, what waits for review and how current each account is. ``figures`` skips those for
+    the six-month charts. Web and phone read this one answer; neither works a figure out on its own."""
     _read(context)
     links = obligations.load(context)
+    sources = None
+    if detail == "full":
+        from .summary import source_facts
+
+        with open_finance_store(context) as store:
+            today = today_in(settings_for(store, context))
+        sources = source_facts(context, today)
     with open_finance_store(context) as store:
-        return build_summary(store, context, month, links=links)
+        return build_summary(store, context, month, links=links, sources=sources, detail=detail)
 
 
 # -- accounts --------------------------------------------------------------------------------

@@ -60,6 +60,22 @@ test('the overview shows net worth, bills, review, spending by category, recent 
   await expect(page.getByRole('group', { name: 'Period' })).not.toContainText(new Date().toLocaleString('en', { month: 'long' }) + ' ' + new Date().getFullYear());
 });
 
+test('the dashboard shows cash against cards, what the month left out, money in, review and each account freshness from the summary', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#finance');
+  const cash = page.getByRole('region', { name: 'Cash and cards' });
+  await expect(cash.getByText('Bank and cash', { exact: true })).toBeVisible();
+  await expect(cash.getByText('Transfers between your accounts')).toBeVisible();
+  await expect(page.getByRole('region', { name: /^Money in This month/ }).getByText('Other income')).toBeVisible();
+  const review = page.getByRole('region', { name: 'Needs your review' });
+  await expect(review.getByRole('button', { name: '2 transactions without a category' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Balances' }).getByText(/Last SMS/)).toBeVisible();
+  const results = await new AxeBuilder({ page }).include('.finLayout').withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+  await review.getByRole('button', { name: '1 link to check after its transaction changed' }).click();
+  await expect(page).toHaveURL(/#finance-transactions/);
+});
+
 test('transactions and ledger: period, search, server filters and paging; the drawer shows the masked SMS, a possible duplicate and saves the category', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-transactions');
@@ -97,7 +113,7 @@ test('transactions and ledger: period, search, server filters and paging; the dr
   await drawer.getByLabel('Choose category').selectOption('entertainment');
   // SMS-derived transactions use the audited SMS Review path, not direct PATCH.
   await expect(drawer.getByRole('button', { name: 'Save category' })).toBeDisabled();
-  await expect(drawer.getByText(/Make its category correction under Finance/)).toBeVisible();
+  await expect(drawer.getByText(/Correct its category under Finance, iPhone SMS, Review/)).toBeVisible();
   expect(sent.some((r) => r.method === 'PATCH' && (r.body as { category?: string }).category === 'entertainment')).toBe(false);
   await drawer.getByRole('button', { name: 'Close details' }).click();
 

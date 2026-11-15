@@ -731,6 +731,82 @@ export interface FinanceSummary {
   uncategorized_in?: FinanceCurrencyAmount[];
   uncategorized_out?: FinanceCurrencyAmount[];
   goals: { id: string; name: string; currency: string; target_amount: FinanceMoney; saved_amount: FinanceMoney; percent: number; target_on: string | null }[];
+  // The dashboard contract (docs/finance.md#dashboard): web and phone read these, neither works them out.
+  /** `figures` (the six-month charts) leaves out the salary, income breakdown, review counts and freshness. */
+  detail?: 'full' | 'figures';
+  /** Money that moved this month but is neither income nor spend, by why. */
+  excluded?: FinanceExcludedFlow[];
+  /** Cash against card credit, per currency. */
+  positions?: FinancePosition[];
+  /** Bills and installments due in 30 days (or overdue this month) with no matched payment. */
+  upcoming_payments?: FinanceUpcomingPayment[];
+  payments_due?: FinanceCurrencyAmount[];
+  income_breakdown?: FinanceIncomeLine[];
+  salary?: FinanceSalaryMonthStatus | null;
+  review?: FinanceReviewCounts;
+  freshness?: FinanceAccountFreshness[];
+}
+
+export type FinanceExcludedKind = 'own_transfer' | 'card_payment' | 'loan_principal' | 'lending' | 'other_transfer';
+export interface FinanceExcludedFlow { kind: FinanceExcludedKind; currency: string; money_in: FinanceMoney; money_out: FinanceMoney; count: number }
+
+export interface FinancePosition {
+  currency: string;
+  cash: FinanceMoney;
+  investments: FinanceMoney;
+  card_owed: FinanceMoney;
+  card_in_credit: FinanceMoney;
+  card_limit: FinanceMoney | null;
+  card_available: FinanceMoney | null;
+  loans_owed: FinanceMoney;
+}
+
+export interface FinanceUpcomingPayment {
+  kind: 'bill' | 'installment';
+  id: string;
+  name: string;
+  provider: string | null;
+  amount: FinanceMoney;
+  currency: string;
+  due_on: string;
+  days_until: number;
+  overdue: boolean;
+  status: 'pending' | 'needs_review';
+}
+
+export type FinanceIncomeKind = 'salary' | 'interest' | 'other_income' | 'cashback' | 'refunds';
+export interface FinanceIncomeLine { kind: FinanceIncomeKind; currency: string; amount: FinanceMoney; count: number }
+
+export interface FinanceSalaryMonthStatus {
+  month: string;
+  currency: string;
+  pay_on: string;
+  expected_net: FinanceMoney;
+  received: FinanceMoney;
+  difference: FinanceMoney;
+  status: 'received' | 'late' | 'partial' | 'missing' | 'upcoming';
+  basis: 'confirmed' | 'payslip' | 'suggested' | null;
+  transaction_id: string | null;
+  waiting: number;
+  missing: number;
+}
+
+export interface FinanceReviewCounts { uncategorized: number; sms_review: number; links_need_review: number; installments_review: number; total: number }
+
+export interface FinanceAccountFreshness {
+  account_id: string;
+  sources: ('manual' | 'sms' | 'apple_wallet' | 'statement')[];
+  last_activity_on: string | null;
+  last_import_at: string | null;
+  last_sms_at: string | null;
+  last_apple_pay_at: string | null;
+  verified_balance: FinanceMoney | null;
+  verified_at: string | null;
+  verified_by: 'sms' | 'statement' | null;
+  difference: FinanceMoney | null;
+  balance_kind: 'verified' | 'estimated';
+  state: 'current' | 'stale' | 'manual';
+  credit_limit: FinanceMoney | null;
 }
 
 

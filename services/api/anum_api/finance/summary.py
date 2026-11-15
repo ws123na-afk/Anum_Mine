@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import calendar
 import re
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
@@ -35,7 +36,7 @@ from pydantic import BaseModel, Field
 from ..schemas import TenantContext
 from . import commitment_math as M
 from . import obligations as O
-from .flows import NOT_SPEND, figures, kinds_of
+from .flows import EXCLUDED_KINDS, NOT_SPEND, Flow, figures, flow_of, kinds_of
 from .models import (
     AccountKind,
     Bill,
@@ -50,7 +51,7 @@ from .models import (
     TransactionType,
 )
 from .money import quantize, totals
-from .store import FinanceStore
+from .store import FinanceStore, TransactionFilter
 
 UPCOMING_DAYS = 30
 MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
@@ -122,6 +123,100 @@ class NetWorthExcluded(BaseModel):
     reason: Literal["no_cost_basis", "currency_differs"]
 
 
+class ExcludedFlow(BaseModel):
+    """Money that moved this month but is neither income nor spend, by why (docs/finance.md#dashboard)."""
+
+    kind: Literal["own_transfer", "card_payment", "loan_principal", "lending", "other_transfer"]
+    currency: str
+    money_in: Decimal
+    money_out: Decimal  # positive
+    count: int
+
+
+class PositionPart(BaseModel):
+    """One currency's cash against card credit (docs/finance.md#dashboard). Nothing converted."""
+
+    currency: str
+    cash: Decimal  # bank and cash accounts
+    investments: Decimal  # investment accounts at their ledger balance
+    card_owed: Decimal  # what cards owe, as a positive figure
+    card_in_credit: Decimal  # cards paid above what they owe
+    card_limit: Decimal | None = None  # the known limits (iPhone SMS card mapping); None when no card has one
+    card_available: Decimal | None = None  # limit less owed, for the cards whose limit is known
+    loans_owed: Decimal  # loan accounts, as a positive figure
+
+
+class UpcomingPayment(BaseModel):
+    """A bill due date or an installment due in the next 30 days (or overdue this month), not yet matched to a payment."""
+
+    kind: Literal["bill", "installment"]
+    id: str
+    name: str
+    provider: str | None = None
+    amount: Decimal
+    currency: str
+    due_on: date
+    days_until: int
+    overdue: bool = False
+    # pending: no payment matched yet; needs_review: the provider's statement row waits for review.
+    status: Literal["pending", "needs_review"] = "pending"
+
+
+class IncomeLine(BaseModel):
+    """The month's money in, by kind: the salary the salary check found, interest received, other income,
+    cashback and refunds without a purchase. Income is ``salary`` + ``interest`` + ``other_income``."""
+
+    kind: Literal["salary", "interest", "other_income", "cashback", "refunds"]
+    currency: str
+    amount: Decimal
+    count: int
+
+
+class SalaryStatus(BaseModel):
+    """The shown month in the salary check (``salary.salary_months``, the same as ``GET /salary/months``)."""
+
+    month: str
+    currency: str
+    pay_on: date
+    expected_net: Decimal
+    received: Decimal
+    difference: Decimal
+    status: Literal["received", "late", "partial", "missing", "upcoming"]
+    basis: Literal["confirmed", "payslip", "suggested"] | None
+    transaction_id: str | None
+    waiting: int  # months whose salary waits for a confirm or reject
+    missing: int
+
+
+class ReviewCounts(BaseModel):
+    """What waits for the person, with where each is reviewed."""
+
+    uncategorized: int = 0  # this month's rows no rule recognised
+    sms_review: int = 0  # iPhone SMS and Apple Pay messages in the review queue
+    links_need_review: int = 0  # links to bills, loans and other records waiting after the payment changed
+    installments_review: int = 0  # installment statement rows marked for review
+    total: int = 0
+
+
+class AccountFreshness(BaseModel):
+    """How current one account's figures are: what feeds it, when each source last delivered, and the last
+    balance a bank stated (verified) against the ledger's own (estimated)."""
+
+    account_id: str
+    sources: list[Literal["manual", "sms", "apple_wallet", "statement"]]
+    last_activity_on: date | None = None
+    last_import_at: datetime | None = None
+    last_sms_at: datetime | None = None
+    last_apple_pay_at: datetime | None = None
+    verified_balance: Decimal | None = None
+    verified_at: datetime | None = None
+    verified_by: Literal["sms", "statement"] | None = None
+    difference: Decimal | None = None  # verified (SMS) less the ledger balance now; None when no SMS stated one
+    balance_kind: Literal["verified", "estimated"] = "estimated"
+    state: Literal["current", "stale", "manual"] = "manual"
+    credit_limit: Decimal | None = None
+
+
 class FinanceSummary(BaseModel):
     month: str
     start: date
@@ -155,6 +250,17 @@ class FinanceSummary(BaseModel):
     uncategorized_count: int = 0
     uncategorized_in: list[CurrencyAmount] = Field(default_factory=list)
     uncategorized_out: list[CurrencyAmount] = Field(default_factory=list)
+    # The dashboard contract (docs/finance.md#dashboard): web and phone read these instead of working anything out.
+    detail: Literal["full", "figures"] = "full"
+    excluded: list[ExcludedFlow] = Field(default_factory=list)
+    positions: list[PositionPart] = Field(default_factory=list)
+    upcoming_payments: list[UpcomingPayment] = Field(default_factory=list)
+    payments_due: list[CurrencyAmount] = Field(default_factory=list)  # the upcoming payments' total per currency
+    # ``full`` only (``figures`` leaves them empty): what needs the person's attention and how current each account is.
+    income_breakdown: list[IncomeLine] = Field(default_factory=list)
+    salary: SalaryStatus | None = None
+    review: ReviewCounts = Field(default_factory=ReviewCounts)
+    freshness: list[AccountFreshness] = Field(default_factory=list)
 
 
 class BillSuggestion(BaseModel):
@@ -304,11 +410,174 @@ def upcoming_bills(bills: list[Bill], today: date, days: int = UPCOMING_DAYS, li
 
 
 MONTH_ROW_LIMIT = 50_000  # what one ``transactions_between`` read returns at most (store.py)
+STALE_CAPTURE_DAYS = 7  # an account fed by iPhone SMS or Apple Pay with nothing newer is stale
+STALE_STATEMENT_DAYS = 35  # an account fed only by statements: about one statement a month
+SOURCE_WINDOW_DAYS = 120  # how far back the summary looks for the last SMS and Apple Pay capture per account
+
+
+@dataclass
+class SourceFacts:
+    """What the iPhone SMS, Apple Pay and link stores say, read in their own short unit of work (``source_facts``)."""
+
+    limits: dict[str, Decimal] = field(default_factory=dict)
+    observed: dict[str, tuple[Decimal, datetime]] = field(default_factory=dict)
+    mapped_sms: set[str] = field(default_factory=set)
+    mapped_wallet: set[str] = field(default_factory=set)
+    last_sms: dict[str, datetime] = field(default_factory=dict)
+    last_wallet: dict[str, datetime] = field(default_factory=dict)
+    sms_review: int = 0
+    links_review: int = 0
+
+
+def source_facts(context: TenantContext, today: date) -> SourceFacts:
+    """Card limits, the banks' stated balances, which accounts SMS and Apple Pay feed and when each last delivered,
+    and the review queues. Read only, the caller's own rows."""
+    from .links_store import LinkStatus, open_link_stores
+    from .sms_service import settings_for as sms_settings_for
+    from .sms_store import MessageStatus, source_kind
+
+    with open_link_stores(context) as (_finance, sms, links):
+        settings = sms_settings_for(sms, context)
+        observed = sms.latest_observations(context)
+        entries = sms.list_entries(context, start=today - timedelta(days=SOURCE_WINDOW_DAYS))
+        accounts_of = {e.id: {p.account_id for p in e.postings if p.account_id} for e in entries}
+        sources = sms.entry_sources(context, sorted(accounts_of)) if accounts_of else {}
+        _messages, sms_review = sms.list_messages(context, status=MessageStatus.REVIEW.value, limit=1, offset=0)
+        _links, links_review = links.list_links(context, canonical_id=None, dimension=None, target_type=None, target_id=None,
+                                                status=LinkStatus.NEEDS_REVIEW.value, limit=1, offset=0)
+    facts = SourceFacts(limits={m.account_id: m.credit_limit for m in settings.account_map if m.credit_limit},
+                        observed=dict(observed), mapped_sms={m.account_id for m in settings.account_map},
+                        mapped_wallet={c.account_id for c in settings.wallet_cards}, sms_review=sms_review, links_review=links_review)
+    if settings.default_account_id:
+        facts.mapped_sms.add(settings.default_account_id)
+    for entry_id, messages in sources.items():
+        for message in messages:
+            kind = source_kind(message.source)
+            target = facts.last_sms if kind == "sms" else facts.last_wallet if kind == "wallet" else None
+            if target is None:
+                continue
+            for account_id in accounts_of.get(entry_id, set()):
+                if account_id not in target or message.received_at > target[account_id]:
+                    target[account_id] = message.received_at
+    return facts
+
+
+def positions(accounts: list[AccountBalance], limits: dict[str, Decimal]) -> list[PositionPart]:
+    """Cash (bank and cash accounts) against card credit, per currency; a card's available credit only where its
+    limit is known."""
+    zero = Decimal(0)
+    out: dict[str, dict[str, Decimal | None]] = {}
+    for a in accounts:
+        if a.archived:
+            continue
+        row = out.setdefault(a.currency, {"cash": zero, "investments": zero, "card_owed": zero, "card_in_credit": zero, "loans_owed": zero,
+                                          "card_limit": None, "card_available": None})
+
+        def bump(key: str, value: Decimal, row: dict[str, Decimal | None] = row) -> None:
+            row[key] = (row[key] or zero) + value
+
+        if a.kind in (AccountKind.BANK, AccountKind.CASH):
+            bump("cash", a.balance)
+        elif a.kind == AccountKind.INVESTMENT:
+            bump("investments", a.balance)
+        elif a.kind == AccountKind.LOAN:
+            bump("loans_owed", max(zero, -a.balance))
+        elif a.kind == AccountKind.CARD:
+            owed = max(zero, -a.balance)
+            bump("card_owed", owed)
+            bump("card_in_credit", max(zero, a.balance))
+            limit = limits.get(a.id)
+            if limit:
+                bump("card_limit", limit)
+                bump("card_available", limit - owed)
+    return [PositionPart(currency=c, **{k: (quantize(v, c) if v is not None else None) for k, v in row.items()})  # type: ignore[arg-type]
+            for c, row in sorted(out.items())]
+
+
+def upcoming_payments(bills: list[UpcomingBill], installments: list, today: date, days: int = UPCOMING_DAYS) -> list[UpcomingPayment]:
+    """Bills without a matched payment (``upcoming_bills``) and installment plan rows still due, in one list by date.
+
+    An installment the provider's statement marks paid or refunded is not due; a schedule row is never proof of payment,
+    so a ``scheduled`` one stays pending until the provider or a matched payment says otherwise (docs/finance-links.md)."""
+    from .personal import _still_due
+
+    end = today + timedelta(days=days)
+    start = today.replace(day=1)
+    rows = [UpcomingPayment(kind="bill", id=b.id, name=b.name, amount=b.amount, currency=b.currency, due_on=b.due_on, days_until=b.days_until,
+                            overdue=b.overdue) for b in bills]
+    for e in installments:
+        left = _still_due(e)
+        if e.source_status in ("paid", "refunded") or left <= 0 or not (start <= e.due_on <= end):
+            continue
+        rows.append(UpcomingPayment(
+            kind="installment", id=f"{e.provider}:{e.order_id}:{e.installment}", name=f"{e.merchant} {e.installment}/{e.total_installments}",
+            provider=e.provider, amount=quantize(left, e.currency), currency=e.currency, due_on=e.due_on, days_until=(e.due_on - today).days,
+            overdue=e.due_on < today, status="needs_review" if e.source_status == "review" else "pending"))
+    return sorted(rows, key=lambda r: (r.due_on, r.name.lower(), r.id))
+
+
+def freshness(accounts: list[AccountBalance], facts: SourceFacts, last_activity: dict[str, date], imports: list,
+              now: datetime) -> list[AccountFreshness]:
+    """Per live account: its sources, when each last delivered, and its verified balance (the bank's last stated one,
+    from an SMS, or the closing balance of a statement that tied) against the ledger's estimate."""
+    last_import: dict[str, datetime] = {}
+    tied: dict[str, tuple[Decimal, datetime]] = {}
+    for record in imports:
+        last_import[record.account_id] = max(last_import.get(record.account_id, record.created_at), record.created_at)
+        check = record.reconciliation or {}
+        if check.get("status") == "tied" and check.get("closing"):
+            try:
+                closing = Decimal(str(check["closing"]))
+            except ArithmeticError:
+                continue
+            if record.account_id not in tied or record.created_at > tied[record.account_id][1]:
+                tied[record.account_id] = (closing, record.created_at)
+    out: list[AccountFreshness] = []
+    for a in accounts:
+        if a.archived:
+            continue
+        sources: set[str] = set()
+        if a.id in facts.mapped_sms or a.id in facts.last_sms:
+            sources.add("sms")
+        if a.id in facts.mapped_wallet or a.id in facts.last_wallet:
+            sources.add("apple_wallet")
+        if a.id in last_import:
+            sources.add("statement")
+        automated = bool(sources)
+        sources.add("manual")
+        sms_seen, statement_seen = facts.observed.get(a.id), tied.get(a.id)
+        verified_by: Literal["sms", "statement"] | None = None
+        verified: tuple[Decimal, datetime] | None = None
+        if sms_seen and (statement_seen is None or sms_seen[1] >= statement_seen[1]):
+            verified_by, verified = "sms", sms_seen
+        elif statement_seen:
+            verified_by, verified = "statement", statement_seen
+        captures = [t for t in (facts.last_sms.get(a.id), facts.last_wallet.get(a.id)) if t is not None]
+        state: Literal["current", "stale", "manual"]
+        if not automated:
+            state = "manual"
+        elif captures or a.id in facts.mapped_sms or a.id in facts.mapped_wallet:
+            newest = max([*captures, *([last_import[a.id]] if a.id in last_import else [])], default=None)
+            state = "current" if newest is not None and now - newest <= timedelta(days=STALE_CAPTURE_DAYS) else "stale"
+        else:
+            state = "current" if now - last_import[a.id] <= timedelta(days=STALE_STATEMENT_DAYS) else "stale"
+        difference = quantize(sms_seen[0] - a.balance, a.currency) if verified_by == "sms" and sms_seen else None
+        out.append(AccountFreshness(
+            account_id=a.id, sources=sorted(sources), last_activity_on=last_activity.get(a.id),  # type: ignore[arg-type]
+            last_import_at=last_import.get(a.id), last_sms_at=facts.last_sms.get(a.id), last_apple_pay_at=facts.last_wallet.get(a.id),
+            verified_balance=quantize(verified[0], a.currency) if verified else None, verified_at=verified[1] if verified else None,
+            verified_by=verified_by, difference=difference,
+            balance_kind="verified" if verified_by == "sms" and difference == 0 else "estimated", state=state,
+            credit_limit=facts.limits.get(a.id)))
+    return out
 
 
 def build_summary(store: FinanceStore, context: TenantContext, month: str | None = None, *, now: datetime | None = None,
-                  links: O.Links | None = None) -> FinanceSummary:
-    """``links`` are the person's bill and debt links (``obligations.load``, read in its own unit of work first)."""
+                  links: O.Links | None = None, sources: SourceFacts | None = None,
+                  detail: Literal["full", "figures"] = "full") -> FinanceSummary:
+    """``links`` are the person's bill and debt links (``obligations.load``, read in its own unit of work first);
+    ``sources`` what iPhone SMS, Apple Pay and the link store say (``source_facts``, also read first). ``figures``
+    leaves out the salary, the income breakdown, the review counts and the account freshness (the six-month charts)."""
     settings = settings_for(store, context)
     today = today_in(settings, now)
     label, start, end = month_range(month, today)
@@ -330,7 +599,17 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
     holdings = [h for h in store.list_items(context, "holding") if isinstance(h, Holding)]
     parts, excluded = net_worth(accounts, loose, holdings, links, store.get_planning(context).installment_entries, today)
     worth = {p.currency: p.net for p in parts}
+    installments = store.get_planning(context).installment_entries
+    payments = upcoming_payments(upcoming, installments, today)
+    facts = sources or SourceFacts()
+    extra = _details(store, context, label, today, now, raw_accounts, accounts, month_rows, found, links, facts, installments) if detail == "full" else {}
     return FinanceSummary(
+        detail=detail,
+        excluded=[ExcludedFlow(kind=k, currency=c, money_in=quantize(v[0], c), money_out=quantize(v[1], c), count=v[2])  # type: ignore[arg-type]
+                  for (k, c), v in sorted(found.excluded.items(), key=lambda kv: (kv[0][1], EXCLUDED_KINDS.index(kv[0][0])))],
+        positions=positions(accounts, facts.limits),
+        upcoming_payments=payments, payments_due=_amounts(totals((p.currency, p.amount) for p in payments)),
+        **extra,
         month=label, start=start, end=end, today=today, base_currency=settings.base_currency, timezone=settings.timezone,
         accounts=accounts,
         balances=_amounts(balances),
@@ -355,6 +634,75 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
             for g in goals
         ],
     )
+
+
+INCOME_ORDER = {"salary": 0, "interest": 1, "other_income": 2, "cashback": 3, "refunds": 4}
+
+
+def _salary(store: FinanceStore, context: TenantContext, label: str, today: date, raw_accounts: list, links: O.Links | None
+            ) -> tuple[set[str], SalaryStatus | None]:
+    """The salary check's own answer (``salary.salary_months`` over the same rows ``GET /salary/months`` reads): every
+    month's salary transaction id, and the shown month."""
+    from . import personal as P
+    from . import salary as SAL
+
+    profile = links.salary_profile if links is not None else None
+    if not isinstance(profile, P.SalaryProfile) or links is None:
+        return set(), None
+    first, last = SAL.rows_window(profile, today)
+    months = SAL.salary_months(profile, SAL.salary_rows(store.transactions_between(context, first, last), profile), raw_accounts, today,
+                               links.payslips, lending_ids=links.lending_ids, payslip_credits=links.payslip_credits)
+    ids = {m.transaction.transaction_id for m in months if m.transaction is not None}
+    shown = next((m for m in months if m.month == label), None)
+    if shown is None:
+        return ids, None
+    return ids, SalaryStatus(
+        month=shown.month, currency=profile.currency, pay_on=shown.pay_on, expected_net=shown.expected.net, received=shown.received,
+        difference=shown.received - shown.expected.net, status=shown.status, basis=shown.basis,
+        transaction_id=shown.transaction.transaction_id if shown.transaction else None,
+        waiting=sum(1 for m in months if m.basis == "suggested"), missing=sum(1 for m in months if m.status == "missing"))
+
+
+def _details(store: FinanceStore, context: TenantContext, label: str, today: date, now: datetime | None, raw_accounts: list,
+             accounts: list[AccountBalance], month_rows: list[Transaction], found, links: O.Links | None, facts: SourceFacts,
+             installments: list) -> dict:
+    """The dashboard's ``full`` part: income by kind, the salary month, what waits for review and how current each account is."""
+    salary_ids, salary_view = _salary(store, context, label, today, raw_accounts, links)
+    kinds = kinds_of(raw_accounts)
+    lending = links.lending_ids if links else None
+    lines: dict[tuple[str, str], list] = {}
+    for t in month_rows:
+        if t.amount == 0:
+            continue
+        flow = flow_of(t, kinds, lending)
+        if flow == Flow.INCOME:
+            kind = "salary" if t.id in salary_ids else "interest" if t.category == Category.INTEREST else "other_income"
+        elif flow == Flow.CASHBACK:
+            kind = "cashback"
+        elif flow == Flow.REFUND:
+            kind = "refunds"
+        else:
+            continue
+        slot = lines.setdefault((kind, t.currency), [Decimal(0), 0])
+        slot[0] += t.amount
+        slot[1] += 1
+    imports, _ = store.list_imports(context, limit=5_000, offset=0)
+    last_activity: dict[str, date] = {}
+    for a in raw_accounts:
+        if a.archived:
+            continue
+        newest, _count = store.list_transactions(context, TransactionFilter(account_id=a.id), limit=1, offset=0)
+        if newest:
+            last_activity[a.id] = newest[0].posted_on
+    review = ReviewCounts(uncategorized=found.uncategorized_count, sms_review=facts.sms_review, links_need_review=facts.links_review,
+                          installments_review=sum(1 for e in installments if e.source_status == "review"))
+    review.total = review.uncategorized + review.sms_review + review.links_need_review + review.installments_review
+    return {
+        "income_breakdown": [IncomeLine(kind=k, currency=c, amount=quantize(v[0], c), count=v[1])  # type: ignore[arg-type]
+                             for (k, c), v in sorted(lines.items(), key=lambda kv: (kv[0][1], INCOME_ORDER[kv[0][0]]))],
+        "salary": salary_view, "review": review,
+        "freshness": freshness(accounts, facts, last_activity, imports, now or datetime.now(tz=ZoneInfo("UTC"))),
+    }
 
 
 # -- recurring bill detection -------------------------------------------------------------------
@@ -463,4 +811,4 @@ def detect_recurring(rows: list[Transaction], today: date, known_names: list[str
     return sorted(found, key=lambda s: (s.next_due_on, s.name.lower()))[:50]
 
 
-__all__ = ["BillSource", "build_summary", "detect_recurring", "month_range", "settings_for", "suggest_bills", "today_in", "upcoming_bills"]
+__all__ = ["BillSource", "SourceFacts", "build_summary", "detect_recurring", "month_range", "settings_for", "source_facts", "suggest_bills", "today_in", "upcoming_bills"]
