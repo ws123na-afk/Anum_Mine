@@ -703,7 +703,7 @@ class FinanceToolsStrings extends ModuleStrings {
     'sms.fix.undo_learning':
         "Recorded as {value} for {party} because you chose it before",
     'sms.fix.open_settings':
-        "Change it in the web app, Finance, iPhone SMS, Setup: a limit or an Apple Wallet card",
+        "Change it under Set up forwarding, Settings: a limit or an Apple Wallet card",
     'sms.fix.decide': "You decide this one: ANUM never records it on its own",
     'sms.fix.record':
         "Record it: after the same choice twice, ANUM does it for you",
@@ -1401,7 +1401,7 @@ class FinanceToolsStrings extends ModuleStrings {
     'sms.fix.remember_kind': "اعتبر الأموال من {party} {kind}",
     'sms.fix.undo_learning': "سُجلت {value} لـ {party} لأنك اخترت ذلك من قبل",
     'sms.fix.open_settings':
-        "غيّرها من تطبيق الويب: المالية، رسائل الآيفون، الإعداد: حد أو بطاقة Apple Wallet",
+        "غيّرها من إعداد التحويل، الإعدادات: حد أو بطاقة Apple Wallet",
     'sms.fix.decide': "هذه تقررها أنت: لا يسجلها ANUM وحده أبدا",
     'sms.fix.record': "سجّلها: بعد الاختيار نفسه مرتين يقوم ANUM بذلك عنك",
     'sms.fix.undo': "تراجع",

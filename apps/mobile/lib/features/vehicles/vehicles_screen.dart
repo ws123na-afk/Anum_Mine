@@ -8,6 +8,7 @@ import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'fleet_costs.dart';
+import 'fleet_import.dart';
 import 'vehicles_controller.dart';
 import 'vehicles_data.dart';
 import 'vehicles_strings.dart';
@@ -118,6 +119,17 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
                     MaterialPageRoute<void>(
                         builder: (_) =>
                             FleetCostsScreen(fleet: c.repository.fleet))),
+              ),
+            if (canAdd)
+              IconButton(
+                key: const Key('vehicles-import'),
+                tooltip: FleetImportStrings.of(context).t('open'),
+                icon: const Icon(Icons.upload_file_outlined),
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => FleetImportScreen(
+                            api: FleetImportApi(c.repository.fleet.api),
+                            onImported: c.load))),
               ),
           ]),
           floatingActionButton: canAdd

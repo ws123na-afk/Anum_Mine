@@ -403,8 +403,13 @@ class RegisterRow {
       this.subcategoryId,
       this.typeSource,
       this.typeReason,
+      this.runningBalance,
       this.linksNeedReview = 0});
   final String id, accountId, postedOn, amount, currency, description;
+
+  /// The account's balance after this row; the API sends it only when the
+  /// register is narrowed to one account (as the web's account page shows).
+  final String? runningBalance;
   final String category, categorySource, origin, status;
   final List<String> sources;
   final bool reconciled;
@@ -443,16 +448,36 @@ class RegisterRow {
         subcategoryId: r.optString('subcategory_id'),
         typeSource: r.optString('type_source'),
         typeReason: r.optString('type_reason'),
+        runningBalance: _decimal(r, 'running_balance'),
         linksNeedReview: r.optInt('links_need_review') ?? 0,
       );
 }
 
+String? _decimal(JsonReader r, String key) => switch (r.json[key]) {
+      final String text => text,
+      final num number => number.toString(),
+      _ => null,
+    };
+
+/// The beginning (before the dates) and ending balance of one currency
+/// across the accounts the register shows (`FinanceRegisterPage.balances`).
+class RegisterBalance {
+  const RegisterBalance(this.currency, this.beginning, this.ending);
+  final String currency, beginning, ending;
+}
+
 class RegisterPage {
-  const RegisterPage(this.items, this.total);
+  const RegisterPage(this.items, this.total, [this.balances = const []]);
   final List<RegisterRow> items;
   final int total;
+  final List<RegisterBalance> balances;
   factory RegisterPage.fromJson(JsonReader r) => RegisterPage(
-      r.optObjects('items', RegisterRow.fromJson), r.optInt('total') ?? 0);
+      r.optObjects('items', RegisterRow.fromJson),
+      r.optInt('total') ?? 0,
+      r.optObjects(
+          'balances',
+          (b) => RegisterBalance(b.string('currency'),
+              _decimal(b, 'beginning') ?? '0', _decimal(b, 'ending') ?? '0')));
 }
 
 /// A record the payment is linked to, with the evidence behind the link:

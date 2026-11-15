@@ -15,13 +15,15 @@ import 'finance_review_models.dart';
 import 'finance_review_strings.dart';
 import 'finance_rules_screens.dart' show RulePreviewBlock;
 import 'finance_strings.dart';
+import 'finance_tx_edit.dart';
 
 /// A transaction's corrections on the phone, the same as the web drawer
 /// (docs/finance.md#transaction-detail): the category with its subcategory,
 /// the type, "Use this for later payments to this merchant" (a learned
 /// merchant), "Remember this category" (a learned phrase), Apply to similar
 /// with the preview and Undo, the AI category (shown, never saved), money in
-/// corrected to money out after a confirmation, and a duplicate copy deleted.
+/// corrected to money out after a confirmation, a duplicate copy deleted,
+/// and the date, amount and description edited ([TransactionEditScreen]).
 /// Only a typed or imported row is corrected here; an SMS or Apple Pay row
 /// is corrected under iPhone SMS, Review, so the audit trail keeps it.
 
@@ -300,6 +302,19 @@ class _TransactionCorrectionPanelState
     if (mounted) setState(() => _uploading = false);
   }
 
+  Future<void> _edit() async {
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) =>
+            TransactionEditScreen(repository: widget.repository, row: _row)));
+    if (saved != true || !mounted) return;
+    final e = TransactionEditStrings.of(context);
+    setState(() {
+      _message = e.t('saved');
+      _messageError = false;
+    });
+    await widget.onSaved();
+  }
+
   Future<void> _undo(String batchId) async {
     final c = FinanceCorrectStrings.of(context);
     await _run(() async {
@@ -538,6 +553,12 @@ class _TransactionCorrectionPanelState
                   onPressed: _busy ? null : _askAi,
                   icon: const Icon(Icons.lightbulb_outline),
                   label: Text(c.t('ai'))),
+            if (editable)
+              OutlinedButton.icon(
+                  key: const Key('tx-edit'),
+                  onPressed: _busy ? null : _edit,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: Text(TransactionEditStrings.of(context).t('open'))),
             if (editable && incoming)
               OutlinedButton.icon(
                   key: const Key('tx-money-out'),

@@ -225,6 +225,8 @@ class PurchaseReturn {
     this.refundRef,
     this.expectedRefundOn,
     this.disputeNote,
+    this.items = const [],
+    this.proofDocumentId,
   });
   factory PurchaseReturn.fromJson(JsonReader j) => PurchaseReturn(
         id: j.string('id'),
@@ -248,8 +250,25 @@ class PurchaseReturn {
         refundRef: j.optString('refund_ref'),
         expectedRefundOn: j.optString('expected_refund_on'),
         disputeNote: j.optString('dispute_note'),
+        items: j.optObjects(
+            'items',
+            (l) => ReturnLine(
+                l.string('item_id'),
+                switch (l.json['quantity']) {
+                  final num n => n.toString(),
+                  final String t => t,
+                  _ => '1',
+                })),
+        proofDocumentId: j.optString('proof_document_id'),
       );
   final String id, status, reason, requestedOn, currency, refunded;
+
+  /// The purchase's items this return covers; empty is the whole order.
+  final List<ReturnLine> items;
+
+  /// The proof (a photo of the damage, the shop's return form): a vault
+  /// document, like a purchase's receipt.
+  final String? proofDocumentId;
   final String? amount, reasonNote, deadlineOn;
   final String? pickupOn, courier, trackingNumber, confirmationRef;
   final String? refundRef, expectedRefundOn, disputeNote;
@@ -257,6 +276,12 @@ class PurchaseReturn {
   final int version;
   final List<String> allowedMoves;
   final List<PurchaseMoneyLink> refunds;
+}
+
+/// One item of the purchase in a return and how many of it go back.
+class ReturnLine {
+  const ReturnLine(this.itemId, this.quantity);
+  final String itemId, quantity;
 }
 
 class PurchaseEvent {

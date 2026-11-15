@@ -153,20 +153,30 @@ class PurchasesApi {
             status: status, version: version, payment: payment),
         ...patched,
         if (archived) 'archived_at': '2026-11-07T09:00:00Z',
-        'items': [
-          {
-            'id': 'pitem_1',
-            'owner_user_id': 'user_me',
-            'purchase_id': 'pur_1',
-            'position': 0,
-            'description': 'Phone case',
-            'sku': null,
-            'quantity': '2',
-            'unit_price': '99.99',
-            'warranty_until': null,
-            'created_at': '2026-11-01T08:00:00Z',
-          }
-        ],
+        'items': patched['items'] is List
+            ? [
+                for (final (i, l) in (patched['items']! as List).indexed)
+                  {
+                    'id': (l as Map)['id'] ?? 'pitem_new_$i',
+                    'description': l['description'],
+                    'quantity': l['quantity'],
+                    'unit_price': l['unit_price'],
+                  }
+              ]
+            : [
+                {
+                  'id': 'pitem_1',
+                  'owner_user_id': 'user_me',
+                  'purchase_id': 'pur_1',
+                  'position': 0,
+                  'description': 'Phone case',
+                  'sku': null,
+                  'quantity': '2',
+                  'unit_price': '99.99',
+                  'warranty_until': null,
+                  'created_at': '2026-11-01T08:00:00Z',
+                }
+              ],
         'shipments': shipments,
         'returns': returns,
         'events': [eventJson('pev_1', 'ordered', 'shipped')],
@@ -515,7 +525,7 @@ void main() {
       expect(find.text('Noon'), findsOneWidget);
       expect(find.textContaining('Delivery expected in 1 day'), findsWidgets);
       await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
-      expect(find.text('2 × Phone case'), findsOneWidget);
+      expect(find.textContaining('2 × Phone case'), findsOneWidget);
       expect(find.text('Ordered → Shipped'), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('move-delivered')));
       expect(
@@ -749,6 +759,81 @@ void main() {
       expectClean(tester);
     });
 
+    testWidgets('edits the items with the version on screen', (tester) async {
+      final fake = PurchasesApi();
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      expect(find.textContaining('2 × Phone case'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('purchase-edit-items')));
+      await tester.enterText(find.byKey(const Key('item-quantity-0')), '3');
+      await tapVisible(tester, find.byKey(const Key('item-add')));
+      await tapVisible(tester, find.byKey(const Key('items-save')));
+      expect(find.text('Name the item.'), findsOneWidget);
+      expect(fake.api.sent('PATCH', '/api/v1/purchases/pur_1'), isEmpty);
+      await tester.enterText(
+          find.byKey(const Key('item-description-1')), 'Screen protector');
+      await tester.enterText(find.byKey(const Key('item-price-1')), '15');
+      await tapVisible(tester, find.byKey(const Key('items-save')));
+      expect(fake.api.sent('PATCH', '/api/v1/purchases/pur_1').single.body, {
+        'items': [
+          {
+            'id': 'pitem_1',
+            'description': 'Phone case',
+            'quantity': '3',
+            'unit_price': '99.99'
+          },
+          {
+            'description': 'Screen protector',
+            'quantity': '1',
+            'unit_price': '15'
+          },
+        ],
+        'version': 3,
+      });
+      expect(find.text('Items saved.'), findsOneWidget);
+      expect(find.textContaining('1 × Screen protector'), findsOneWidget);
+      expectClean(tester);
+    });
+
+    testWidgets('a return names its items and gets a proof from the vault',
+        (tester) async {
+      final fake = PurchasesApi()..returns.add(returnJson('pret_1'));
+      await pumpPurchases(tester, fake, receipts: FakeReceipts());
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      expect(
+          find.textContaining('Returned items: Whole order'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('return-actions-pret_1')));
+      await tapVisible(tester, find.byKey(const Key('action-items')));
+      await tester.enterText(find.byKey(const Key('return-qty-pitem_1')), '5');
+      await tapVisible(tester, find.byKey(const Key('return-items-save')));
+      expect(find.text('Enter a number from 0 to 2.'), findsOneWidget);
+      await tester.enterText(find.byKey(const Key('return-qty-pitem_1')), '1');
+      await tapVisible(tester, find.byKey(const Key('return-items-save')));
+      expect(
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/returns/pret_1')
+              .single
+              .body,
+          {
+            'items': [
+              {'item_id': 'pitem_1', 'quantity': '1'}
+            ],
+            'version': 1
+          });
+      expect(find.textContaining('Returned items: Phone case × 1'),
+          findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('return-actions-pret_1')));
+      await tapVisible(tester, find.byKey(const Key('action-proof')));
+      expect(find.text('Proof from the document vault'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('receipt-doc_noon')));
+      expect(
+          fake.api.sent('PATCH', '/api/v1/purchases/returns/pret_1').last.body,
+          {'proof_document_id': 'doc_noon', 'version': 2});
+      expect(find.textContaining('Proof attached from the document vault'),
+          findsOneWidget);
+      expectClean(tester);
+    });
+
     testWidgets('a vault that cannot be searched says so', (tester) async {
       final fake = PurchasesApi();
       final receipts = FakeReceipts()..failSearch = true;
@@ -951,7 +1036,7 @@ void main() {
       await tester.tap(find.byKey(const Key('purchase-pur_1')));
       await tester.pumpAndSettle();
       expect(find.byType(PurchaseDetailHost), findsOneWidget);
-      expect(find.text('2 × Phone case'), findsOneWidget);
+      expect(find.textContaining('2 × Phone case'), findsOneWidget);
       expectClean(tester);
       await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));

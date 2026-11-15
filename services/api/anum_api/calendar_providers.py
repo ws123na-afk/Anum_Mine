@@ -359,6 +359,12 @@ class CalendarProviderClient:
         expanded), and whether the whole window was read (False when the page limit cut it)."""
         raise NotImplementedError
 
+    async def calendar_changes(self, token: str, calendar_id: str, cursor: str | None, *, since: datetime, until: datetime) -> CalendarDelta:
+        """The changes of one other calendar since ``cursor`` (its own sync token or delta link), as
+        single occurrences; with no usable cursor, the whole window (``full``). ``more`` means the
+        page limit cut the read: a full read is then incomplete, and no cursor is kept."""
+        raise NotImplementedError
+
     async def _token(self, url: str, form: dict[str, str], previous_refresh: str | None = None) -> TokenGrant:
         _, body = await self.http.request("POST", url, form=form)
         return _grant(body, previous_refresh, self.label)
@@ -716,6 +722,50 @@ class GoogleCalendarClient(CalendarProviderClient):
             params = {**params, "pageToken": page}
         return found, False
 
+    async def calendar_changes(self, token: str, calendar_id: str, cursor: str | None, *, since: datetime, until: datetime) -> CalendarDelta:
+        # ``events.list`` of that calendar with ``singleEvents=true``: a full read of the window ends with a
+        # ``nextSyncToken``; later passes send only that token (Google refuses timeMin, timeMax and orderBy
+        # with it) and get what changed, cancelled occurrences included. The cursor keeps the window's end so
+        # the token is renewed (a full read) as the window moves on, like the primary calendar's.
+        if not valid_calendar_id(calendar_id):
+            raise MailProviderError(422, "That is not a Google calendar id.")
+        url = f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events"
+        params: dict[str, str] = {"singleEvents": "true", "showDeleted": "true", "maxResults": "250"}
+        kind, _, rest = (cursor or "").partition(":")
+        value, _, end_text = rest.partition("|")
+        window_end = _parse_iso(end_text)
+        delta = CalendarDelta(full=True)
+        if kind == "sync" and _GOOGLE_TOKEN.fullmatch(value) and not window_stale(window_end, until):
+            params["syncToken"] = value
+            delta.full = False
+            kept = end_text
+        else:
+            params.update(timeMin=_iso(since), timeMax=_iso(until))
+            kept = _iso(until)
+        for _ in range(MAX_PAGES):
+            status, body = await self.http.request("GET", url, token=token, params=params, allow=frozenset({410}))
+            if status == 410:
+                if delta.full:
+                    raise MailProviderError(502, "Google refused a full read of the calendar.")
+                # The sync token expired: read the whole window again.
+                return await self.calendar_changes(token, calendar_id, None, since=since, until=until)
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("items") or []:
+                if isinstance(item, dict):
+                    found = google_event(item)
+                    if found is not None:
+                        delta.events.append(found)
+            page = body.get("nextPageToken")
+            if isinstance(page, str) and _GOOGLE_TOKEN.fullmatch(page):
+                params = {**params, "pageToken": page}
+                continue
+            sync = body.get("nextSyncToken")
+            if isinstance(sync, str) and _GOOGLE_TOKEN.fullmatch(sync):
+                delta.cursor = f"sync:{sync}|{kept}"
+            return delta
+        delta.more = True  # no cursor: the next pass reads the whole window again
+        return delta
+
     async def _flatten(self, token: str, delta: CalendarDelta, *, since: datetime, until: datetime) -> None:
         """Masters whose rule ANUM cannot hold: read their instances as single events instead."""
         done = 0
@@ -1072,6 +1122,20 @@ def _graph_delta_query(link: str) -> str | None:
     return None
 
 
+def _graph_calendar_delta_query(link: str) -> str | None:
+    """The paging query of a Graph link for one calendar's ``calendarView/delta`` (Graph may name the
+    calendar in its own form, so only the host and the path's end are checked); only the token is
+    kept and requests always go to ANUM's own path for that calendar."""
+    parts = urlsplit(link)
+    if parts.scheme != "https" or parts.netloc != "graph.microsoft.com" or not unquote(parts.path).lower().endswith("/calendarview/delta"):
+        return None
+    for pair in parts.query.split("&"):
+        key, _, value = pair.partition("=")
+        if key in _GRAPH_PAGING_KEYS and _GRAPH_TOKEN.fullmatch(value):
+            return f"{key}={value}"
+    return None
+
+
 class MicrosoftCalendarClient(CalendarProviderClient):
     provider = CalendarProvider.MICROSOFT
     label = "Microsoft Graph"
@@ -1244,6 +1308,66 @@ class MicrosoftCalendarClient(CalendarProviderClient):
             next_link = body.get("@odata.nextLink")
             url = str(next_link) if isinstance(next_link, str) and next_link.startswith(f"{base}?") else None
         return found, url is None
+
+    async def calendar_changes(self, token: str, calendar_id: str, cursor: str | None, *, since: datetime, until: datetime) -> CalendarDelta:
+        # ``/me/calendars/{id}/calendarView/delta`` over a fixed window: occurrences, ``@removed`` for the
+        # gone ones. The cursor is ``{"q": <the delta token query>, "until": <window end>}``.
+        if not valid_calendar_id(calendar_id):
+            raise MailProviderError(422, "That is not a Microsoft calendar id.")
+        base = f"{self.API}/calendars/{quote(calendar_id, safe='')}/calendarView/delta"
+        state: Any = {}
+        if cursor:
+            try:
+                state = json.loads(cursor)
+            except ValueError:
+                state = {}
+        state = state if isinstance(state, dict) else {}
+        window_end = _parse_iso(state.get("until"))
+        query = str(state.get("q") or "")
+        key, _, value = query.partition("=")
+        resumed = query if key == "$deltatoken" and _GRAPH_TOKEN.fullmatch(value) else None
+        url: str | None
+        params: dict[str, str] | None
+        if resumed is not None and not window_stale(window_end, until):
+            url, params, result = f"{base}?{resumed}", None, CalendarDelta(full=False)
+        else:
+            window_end = until
+            url, params, result = base, {"startDateTime": _iso(since), "endDateTime": _iso(until)}, CalendarDelta(full=True)
+        for _ in range(MAX_PAGES * 4):
+            if url is None:
+                break
+            status, body = await self.http.request("GET", url, token=token, params=params, headers=self.HEADERS, allow=frozenset({410}))
+            if status == 410:
+                if result.full:
+                    raise MailProviderError(502, "Microsoft Graph refused a full read of the calendar.")
+                return await self.calendar_changes(token, calendar_id, None, since=since, until=until)
+            params = None
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("value") or []:
+                if not isinstance(item, dict) or not valid_event_id(item.get("id")):
+                    continue
+                if "@removed" in item:
+                    result.removed.append(str(item["id"]))
+                    continue
+                found = graph_event(item)
+                if found is not None:
+                    result.events.append(found)
+            delta_link = body.get("@odata.deltaLink")
+            if delta_link:
+                token_query = _graph_calendar_delta_query(str(delta_link))
+                if token_query is None:
+                    raise MailProviderError(502, "Microsoft Graph returned a delta link to another host.")
+                result.cursor = json.dumps({"q": token_query, "until": _iso(window_end)}, separators=(",", ":"))
+                return result
+            next_link = body.get("@odata.nextLink")
+            if not next_link:
+                return result  # no delta link: the next pass reads the window again
+            paging = _graph_calendar_delta_query(str(next_link))
+            if paging is None:
+                raise MailProviderError(502, "Microsoft Graph returned a paging link to another host.")
+            url = f"{base}?{paging}"
+        result.more = True
+        return result
 
     @staticmethod
     def _cursor(link: str, window_end: datetime | None, waiting: list[str]) -> str:

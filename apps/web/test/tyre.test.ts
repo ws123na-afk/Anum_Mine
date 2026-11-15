@@ -102,6 +102,8 @@ describe('tyre helpers', () => {
     assert.ok(isRecipient('+966 500 000 000', 'whatsapp') && !isRecipient('fleet@example.com', 'whatsapp'));
     assert.equal(channelLabel('email'), 'Email');
     assert.equal(channelLabel('whatsapp'), 'WhatsApp');
+    assert.equal(channelLabel('mailbox'), 'Email from my mailbox');
+    assert.ok(isRecipient('fleet@example.com', 'mailbox') && !isRecipient('+966 500 000 000', 'mailbox'));
     assert.equal(channelLabel('fax'), 'fax');
     assert.deepEqual(scheduleBody({ kind: 'fleet_health', cadence: 'weekly', weekday: 0, time: '07:00', timezone: 'Asia/Riyadh', channel: '', to: '', format: 'pdf' }).delivery, null);
     assert.deepEqual(scheduleBody({ kind: 'fleet_health', cadence: 'daily', weekday: 0, time: '07:00', timezone: 'UTC', channel: 'email', to: ' x@example.com ', format: 'csv' }).delivery, { channel: 'email', to: 'x@example.com', format: 'csv' });

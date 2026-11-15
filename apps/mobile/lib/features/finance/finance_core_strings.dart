@@ -124,6 +124,15 @@ class FinanceCoreStrings extends ModuleStrings {
     'reg.noMatch': 'No transaction matches these filters',
     'reg.noMatchText': 'Change or clear the filters to see more.',
     'reg.more': 'Show more ({shown} of {total})',
+    'reg.balances': 'Balances ({where})',
+    'reg.allAccounts': 'All accounts',
+    'reg.beginning': 'Beginning balance',
+    'reg.ending': 'Ending balance',
+    'reg.balancesHint':
+        'Beginning is the balance before the first date chosen; ending is the balance on the last date (today when none is chosen). Each currency on its own line.',
+    'reg.balanceAfter': 'Balance after: {amount}',
+    'reg.download': 'Download CSV',
+    'reg.downloadNone': 'There are no transactions in this view to download.',
     'reg.denied':
         'Finance is the person\'s own: only they can see it. A viewer of this workspace cannot.',
     'origin.sms': 'SMS',
@@ -281,6 +290,15 @@ class FinanceCoreStrings extends ModuleStrings {
     'reg.noMatch': 'لا معاملة تطابق هذه التصفية',
     'reg.noMatchText': 'غيّر التصفية أو امسحها لترى المزيد.',
     'reg.more': 'اعرض المزيد ({shown} من {total})',
+    'reg.balances': 'الأرصدة ({where})',
+    'reg.allAccounts': 'كل الحسابات',
+    'reg.beginning': 'الرصيد الافتتاحي',
+    'reg.ending': 'الرصيد الختامي',
+    'reg.balancesHint':
+        'الرصيد الافتتاحي هو الرصيد قبل أول تاريخ تختاره، والختامي هو الرصيد في آخر تاريخ (اليوم إن لم تختر تاريخا). لكل عملة سطرها.',
+    'reg.balanceAfter': 'الرصيد بعدها: {amount}',
+    'reg.download': 'تنزيل CSV',
+    'reg.downloadNone': 'لا توجد معاملات في هذا العرض لتنزيلها.',
     'reg.denied':
         'المالية خاصة بصاحبها: هو وحده يراها. لا يستطيع مشاهد مساحة العمل ذلك.',
     'origin.sms': 'رسالة نصية',

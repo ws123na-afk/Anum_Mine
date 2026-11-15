@@ -51,7 +51,7 @@ def call(**arguments: Any) -> ToolCall:
 
 
 def test_tools_are_registered_high_risk_and_always_ask() -> None:
-    for name, channel in ((delivery_tools.EMAIL_TOOL, "email"), (delivery_tools.WHATSAPP_TOOL, "whatsapp")):
+    for name, channel in ((delivery_tools.EMAIL_TOOL, "email"), (delivery_tools.MAILBOX_TOOL, "mailbox"), (delivery_tools.WHATSAPP_TOOL, "whatsapp")):
         definition = main.tool_registry.definition(name)
         assert definition is not None and definition.delivery_channel == channel
         assert definition.risk_level == RiskLevel.HIGH and definition.always_ask is True
@@ -129,3 +129,13 @@ def test_send_email_builds_a_message_with_the_attachment(monkeypatch: pytest.Mon
     assert message["To"] == "fleet@example.com" and len(parts) == 1
     assert parts[0].get_filename() == "report.pdf" and parts[0].get_content_type() == "application/pdf"
     assert parts[0].get_content() == b"%PDF-1.4 x"
+
+
+def test_the_mailbox_channel_needs_the_email_center_and_an_own_mailbox() -> None:
+    definition = main.tool_registry.definition(delivery_tools.MAILBOX_TOOL)
+    assert definition is not None and definition.acts_for_argument == "owner_user_id" and definition.action_kind == "send"
+    reason = delivery_tools.mailbox_unavailable(CONTEXT)
+    assert reason and reason.startswith("No mailbox can send")  # the Email Center is off in tests
+    assert "mailbox" not in delivery.channels(main.tool_registry, CONTEXT)
+    with pytest.raises(delivery.DeliveryUnavailableError):
+        delivery_tools.mailbox_arguments(CONTEXT)

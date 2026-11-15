@@ -5,6 +5,7 @@ import '../../src/widgets/depth.dart';
 import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
+import 'purchase_items.dart';
 import 'purchases_controller.dart';
 import 'purchases_data.dart';
 import 'purchases_screen.dart' show returnReasons, shipmentStatuses;
@@ -201,7 +202,7 @@ Future<void> editShipment(BuildContext context, PurchaseDetailController c,
 /// and removing it.
 Future<void> returnActions(
     BuildContext context, PurchaseDetailController c, PurchaseReturn r,
-    {required VoidCallback onLinkRefund}) async {
+    {required VoidCallback onLinkRefund, PurchaseReceipts? receipts}) async {
   final s = PurchasesStrings.of(context);
   final linked = [
     for (final f in r.refunds)
@@ -213,6 +214,15 @@ Future<void> returnActions(
               title: '${s.label('why', r.reason)} · ${s.label('st', r.status)}',
               actions: {
                 if (r.canEdit) 'edit': (Icons.edit_outlined, s.t('editReturn')),
+                if (r.canEdit)
+                  'items': (Icons.checklist, s.t('returnItemsEdit')),
+                if (r.canEdit && receipts != null)
+                  'proof': (
+                    Icons.photo_library_outlined,
+                    s.t(r.proofDocumentId == null
+                        ? 'proofAttach'
+                        : 'proofChange')
+                  ),
                 if (r.canEdit)
                   for (final to in r.allowedMoves)
                     'move:$to': (
@@ -236,6 +246,13 @@ Future<void> returnActions(
   if (action == 'link') return onLinkRefund();
   if (action == 'cash') return recordCash(context, c, refundOf: r);
   if (action == 'edit') return _editReturn(context, c, r);
+  if (action == 'items') {
+    await editReturnItems(context, c, r);
+    return;
+  }
+  if (action == 'proof' && receipts != null) {
+    return chooseReturnProof(context, c, r, receipts);
+  }
   if (action == 'delete') {
     final sure = await confirmRecords(context,
         title: s.t('deleteReturn'),
@@ -415,15 +432,36 @@ Future<void> chooseReceipt(BuildContext context, PurchaseDetailController c,
           .t(picked.documentId == null ? 'receiptRemoved' : 'receiptAttached'));
 }
 
+/// Attaches a return's proof from the document vault (search, or upload a
+/// new file there), or removes it: the same sheet as a receipt.
+Future<void> chooseReturnProof(BuildContext context, PurchaseDetailController c,
+    PurchaseReturn r, PurchaseReceipts receipts) async {
+  final s = PurchasesStrings.of(context);
+  final picked = await showRecordsSheet<_ReceiptPick>(
+      context,
+      (_) => _ReceiptSheet(
+          receipts: receipts,
+          hasReceipt: r.proofDocumentId != null,
+          proof: true));
+  if (picked == null || !context.mounted) return;
+  await runPurchaseAction(context,
+      () => c.updateReturn(r, {'proof_document_id': picked.documentId}),
+      done: s.t(picked.documentId == null ? 'proofRemoved' : 'proofAttached'));
+}
+
 class _ReceiptPick {
   const _ReceiptPick(this.documentId);
   final String? documentId;
 }
 
 class _ReceiptSheet extends StatefulWidget {
-  const _ReceiptSheet({required this.receipts, required this.hasReceipt});
+  const _ReceiptSheet(
+      {required this.receipts, required this.hasReceipt, this.proof = false});
   final PurchaseReceipts receipts;
   final bool hasReceipt;
+
+  /// A return's proof instead of a purchase's receipt (only the words differ).
+  final bool proof;
 
   @override
   State<_ReceiptSheet> createState() => _ReceiptSheetState();
@@ -484,17 +522,20 @@ class _ReceiptSheetState extends State<_ReceiptSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(s.t('receiptTitle'),
+        Text(s.t(widget.proof ? 'proofTitle' : 'receiptTitle'),
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: AnumSpacing.xs),
-        Text(s.t('receiptHelp'), style: TextStyle(color: p.muted)),
+        Text(s.t(widget.proof ? 'proofHelp' : 'receiptHelp'),
+            style: TextStyle(color: p.muted)),
         const SizedBox(height: AnumSpacing.sm),
         Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
           FilledButton.icon(
             key: const Key('receipt-upload'),
             onPressed: uploading ? null : _upload,
             icon: const Icon(Icons.upload_file),
-            label: Text(uploading ? s.t('uploading') : s.t('receiptUpload')),
+            label: Text(uploading
+                ? s.t('uploading')
+                : s.t(widget.proof ? 'proofUpload' : 'receiptUpload')),
           ),
           if (widget.hasReceipt)
             TextButton.icon(
@@ -503,7 +544,7 @@ class _ReceiptSheetState extends State<_ReceiptSheet> {
                   ? null
                   : () => Navigator.of(context).pop(const _ReceiptPick(null)),
               icon: const Icon(Icons.link_off),
-              label: Text(s.t('receiptRemove')),
+              label: Text(s.t(widget.proof ? 'proofRemove' : 'receiptRemove')),
             ),
         ]),
         const SizedBox(height: AnumSpacing.sm),

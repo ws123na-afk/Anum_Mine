@@ -7,7 +7,7 @@ import * as api from './lib/api';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
-  ALERT_KINDS, REPORT_KINDS, ago, alertKindLabel, hasOperations, confidenceTone, day, forecastTone, formatPrices, isRecipient, channelLabel, money, monthBars, monthLabel, newAlerts, num, pageRange, parsePrices, reportKindLabel, severityTone,
+  ALERT_KINDS, REPORT_KINDS, ago, alertKindLabel, hasOperations, isEmailChannel, confidenceTone, day, forecastTone, formatPrices, isRecipient, channelLabel, money, monthBars, monthLabel, newAlerts, num, pageRange, parsePrices, reportKindLabel, severityTone,
   type AlertPage, type Assumptions, type Dashboard, type OperationsSummary, type ForecastPage, type PurchasePlan, type ReportSchedule, type ReportSummary, type ScheduleDraft, type TyreAlert, type TyreForecast, type TyreSetup as Setup, type Page,
 } from './lib/tyre';
 import * as tyreApi from './lib/tyreApi';
@@ -493,7 +493,7 @@ function ReportCard({ report, setup, onChanged }: { report: ReportSummary; setup
   const exportAs = (fmt: 'pdf' | 'csv') => act(fmt, () => tyreApi.download(`/reports/${encodeURIComponent(report.id)}/export?format=${fmt}`, `tyre-report.${fmt}`));
   const remove = () => act('delete', async () => { if (!confirm(t('tyre.reports.confirmDelete', { title: report.title }))) return; await tyreApi.deleteReport(report.id); onChanged(); });
   const send = (event: FormEvent) => { event.preventDefault(); void act('send', async () => {
-    if (!isRecipient(to, channel)) { setMessage({ text: t(channel === 'whatsapp' ? 'tyre.reports.badPhone' : channel === 'email' ? 'tyre.reports.badEmail' : 'tyre.reports.badRecipient'), error: true }); return; }
+    if (!isRecipient(to, channel)) { setMessage({ text: t(channel === 'whatsapp' ? 'tyre.reports.badPhone' : isEmailChannel(channel) ? 'tyre.reports.badEmail' : 'tyre.reports.badRecipient'), error: true }); return; }
     const result = await tyreApi.deliverReport(report.id, channel, to.trim(), format);
     setMessage({ text: result.status === 'waiting_approval' ? t('tyre.reports.waitingApproval') : result.message, error: result.status === 'blocked' || result.status === 'failed' });
     setSending(false); onChanged();
@@ -512,7 +512,7 @@ function ReportCard({ report, setup, onChanged }: { report: ReportSummary; setup
     {report.deliveries.length > 0 && <ul className="tyreDeliveries">{report.deliveries.slice(-3).map((delivery, index) => <li key={index}><span className="statusBadge neutral">{t(`tyre.deliveryStatus.${['waiting_approval', 'sent', 'failed', 'blocked', 'unavailable'].includes(delivery.status) ? delivery.status : 'failed'}` as MessageKey)}</span><span dir="auto">{channelLabel(delivery.channel)} → <bdi dir="ltr">{delivery.to}</bdi></span>{delivery.message && <small>{delivery.message}</small>}</li>)}</ul>}
     {sending && (setup.delivery_channels.length ? <form className="tyreSend" onSubmit={send}>
       <label className="field" htmlFor={ids.channel}><span>{t('tyre.reports.channel')}</span><select id={ids.channel} value={channel} onChange={(e) => setChannel(e.target.value)}>{setup.delivery_channels.map((value) => <option key={value} value={value}>{channelLabel(value)}</option>)}</select></label>
-      <label className="field" htmlFor={ids.to}><span>{t('tyre.reports.to')}</span><input id={ids.to} dir="ltr" type={channel === 'email' ? 'email' : 'tel'} value={to} placeholder={channel === 'whatsapp' ? '+9665...' : 'fleet@example.com'} onChange={(e) => setTo(e.target.value)} /></label>
+      <label className="field" htmlFor={ids.to}><span>{t('tyre.reports.to')}</span><input id={ids.to} dir="ltr" type={isEmailChannel(channel) ? 'email' : 'tel'} value={to} placeholder={channel === 'whatsapp' ? '+9665...' : 'fleet@example.com'} onChange={(e) => setTo(e.target.value)} /></label>
       <label className="field" htmlFor={ids.format}><span>{t('tyre.reports.format')}</span><select id={ids.format} value={format} onChange={(e) => setFormat(e.target.value as 'pdf')}><option value="pdf">PDF</option><option value="csv">CSV</option></select></label>
       <div className="actions"><button type="submit" disabled={busy !== null}><Send aria-hidden="true" />{t('tyre.reports.requestSend')}</button></div>
       <p className="muted tyreFull">{t('tyre.reports.approvalNote')}{channel === 'whatsapp' ? ` ${t('tyre.reports.whatsappWindow')}` : ''}</p>
@@ -531,7 +531,7 @@ function SchedulesCard({ setup }: { setup: Setup }) {
   const ids = { kind: useId(), cadence: useId(), weekday: useId(), time: useId(), zone: useId(), channel: useId(), to: useId() };
   async function create(event: FormEvent) {
     event.preventDefault();
-    if (draft.channel && !isRecipient(draft.to, draft.channel)) { setMessage({ text: t(draft.channel === 'whatsapp' ? 'tyre.reports.badPhone' : draft.channel === 'email' ? 'tyre.reports.badEmail' : 'tyre.reports.badRecipient'), error: true }); return; }
+    if (draft.channel && !isRecipient(draft.to, draft.channel)) { setMessage({ text: t(draft.channel === 'whatsapp' ? 'tyre.reports.badPhone' : isEmailChannel(draft.channel) ? 'tyre.reports.badEmail' : 'tyre.reports.badRecipient'), error: true }); return; }
     setBusy(true); setMessage(null);
     try { await tyreApi.createSchedule(draft); setTick((v) => v + 1); setMessage({ text: t('tyre.schedule.created'), error: false }); }
     catch (e) { setMessage({ text: describeError(e), error: true }); } finally { setBusy(false); }

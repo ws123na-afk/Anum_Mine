@@ -176,7 +176,7 @@ Running a client's fleet in ANUM, the pilot the [product review](audits/2026-11-
 
 The report is **never sent** from here: the person downloads it (web) or saves it through the system save dialog (phone). To email it, they attach it in [Email](email.md), where sending waits for an owner's approval. The notes are not stored: they travel with each download request.
 
-Web: `src/VehiclesFleet.tsx` (lazy chunk), `src/lib/fleet.ts`, `src/lib/fleetApi.ts`; tabs `#vehicles-costs` and `#vehicles-import`. Phone: Vehicles, Fleet costs (`apps/mobile/lib/features/vehicles/fleet_costs.dart`): the month, per vehicle, highest cost per km, renewals and the report saved as PDF or Excel in English or Arabic; the import is web only. Tests: `services/api/tests/test_vehicles_fleet.py`, `tests/test_postgres_vehicles_fleet.py`, web `test/fleet.test.ts` and `e2e/vehicles-fleet.spec.ts`, phone `apps/mobile/test/vehicles/fleet_costs_test.dart`.
+Web: `src/VehiclesFleet.tsx` (lazy chunk), `src/lib/fleet.ts`, `src/lib/fleetApi.ts`; tabs `#vehicles-costs` and `#vehicles-import`. Phone: Vehicles, Fleet costs (`apps/mobile/lib/features/vehicles/fleet_costs.dart`): the month, per vehicle, highest cost per km, renewals and the report saved as PDF or Excel in English or Arabic; Vehicles, **Import a fleet** (`fleet_import.dart`): the same import, the kind, country and date order, a CSV or Excel file picked on the phone and read into memory, the preview with each field's column (chosen and checked again), the counts with a filter, search and the rows 50 at a time with their problems in English or Arabic and the action for each, a CSV template saved through the save dialog, and Import after a confirmation with the fingerprint (only changed decisions sent); a refusal and a non-owner are said in the API's words. Tests: `services/api/tests/test_vehicles_fleet.py`, `tests/test_postgres_vehicles_fleet.py`, web `test/fleet.test.ts` and `e2e/vehicles-fleet.spec.ts`, phone `apps/mobile/test/vehicles/fleet_costs_test.dart`, `fleet_import_test.dart`.
 
 ## Storage, privacy and deletion
 
@@ -192,4 +192,4 @@ The privacy export includes the person's own vehicles, their records on business
 
 - On the phone: editing or archiving a vehicle, trip places, recording a cost as cash, preferences and the analytics (on the web).
 - Tyre Pulse fleet vehicles stay a read-only snapshot in the Tyre module; Fleet costs matches them to ANUM vehicles by label, fleet number or registration for display only, with no stored link.
-- Fleet: the import on the phone; saving the report's notes between visits; sending the report from Vehicles (it goes through Email with its approval); trips in the import; multi-sheet workbooks (one sheet, one kind per file).
+- Fleet: saving the report's notes between visits; sending the report from Vehicles (it goes through Email with its approval); trips in the import; multi-sheet workbooks (one sheet, one kind per file).

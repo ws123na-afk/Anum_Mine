@@ -360,6 +360,7 @@ export const tyreAr: Record<keyof typeof tyreEn, Message> = {
   'tyre.reports.noChannels': 'لا يمكن إرسال التقارير من هنا بعد: لم يُضبط خادم بريد على هذا الخادم ولا يوجد رقم واتساب مرتبط بمساحة العمل. نزّل ملف PDF أو CSV وأرسله بنفسك. يربط المالك واتساب من واتساب، الإعدادات؛ ويحتاج البريد إلى إعدادات البريد في الخادم.',
   'tyre.channel.email': 'البريد الإلكتروني',
   'tyre.channel.whatsapp': 'واتساب',
+  'tyre.channel.mailbox': 'البريد من صندوقي',
   'tyre.reports.badEmail': 'أدخل عنوان بريد إلكتروني واحدًا، مثل fleet@example.com.',
   'tyre.reports.badPhone': 'أدخل رقم هاتف واحدًا بالصيغة الدولية، مثل +971501234567.',
   'tyre.reports.whatsappWindow': 'يرسل واتساب المستند فقط إلى من راسل رقم واتساب الخاص بك خلال آخر 24 ساعة.',

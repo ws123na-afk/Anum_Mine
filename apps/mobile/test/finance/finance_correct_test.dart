@@ -172,6 +172,8 @@ class Api {
         if (body['transaction_type'] != null)
           'transaction_type': body['transaction_type'],
         if (body['amount'] != null) 'amount': body['amount'],
+        if (body['posted_on'] != null) 'posted_on': body['posted_on'],
+        if (body['description'] != null) 'description': body['description'],
         'category_source': 'manual',
       };
       return ok({});
@@ -397,6 +399,34 @@ void main() {
     await tap(tester, find.byKey(const Key('records-confirm')));
     expect(api.patches.single, {'amount': '-1500.00', 'category': 'fees'});
     expect(find.textContaining('Corrected to money out'), findsOneWidget);
+  });
+
+  testWidgets('the date, amount and description are edited; only changes go',
+      (tester) async {
+    final api = Api();
+    await open(tester, api.repo());
+    await tap(tester, find.byKey(const Key('tx-edit')));
+    expect(find.text('Edit transaction'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('tx-edit-amount')), 'abc');
+    await tap(tester, find.byKey(const Key('tx-edit-save')));
+    expect(find.text('Enter an amount such as -45.00 or 120.'), findsOneWidget);
+    expect(api.patches, isEmpty);
+    await tester.enterText(find.byKey(const Key('tx-edit-amount')), '-42');
+    await tap(tester, find.byKey(const Key('tx-edit-save')));
+    expect(find.text('Nothing changed.'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('tx-edit-amount')), '-٥٠٫٢٥');
+    await tester.enterText(
+        find.byKey(const Key('tx-edit-description')), 'EXAMPLE CAFE JEDDAH');
+    await tap(tester, find.byKey(const Key('tx-edit-save')));
+    expect(api.patches.single,
+        {'amount': '-50.25', 'description': 'EXAMPLE CAFE JEDDAH'});
+    expect(find.textContaining('Transaction saved.'), findsOneWidget);
+  });
+
+  testWidgets('a row an SMS recorded offers no edit', (tester) async {
+    final api = Api(detailRow: row(origin: 'sms'));
+    await open(tester, api.repo());
+    expect(find.byKey(const Key('tx-edit')), findsNothing);
   });
 
   testWidgets('a duplicate copy is deleted after a confirmation',
