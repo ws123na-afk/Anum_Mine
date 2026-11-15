@@ -519,6 +519,8 @@ One definition of spend, income, refunds, cashback and transfers (`finance/flows
 
 Rounding is the server's one rule everywhere, also on the web: half to even, to the currency's minor unit (`lib/financeStatements.ts` `fromMilli`). Classification at read time never rewrites a stored row: older rows keep their stored category and are read by these rules.
 
+**Invariant tests.** `tests/test_finance_invariants.py` (in-memory) and `tests/test_postgres_finance_isolation.py` (row-level security) state these rules end to end and are the check for every Finance change: a statement imported again adds nothing; one purchase told by SMS, Apple Pay and the statement is spent once; card repayments, own transfers, loan principal, borrowing and lending are neither spend nor income; a debt payment counts once, in its own currency, and a debt never owes less than zero; figures stay per currency; the owner's category survives a reimport and a rule applied to earlier rows; logs carry no device token, message text or bank details; every table with an `owner_user_id` has forced RLS and an owner policy, and no read or change by a member or from another workspace reaches the owner's ledger.
+
 ## Summary
 
 `GET /api/v1/finance/summary?month=YYYY-MM` (default: this month in the person's time zone), by the rules in [How figures are counted](#how-figures-are-counted):

@@ -46,6 +46,13 @@ The four gaps the [review](audits/2026-11-12-product-review.md) lists for the ph
 - **Real-device checks:** the calendar sign-in round trip on a real Android phone and iPhone (the browser opening, the return link bringing ANUM to the front, Chrome's handling of the custom scheme), check in and out and the report page with the keyboard, attaching a report file and a receipt photo with the system pickers. Widget tests and the `life_admin` journeys only so far, all against fakes.
 - **Not built:** other chosen calendars are read only and read in full each pass (no per-calendar sync token); the phone does not edit a purchase's or a return's items or a return's proof document; delivery from the inbox's own mailbox (reports go from the server's address).
 
+## Personal Finance invariants (November 2026)
+
+The safety net is in place ([Invariant tests](finance.md#how-figures-are-counted)). Two accounting defects it found on `main` (15 November) are not fixed yet, because their code is being reworked with loans and debts:
+
+- **Part of a purchase lent to a person hides the rest.** Linking SAR 300 of a SAR 500 purchase as money lent makes the whole 500 a transfer, so 200 of real spending leaves the summary, the ledger dashboard and budgets. Cause: `obligations._lending` collects whole transaction ids and `flows.classify(lending=True)` turns the whole row into a transfer, whatever the linked amount. The same applies to a repayment larger than what is owed: the excess is neither income nor flagged.
+- **A debt payment can be larger than the debt.** `POST /debts/{id}/payments` accepts SAR 1,500 against a debt owing 1,000; `obligations.debt_balance` then shows 0 and the extra 500 is silently lost instead of waiting for review.
+
 ## Open work from the November 2026 depth batch (files)
 
 - **Bulk download limit**: an operator setting since November 2026 (`ANUM_FILES_BULK_DOWNLOAD_MAX_BYTES`, default 1 GiB, 1 MiB to 8 GiB, [Bulk actions](files.md#bulk-actions)); nothing open on the server. The phone refuses a selection over 256 MiB before sending ([Mobile](files.md#mobile)): it holds the zip in memory until the save dialog writes it.
