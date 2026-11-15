@@ -131,6 +131,50 @@ class MatchEvidence {
   final String? value;
 }
 
+/// The bank's own conversion figures behind a match across currencies
+/// (docs/finance-matching.md#across-currencies). `basis` is `missing` (no
+/// original amount: review only) or `owner_confirmed`; null on the bank's
+/// figures. The phone never works out a rate.
+class MatchFx {
+  const MatchFx({
+    required this.bankCurrency,
+    required this.rateKind,
+    this.basis,
+    this.originalAmount,
+    this.originalCurrency,
+    this.billedAmount,
+    this.bankAmount,
+    this.rate,
+    this.feeAmount,
+    this.feeCurrency,
+    this.feeSource,
+  });
+  final String bankCurrency, rateKind;
+  final String? basis, originalAmount, originalCurrency, billedAmount;
+  final String? bankAmount, rate, feeAmount, feeCurrency, feeSource;
+
+  /// `bank`, `missing` or `confirmed`.
+  String get reading {
+    if (basis == 'owner_confirmed') return 'confirmed';
+    if (basis == 'missing' || originalAmount == null) return 'missing';
+    return 'bank';
+  }
+
+  factory MatchFx.fromJson(JsonReader r) => MatchFx(
+        bankCurrency: r.optString('bank_currency') ?? '',
+        rateKind: r.optString('rate_kind') ?? 'not_stated',
+        basis: r.optString('basis'),
+        originalAmount: r.optString('original_amount'),
+        originalCurrency: r.optString('original_currency'),
+        billedAmount: r.optString('billed_amount'),
+        bankAmount: r.optString('bank_amount'),
+        rate: r.optString('rate'),
+        feeAmount: r.optString('fee_amount'),
+        feeCurrency: r.optString('fee_currency'),
+        feeSource: r.optString('fee_source'),
+      );
+}
+
 class MatchRecordItem {
   const MatchRecordItem({
     required this.id,
@@ -149,6 +193,7 @@ class MatchRecordItem {
     this.competitors = 0,
     this.flags = const [],
     this.evidence = const [],
+    this.fx,
   });
   final String id, kind, label, amount, currency, outcome, evidenceState;
   final String reasonCode, confidence;
@@ -156,6 +201,7 @@ class MatchRecordItem {
   final int version, competitors;
   final List<String> flags;
   final List<MatchEvidence> evidence;
+  final MatchFx? fx;
 
   bool get waiting => outcome == 'review' || outcome == 'stale';
   bool get undoable =>
@@ -181,6 +227,10 @@ class MatchRecordItem {
         flags: [...?r.optStrings('flags')],
         evidence: r.optObjects('evidence',
             (e) => MatchEvidence(e.string('code'), e.optString('value'))),
+        fx: switch (r.optObject('fx')) {
+          final JsonReader fx => MatchFx.fromJson(fx),
+          null => null,
+        },
       );
 }
 

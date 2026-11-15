@@ -94,7 +94,9 @@ def load(context: TenantContext) -> Links:
             entry = live_entry(sms.chain(context, link.canonical_id))
             if entry is None:
                 continue
-            payments.append(DebtPayment(debt_id=link.target_id, amount=link.amount, currency=link.currency, posted_on=entry.posted_on,
+            # What the link paid of the debt, in the debt's currency (a payment across currencies counts what it settled).
+            payments.append(DebtPayment(debt_id=link.target_id, amount=link.settled_amount if link.settled_currency else link.amount,
+                                        currency=link.settled_currency or link.currency, posted_on=entry.posted_on,
                                         matched_at=link.created_at, canonical_id=link.canonical_id, link_id=link.id))
         loan_rows, lending = _lending(sms, links, context)
         slip_rows, _ = links.list_links(context, canonical_id=None, dimension=PAYSLIP_DIMENSION, target_type=None, target_id=None,

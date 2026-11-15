@@ -1716,3 +1716,13 @@ def test_pf_budget_rollover_migration_adds_one_defaulted_column_and_nothing_else
     assert "server_default=sa.text(\"'[]'::jsonb\")" in upgrade
     assert "drop" not in upgrade and "alter_column" not in upgrade and "policy" not in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
+def test_pf_fx_matching_migration_is_expand_only_with_nullable_columns_and_checks() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0188_pf_fx_matching.py").read_text(encoding="utf-8")
+    assert 'revision = "0188_pf_fx_matching"' in revision_text and len("0188_pf_fx_matching") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: nullable columns on two tables that already have forced RLS, and checks on the new columns only.
+    assert "op.drop_column" not in upgrade and "op.drop_table" not in upgrade and "alter_column" not in upgrade and "create_table" not in upgrade
+    assert upgrade.count("op.add_column(") == 4 and upgrade.count("nullable=true") == 4
+    assert "ck_finance_links_settled_pair" in upgrade and "settled_currency <> currency" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "policy" not in upgrade

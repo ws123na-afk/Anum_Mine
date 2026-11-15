@@ -2,9 +2,9 @@
 // Every figure is the API's; the web never works out a rate.
 import type { FinanceTransactionFx } from '@anum/contracts';
 
-/** Whether the drawer shows the FX section: a foreign purchase, a fee to read with it, or an own transfer in two currencies. */
-export function showsFx(view: Pick<FinanceTransactionFx, 'foreign' | 'fee' | 'transfer'> | null): boolean {
-  return Boolean(view && (view.foreign || view.fee || view.transfer));
+/** Whether the drawer shows the FX section: a foreign purchase, a fee to read with it, an own transfer in two currencies, or a bill or debt it paid in another currency. */
+export function showsFx(view: Pick<FinanceTransactionFx, 'foreign' | 'fee' | 'transfer' | 'settles'> | null): boolean {
+  return Boolean(view && (view.foreign || view.fee || view.transfer || (view.settles?.length ?? 0) > 0));
 }
 
 /** The message key of the rate line: printed, from a column, worked out from the two amounts, or not stated. */

@@ -32,6 +32,7 @@ from . import capture_health as CH
 from . import matching as E
 from . import matching_service as MS
 from .api import _audit, _invalid, _manage, _read
+from . import links as K
 from .links_api import refusals
 from .match_policy import MatchingPolicy, SourceKind
 from .match_store import BackfillRun, MatchRecord
@@ -268,8 +269,8 @@ def installment_status(context: TenantContext = Depends(tenant_context)) -> Inst
         due_amount = max(e.amount - e.refunded_amount, Decimal(0))
         target = bill_target_id(bill.id, e.due_on) if bill is not None else None
         live = by_target.get(target or "", [])
-        active = [l for l in live if l.status == LinkStatus.ACTIVE and l.currency == e.currency]
-        paid = sum((l.amount or Decimal(0) for l in active), Decimal(0))
+        active = [l for l in live if l.status == LinkStatus.ACTIVE and K.settled_currency(l) == e.currency]
+        paid = sum((K.settled(l, e.currency) for l in active), Decimal(0))
         provisional = [l for l in live if l.status == LinkStatus.NEEDS_REVIEW]
         record = record_for.get(target or "")
         days = (e.due_on - today).days

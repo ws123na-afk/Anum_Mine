@@ -15,6 +15,11 @@ describe('card FX details', () => {
     assert.equal(showsFx({ foreign: false, fee: null, transfer: null }), false);
     assert.equal(showsFx({ foreign: true, fee: null, transfer: null }), true);
     assert.equal(showsFx({ foreign: false, fee, transfer: null }), true);
+    // A payment that settled a bill in another currency shows what it paid, even without a printed original amount.
+    const settles = [{ link_id: 'fin_link_a', dimension: 'bill' as const, target_id: 'fin_bill_a:2026-11-15', label: 'Example', settled_amount: '100.00',
+      settled_currency: 'USD', bank_amount: '375.00', bank_currency: 'SAR', status: 'active' as const, basis: 'owner_confirmed' as const }];
+    assert.equal(showsFx({ foreign: false, fee: null, transfer: null, settles }), true);
+    assert.equal(showsFx({ foreign: false, fee: null, transfer: null, settles: [] }), false);
   });
   it('never presents a rate that was not stated', () => {
     assert.equal(rateKey({ rate: null, rate_kind: 'not_stated' }), 'ffx.rate.notStated');

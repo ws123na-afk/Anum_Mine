@@ -60,6 +60,21 @@ class TransferView(BaseModel):
     policy: str = "The difference is shown, never posted: it is neither spending nor income."
 
 
+class FxSettlement(BaseModel):
+    """A bill or debt this payment paid in another currency (docs/finance-matching.md#across-currencies)."""
+
+    link_id: str
+    dimension: str  # bill or debt
+    target_id: str
+    label: str | None
+    settled_amount: Decimal  # in the obligation's currency, as the bank printed it
+    settled_currency: str
+    bank_amount: Decimal | None  # the part of this payment it used, in the account's currency (an FX fee left out)
+    bank_currency: str | None
+    status: str  # active or needs_review
+    basis: str  # bank_figures or owner_confirmed (no original amount: the owner linked it)
+
+
 class FxView(BaseModel):
     transaction_id: str
     foreign: bool
@@ -78,18 +93,39 @@ class FxView(BaseModel):
     plan_hash: str
     can_correct: bool  # False for SMS and Apple Pay rows (corrected under iPhone SMS, Review)
     transfer: TransferView | None = None
+    settles: list[FxSettlement] = Field(default_factory=list)
+
+
+def _settles(finance: Any, sms: Any, links: Any, context: TenantContext, entry: Any) -> list[FxSettlement]:
+    """The links of this payment that settle a bill or debt in another currency, with the obligation's name."""
+    from .commitments import parse_bill_target
+    from .links_store import LinkStatus
+
+    if entry is None:
+        return []
+    rows, _ = links.list_links(context, canonical_id=entry.canonical_id or entry.id, dimension=None, target_type=None, target_id=None, status=None,
+                               limit=50, offset=0)
+    out: list[FxSettlement] = []
+    for link in rows:
+        if link.status == LinkStatus.VOID or not link.settled_currency or link.settled_amount is None:
+            continue
+        label = None
+        if link.dimension == "bill":
+            parsed = parse_bill_target(link.target_id)
+            item = finance.get_item(context, "bill", parsed[0]) if parsed else None
+            label = getattr(item, "name", None)
+        elif link.dimension == "debt":
+            label = getattr(finance.get_item(context, "debt", link.target_id), "name", None)
+        fx = link.fx or {}
+        out.append(FxSettlement(link_id=link.id, dimension=link.dimension, target_id=link.target_id, label=label, settled_amount=link.settled_amount,
+                                settled_currency=link.settled_currency, bank_amount=link.amount, bank_currency=link.currency,
+                                status=getattr(link.status, "value", link.status),
+                                basis="owner_confirmed" if fx.get("basis") == "owner_confirmed" else "bank_figures"))
+    return out
 
 
 def _row(t: Transaction, entry: Any) -> C.Row:
-    source = "statement" if t.import_id else "manual"
-    original = original_currency = rate = fee = None
-    if entry is not None:
-        original, original_currency = entry.original_amount, entry.original_currency  # also kept for a statement row's printed original
-        if str(getattr(entry.source, "value", entry.source)) in SMS_SOURCES:
-            source, rate, fee = "sms", entry.fx_rate, entry.fx_fee
-    return C.Row(id=t.id, account_id=t.account_id, posted_on=t.posted_on, amount=t.amount, currency=t.currency, description=t.description,
-                 notes=t.notes, source=source, original_amount=original, original_currency=original_currency, sms_rate=rate, sms_fee=fee,
-                 transaction_type=t.transaction_type.value if t.transaction_type else None, related_transaction_id=t.related_transaction_id)
+    return C.row_for(t, entry)
 
 
 def _read_all(finance: Any, sms: Any, links: Any, context: TenantContext, transaction_id: str) -> tuple[Transaction, Any, C.Details, list[Transaction]]:
@@ -139,7 +175,7 @@ def _transfer(finance: Any, sms: Any, links: Any, context: TenantContext, t: Tra
                         valued_at=found.valued_at, difference=found.difference)
 
 
-def _view(found: C.Details, entry: Any, transfer: TransferView | None) -> FxView:
+def _view(found: C.Details, entry: Any, transfer: TransferView | None, settles: list[FxSettlement] | None = None) -> FxView:
     fee = found.fee
     source = str(getattr(entry.source, "value", entry.source)) if entry is not None else "manual"
     return FxView(
@@ -149,6 +185,7 @@ def _view(found: C.Details, entry: Any, transfer: TransferView | None) -> FxView
         fee=FeeView(amount=fee.amount, currency=fee.currency, source=fee.source, transaction_id=fee.transaction_id, markup_percent=fee.markup_percent,
                     included_in_billed=fee.included_in_billed, linked=fee.linked) if fee else None,
         split=found.split, notes=found.notes, plan_hash=C.plan_hash(found), can_correct=source not in SMS_SOURCES, transfer=transfer,
+        settles=settles or [],
     )
 
 
@@ -160,7 +197,8 @@ def transaction_fx(transaction_id: str, context: TenantContext = Depends(tenant_
     with open_link_stores(context) as (finance, sms, links):
         t, entry, found, _near = _read_all(finance, sms, links, context, transaction_id)
         transfer = _transfer(finance, sms, links, context, t, entry)
-    return _view(found, entry, transfer)
+        settles = _settles(finance, sms, links, context, entry)
+    return _view(found, entry, transfer, settles)
 
 
 class SeparateInput(BaseModel):

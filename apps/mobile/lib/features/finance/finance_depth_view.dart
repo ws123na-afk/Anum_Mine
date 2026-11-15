@@ -1050,6 +1050,23 @@ class _FxSectionState extends State<FxSection> {
         Text(d.t('fx.transfer.policy'), style: muted),
       ]);
     }
+    if (v.settles.isNotEmpty) {
+      children.addAll([
+        Text(d.t('fx.settles.title'),
+            key: const Key('fx-settles'),
+            style: Theme.of(context).textTheme.titleSmall),
+        for (final s in v.settles)
+          Text([
+            d.t('fx.settles.item', {
+              'settled': money(s.settledAmount, s.settledCurrency),
+              'label': s.label ?? d.t('fx.settles.unnamed'),
+              'bank': money(s.bankAmount, s.bankCurrency),
+            }),
+            if (s.basis == 'owner_confirmed') d.t('fx.settles.confirmed'),
+            if (s.status == 'needs_review') d.t('fx.settles.review'),
+          ].join(' · ')),
+      ]);
+    }
     if (_notice != null) {
       children.add(Semantics(
         liveRegion: true,

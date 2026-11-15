@@ -215,6 +215,11 @@ class FinanceDepthStrings extends ModuleStrings {
         'No earlier rate on record, so only the realised rate is shown.',
     'fx.transfer.policy':
         'The difference is shown here, never posted: it counts as neither spending nor income.',
+    'fx.settles.title': 'Paid in another currency',
+    'fx.settles.item': '{settled} of {label}, using {bank} of this payment',
+    'fx.settles.unnamed': 'a bill or debt',
+    'fx.settles.confirmed': 'linked by you without an original amount',
+    'fx.settles.review': 'waiting for review',
   };
 
   static const _ar = <String, String>{
@@ -406,5 +411,10 @@ class FinanceDepthStrings extends ModuleStrings {
         'لا يوجد سعر سابق مسجل، لذلك يظهر السعر المحقق فقط.',
     'fx.transfer.policy':
         'يظهر الفرق هنا ولا يرحل أبدا: لا يحتسب إنفاقا ولا دخلا.',
+    'fx.settles.title': 'دُفعت بعملة أخرى',
+    'fx.settles.item': '{settled} من {label}، باستخدام {bank} من هذه الدفعة',
+    'fx.settles.unnamed': 'فاتورة أو دين',
+    'fx.settles.confirmed': 'ربطتها أنت دون مبلغ أصلي',
+    'fx.settles.review': 'بانتظار المراجعة',
   };
 }

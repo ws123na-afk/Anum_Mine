@@ -43,6 +43,9 @@ class FinanceLinkRecord(Base):
     target_workspace_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    settled_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)  # 0188_pf_fx_matching
+    settled_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    fx: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(String(14))
     status_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
     source_event_ids: Mapped[list[str]] = mapped_column(JSONB)
@@ -122,6 +125,7 @@ class FinanceMatchRecordRow(Base):
     run_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     link_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
+    fx: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)  # 0188_pf_fx_matching
     decided_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
@@ -405,7 +409,7 @@ def _json_values(model: Any) -> dict[str, Any]:
     """Column values, with nested models (evidence) and dictionaries as JSON."""
     dumped = model.model_dump(mode="json")
     out = _values(model)
-    for key in ("evidence", "flags", "counts"):
+    for key in ("evidence", "flags", "counts", "fx"):
         if key in out:
             out[key] = dumped[key]
     return out

@@ -446,8 +446,9 @@ def debt_payments(
     items: list[DebtPayment] = []
     for link in rows:
         entry = entries.get(link.canonical_id)
-        if link.status == LinkStatus.ACTIVE and link.amount is not None and link.currency:
-            paid[(link.target_id, link.currency)] = paid.get((link.target_id, link.currency), Decimal(0)) + link.amount
+        ccy = K.settled_currency(link)
+        if link.status == LinkStatus.ACTIVE and link.amount is not None and ccy:
+            paid[(link.target_id, ccy)] = paid.get((link.target_id, ccy), Decimal(0)) + K.settled(link, ccy)
         debt = debts.get(link.target_id)
         items.append(DebtPayment(
             link_id=link.id, debt_id=link.target_id, debt_name=debt.name if debt else None, canonical_id=link.canonical_id,

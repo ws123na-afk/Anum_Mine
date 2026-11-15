@@ -98,6 +98,12 @@ class BillOccurrence(BaseModel):
     canonical_ids: list[str]
 
 
+def _settled(link: FinanceLink, currency: str) -> Decimal:
+    from .links import settled as _s
+
+    return _s(link, currency)
+
+
 def occurrence_status(due_on: date, today: date, links: list[FinanceLink]) -> OccurrenceStatus:
     """Paid only with an active matched payment; a match waiting for review is ``review``; else by date."""
     if any(l.status == LinkStatus.ACTIVE for l in links):
@@ -126,7 +132,8 @@ def bill_schedule(bills: list[Bill], links: list[FinanceLink], today: date, star
             matched = by_target.get(bill_target_id(bill.id, due), [])
             if not bill.active and not matched:
                 continue
-            paid = sum((l.amount or Decimal(0) for l in matched if l.status == LinkStatus.ACTIVE and l.currency == bill.currency), Decimal(0))
+            # In the bill's own currency: a payment from an account in another currency counts what it settled (links.settled).
+            paid = sum((_settled(l, bill.currency) for l in matched if l.status == LinkStatus.ACTIVE), Decimal(0))
             rows.append(BillOccurrence(
                 bill_id=bill.id, name=bill.name, category=bill.category, cadence=bill.cadence, account_id=bill.account_id,
                 due_on=due, days_until=(due - today).days, expected=bill.amount, currency=bill.currency,

@@ -20,6 +20,13 @@ other payment for this obligation at review level), and nothing flags it (a poss
 payment, a refund or reversal after it, a changed source). Two installments of the same amount on one day from two
 orders, with nothing to tell them apart, always wait for the owner. Within one order the oldest unpaid installment is
 the one paid (providers collect in order), so a debit that fits several installments of the same order picks that one.
+
+**Across currencies** (docs/finance-matching.md#across-currencies): a debit in the account's currency pays an obligation
+in another currency only on the bank's own figures (``FxEvidence``, read by ``card_fx.details``): the original amount
+the bank printed is compared with what is due, the obligation is settled in its own currency, the bank side stays the
+purchase in the account's currency, and an FX fee or markup stays apart (never part of what the obligation was paid).
+No rate is looked up or guessed: a debit whose original amount is not known, but whose provider, order, merchant or
+loan account points at the obligation, waits for the owner (``fx_evidence_missing``).
 """
 
 from __future__ import annotations
@@ -100,6 +107,39 @@ def names_order(text: str | None, order_ref: str | None) -> bool:
 
 
 @dataclass(frozen=True)
+class FxEvidence:
+    """What the bank's figures say about a foreign purchase (``card_fx.Details``): never a rate ANUM chose."""
+
+    original_currency: str
+    original_amount: Decimal | None  # None: the bank named the currency but not the amount
+    billed_amount: Decimal  # what the bank charged, in the account's currency
+    purchase_amount: Decimal  # the billed amount less an FX fee the bank included in it
+    rate: Decimal | None = None
+    rate_kind: str = "not_stated"  # printed, column, implied, not_stated
+    rate_source: str | None = None  # statement, sms, manual
+    rate_date: date | None = None
+    fee_amount: Decimal | None = None
+    fee_source: str | None = None  # fee_row, markup_stated, fee_stated
+    fee_transaction_id: str | None = None
+
+    @property
+    def sufficient(self) -> bool:
+        return self.original_amount is not None and self.original_amount > 0 and self.purchase_amount > 0
+
+    def as_dict(self, bank_currency: str, bank_amount: Decimal | None) -> dict[str, str | None]:
+        """The evidence stored with the decision and the link (strings only)."""
+
+        def s(v: object) -> str | None:
+            return None if v is None else str(v)
+
+        return {"original_amount": s(self.original_amount), "original_currency": self.original_currency, "billed_amount": s(self.billed_amount),
+                "purchase_amount": s(self.purchase_amount), "bank_amount": s(bank_amount), "bank_currency": bank_currency, "rate": s(self.rate),
+                "rate_kind": self.rate_kind, "rate_source": self.rate_source, "rate_date": s(self.rate_date), "fee_amount": s(self.fee_amount),
+                "fee_currency": bank_currency if self.fee_amount is not None else None, "fee_source": self.fee_source,
+                "fee_transaction_id": self.fee_transaction_id}
+
+
+@dataclass(frozen=True)
 class Payment:
     """One canonical transaction as the matcher sees it, on the account that paid."""
 
@@ -119,6 +159,7 @@ class Payment:
     original_currency: str | None = None
     original_amount: Decimal | None = None
     left: dict[str, Decimal] = field(default_factory=dict)  # what is still unlinked per dimension (bill, debt)
+    fx: FxEvidence | None = None  # the bank's conversion figures, for a purchase made in another currency
 
     @property
     def fingerprint(self) -> str:
@@ -172,6 +213,9 @@ WEIGHTS: dict[str, Decimal] = {
     "liability_account": Decimal("0.45"),
     "repayment_kind": Decimal("0.10"),
     "bank_reference": Decimal("0.05"),
+    "fx_original": Decimal(0),  # the bank's conversion (a fact shown with the match, not a weight: the amount carries it)
+    "fx_fee": Decimal(0),  # an FX fee kept apart from what the obligation was paid
+    "fx_evidence_missing": Decimal(0),
 }
 MAX_SCORE = Decimal("0.99")
 PARTIAL_MIN = Decimal("0.1")  # a part below a tenth of what is due is not a part payment of it
@@ -190,7 +234,10 @@ class Candidate:
     score: Decimal
     evidence: list[EvidenceItem]
     exact: bool
-    amount: Decimal  # what this pair would link
+    amount: Decimal  # what this pair would link, in the obligation's currency
+    bank_amount: Decimal | None = None  # across currencies: the bank side, in the payment's currency (the FX fee left out)
+    fx: FxEvidence | None = None
+    fx_missing: bool = False  # another currency and no original amount from the bank: review only, never linked on its own
 
 
 def _ev(code: str, value: str | None = None) -> EvidenceItem:
@@ -205,11 +252,23 @@ def score(p: Payment, o: Obligation) -> Candidate | None:
     """The pair's score and evidence, or None when a gate rules it out."""
     if p.direction != "out" or o.expected <= 0:
         return None
-    if p.currency != o.currency:
-        return None  # never across currencies: the link would be in another currency than the payment (no invented rate)
     left = p.left.get(o.dimension, p.amount)
     if left <= 0:
         return None
+    fx: FxEvidence | None = None
+    fx_missing = False
+    if p.currency != o.currency:
+        # Across currencies only on the bank's own figures; a card is repaid in its own currency (an own transfer).
+        if o.kind == "card_repayment":
+            return None
+        if p.fx is not None and p.fx.original_currency != o.currency:
+            return None  # the bank names another original currency
+        if p.fx is not None and p.fx.sufficient:
+            if left < p.amount:
+                return None  # part of this foreign purchase is already linked: it is never split on a guessed rate
+            fx = p.fx
+        else:
+            fx_missing = True
     is_debt = o.kind in ("card_repayment", "bank_loan")
     if (p.own_transfer or p.txn_type == "internal_transfer" or p.kind == "own_transfer") and not is_debt:
         return None  # moving money between own accounts pays no bill
@@ -269,15 +328,31 @@ def score(p: Payment, o: Obligation) -> Candidate | None:
                 add("merchant_conflict")
             if o.history_words and merchant_words(p.text) & o.history_words:
                 add("history")
-    # The amount: exact, or a part of what is due (never more: a combined payment is found separately).
-    exact = left == o.expected if o.kind != "card_repayment" else left <= o.expected
-    amount = min(left, o.expected)
-    if exact:
-        add("amount_exact", f"{o.currency} {amount}")
-    elif left < o.expected and left >= o.expected * PARTIAL_MIN and o.kind != "card_repayment":
-        add("amount_partial", f"{o.currency} {left} of {o.expected}")
+    bank_amount: Decimal | None = None
+    if fx_missing:
+        # No original amount: only what names this obligation (provider, order, merchant, loan account) makes it a candidate.
+        if not {e.code for e in evidence} & {"provider", "order_reference", "merchant_words", "liability_account"}:
+            return None
+        add("fx_evidence_missing", f"{p.currency} {p.amount} for {o.currency} {o.expected}")
+        exact, amount = False, o.expected
     else:
-        return None
+        if fx is not None and fx.original_amount is not None:
+            # The bank's original amount is what was paid of the obligation, in its currency; the bank side is the purchase.
+            left = fx.original_amount
+            bank_amount = fx.purchase_amount
+            add("fx_original", f"{o.currency} {fx.original_amount} = {p.currency} {fx.billed_amount}"
+                + (f" at {fx.rate} ({fx.rate_kind})" if fx.rate is not None else ""))
+            if fx.fee_amount is not None and fx.fee_amount > 0:
+                add("fx_fee", f"{p.currency} {fx.fee_amount} ({fx.fee_source})")
+        # The amount: exact, or a part of what is due (never more: a combined payment is found separately).
+        exact = left == o.expected if o.kind != "card_repayment" else left <= o.expected
+        amount = min(left, o.expected)
+        if exact:
+            add("amount_exact", f"{o.currency} {amount}")
+        elif left < o.expected and left >= o.expected * PARTIAL_MIN and o.kind != "card_repayment":
+            add("amount_partial", f"{o.currency} {left} of {o.expected}")
+        else:
+            return None
     if o.kind != "card_repayment":
         close = -1 <= days <= (CLOSE_AFTER_INSTALLMENT if o.kind == "installment" else 1)
         add("date_close" if close else "date_window", f"{days:+d}d")
@@ -288,7 +363,7 @@ def score(p: Payment, o: Obligation) -> Candidate | None:
             add("account_conflict")
     if p.reference:
         add("bank_reference")
-    return Candidate(p, o, min(max(total, Decimal(0)), MAX_SCORE).quantize(Decimal("0.001")), evidence, exact, amount)
+    return Candidate(p, o, min(max(total, Decimal(0)), MAX_SCORE).quantize(Decimal("0.001")), evidence, exact, amount, bank_amount, fx, fx_missing)
 
 
 # -- signals over the whole set ----------------------------------------------------------------------------------
@@ -412,7 +487,9 @@ def decide(payments: list[Payment], obligations: list[Obligation], policy: Match
     scored: dict[str, list[Candidate]] = {}
     by_target: dict[str, list[Candidate]] = {}
     for p in payments:
-        cands = [c for o in obligations if (c := score(p, o)) is not None and c.score >= policy.review_confidence]
+        cands = [c for o in obligations if (c := score(p, o)) is not None and (c.score >= policy.review_confidence or c.fx_missing)]
+        if any(not c.fx_missing for c in cands):
+            cands = [c for c in cands if not c.fx_missing]  # an obligation the bank's figures fit beats one that only names it
         named = [c for c in cands if any(e.code == "order_reference" for e in c.evidence)]
         if named:
             cands = named  # the bank text quotes the order: other orders are not candidates
@@ -446,7 +523,9 @@ def decide(payments: list[Payment], obligations: list[Obligation], policy: Match
         rivals_here = len(cands) - 1
         rivals_there = [c for c in by_target.get(_slot(best), []) if c.payment.canonical_id != p.canonical_id]
         competitors = rivals_here + len(rivals_there)
-        if rivals_here:
+        if best.fx_missing:
+            reason, outcome = "fx_evidence_missing", "review"  # another currency without the bank's original amount
+        elif rivals_here:
             reason, outcome = "ambiguous_obligation", "review"
         elif rivals_there:
             twins = [c for c in rivals_there if duplicates.get(c.payment.canonical_id) == p.canonical_id
@@ -483,6 +562,8 @@ def _auto_ok(p: Payment, o: Obligation, confidence: Decimal, policy: MatchingPol
 
 def _auto_reason(c: Candidate) -> str:
     codes = {e.code for e in c.evidence}
+    if c.fx is not None:
+        return "fx_original_amount"
     if "order_reference" in codes:
         return "order_reference_match"
     if "liability_account" in codes:
@@ -503,6 +584,7 @@ def _review_reason(p: Payment, c: Candidate, policy: MatchingPolicy) -> str:
 __all__ = [
     "Candidate",
     "Decision",
+    "FxEvidence",
     "InstallmentProvider",
     "Obligation",
     "Payment",

@@ -98,6 +98,23 @@ class Details:
     notes: list[str] = field(default_factory=list)  # codes: rate_not_stated, fee_not_provably_included, fee_already_separated
 
 
+SMS_SOURCES = frozenset({"sms", "correction", "clearing"})
+
+
+def row_for(t: Any, entry: Any) -> Row:
+    """The reader's row for a stored transaction and its journal entry (the entry keeps an SMS's original amount, rate and fee)."""
+    source = "statement" if getattr(t, "import_id", None) else "manual"
+    original = original_currency = rate = fee = None
+    if entry is not None:
+        original, original_currency = entry.original_amount, entry.original_currency  # also kept for a statement row's printed original
+        if str(getattr(entry.source, "value", entry.source)) in SMS_SOURCES:
+            source, rate, fee = "sms", entry.fx_rate, entry.fx_fee
+    kind = getattr(t, "transaction_type", None)
+    return Row(id=t.id, account_id=t.account_id, posted_on=t.posted_on, amount=t.amount, currency=t.currency, description=t.description,
+               notes=t.notes, source=source, original_amount=original, original_currency=original_currency, sms_rate=rate, sms_fee=fee,
+               transaction_type=getattr(kind, "value", kind) if kind else None, related_transaction_id=t.related_transaction_id)
+
+
 def parse_notes(notes: str | None) -> dict[str, Any]:
     """The FX facts the importers wrote into a row's notes (``csv_import`` and ``pdf_api``)."""
     text = notes or ""
@@ -292,4 +309,5 @@ def transfer_fx(out_amount: Decimal, out_currency: str, in_amount: Decimal, in_c
     return found
 
 
-__all__ = ["Details", "Fee", "Row", "TransferFx", "details", "fee_row_for", "is_fee_row", "parse_notes", "plan_hash", "stated_markup", "transfer_fx"]
+__all__ = ["SMS_SOURCES", "Details", "Fee", "Row", "TransferFx", "details", "fee_row_for", "is_fee_row", "parse_notes", "plan_hash", "row_for",
+           "stated_markup", "transfer_fx"]

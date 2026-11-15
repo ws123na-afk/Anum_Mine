@@ -1,6 +1,7 @@
 // FX details in the transaction drawer (docs/finance.md#card-fx-and-fees): the original and billed amounts, the rate with its
 // date and source (never guessed: "rate not stated" when only the billed amount exists), the bank's FX fee or markup, and for an
-// own transfer in two currencies the realised rate and FX difference. Separating a fee is the owner's step, with the figures shown.
+// own transfer in two currencies the realised rate and FX difference, and the bills or debts it paid in another currency
+// (docs/finance-matching.md#across-currencies). Separating a fee is the owner's step, with the figures shown.
 import { useCallback, useEffect, useId, useState } from 'react';
 import { ArrowLeftRight, Scissors } from 'lucide-react';
 import type { FinanceTransactionFx } from '@anum/contracts';
@@ -73,6 +74,15 @@ export function FxDetails({ transactionId, onChanged }: { transactionId: string;
         : <div><dt>{t('ffx.transfer.difference')}</dt><dd className="muted">{t('ffx.transfer.noValuation')}</dd></div>}
     </dl>}
     {v.transfer && <p className="muted ffxPolicy">{t('ffx.transfer.policy')}</p>}
+    {(v.settles?.length ?? 0) > 0 && <div className="ffxSettles">
+      <h4>{t('ffx.settles.title')}</h4>
+      <ul>{v.settles!.map((s) => <li key={s.link_id}>
+        {t('ffx.settles.item', { settled: money(s.settled_amount, s.settled_currency), label: s.label ?? t('ffx.settles.unnamed'),
+          bank: money(s.bank_amount, s.bank_currency) })}
+        {s.basis === 'owner_confirmed' && <> <small className="muted">{t('ffx.settles.confirmed')}</small></>}
+        {s.status === 'needs_review' && <> <StatusChip tone="warn">{t('ffx.settles.review')}</StatusChip></>}
+      </li>)}</ul>
+    </div>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {action && <button type="button" className="secondary" disabled={busy} onClick={() => setAsking(true)}><Scissors aria-hidden="true" />{t(`ffx.${action}.button` as MessageKey)}</button>}
     {v.fee && !v.can_correct && v.split !== 'done' && <p className="muted">{t('ffx.smsCorrect')}</p>}

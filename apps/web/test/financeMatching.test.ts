@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { FinanceMatchingPolicy } from '@anum/contracts';
 import {
-  COUNT_KEYS, REVIEW_TABS, SOURCES, SWITCHES, canApplyHistory, installmentTone, linksOnItsOwn, percent, policyChanged, policyInput, reasonKey, runProgress,
+  COUNT_KEYS, REVIEW_TABS, SOURCES, SWITCHES, canApplyHistory, fxBasis, installmentTone, linksOnItsOwn, percent, policyChanged, policyInput, reasonKey, runProgress,
   shownCounts,
 } from '../src/lib/financeMatching.ts';
 import { NEVER_AUTOMATED } from '../src/lib/financeSuggestions.ts';
@@ -77,5 +77,23 @@ describe('matching words and figures', () => {
       assert.ok(!/[–—]/.test(String(text)) && !/[–—]/.test(String(arabic)), key);
     }
     assert.equal(Object.keys(financeMatchingAr).length, Object.keys(financeMatchingEn).length);
+  });
+});
+
+describe('matches across currencies', () => {
+  const bank = { original_amount: '100.00', original_currency: 'USD', bank_amount: '375.00', bank_currency: 'SAR', rate: '3.75', rate_kind: 'implied' as const };
+  it('reads the bank figures, a missing original amount and an owner confirmation apart, and nothing for one currency', () => {
+    assert.equal(fxBasis(null), null);
+    assert.equal(fxBasis(undefined), null);
+    assert.equal(fxBasis(bank), 'bank');
+    assert.equal(fxBasis({ ...bank, original_amount: null, rate: null, rate_kind: 'not_stated' }), 'missing');
+    assert.equal(fxBasis({ ...bank, basis: 'missing' }), 'missing');
+    assert.equal(fxBasis({ ...bank, basis: 'owner_confirmed', original_amount: null, rate: null, rate_kind: 'not_stated' }), 'confirmed');
+  });
+  it('has the words for the new reasons and evidence in both languages', () => {
+    for (const key of ['fmatch.reason.fx_original_amount', 'fmatch.reason.fx_evidence_missing', 'fmatch.evidence.fx_original', 'fmatch.evidence.fx_fee',
+      'fmatch.evidence.fx_evidence_missing', 'fmatch.fx.pays', 'fmatch.fx.missing', 'fmatch.fx.confirmed'] as const) {
+      assert.ok(financeMatchingEn[key] && financeMatchingAr[key], key);
+    }
   });
 });

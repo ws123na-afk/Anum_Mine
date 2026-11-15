@@ -156,6 +156,28 @@ class LinkRequest:
     currency: str | None = None
     document_id: str | None = None
     idempotency_key: str | None = None
+    # Across currencies (docs/finance-matching.md#across-currencies): ``amount``/``currency`` stay the bank side; these say
+    # what the link pays of a bill or debt in its own currency, with the conversion evidence it rests on. Never a rate
+    # ANUM looked up: the matching engine sets them only from figures the bank printed.
+    settled_amount: Decimal | None = None
+    settled_currency: str | None = None
+    fx: dict[str, Any] | None = None
+
+
+SETTLED_DIMENSIONS = ("bill", "debt")
+
+
+def settled(link: Any, currency: str) -> Decimal:
+    """What a link pays of its target in ``currency``: the settled amount for a link across currencies, else its own
+    amount when it is in that currency, else nothing (two currencies are never added together)."""
+    if getattr(link, "settled_currency", None):
+        return (link.settled_amount or Decimal(0)) if link.settled_currency == currency else Decimal(0)
+    return (link.amount or Decimal(0)) if link.currency == currency else Decimal(0)
+
+
+def settled_currency(link: Any) -> str | None:
+    """The currency a link pays its target in."""
+    return getattr(link, "settled_currency", None) or link.currency
 
 
 def _validate(request: LinkRequest) -> LinkRequest:
@@ -181,6 +203,20 @@ def _validate(request: LinkRequest) -> LinkRequest:
     if amount <= 0:
         raise LinkError(422, "The amount must be more than zero.", "invalid_amount")
     request.amount, request.currency = amount, currency
+    if request.settled_amount is not None or request.settled_currency is not None:
+        if request.dimension not in SETTLED_DIMENSIONS or request.role != "payment":
+            raise LinkError(422, "Only a payment of a bill or a debt can settle another currency.", "settled_not_allowed")
+        if request.settled_amount is None or request.settled_currency is None or not request.fx:
+            raise LinkError(422, "A payment in another currency needs the settled amount, its currency and the bank's figures.", "fx_evidence_missing")
+        try:
+            settled_ccy = normalize_currency(request.settled_currency)
+            settled_amount = quantize(Decimal(str(request.settled_amount)), settled_ccy)
+        except (MoneyError, ArithmeticError, ValueError):
+            raise LinkError(422, "The settled amount or currency is not valid.", "invalid_amount") from None
+        if settled_amount <= 0 or settled_ccy == currency:
+            raise LinkError(422, "The settled amount must be more than zero and in another currency than the payment.", "invalid_amount")
+        request.settled_amount, request.settled_currency = settled_amount, settled_ccy
+        request.fx = {str(k)[:40]: (None if v is None else str(v)[:80]) for k, v in list(request.fx.items())[:20]}
     return request
 
 
@@ -218,7 +254,8 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
         if existing is not None:
             same = (existing.canonical_id == request.canonical_id and existing.dimension == request.dimension and existing.role == request.role
                     and existing.target_type == request.target_type and existing.target_id == request.target_id
-                    and existing.amount == request.amount and existing.currency == request.currency)
+                    and existing.amount == request.amount and existing.currency == request.currency
+                    and existing.settled_amount == request.settled_amount and existing.settled_currency == request.settled_currency)
             if not same:
                 raise LinkError(409, "This idempotency key was used for a different link.", "idempotency_conflict")
             return Created(existing, replayed=True)
@@ -266,7 +303,8 @@ def _new_link(context: TenantContext, request: LinkRequest, key: str, sources: d
         id=new_id("fin_link"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
         canonical_id=request.canonical_id, dimension=request.dimension, role=request.role, target_type=request.target_type,
         target_id=request.target_id, target_workspace_id=request.target_id if request.dimension == "business" else None,
-        amount=request.amount, currency=request.currency, status=LinkStatus.NEEDS_REVIEW if review else LinkStatus.ACTIVE,
+        amount=request.amount, currency=request.currency, settled_amount=request.settled_amount, settled_currency=request.settled_currency,
+        fx=request.fx, status=LinkStatus.NEEDS_REVIEW if review else LinkStatus.ACTIVE,
         status_reason=review_reason if review else None, document_id=request.document_id,
         source_event_ids=sorted({m.id for rows in sources.values() for m in rows})[:50], idem_key=key, created_by=context.user_id,
         created_at=now, updated_at=now,
@@ -598,6 +636,8 @@ __all__ = [
     "available_dimensions",
     "can_allocate_to",
     "capacity",
+    "settled",
+    "settled_currency",
     "carry_forward",
     "confirm",
     "create",

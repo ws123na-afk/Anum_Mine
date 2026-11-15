@@ -55,6 +55,12 @@ class FinanceLink(BaseModel):
     target_workspace_id: str | None = None
     amount: Decimal | None = None
     currency: str | None = None
+    # Across currencies (migration 0188_pf_fx_matching, docs/finance-matching.md#across-currencies): ``amount`` and
+    # ``currency`` stay the bank side (the account's currency, an FX fee left out); ``settled_*`` is what the link pays
+    # of a bill or debt in that obligation's own currency, as the bank printed it; ``fx`` the conversion evidence.
+    settled_amount: Decimal | None = None
+    settled_currency: str | None = None
+    fx: dict[str, Any] | None = None
     status: LinkStatus = LinkStatus.ACTIVE
     status_reason: str | None = None
     source_event_ids: list[str] = Field(default_factory=list)

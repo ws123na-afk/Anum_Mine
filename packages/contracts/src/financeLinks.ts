@@ -1,5 +1,7 @@
 // Finance links and business allocations (docs/finance-links.md). Amounts are decimal strings.
 
+import type { FinanceFxEvidence } from './financeMatching.js';
+
 export type FinanceLinkDimension = 'vehicle' | 'purchase' | 'document' | 'business' | 'trip' | 'project' | 'bill' | 'debt' | 'person_loan' | 'payslip' | 'remittance';
 export type FinanceLinkRole = 'payment' | 'refund' | 'deposit' | 'evidence';
 export type FinanceLinkStatus = 'active' | 'needs_review' | 'void';
@@ -15,6 +17,10 @@ export interface FinanceLink {
   target_workspace_id: string | null;
   amount: string | null;
   currency: string | null;
+  /** Across currencies: what the link paid of a bill or debt in its own currency; ``amount`` stays the bank side. */
+  settled_amount?: string | null;
+  settled_currency?: string | null;
+  fx?: FinanceFxEvidence | null;
   status: FinanceLinkStatus;
   status_reason: string | null;
   source_event_ids: string[];

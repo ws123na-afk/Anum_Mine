@@ -220,7 +220,9 @@ def _status(remaining: Decimal, overdue: Decimal, next_due: date | None, today: 
 
 
 def _review_amount(links: list[Any], target_id: str, currency: str) -> Decimal:
-    return sum((l.amount or Decimal(0) for l in links if l.target_id == target_id and l.currency == currency), Decimal(0))
+    from .links import settled
+
+    return sum((settled(l, currency) for l in links if l.target_id == target_id), Decimal(0))
 
 
 # -- bank and finance loans, and other debts ----------------------------------------------------------------

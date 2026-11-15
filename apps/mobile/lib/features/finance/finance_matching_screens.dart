@@ -298,6 +298,7 @@ class _RecordCard extends StatelessWidget {
         if (item.competitors > 0)
           Text(s.t('others', {'count': item.competitors}),
               style: TextStyle(color: p.muted)),
+        if (item.fx != null) _FxBlock(item: item, fx: item.fx!),
         for (final flag in item.flags)
           Text(s.label('flag', flag), style: TextStyle(color: p.warn)),
         if (item.evidence.isNotEmpty)
@@ -331,6 +332,73 @@ class _RecordCard extends StatelessWidget {
                 child: Text(s.t('undo'))),
         ]),
       ]),
+    );
+  }
+}
+
+/// The bank's conversion figures behind a match across currencies
+/// (docs/finance-matching.md#across-currencies).
+class _FxBlock extends StatelessWidget {
+  const _FxBlock({required this.item, required this.fx});
+  final MatchRecordItem item;
+  final MatchFx fx;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = FinanceMatchingStrings.of(context);
+    final p = context.palette;
+    String money(String? amount, String? currency) =>
+        amount == null || currency == null || currency.isEmpty
+            ? '-'
+            : formatAmount(amount, currency);
+    final settled = money(item.amount, item.currency);
+    final bank = money(fx.bankAmount, fx.bankCurrency);
+    final lines = switch (fx.reading) {
+      'bank' => <Widget>[
+          Text(s.t('fx.pays', {'settled': settled, 'bank': bank})),
+          Text(
+              s.t('fx.original', {
+                'amount': money(
+                    fx.originalAmount, fx.originalCurrency ?? item.currency)
+              }),
+              style: TextStyle(color: p.muted)),
+          if (fx.billedAmount != null)
+            Text(
+                s.t('fx.billed',
+                    {'amount': money(fx.billedAmount, fx.bankCurrency)}),
+                style: TextStyle(color: p.muted)),
+          Text(
+              fx.rate == null || fx.rateKind == 'not_stated'
+                  ? s.t('fx.rateNotStated')
+                  : s.t('fx.rate', {
+                      'rate': fx.rate!,
+                      'kind': s.t('fx.kind.${fx.rateKind}')
+                    }),
+              style: TextStyle(color: p.muted)),
+          if (fx.feeAmount != null)
+            Text(
+                s.t('fx.fee', {
+                  'amount':
+                      money(fx.feeAmount, fx.feeCurrency ?? fx.bankCurrency)
+                }),
+                style: TextStyle(color: p.muted)),
+        ],
+      'missing' => <Widget>[
+          Text(s.t('fx.missing', {'settled': settled, 'bank': bank}),
+              style: TextStyle(color: p.warn)),
+        ],
+      _ => <Widget>[
+          Text(s.t('fx.confirmed'), style: TextStyle(color: p.muted)),
+        ],
+    };
+    return Semantics(
+      container: true,
+      label: s.t('fx.title'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xxs),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start, children: lines),
+      ),
     );
   }
 }

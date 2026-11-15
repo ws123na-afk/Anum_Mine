@@ -42,6 +42,26 @@ export interface FinanceMatchingPolicyView {
 
 export interface FinanceMatchEvidence { code: string; value: string | null; weight: string }
 
+/** The bank's own conversion figures behind a match or link across currencies (docs/finance-matching.md#across-currencies).
+ * ``basis`` is ``missing`` (no original amount: review only) or ``owner_confirmed`` (the owner linked it); absent for the bank's figures. */
+export interface FinanceFxEvidence {
+  basis?: 'missing' | 'owner_confirmed';
+  original_amount: string | null;
+  original_currency: string | null;
+  billed_amount?: string | null;
+  purchase_amount?: string | null;
+  bank_amount: string | null;
+  bank_currency: string;
+  rate: string | null;
+  rate_kind: 'printed' | 'column' | 'implied' | 'not_stated';
+  rate_source?: string | null;
+  rate_date?: string | null;
+  fee_amount?: string | null;
+  fee_currency?: string | null;
+  fee_source?: 'fee_row' | 'markup_stated' | 'fee_stated' | null;
+  fee_transaction_id?: string | null;
+}
+
 export interface FinanceMatchRecord {
   id: string;
   canonical_id: string;
@@ -64,6 +84,8 @@ export interface FinanceMatchRecord {
   policy_version: string;
   run_id: string | null;
   link_id: string | null;
+  /** Across currencies: ``amount``/``currency`` are the obligation's side; this is the bank side and the bank's figures. */
+  fx: FinanceFxEvidence | null;
   decided_by: string | null;
   decided_at: string | null;
   created_at: string;

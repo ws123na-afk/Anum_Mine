@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -63,6 +63,9 @@ class MatchRecord(BaseModel):
     run_id: str | None = None
     link_id: str | None = None
     fingerprint: str = Field(default="", max_length=64)
+    # Across currencies (0188_pf_fx_matching): ``amount``/``currency`` are the obligation's side; this holds the bank side
+    # (``bank_amount``, ``bank_currency``), the original amount, the rate and its kind and source, and the FX fee kept apart.
+    fx: dict[str, Any] | None = None
     decided_by: str | None = None
     decided_at: datetime | None = None
     created_at: datetime

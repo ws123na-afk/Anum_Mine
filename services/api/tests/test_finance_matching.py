@@ -130,11 +130,14 @@ def test_own_account_transfer_is_never_a_payment() -> None:
     assert result.decisions == [] and result.unmatched == ["fin_je_1"]
 
 
-def test_another_currency_is_not_matched_without_evidence() -> None:
-    usd = pay(currency="USD")
-    assert E.decide([usd], [installment()], policy()).decisions == []
-    stated = pay(currency="USD", original_currency="SAR", original_amount=Decimal("125"))
-    assert E.decide([stated], [installment()], policy()).decisions == []  # the link would be in another currency than the payment
+def test_another_currency_is_never_linked_without_the_banks_conversion_figures() -> None:
+    # Naming the provider is enough to show the match to the owner, never to link it: no rate is guessed
+    # (test_finance_matching_fx.py covers the bank's printed original amount).
+    usd = only(E.decide([pay(currency="USD")], [installment()], policy()))
+    assert usd.outcome == "review" and usd.reason == "fx_evidence_missing"
+    stated = only(E.decide([pay(currency="USD", original_currency="SAR", original_amount=Decimal("125"))], [installment()], policy()))
+    assert stated.outcome == "review" and stated.reason == "fx_evidence_missing"  # no billed figures: not conversion evidence
+    assert E.decide([pay(currency="USD", text="POS PURCHASE RIYADH")], [installment()], policy()).decisions == []  # nothing names it
 
 
 def test_another_providers_debit_never_pays_a_tamara_installment() -> None:
