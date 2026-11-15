@@ -108,6 +108,8 @@ class FakeCalendars:
         ]
         self.google_other: dict[str, list[dict[str, Any]]] = {"team@group.calendar.google.com": [google_item("t1", "Team offsite", 50)]}
         self.calendar_list_status = 200
+        # What Google's token answer says was granted (it lists the scopes the person allowed).
+        self.google_granted = "openid email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly"
         self.graph_calendars: list[dict[str, Any]] = [
             {"id": "AAMkCal1=", "name": "Calendar", "isDefaultCalendar": True, "canEdit": True, "hexColor": "#0078d4"},
             {"id": "AAMkCal2=", "name": "Fleet bookings", "isDefaultCalendar": False, "canEdit": False, "hexColor": ""},
@@ -139,7 +141,8 @@ class FakeCalendars:
                 return httpx.Response(400, json={"error": "invalid_grant", "error_description": "Token has been expired or revoked."})
             return httpx.Response(200, json={"access_token": f"{prefix}-access-2", "expires_in": 3600})
         assert form["code"] == ["example-code"]
-        return httpx.Response(200, json={"access_token": f"{prefix}-access-1", "refresh_token": f"{prefix}-refresh-1", "expires_in": 3600, "scope": "calendar"})
+        scope = self.google_granted if prefix == "google" else "calendar"
+        return httpx.Response(200, json={"access_token": f"{prefix}-access-1", "refresh_token": f"{prefix}-refresh-1", "expires_in": 3600, "scope": scope})
 
     def _google(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"].startswith("Bearer google-access-")
@@ -796,6 +799,23 @@ def test_microsoft_other_calendars_and_a_missing_permission(fake: FakeCalendars)
     fake.calendar_list_status = 403
     refused = client.get(f"/api/v1/calendar/sync/connections/{google['id']}/calendars", headers=OWNER)
     assert refused.status_code == 409 and "connect Google Calendar again" in refused.json()["error"]["message"]
+    assert "owner@example.com" in refused.json()["error"]["message"]
+
+
+def test_a_grant_without_the_calendar_list_permission_is_told_to_reconnect(fake: FakeCalendars) -> None:
+    # The person unticked "See the list of your calendars" on Google's consent screen.
+    fake.google_granted = "openid email https://www.googleapis.com/auth/calendar.events"
+    connection = connect()
+    url = f"/api/v1/calendar/sync/connections/{connection['id']}/calendars"
+    refused = client.get(url, headers=OWNER)
+    assert refused.status_code == 409 and "connect Google Calendar again" in refused.json()["error"]["message"]
+    assert not any(call.endswith("/calendarList") for call in fake.calls), "known from the grant: Google is not asked"
+    assert client.put(url, headers=OWNER, json={"selected": []}).status_code == 409
+    # Connecting the same account again with the permission fixes it in place.
+    fake.google_granted += " https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+    again = connect()
+    assert again["id"] == connection["id"]
+    assert client.get(url, headers=OWNER).status_code == 200
 
 
 def test_a_copy_is_never_sent_back_even_after_a_local_edit(fake: FakeCalendars) -> None:

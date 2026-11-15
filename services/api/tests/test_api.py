@@ -28,7 +28,8 @@ def setup_function() -> None:
 def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    assert response.json() == {"status": "ok"}
+    # Public: no environment name, version or host (docs/deploy-oracle.md#uptime-monitoring).
 
 
 def test_tenant_workspace_and_membership_provisioning() -> None:

@@ -1067,12 +1067,28 @@ def handle_stripe_event(issuer_tenant_id: str, payload: bytes, signature: str | 
 
         outcome = apply_card_payment("stripe", issuer_tenant_id, metadata, payment_intent or str(obj.get("id") or ""), "paid",
                                      int(obj.get("amount_total") or 0), str(obj.get("currency") or ""), now)
+        if outcome in ("paid", "duplicate_payment") and payment_intent.startswith("pi_") and provider is not None:
+            # Stripe does not promise order: a refund delivered before this payment was kept for review. Read the payment's
+            # refunds again (no transaction open) and record them now; a lookup failure is retried by Stripe.
+            from ..business.invoice_refunds import ProviderRefund, apply_card_refunds, has_open_review
+
+            if has_open_review("stripe", issuer_tenant_id, metadata, payment_intent):
+                try:
+                    late = provider.refunds_of(payment_intent)
+                except ProviderError as exc:
+                    logger.warning("billing_stripe_lookup_failed", extra={"anum_billing": {"issuer": issuer_tenant_id}})
+                    raise HTTPException(status_code=502, detail=str(exc)) from None
+                found = [ProviderRefund(item.id, item.amount_minor, item.currency, item.status, item.metadata.get("anum_refund_request_id", ""))
+                         for item in reversed(late) if not item.payment_intent or item.payment_intent == payment_intent]
+                if apply_card_refunds("stripe", issuer_tenant_id, metadata, payment_intent, found, now) == "refund_recorded":
+                    outcome = "paid_then_refunded"
     elif refunds is not None and metadata.get("anum_business_invoice_id"):
         # A refund made in the Stripe dashboard on a Business invoice's card payment (docs/business.md#refunds-made-in-the-provider-dashboard).
         # Applied before the event id is stored, so a failure here is retried by Stripe; each refund is recorded once by its Stripe id.
         from ..business.invoice_refunds import ProviderRefund, apply_card_refunds
 
-        found = [ProviderRefund(item.id, item.amount_minor, item.currency, item.status) for item in reversed(refunds)
+        found = [ProviderRefund(item.id, item.amount_minor, item.currency, item.status, item.metadata.get("anum_refund_request_id", ""))
+                 for item in reversed(refunds)
                  if not item.payment_intent or item.payment_intent == payment_intent]
         outcome = apply_card_refunds("stripe", issuer_tenant_id, metadata, payment_intent, found, now)
     with open_billing(issuer_tenant_id) as rows:

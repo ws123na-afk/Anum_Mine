@@ -818,7 +818,9 @@ async def _dispatch(
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "environment": settings.environment}
+    """Liveness for load balancers and uptime monitors: public, so it names nothing (no version,
+    environment, host or setting). Operators read the details from ``/api/v1/platform/health``."""
+    return {"status": "ok"}
 
 
 @app.post("/api/v1/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)

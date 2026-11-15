@@ -25,7 +25,7 @@ ANUM deploys to any Kubernetes cluster with the Helm chart in `infra/helm/anum`.
 | Backup (optional) | CronJob, daily | Backup image (`infra/backup/Dockerfile`), `anum_backup.py backup` | Off by default; [Runbooks](runbooks.md#backups). |
 | Document OCR (optional) | Deployment, Service, PodDisruptionBudget (optional) | OCR image (the API image built with `ANUM_OCR=1`), `python -m anum_api.vault.ocr_service` on 8091 | Off by default (`ocr.enabled`), [Document OCR](#document-ocr). |
 | Network policies | NetworkPolicy | | Default deny for every pod of the release, then only the traffic each workload needs. |
-| `helm test` | Pod, `test` hook | API image | `/health`, the configured environment, CSP header, 401 without a token, `/docs` disabled, web `/healthz`. |
+| `helm test` | Pod, `test` hook | API image | `/health` answering only its status, CSP header, 401 without a token, `/docs` disabled, web `/healthz`. |
 
 Every pod runs as a non-root user (API uid 10001, web uid 101) with a read-only root filesystem, all capabilities dropped, `seccompProfile: RuntimeDefault`, no privilege escalation and resource requests and limits. Writable paths are `emptyDir` volumes: `/tmp`, `/app/.anum` and `/app/.anum-data` for the API image, `/tmp` and `/etc/nginx/conf.d` for nginx. Each workload has its own ServiceAccount with `automountServiceAccountToken: false`; none of them calls the Kubernetes API. Annotate the ServiceAccounts (`serviceAccount.annotations`) to bind a cloud workload identity for object storage.
 

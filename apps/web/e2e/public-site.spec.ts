@@ -31,7 +31,7 @@ async function mockHealth(page: Page, answer: 'ok' | 'down' | 'error' = 'ok'): P
     if (url.pathname !== '/health') { others.push(url.pathname); return route.fulfill({ status: 401, json: { detail: 'Not signed in' } }); }
     if (answer === 'down') return route.abort('connectionrefused');
     if (answer === 'error') return route.fulfill({ status: 503, json: { detail: 'unavailable' } });
-    return route.fulfill({ status: 200, json: { status: 'ok', environment: 'e2e' } });
+    return route.fulfill({ status: 200, json: { status: 'ok' } });
   });
   return others;
 }
@@ -104,7 +104,7 @@ test('/status shows every component operational when the API answers', async ({ 
 
 test('/status says the API cannot be reached, and recovers on Check again', async ({ page }) => {
   let down = true;
-  await page.route(`${API}/health`, (route) => down ? route.abort('connectionrefused') : route.fulfill({ status: 200, json: { status: 'ok', environment: 'e2e' } }));
+  await page.route(`${API}/health`, (route) => down ? route.abort('connectionrefused') : route.fulfill({ status: 200, json: { status: 'ok' } }));
   await page.goto('/status');
   const alert = page.getByRole('alert');
   await expect(alert).toContainText('ANUM’s API cannot be reached');

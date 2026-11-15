@@ -20,7 +20,14 @@ was refunded. Nothing here trusts the delivered body.
   money out of the bank against the receivable (``books_posting``), and the cash reports count it
   as a negative customer payment (``books_report``).
 * **Reversed.** A Stripe refund recorded as succeeded that Stripe later reports failed or
-  cancelled counts no more: the amount it took off is paid again.
+  cancelled counts no more: the amount it took off is paid again, and a refund request it
+  finished is marked failed.
+* **Refunds started from ANUM.** A Stripe refund carries its request id in its metadata
+  (``anum_refund_request_id``), so a request whose provider answer was lost (still processing)
+  is matched by that id and settled here instead of holding its amount a second time.
+* **Payment after its refund.** Stripe does not promise delivery order: a refund that arrived
+  before the payment it gives back was kept for review; once the payment is recorded the billing
+  webhook reads the refunds again and records them here, and the review is closed.
 """
 
 from __future__ import annotations
@@ -33,7 +40,18 @@ from decimal import Decimal
 from typing import Literal
 
 from ..schemas import TenantContext, new_id, utc_now
-from .invoice_models import OPEN_REFUND_REQUESTS, Invoice, InvoicePayment, InvoiceRefund, InvoiceStatus, RefundRequestStatus, RefundReview, RefundStatus
+from .invoice_models import (
+    OPEN_REFUND_REQUESTS,
+    Invoice,
+    InvoicePayment,
+    InvoiceRefund,
+    InvoiceStatus,
+    RefundRequest,
+    RefundRequestStatus,
+    RefundReview,
+    RefundReviewStatus,
+    RefundStatus,
+)
 from .invoice_service import business_day, mark_milestones_paid, release_milestones
 from .models import money
 from .service import record_activity
@@ -57,6 +75,7 @@ class ProviderRefund:
     amount_minor: int
     currency: str
     status: str  # Stripe's refund status; a Moyasar refund is always "succeeded"
+    request_id: str = ""  # Stripe: the ``anum_refund_request_id`` in the refund's metadata (a refund started from ANUM)
 
 
 def refunds_of(store: BusinessStore, invoice_id: str) -> list[InvoiceRefund]:
@@ -96,6 +115,38 @@ def _restore(store: BusinessStore, invoice: Invoice, amount: Decimal, now: datet
     invoice = invoice.model_copy(update=update)
     store.save("invoices", invoice)
     return invoice
+
+
+def _close_reviews(store: BusinessStore, provider: Literal["moyasar", "stripe"], refund_id: str, now: datetime) -> None:
+    """A refund kept for review (its payment had not arrived yet) is closed once it is recorded on the payment."""
+    review: RefundReview | None = store.first("refund_reviews", provider=provider, provider_refund_id=refund_id, status=RefundReviewStatus.OPEN)
+    if review is not None:
+        store.save("refund_reviews", review.model_copy(update={
+            "status": RefundReviewStatus.CHECKED, "checked_by": PROVIDER_USERS[provider], "checked_at": now, "updated_at": now,
+            "note": "Recorded on the card payment once the payment arrived."}))
+
+
+def has_open_review(provider: Literal["moyasar", "stripe"], issuer_tenant_id: str, metadata: dict[str, str], provider_payment_id: str) -> bool:
+    """Whether a refund of this payment waits in Refunds to check (it arrived before the payment was recorded)."""
+    tenant_id = metadata.get("anum_tenant_id", "")
+    workspace_id = metadata.get("anum_workspace_id", "")
+    if tenant_id != issuer_tenant_id or not ID.match(workspace_id) or not provider_payment_id:
+        return False
+    context = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=PROVIDER_USERS[provider], roles=["member"])
+    with open_business_store(context) as store:
+        return store.first("refund_reviews", provider=provider, provider_payment_id=provider_payment_id[:200], status=RefundReviewStatus.OPEN) is not None
+
+
+def _asked(store: BusinessStore, provider: str, payment: InvoicePayment, item: ProviderRefund) -> RefundRequest | None:
+    """The refund request this provider refund finishes: by the provider's refund id, else (an answer that was lost) by the
+    request id the refund carries, when that request is for this payment and holds no other provider refund."""
+    asked: RefundRequest | None = store.first("refund_requests", provider=provider, provider_refund_id=item.id[:200])
+    if asked is None and item.request_id and ID.match(item.request_id):
+        candidate: RefundRequest | None = store.get("refund_requests", item.request_id)
+        if (candidate is not None and candidate.provider == provider and candidate.payment_id == payment.id
+                and candidate.provider_refund_id in (None, "", item.id[:200])):
+            asked = candidate
+    return asked
 
 
 def _keep_for_review(store: BusinessStore, context: TenantContext, provider: Literal["moyasar", "stripe"], invoice: Invoice,
@@ -168,6 +219,11 @@ def apply_card_refunds(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
             found = known.get(refund_id)
             if found is not None:
                 if found.status == RefundStatus.RECORDED and item.status in FAILED:
+                    finished = store.first("refund_requests", refund_id=found.id)
+                    if finished is not None and finished.status == RefundRequestStatus.SUCCEEDED:
+                        store.save("refund_requests", finished.model_copy(update={
+                            "status": RefundRequestStatus.FAILED, "updated_at": now,
+                            "detail": f"{name} reported the refund {item.status} after it had succeeded; the money was not given back."}))
                     invoice = _restore(store, invoice, found.amount, now)
                     reversed_ = found.model_copy(update={"status": RefundStatus.REVERSED, "reversed_at": now, "updated_at": now})
                     store.save("invoice_refunds", reversed_)
@@ -177,11 +233,17 @@ def apply_card_refunds(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
                                     account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "refund_id": found.id},
                                     idempotency_key=f"{provider}-refund-reversed:{refund_id[:100]}")
                     outcome = "refund_reversed"
+                elif found.status == RefundStatus.RECORDED and item.status in DONE:
+                    # Recorded already (by an earlier delivery) while the request that started it still waits: it is finished.
+                    asked = _asked(store, provider, payment, item)
+                    if asked is not None and asked.status in OPEN_REFUND_REQUESTS - {RefundRequestStatus.WAITING_APPROVAL}:
+                        store.save("refund_requests", asked.model_copy(update={"status": RefundRequestStatus.SUCCEEDED, "refund_id": found.id, "updated_at": now,
+                                                                               "provider_refund_id": refund_id, "detail": f"Refunded through {name}."}))
                 continue
-            asked = store.first("refund_requests", provider=provider, provider_refund_id=refund_id)
-            if asked is not None and item.status in FAILED and asked.status == RefundRequestStatus.PENDING_PROVIDER:
-                # A refund started from ANUM that the provider never finished: its amount is free again.
-                store.save("refund_requests", asked.model_copy(update={"status": RefundRequestStatus.FAILED, "updated_at": now,
+            asked = _asked(store, provider, payment, item)
+            if asked is not None and item.status in FAILED and asked.status in (RefundRequestStatus.PENDING_PROVIDER, RefundRequestStatus.PROCESSING):
+                # A refund started from ANUM that the provider never finished (or whose answer was lost): its amount is free again.
+                store.save("refund_requests", asked.model_copy(update={"status": RefundRequestStatus.FAILED, "updated_at": now, "provider_refund_id": refund_id,
                                                                        "detail": f"{name} reports the refund {item.status}; nothing was refunded."}))
                 continue
             if item.status not in DONE or item.amount_minor <= 0:
@@ -210,7 +272,8 @@ def apply_card_refunds(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
             known[refund_id] = refund
             if asked is not None and asked.status in OPEN_REFUND_REQUESTS:
                 store.save("refund_requests", asked.model_copy(update={"status": RefundRequestStatus.SUCCEEDED, "refund_id": refund.id, "updated_at": now,
-                                                                       "detail": f"Refunded through {name}."}))
+                                                                       "provider_refund_id": refund_id, "detail": f"Refunded through {name}."}))
+            _close_reviews(store, provider, refund_id, now)
             if taken > 0:
                 invoice = _reopen(store, invoice, taken, now)
             owed = (f" The invoice is open again with a balance of {invoice.currency.value} {invoice.balance_due()}: issue a credit note if the customer no longer owes it."
@@ -233,4 +296,4 @@ def apply_moyasar_refunds(issuer_tenant_id: str, metadata: dict[str, str], payme
     return apply_card_refunds("moyasar", issuer_tenant_id, metadata, payment_id, [], now, running_total=(refunded_minor, currency), actor=actor)
 
 
-__all__ = ["ProviderRefund", "apply_card_refunds", "apply_moyasar_refunds", "payment_refunds", "refunds_of"]
+__all__ = ["ProviderRefund", "apply_card_refunds", "apply_moyasar_refunds", "has_open_review", "payment_refunds", "refunds_of"]

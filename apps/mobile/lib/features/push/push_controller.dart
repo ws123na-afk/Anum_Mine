@@ -8,6 +8,7 @@ import '../auth/auth_repository.dart';
 import 'push_messaging.dart';
 import 'push_models.dart';
 import 'push_repository.dart';
+import 'push_strings.dart';
 
 /// What Settings › Notifications shows about phone push.
 enum PushPhase {
@@ -83,6 +84,10 @@ class PushController extends ChangeNotifier
   final List<StreamSubscription<Object?>> _subscriptions = [];
 
   bool get availableInBuild => _available;
+
+  PushStrings get _s => PushStrings.forLanguage(languageOf());
+
+  String _title(PushDevice device) => device.titleIn(arabic: _s.arabic);
 
   static String scopeOf(TenantContext context) =>
       '${context.tenantId}/${context.userId}/${context.workspaceId}';
@@ -167,7 +172,7 @@ class PushController extends ChangeNotifier
       devices = await repository.devices();
     } on Object catch (caught) {
       phase = PushPhase.error;
-      error = _describe(caught, 'Could not check phone push.');
+      error = _describe(caught, _s.t('failedCheck'), _s);
     } finally {
       busy = false;
       notifyListeners();
@@ -196,11 +201,11 @@ class PushController extends ChangeNotifier
       }
       await _register(context);
       phase = PushPhase.on;
-      notice = 'Notifications are on for this phone in this workspace.';
+      notice = _s.t('turnedOn');
       devices = await repository.devices();
     } on Object catch (caught) {
       phase = PushPhase.error;
-      error = _describe(caught, 'Notifications were not turned on.');
+      error = _describe(caught, _s.t('failedEnable'), _s);
     } finally {
       busy = false;
       notifyListeners();
@@ -242,9 +247,10 @@ class PushController extends ChangeNotifier
         thisDeviceId = null;
         phase = PushPhase.notAsked;
       }
-      notice = 'Removed ${device.title}.';
+      notice = _s.f('removed', {'name': _title(device)});
     } on Object catch (caught) {
-      error = _describe(caught, '${device.title} was not removed.');
+      error =
+          _describe(caught, _s.f('failedRemove', {'name': _title(device)}), _s);
     } finally {
       busy = false;
       notifyListeners();
@@ -254,17 +260,26 @@ class PushController extends ChangeNotifier
   Future<void> _register(TenantContext context) async {
     final token = await messaging.token();
     if (token == null || token.isEmpty) {
-      throw const _PushFailure(
-          'This phone has no push token yet. Check that Google Play services '
-          '(Android) or notifications (iPhone) work, then try again.');
+      throw _PushFailure(_s.t('noToken'));
     }
     final device = await repository.register(
         platform: messaging.platform,
         token: token,
         label: messaging.deviceLabel,
         language: languageOf());
+    final scope = scopeOf(context);
+    final previous = await store.deviceId(scope);
     thisDeviceId = device.id;
-    await store.setDeviceId(scopeOf(context), device.id);
+    await store.setDeviceId(scope, device.id);
+    // Firebase rotated the token: the row of the old token would keep getting
+    // (or, until FCM reports it gone, duplicating) this phone's pushes.
+    if (previous != null && previous != device.id) {
+      try {
+        await repository.remove(previous);
+      } on Object {
+        // Already gone, or offline: FCM's "unregistered" answer removes it.
+      }
+    }
   }
 
   Future<void> _reregister() async {
@@ -333,18 +348,16 @@ class PushController extends ChangeNotifier
   }
 }
 
-String _describe(Object error, String what) {
+String _describe(Object error, String what, PushStrings s) {
   if (error is _PushFailure) return error.message;
   if (error is ApiException) {
     if (error.statusCode == 409) return '$what ${error.message}';
-    if (error.statusCode == 401) {
-      return '$what Your session expired; sign in again.';
-    }
+    if (error.statusCode == 401) return '$what ${s.t('sessionExpired')}';
     final text =
         error.message.endsWith('.') ? error.message : '${error.message}.';
-    return '$what $text Try again.';
+    return '$what $text ${s.t('tryAgain')}';
   }
-  return '$what Check your connection and try again.';
+  return '$what ${s.t('checkConnection')}';
 }
 
 class _PushFailure implements Exception {

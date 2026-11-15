@@ -554,9 +554,35 @@ def test_fcm_refreshes_an_expired_access_token() -> None:
 
 @pytest.mark.parametrize("code", ["UNREGISTERED", "INVALID_ARGUMENT", "SENDER_ID_MISMATCH"])
 def test_fcm_token_errors_mean_remove_the_device(code: str) -> None:
-    body = {"error": {"status": "NOT_FOUND", "details": [{"@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode": code}]}}
+    body = {"error": {
+        "status": "NOT_FOUND", "message": "The registration token is not a valid FCM registration token",
+        "details": [{"@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode": code}],
+    }}
     fake, sleeps = FakeFcm([httpx.Response(404 if code == "UNREGISTERED" else 400, json=body)]), []
     assert _send(fake, sleeps) == SendOutcome.UNREGISTERED and sleeps == []
+
+
+def test_a_token_field_violation_removes_the_device() -> None:
+    body = {"error": {"status": "INVALID_ARGUMENT", "message": "Invalid value", "details": [
+        {"@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode": "INVALID_ARGUMENT"},
+        {"@type": "type.googleapis.com/google.rpc.BadRequest", "fieldViolations": [{"field": "message.token"}]},
+    ]}}
+    fake, sleeps = FakeFcm([httpx.Response(400, json=body)]), []
+    assert _send(fake, sleeps) == SendOutcome.UNREGISTERED
+
+
+@pytest.mark.parametrize("body", [
+    # A malformed message: FCM names another field. Every phone would otherwise be removed.
+    {"error": {"status": "INVALID_ARGUMENT", "message": "Invalid value at 'message.data[0].value'", "details": [
+        {"@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", "errorCode": "INVALID_ARGUMENT"},
+        {"@type": "type.googleapis.com/google.rpc.BadRequest", "fieldViolations": [{"field": "message.data[0].value"}]},
+    ]}},
+    # No word about the token at all.
+    {"error": {"status": "INVALID_ARGUMENT", "message": "Request contains an invalid argument."}},
+])
+def test_an_invalid_message_keeps_the_device(body: dict) -> None:
+    fake, sleeps = FakeFcm([httpx.Response(400, json=body)]), []
+    assert _send(fake, sleeps) == SendOutcome.FAILED and sleeps == []
 
 
 def test_a_wrong_project_does_not_remove_devices() -> None:

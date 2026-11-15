@@ -4,8 +4,11 @@ import 'package:anum_mobile/features/push/push_messaging.dart';
 import 'package:anum_mobile/features/push/push_models.dart';
 import 'package:anum_mobile/features/push/push_repository.dart';
 import 'package:anum_mobile/features/push/push_settings_card.dart';
+import 'package:anum_mobile/features/push/push_strings.dart';
+import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'push_fakes.dart';
@@ -136,6 +139,20 @@ void main() {
       expect(push.thisDeviceId, 'device_1');
       expect(store.devices['tenant_test/user_test/workspace_test'], 'device_1');
       expect(await store.offered(), isTrue);
+    });
+
+    test('a rotated token replaces the old registration', () async {
+      final (push, api, messaging, store) = await _controller();
+      await push.enable();
+      expect(push.thisDeviceId, 'device_1');
+      messaging.currentToken = 'fcm-token-example-rotated';
+      messaging.refreshes.add('fcm-token-example-rotated');
+      await pumpEventQueue();
+      expect(push.thisDeviceId, 'device_2');
+      expect(store.devices['tenant_test/user_test/workspace_test'], 'device_2');
+      expect(api.calls(), contains('DELETE /api/v1/me/devices/device_1'));
+      expect([for (final d in api.devices['workspace_test']!) d['id']],
+          ['device_2']);
     });
 
     test('the phone registers with the language its app shows', () async {
@@ -377,6 +394,42 @@ void main() {
       expect(find.textContaining('Ask the person who runs this ANUM server'),
           findsOneWidget);
       expect(find.text('Check again'), findsOneWidget);
+    });
+    testWidgets('speaks Arabic, right to left, at 360x640 and 2.0x text',
+        (tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final (push, _, _, _) =
+          await _controller(permission: PushPermission.granted);
+      push.languageOf = () => 'ar';
+      await tester.pumpWidget(MaterialApp(
+          theme: AnumTheme.dark(),
+          locale: const Locale('ar'),
+          supportedLocales: const [Locale('en'), Locale('ar')],
+          localizationsDelegates: const [
+            AnumLocalizations.delegate,
+            ...GlobalMaterialLocalizations.delegates
+          ],
+          home: MediaQuery(
+              data: const MediaQueryData(
+                  size: Size(360, 640), textScaler: TextScaler.linear(2.0)),
+              child: Scaffold(
+                  body: SingleChildScrollView(
+                      child: PhonePushCard(controller: push))))));
+      await tester.pumpAndSettle();
+      expect(find.text('هذا الهاتف يستقبل الإشعارات'), findsOneWidget);
+      expect(find.text('هواتفي في مساحة العمل هذه'), findsOneWidget);
+      expect(find.textContaining('(هذا الهاتف)'), findsOneWidget);
+      expect(
+          Directionality.of(
+              tester.element(find.text('هذا الهاتف يستقبل الإشعارات'))),
+          TextDirection.rtl);
+      expect(tester.takeException(), isNull);
+    });
+
+    test('English and Arabic strings hold the same keys', () {
+      expect(PushStrings.ar.keys.toSet(), PushStrings.en.keys.toSet());
     });
   });
 }

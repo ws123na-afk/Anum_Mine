@@ -511,6 +511,17 @@ async def disconnect(
 # -- which calendars sync ------------------------------------------------------------------------
 
 
+GOOGLE_LIST_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+
+
+def missing_list_scope(connection: CalendarConnection) -> bool:
+    """A Google connection whose recorded grant lacks the calendar list permission. An empty
+    record (older rows) is not judged here: Google's 403 on the list says it instead."""
+    if connection.provider != CalendarProvider.GOOGLE or not connection.scopes:
+        return False
+    return GOOGLE_LIST_SCOPE not in connection.scopes
+
+
 def _merge_choices(stored: list[CalendarChoice], listed: list[Any]) -> list[CalendarChoice]:
     """The provider's list now, keeping each calendar's earlier choice; the primary always syncs."""
     chosen = {c.id for c in stored if c.selected}
@@ -523,17 +534,23 @@ def _merge_choices(stored: list[CalendarChoice], listed: list[Any]) -> list[Cale
 async def _listed(context: TenantContext, connection: CalendarConnection) -> list[Any]:
     from .email_providers import MailProviderError as _ProviderError
 
+    name = PROVIDER_NAMES[connection.provider]
+    # Reconnecting the same account updates this connection in place: no need to disconnect.
+    reconnect = HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"{name} did not let ANUM list this account's calendars. To choose calendars, connect {name} again "
+        f"with {connection.email} and allow ANUM to see the list of your calendars; events already synced stay.",
+    )
+    if missing_list_scope(connection):
+        # A connection made before the permission was asked for, or one where it was unticked on
+        # Google's consent screen: say so without asking Google.
+        raise reconnect
     try:
         token = await connection_token(connection, context)
         return await provider_client(connection.provider).calendars(token)
     except _ProviderError as exc:
-        name = PROVIDER_NAMES[connection.provider]
         if exc.status in (401, 403) or exc.reauth:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{name} did not let ANUM list this account's calendars. Disconnect and connect {name} again, "
-                "accepting the calendar list permission, to choose calendars.",
-            ) from None
+            raise reconnect from None
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Listing the calendars failed: {exc.message}") from None
     except CalendarSyncError as exc:
         raise _http(exc) from None

@@ -113,7 +113,7 @@ def test_send_email_builds_a_message_with_the_attachment(monkeypatch: pytest.Mon
         def __init__(self, host: str, port: int, timeout: float) -> None:
             assert host == "smtp.example.com"
 
-        def send_message(self, message: EmailMessage) -> None:
+        def send_message(self, message: EmailMessage, from_addr: str | None = None, to_addrs: list[str] | None = None) -> None:
             captured.append(message)
 
         def quit(self) -> None:

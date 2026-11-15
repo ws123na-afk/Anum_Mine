@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import types
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -1674,3 +1675,269 @@ def test_the_restore_drill_records_its_outcome_and_runs_monthly() -> None:
     assert env["ANUM_SYSTEM_HEALTH_WORKSPACE_ID"] == "${ANUM_SYSTEM_HEALTH_WORKSPACE_ID:-}"
     example = (ORACLE / ".env.example").read_text(encoding="utf-8")
     assert "\nANUM_SYSTEM_HEALTH_TENANT_ID=\n" in example and "\nANUM_SYSTEM_HEALTH_WORKSPACE_ID=\n" in example
+
+
+VERIFY_FAKE_DOCKER = r"""#!/bin/sh
+# A stand-in for docker for verify.sh: records every call and answers from files in $STATE.
+printf '%s\n' "docker $*" >> "$STATE/calls.log"
+for last in "$@"; do :; done
+case "$*" in
+  *" config --format json"*) cat "$STATE/config.json" ;;
+  *" ps --all --format json"*) cat "$STATE/ps.json" ;;
+  *" ps -q "*) echo "cid_$last" ;;
+  *"alembic current"*) cat "$STATE/current" ;;
+  *"alembic heads"*) cat "$STATE/heads" ;;
+  *" exec -T api python "*)
+    while [ "$1" != python ]; do shift; done
+    shift
+    exec python3 "$@" ;;
+  "image inspect --format {{.Created}}"*) echo "2099-01-01T00:00:00.000000000Z" ;;
+  "image inspect --format {{.Id}}"*) echo "id-$last" ;;
+  "inspect --format {{.Image}}"*) echo "id-anum/${last#cid_}:local" ;;
+  "ps --all --quiet"*) : ;;
+  *) echo "unexpected docker call: $*" >&2; exit 1 ;;
+esac
+"""
+
+VERIFY_FAKE_SYSTEMCTL = r"""#!/bin/sh
+case "$*" in
+  "is-enabled --quiet "*) [ ! -e "$STATE/disabled_$3" ] ;;
+  "show -p Result --value "*) cat "$STATE/result_$5" 2>/dev/null || echo success ;;
+  "show -p ExecMainStatus --value "*) echo 0 ;;
+  "show -p ExecMainExitTimestamp --value "*) date -u -d '-1 hour' '+%a %Y-%m-%d %H:%M:%S UTC' ;;
+  *) exit 1 ;;
+esac
+"""
+
+FINANCE_ROUTES = (
+    "/api/v1/finance/matching/run",
+    "/api/v1/finance/matching/backfill",
+    "/api/v1/finance/automation/matching",
+    "/api/v1/finance/debt-overview",
+    "/api/v1/finance/budgets/plans",
+    "/api/v1/finance/alerts/settings",
+    "/api/v1/finance/advisor/answer",
+)
+
+
+def _git(cwd: Path, *arguments: str) -> str:
+    environment = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(cwd),
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.org",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.org",
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+    result = subprocess.run(  # noqa: S603
+        ["git", *arguments],  # noqa: S607
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+        env=environment,
+    )
+    return result.stdout.strip()
+
+
+def _run_verify(
+    tmp_path: Path, *, api_env: dict[str, str] | None = None, origin_ahead: bool = False, **state: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """The real verify.sh in a scratch git checkout with an origin, with stand-ins for docker,
+    systemctl, journalctl and smoke.sh. `state` files steer the stand-ins; `api_env` is what
+    the API container's python sees."""
+    origin, repo = tmp_path / "origin.git", tmp_path / "repo"
+    oracle, versions = repo / "infra" / "oracle", repo / "services" / "api" / "migrations" / "versions"
+    oracle.mkdir(parents=True)
+    versions.mkdir(parents=True)
+    bin_dir, state_dir, backups = tmp_path / "bin", tmp_path / "state", tmp_path / "backups"
+    for directory in (bin_dir, state_dir, backups / "status"):
+        directory.mkdir(parents=True)
+    shutil.copy(ORACLE / "verify.sh", oracle / "verify.sh")
+    (oracle / ".env").write_text(f"ANUM_BACKUP_DIR={backups}\nANUM_SECRETS_KEY=secret-key-not-printed\n", encoding="utf-8")
+    (oracle / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+    (oracle / "smoke.sh").write_text(
+        "#!/bin/sh\necho 'PASS  API /health                        200, environment staging'\n"
+        "echo 'Summary: 20 checks, 0 failed, 0 warnings'\n"
+        'exit "$(cat "$STATE/smoke_status" 2>/dev/null || echo 0)"\n',
+        encoding="utf-8",
+    )
+    (versions / "0001_first.py").write_text('revision = "0001_first"\ndown_revision = None\n', encoding="utf-8")
+    (versions / "0002_second.py").write_text('revision = "0002_second"\ndown_revision = "0001_first"\n', encoding="utf-8")
+    _git(tmp_path, "init", "--quiet", "--bare", "--initial-branch=main", str(origin))
+    _git(repo, "init", "--quiet", "--initial-branch=main")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "--quiet", "-m", "deployed")
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "--quiet", "origin", "main")
+    if origin_ahead:
+        other = tmp_path / "other"
+        _git(tmp_path, "clone", "--quiet", str(origin), str(other))
+        _git(other, "commit", "--quiet", "--allow-empty", "-m", "newer")
+        _git(other, "push", "--quiet", "origin", "main")
+    for name, body in (
+        ("docker", VERIFY_FAKE_DOCKER),
+        ("systemctl", VERIFY_FAKE_SYSTEMCTL),
+        ("journalctl", "#!/bin/sh\nexit 0\n"),
+    ):
+        (bin_dir / name).write_text(body, encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    services = {
+        "api": {"restart": "unless-stopped"},
+        "web": {"restart": "unless-stopped"},
+        "postgres": {"restart": "unless-stopped"},
+        "migrate": {"restart": "no"},
+    }
+    rows = [
+        {"Service": "api", "State": "running", "Health": "healthy", "ExitCode": 0},
+        {"Service": "web", "State": "running", "Health": "healthy", "ExitCode": 0},
+        {"Service": "postgres", "State": "running", "Health": "healthy", "ExitCode": 0},
+        {"Service": "migrate", "State": "exited", "Health": "", "ExitCode": 0},
+    ]
+    an_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for kind in ("local", "offsite", "drill"):
+        if kind == "drill" and "no_drill" in state:
+            continue
+        ok = not (kind == "local" and "backup_failed" in state)
+        status = {"ok": ok, "finished_at": an_hour_ago, "last_success_at": an_hour_ago if ok else None, "keep_days": 7}
+        (backups / "status" / f"last-{kind}.json").write_text(json.dumps(status), encoding="utf-8")
+    defaults = {
+        "config.json": json.dumps({"services": services}),
+        "ps.json": "\n".join(json.dumps(row) for row in rows),
+        "current": "0002_second (head)\n",
+        "heads": "0002_second (head)\n",
+        "openapi.json": json.dumps({"paths": {path: {"get": {}} for path in FINANCE_ROUTES}}),
+    }
+    for name, value in {**defaults, **state}.items():
+        (state_dir / name).write_text(value, encoding="utf-8")
+    container_env = {
+        "ANUM_SYSTEM_HEALTH_TENANT_ID": "tenant-example",
+        "ANUM_SYSTEM_HEALTH_WORKSPACE_ID": "workspace-example",
+        "ANUM_FCM_SERVICE_ACCOUNT_JSON": "fcm-value-not-printed",
+        "ANUM_SMTP_HOST": "smtp.example.org",
+        "ANUM_SMTP_FROM": "noreply@example.org",
+        "ANUM_MODEL_API_KEY": "model-key-not-printed",
+        "ANUM_MODEL_PROVIDER": "anthropic",
+        **(api_env or {}),
+    }
+    environment = {
+        "PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "HOME": str(tmp_path),
+        "STATE": str(state_dir),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "ANUM_VERIFY_OPENAPI_URL": (state_dir / "openapi.json").as_uri(),
+        **container_env,
+    }
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(oracle / "verify.sh")],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+        env=environment,
+    )
+    calls = state_dir / "calls.log"
+    return result, calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+
+
+def _verify_entry(output: str, name: str) -> str:
+    """The summary entry for one check: its line plus its `next:` line, if any."""
+    summary = output[output.index("== Summary") :].splitlines()
+    for index, line in enumerate(summary):
+        if re.match(rf"^(PASS|WARN|FAIL)\s+{re.escape(name)}(\s|$)", line):
+            following = summary[index + 1] if index + 1 < len(summary) else ""
+            return line + ("\n" + following if following.startswith("      next:") else "")
+    raise AssertionError(f"no summary entry for {name!r}:\n{output}")
+
+
+needs_verify_harness = pytest.mark.skipif(
+    sys.platform != "linux" or not all(shutil.which(tool) for tool in ("bash", "python3", "git")),
+    reason="verify.sh needs bash, python3, git and GNU date: Linux only (CI runs it)",
+)
+
+
+def test_verify_is_read_only_and_asks_for_real_routes() -> None:
+    """docs/deploy-oracle.md#verify-a-deployment: one command the owner runs and pastes back."""
+    verify = _code("verify.sh")
+    # Read-only: no pull, no compose up/down/restart/stop/build, no container removal, no
+    # write to .env; the API container only runs python that prints names, flags and routes.
+    for forbidden in ("git pull", "git_ pull", "printenv", "tee "):
+        assert forbidden not in verify, forbidden
+    assert not re.search(r"\b(dc|docker( compose)?) (up|down|restart|stop|kill|rm|build|pull|tag)\b", verify)
+    assert "dc exec -T api python -c" in verify and "dc exec -T api sh" not in verify
+    assert "dc run --rm --no-deps -T migrate python -m alembic" in verify
+    assert "git_ fetch --quiet origin main" in verify
+    # The finance routes it asks for exist in the API, so a missing one means an old image.
+    from anum_api.main import app
+
+    paths = app.openapi()["paths"]
+    for route in FINANCE_ROUTES:
+        assert route in paths, route
+        assert route in verify, route
+    # The status files it reads are the ones backup.sh writes.
+    backup = _code("backup.sh")
+    assert 'file="$status_dir/last-$kind.json"' in backup
+    for kind in ("local", "offsite", "drill"):
+        assert f"check_status {kind} " in verify and f"record_status {kind} true" in backup
+    # update.sh ends by naming it.
+    assert "sudo bash $ORACLE_DIR/verify.sh" in _code("update.sh")
+
+
+@needs_verify_harness
+def test_verify_run_passes_a_healthy_deployment_without_printing_values(tmp_path: Path) -> None:
+    result, calls = _run_verify(tmp_path)
+    out = result.stdout
+    assert result.returncode == 0, out + result.stderr
+    assert "RESULT: PASS" in out and "0 failed, 0 warnings" in out
+    assert "= origin/main" in _verify_entry(out, "commit vs origin/main")
+    assert "0002_second = newest migration" in _verify_entry(out, "database revision")
+    assert "7 of 7 present" in _verify_entry(out, "finance routes")
+    assert "real" in _verify_entry(out, "model provider")
+    for name in ("timer anum-heal", "timer anum-backup", "timer anum-drill", "backup (on the VM)", "restore drill", "smoke test"):
+        assert _verify_entry(out, name).startswith("PASS"), name
+    # Names and set/empty only: no value from .env or the container reaches the output.
+    for value in ("not-printed", "tenant-example", "workspace-example", "smtp.example.org", "anthropic"):
+        assert value not in out + result.stderr, value
+    # Nothing but reads: compose run only for alembic (a throwaway container), exec only python.
+    for call in calls:
+        assert not re.search(r" (up|down|restart|stop|rm|build|pull)( |$)", call), call
+
+
+@needs_verify_harness
+def test_verify_run_names_the_next_command_for_each_problem(tmp_path: Path) -> None:
+    result, _ = _run_verify(
+        tmp_path,
+        origin_ahead=True,
+        api_env={"ANUM_MODEL_PROVIDER": "mock", "ANUM_SYSTEM_HEALTH_WORKSPACE_ID": "", "ANUM_FCM_SERVICE_ACCOUNT_JSON": ""},
+        current="0001_first\n",
+        **{
+            "openapi.json": json.dumps({"paths": {"/api/v1/finance/debt-overview": {}}}),
+            "disabled_anum-heal.timer": "",
+            "backup_failed": "",
+            "no_drill": "",
+        },
+    )
+    out = result.stdout
+    assert result.returncode == 1 and "RESULT: FAIL" in out, out + result.stderr
+    commit = _verify_entry(out, "commit vs origin/main")
+    assert commit.startswith("WARN") and "1 commit(s) behind" in commit
+    assert commit.endswith("next: sudo bash infra/oracle/update.sh")
+    schema = _verify_entry(out, "database revision")
+    assert schema.startswith("FAIL") and "migrations are pending" in schema
+    assert schema.endswith("next: sudo bash infra/oracle/update.sh --no-pull")
+    routes = _verify_entry(out, "finance routes")
+    assert routes.startswith("FAIL") and "/api/v1/finance/matching/run" in routes
+    assert "/api/v1/finance/debt-overview" not in routes
+    heal = _verify_entry(out, "timer anum-heal")
+    assert heal.startswith("FAIL") and heal.endswith("next: sudo bash infra/oracle/heal.sh install")
+    backup = _verify_entry(out, "backup (on the VM)")
+    assert backup.startswith("FAIL") and backup.endswith("next: sudo bash infra/oracle/backup.sh backup")
+    drill = _verify_entry(out, "restore drill")
+    assert drill.startswith("WARN") and drill.endswith("next: sudo bash infra/oracle/backup.sh drill")
+    assert _verify_entry(out, "model provider").startswith("WARN") and "mock" in _verify_entry(out, "model provider")
+    notices = _verify_entry(out, "System health notices")
+    assert notices.startswith("WARN") and "empty: ANUM_SYSTEM_HEALTH_WORKSPACE_ID" in notices
+    assert "ANUM_SYSTEM_HEALTH_TENANT_ID" not in notices.split("empty:")[1]
+    assert _verify_entry(out, "phone push (FCM)").startswith("WARN")
+    assert "not-printed" not in out + result.stderr

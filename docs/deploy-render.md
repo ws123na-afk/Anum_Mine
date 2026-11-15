@@ -294,7 +294,7 @@ In PowerShell (replace the addresses). `-UseBasicParsing` keeps Windows PowerShe
 
 ```powershell
 $Api = "https://api.staging.example.com"
-Invoke-RestMethod "$Api/health"                                   # status ok, environment staging
+Invoke-RestMethod "$Api/health"                                   # status ok (nothing else: it is public)
 (Invoke-WebRequest -UseBasicParsing "$Api/health").Headers["Strict-Transport-Security"]   # HSTS is sent
 try { Invoke-WebRequest -UseBasicParsing "$Api/api/v1/tasks" } catch { $_.Exception.Response.StatusCode }   # Unauthorized (401)
 try { Invoke-WebRequest -UseBasicParsing "$Api/docs" } catch { $_.Exception.Response.StatusCode }           # NotFound (404)

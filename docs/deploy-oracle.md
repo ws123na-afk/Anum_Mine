@@ -495,7 +495,7 @@ try { Invoke-WebRequest -UseBasicParsing "https://auth.staging.example.com/admin
 
 ```powershell
 $Api = "https://api.staging.example.com"
-Invoke-RestMethod "$Api/health"                                   # status ok, environment staging
+Invoke-RestMethod "$Api/health"                                   # status ok (nothing else: it is public)
 (Invoke-WebRequest -UseBasicParsing "$Api/health").Headers["Strict-Transport-Security"]
 try { Invoke-WebRequest -UseBasicParsing "$Api/api/v1/tasks" } catch { $_.Exception.Response.StatusCode }   # Unauthorized (401)
 try { Invoke-WebRequest -UseBasicParsing "$Api/docs" } catch { $_.Exception.Response.StatusCode }           # NotFound (404)
@@ -519,6 +519,27 @@ cd ~/anum/infra/oracle && docker compose logs --tail 5 api
 The line for that request must show your public IP, not `203.0.113.9` and not a `172.30.x.x` address. (Docker forwards the published ports with NAT, so Caddy sees the real client address; this was checked locally through Caddy on the compose network, not on an Oracle VM.)
 
 On the VM: `docker compose ps` (every service `healthy`, the one-shots `exited (0)`), `systemctl list-timers 'anum-*'`.
+
+### Verify a deployment
+
+One read-only command proves an update worked and prints a short report to paste back (to whoever helps you, Claude included). On the VM, one line:
+
+```bash
+cd ~/anum && sudo bash infra/oracle/verify.sh
+```
+
+`update.sh` ends by printing that line. It changes nothing: `git fetch` updates only the remote-tracking `origin/main` (never a pull), `alembic current` and `alembic heads` run in a throwaway `migrate` container, and the API's route list is read inside the API container (`127.0.0.1:8000`, never through Caddy). One line per check, then a summary from `== Summary` down to `RESULT: PASS`, `WARN` or `FAIL`; every `WARN` and `FAIL` has a `next:` line with the exact command (run from `~/anum`). It checks:
+
+- **Code:** the deployed commit and whether it equals `origin/main` (behind: `sudo bash infra/oracle/update.sh`), and that `anum/api:local` and `anum/web:local` were built after that commit and are the images running.
+- **Containers:** every service of the active profiles running and healthy (one-shots exited 0), and restarts in the last day (Docker's restart count for containers started in the last day, plus `anum-heal` restarts from the journal).
+- **Database schema:** `alembic current` against the image's `alembic heads` (different: migrations are pending, `update.sh --no-pull`), and a warning when the checkout has a newer migration than the built image.
+- **HTTPS through Caddy:** runs `smoke.sh` ([Check the deployment](#check-the-deployment)) as the checkout's owner: API `/health`, web `/healthz`, TLS, headers, Keycloak. `--no-smoke` skips it.
+- **Timers:** `anum-heal`, `anum-backup`, `anum-drill` and `anum-retention` (and `anum-update` when `ANUM_AUTO_UPDATE=true`) enabled, and their last run's result and age.
+- **Settings, names and set or empty only (never a value):** `ANUM_SYSTEM_HEALTH_TENANT_ID` and `ANUM_SYSTEM_HEALTH_WORKSPACE_ID` ([notices](system-health.md#notices)), phone push (`ANUM_FCM_SERVICE_ACCOUNT_JSON`), SMTP (`ANUM_SMTP_HOST`, `ANUM_SMTP_FROM`) and whether the model provider is `mock` or real, read from the running API container.
+- **Backups:** the age of the last successful local backup and off-site copy (warn after 26 hours, fail after 50) and of the last restore drill (warn after 35 days), from the `status/last-*.json` files `backup.sh` writes.
+- **Personal finance routes:** that the running API serves `/api/v1/finance/matching/run`, `/matching/backfill`, `/automation/matching`, `/debt-overview`, `/budgets/plans`, `/alerts/settings` and `/advisor/answer`; a missing one means an older image (`update.sh --no-pull`).
+
+`--no-fetch` skips `git fetch` (compares with the last fetched `origin/main`). Exit status 0 when nothing failed (warnings allowed), 1 otherwise.
 
 ## Backups
 
@@ -597,6 +618,7 @@ cd ~/anum && sudo infra/oracle/update.sh
 10. **If the new API or web app never becomes healthy, it goes back by itself**: `anum/api:previous` and `anum/web:previous` become `:local` again, the two containers are recreated from them, and the script exits non-zero with `the update failed, and the OLD version is running again`. The migrations stay applied; they are expand/contract, so the old code runs on the new schema ([Migrations](deployment.md#migrations)). The images that failed are kept as `anum/api:failed` and `anum/web:failed` for a look (`docker run --rm -it anum/api:failed ...`); the next update replaces them. Keycloak is not rolled back automatically, because Keycloak upgrades its own database when it starts and an older Keycloak may not run on it; `anum/keycloak:previous` is there if you decide to. If even the old version does not come up, the message says `THE SITE IS DOWN`: read `docker compose logs --tail 200 api web`.
 11. Prunes dangling images and old build cache, and adds `anum-heal.timer` if this VM was installed before it existed ([Monitoring basics](#monitoring-basics); needs `sudo`).
 12. Runs the smoke test (`infra/oracle/smoke.sh`, [Check the deployment](#check-the-deployment)) and reports `smoke test: passed`, or exits non-zero saying the new version is running but a check failed (`--no-smoke` skips it; `install.sh` runs its own).
+13. Prints the one read-only check to run next and paste back: `sudo bash ~/anum/infra/oracle/verify.sh` ([Verify a deployment](#verify-a-deployment)).
 
 Going back by hand to an older commit works the same way as before: check out the previous commit and run `update.sh --no-pull`; a rollback never reverses migrations.
 
@@ -618,6 +640,64 @@ Going back by hand to an older commit works the same way as before: check out th
 - Oracle Console → the instance → **Metrics** (CPU, memory, network); **Monitoring → Alarms** can e-mail you on high CPU or a stopped instance.
 - Certificates renew automatically; Let's Encrypt e-mails `ACME_EMAIL` if renewal keeps failing (usually DNS or the security list).
 - The web app stops responding and `https://<API>/health` times out: count the API's database connections with `docker compose exec postgres psql -U postgres -d anum -c "select state, count(*) from pg_stat_activity where usename = 'anum_app' group by 1"` and look for `QueuePool limit` in `docker compose logs --tail 200 api`. Fifteen connections `idle in transaction` is the pool used up; open event streams used to hold one connection each until October 2026 ([Realtime](realtime.md#implementation)). `docker compose restart api` frees them at once.
+
+### Uptime monitoring
+
+The public health answers name nothing about the deployment: the API's `GET /health` answers `200` with exactly `{"status":"ok"}` (no version, environment, host or setting; it is not rate limited and needs no sign-in) and the web's `GET /healthz` answers `200` with `ok`. Keycloak's own `/health` stays on its private port; Caddy answers `404` for it on `<AUTH>`. Operator details are only in the signed-in [System health](system-health.md) page. Monitor definitions for UptimeRobot (free plan, 5-minute interval):
+
+| Friendly name | Monitor type | URL | Check | Interval |
+|---|---|---|---|---|
+| ANUM API | Keyword (alert when keyword not exists) | `https://api.anum360os.com/health` | keyword `"status":"ok"`, case sensitive | 5 minutes |
+| ANUM web app | Keyword (alert when keyword not exists) | `https://app.anum360os.com/healthz` | keyword `ok` | 5 minutes |
+| ANUM sign-in | HTTP(s) | `https://auth.anum360os.com/realms/anum/.well-known/openid-configuration` | status 200 (UptimeRobot alerts on 4xx and 5xx) | 5 minutes |
+| ANUM mail server (only with Mailcow) | Port | `mail.anum360os.com`, port 993 | port open | 5 minutes |
+
+Alert contact: your email (and the UptimeRobot phone app). A keyword monitor also catches a proxy error page that answers 200. Leave the timeout at UptimeRobot's default (30 seconds).
+
+### Outgoing mail
+
+Who sends mail from this stack, and through which host (from `infra/oracle/compose.yaml`, `.env.example` and the code):
+
+| Sender | Settings | Host it connects to | Sends as |
+|---|---|---|---|
+| ANUM system email: invitations, notification and team work email, finance alerts, calendar reminders, report delivery, portal sign-in codes, the test email ([Notifications: Email](notifications.md#email)) | `ANUM_SMTP_HOST`, `ANUM_SMTP_PORT`, `ANUM_SMTP_SECURITY`, `ANUM_SMTP_USERNAME`, `ANUM_SMTP_PASSWORD`, `ANUM_SMTP_FROM` in `.env` (empty: off) | Whatever `ANUM_SMTP_HOST` names: Mailcow on this VM (`mail.anum360os.com`, 587 STARTTLS) or Brevo's relay (`smtp-relay.brevo.com`, 587 STARTTLS, login = the Brevo login, password = a Brevo **SMTP key**) | `ANUM_SMTP_FROM`, for example `ANUM <notifications@anum360os.com>` |
+| Keycloak: password reset, email verification, sign-up ([Self-serve sign-up](#self-serve-sign-up)) | Keycloak admin console, realm `anum`, Realm settings, Email (stored in Keycloak's database, not `.env`) | The host typed there; same two choices | The From address typed there |
+| Email Center: people's own mailboxes ([Email Center](email.md#email-center)) | `ANUM_MAILSERVER_SMTP_HOST` (587) | Mailcow (`mail.anum360os.com`); ANUM refuses a relay service here. Mailcow's Postfix then delivers to the recipient's server, **from the VM's address** unless Mailcow has a relay host | The person's mailbox or alias |
+| Email campaigns ([Brevo](brevo.md)) | Brevo API key, pasted in the web app | `api.brevo.com` (HTTPS); Brevo's servers send | The verified Brevo sender |
+| Backups, GlitchTip, Beszel, heal timer | none | They send no mail (backup failures show in System health and `systemctl --failed`) | |
+
+So the only machines that can hand mail for `anum360os.com` to the internet are **the VM itself** (Mailcow's Postfix, `84.13.132.198`) and **Brevo**. ANUM and Keycloak never deliver to recipients directly: they submit to one of those two.
+
+**Oracle blocks outgoing port 25** on new tenancies (and does not lift it for a Free Tier account), so Mailcow on this VM cannot deliver to Gmail or Outlook by itself: such mail waits in Mailcow's queue (Mail health shows the queued count). Unless you have Oracle's written port 25 exception, Mailcow must send through a relay: in Mailcow, System, Configuration, Routing, **Sender-dependent transports**, add `[smtp-relay.brevo.com]:587` with the Brevo login and an SMTP key, then Mail setup, Domains, `anum360os.com`, Edit, **Relayhost**: that transport. Check the result with a test to a Gmail address: the received headers should show SPF, DKIM and DMARC `pass`.
+
+Pick one row and publish exactly its SPF record as the **only** `v=spf1` TXT record at `anum360os.com` (one SPF record per name; two make every check fail). Keep the existing DKIM (`brevo1._domainkey`, `brevo2._domainkey`) and DMARC (`_dmarc`, `v=DMARC1; p=none; ...`) records as they are; tighten DMARC to `p=quarantine` only after a few weeks of reports showing nothing but these senders.
+
+| Decision | When it is true | SPF record (TXT at `anum360os.com`) | Also needed |
+|---|---|---|---|
+| **Brevo only** (recommended while port 25 is blocked) | ANUM (`ANUM_SMTP_HOST`) and Keycloak send through Brevo's relay or through Mailcow, and Mailcow relays everything through Brevo | `v=spf1 include:spf.brevo.com ~all` | Nothing more: Brevo signs with the `brevo1`/`brevo2` DKIM records that already exist, which also satisfies DMARC |
+| **VM only** | Oracle lifted the port 25 block for this VM and Mailcow delivers directly; nobody uses Brevo for `anum360os.com` | `v=spf1 ip4:84.13.132.198 ~all` | Mailcow's DKIM record for the domain (Mailcow, Mail setup, Domains, DNS: `dkim._domainkey` TXT, it is not in DNS today), and a reverse DNS (PTR) name for `84.13.132.198` that matches `mail.anum360os.com` (an Oracle request); without them Gmail treats the mail as spam |
+| **Both** | Mailcow delivers directly (port 25 open) **and** Brevo also sends for the domain (relay or campaigns) | `v=spf1 ip4:84.13.132.198 include:spf.brevo.com ~all` | Both rows' extras |
+
+`ip4:` is used instead of `mx` so the record costs no extra DNS lookup and keeps working if MX moves. Brevo campaigns sent from another domain (for example `easyvoicequote.com`) need that domain's own SPF and Brevo DKIM ([Sending domains for Brevo](email.md#sending-domains-for-brevo)). ANUM never changes DNS; the owner does at the DNS host.
+
+After the record is live: set `ANUM_SMTP_*` in `.env` (one command at a time; the password with `read -s`), `docker compose up -d api`, and press **Send me a test email** in Settings, Notifications. Settings, Integrations, Connection setup names any setting that cannot work (a sender that is not one address, port 465 with `starttls` or 587 with `tls`, a login without a password).
+
+### Backblaze B2 keys
+
+Two kinds of B2 consumer exist in this repository, each with its own application key in `infra/oracle/.env` (the `keyID` is the `*_ACCESS_KEY` value, the `applicationKey` the `*_SECRET_KEY` value):
+
+| Consumer | Variables | Used by |
+|---|---|---|
+| Off-site backups (bucket `anum-ws123na-backups`) | `ANUM_BACKUP_S3_ENDPOINT`, `ANUM_BACKUP_S3_REGION`, `ANUM_BACKUP_S3_BUCKET`, `ANUM_BACKUP_S3_ACCESS_KEY`, `ANUM_BACKUP_S3_SECRET_KEY` | The `backup-upload` container (rclone, nightly), `backup.sh fetch`, `backup.sh reconcile` |
+| Workspace files (only if the Files bucket is on B2) | `ANUM_S3_ENDPOINT`, `ANUM_S3_REGION`, `ANUM_S3_BUCKET`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY` (the shared `x-object-storage` block) | The `api` and `retention` containers, `backup.sh files-reconcile` |
+
+Nothing else in ANUM reads a B2 key (Render's `deploy-render.md` uses the same `ANUM_S3_*` names on Render, not on this VM; other stacks on the VM have their own `.env`). To find the unused key without showing a secret, print only the key IDs and endpoints on the VM:
+
+```bash
+grep -E '^ANUM_(BACKUP_)?S3_(ACCESS_KEY|ENDPOINT|BUCKET)=' ~/anum/infra/oracle/.env
+```
+
+Every key ID printed there is in use (an `ANUM_S3_ENDPOINT` that is not `backblazeb2.com` means the files key is not a B2 key). In Backblaze, Application Keys, the key whose keyID is not in that list is the unused one: delete it there. Never print or paste the `*_SECRET_KEY` lines.
 
 ## Changing an Address Later
 
@@ -681,7 +761,7 @@ Production is a second VM (a second Oracle account's allowance, or a paid shape)
 ## How This Path Is Checked
 
 - `services/api/tests/test_oracle_compose.py` (API unit tests): no literal secret in `compose.yaml` or `.env.example`; only Caddy publishes ports; PostgreSQL and Valkey on the internal network only; the migration password only in `db-init` and `migrate`; the API and retention job as `anum_app`; Keycloak's admin and database credentials only in Keycloak; restart policies, health checks and log rotation; forwarded headers trusted only from Caddy's address and the Caddyfile replacing client headers; Caddy the only ANUM service on `anum_sites`, with `edge` and `backend` membership unchanged; SearXNG private (no ports, no Caddy route, its secret only in its own container); the role SQL (only `anum_backup` bypasses RLS); `configure_env.py` generating private, valid, stable secrets; and the API's startup policy accepting the example values (staging, and production with Ollama).
-- The same file also checks the edge hardening: `configure_env.py --check` refusing equal, empty, placeholder, capitalised or malformed host names and a bad or (with `--strict`) world-open admin allow-list; the Caddyfile refusing `/admin` and the master realm unless the TCP peer is on the list and is not a Docker address, with `/realms/anum` outside the matcher; the Caddy entrypoint turning the comma-separated list (or an empty one) into Caddy's ranges; Keycloak's fixed tunnel address and `KC_HOSTNAME_ADMIN` for the tunnel; `install.sh` checking before it builds and ending with `smoke.sh`; `update.sh` checking before it builds, keeping the previous images, building one image at a time, backing up before it migrates, migrating before it recreates anything and going back to the previous images when the new version is not healthy; `heal.sh` restarting unhealthy containers of this project except clamd (run against a stand-in `docker`); `backup.sh` pruning fetched and drill copies and warning that `.env` is in no backup; the memory budget and PostgreSQL's settings; the retention job using the API's bucket settings; and `smoke.sh` refusing duplicate host names without sudo or Docker.
+- The same file also checks the edge hardening: `configure_env.py --check` refusing equal, empty, placeholder, capitalised or malformed host names and a bad or (with `--strict`) world-open admin allow-list; the Caddyfile refusing `/admin` and the master realm unless the TCP peer is on the list and is not a Docker address, with `/realms/anum` outside the matcher; the Caddy entrypoint turning the comma-separated list (or an empty one) into Caddy's ranges; Keycloak's fixed tunnel address and `KC_HOSTNAME_ADMIN` for the tunnel; `install.sh` checking before it builds and ending with `smoke.sh`; `update.sh` checking before it builds, keeping the previous images, building one image at a time, backing up before it migrates, migrating before it recreates anything and going back to the previous images when the new version is not healthy; `heal.sh` restarting unhealthy containers of this project except clamd (run against a stand-in `docker`); `backup.sh` pruning fetched and drill copies and warning that `.env` is in no backup; the memory budget and PostgreSQL's settings; the retention job using the API's bucket settings; and `smoke.sh` refusing duplicate host names without sudo or Docker. `verify.sh` is run against stand-ins for `docker`, `systemctl` and `smoke.sh` in a scratch checkout with an origin: a healthy deployment passes without printing any value, and a deployment behind `origin/main`, with pending migrations, missing finance routes, a disabled heal timer, a failed backup and no drill names the next command for each; the finance routes it asks for are checked against the API's own OpenAPI. Not verified there: `verify.sh` on the real VM.
 - Verified in the build environment (October 2026) with Caddy 2.11.7 (the pinned image's version) and its local CA in front of stand-in upstreams: `caddy adapt` of the Caddyfile; `/admin`, `/admin/…`, `/realms/master/…` (also as `//admin/`, `/ADMIN/`, `/realms/%6Daster/…`) refused with 403 when the list is empty and passed through for a listed address; `/realms/anum/…` always passed through; and `smoke.sh` passing against it (DNS aside), failing when the API answered without a token, and refusing duplicate host names. Not verified there: Keycloak's console through the SSH tunnel with `KC_HOSTNAME_ADMIN` (no Keycloak image could be run), and `smoke.sh` against a real VM.
 - CI's "Docker Compose config" job runs `docker compose config` on the file with `.env.example` (also with the `ai` and `jobs` profiles, and with the `monitoring` profiles) and ShellCheck on the scripts. The monitoring checks are listed in [Monitoring the Oracle VM](monitoring-oracle.md#how-this-is-checked).
 - Verified locally on x86_64 (October 2026) with generated secrets: `db-init`, the migrations to `0016_retrieval_hnsw` as `anum_migrator`, the API healthy as `anum_app` (`/health` reports `staging` with HSTS, 401 without a token, no `/docs`, no migration or Keycloak variables in its environment), the containers coming back after a Docker daemon restart, `keycloak` and `anum_app` refused `CONNECT` to each other's databases, the retention job, a second `db-init` run (idempotent), the nightly backup and Keycloak dump, a restore plus verification and the restore drill (with two seeded tenants), `caddy validate`, and through Caddy (with its local CA instead of Let's Encrypt): a forged `X-Forwarded-For` ignored and the real client address in the API log, and `/admin` refused from an address outside the allow-list.
