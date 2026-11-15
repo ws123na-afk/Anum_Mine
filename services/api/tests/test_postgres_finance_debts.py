@@ -126,7 +126,10 @@ def test_alert_channels_claim_once_per_channel_and_the_push_trigger_is_private(c
     today = utc_now().date()
     made = client.post(f"{FIN}/people-loans", headers=OWNER, json={"direction": "borrowed", "person": "Synthetic Cousin", "amount": "300", "currency": "SAR",
                                                                     "lent_on": (today - timedelta(days=20)).isoformat(),
-                                                                    "due_on": (today + timedelta(days=2)).isoformat()})
+                                                                    "due_on": (today + timedelta(days=2)).isoformat(),
+                                                                    # The loan's own reminder off: with it on, that reminder tells it
+                                                                    # and ``loan_due_soon`` stays quiet (docs/finance.md#financial-alerts).
+                                                                    "remind": False})
     assert made.status_code == 201, made.text
     monkeypatch.setattr(settings, "fcm_service_account_json", SecretStr(SERVICE_ACCOUNT))
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
