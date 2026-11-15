@@ -1,8 +1,11 @@
-"""Financial alerts: one in-app notice per kind a day, each item told once, only from evidence (docs/finance.md#financial-alerts).
+"""Financial alerts: one notice per kind and channel a day, each item told once per channel, only from evidence
+(docs/finance.md#financial-alerts).
 
-Run by the daily job with the other finance notices (``suggestion_jobs.run_person``, counted under ``alerts``). Each kind can
-be turned off by the person (Finance, Notifications: ``AlertSettings``, migration 0186_pf_debts); every kind is on until
-then. A notice is in-app only (kind ``finance_alerts``, ``push.IN_APP_ONLY_KINDS``): never an email, never a phone push.
+Run by the daily job with the other finance notices (``suggestion_jobs.run_person``, counted under ``alerts``). Per kind the
+person picks the channels (Settings, Notifications, Financial alerts: ``AlertSettings``, migration 0186_pf_debts; details in
+``alert_channels``): in the app (the inbox row ``finance_alerts`` with the full wording, every kind on until turned off), on
+the phone (``finance.alert.raised``, fixed words only) and by email (opt in, fixed words only). A push or an email never
+carries an amount, a name or an account number.
 
 **Never "paid" without evidence.** The words follow the evidence policy: a payment is called *paid* only when an active link
 matches it (``verified``); a link waiting for review is *needs your check*; a provider's own report is *reported paid by
@@ -16,6 +19,8 @@ notice releases its claims for the next run):
 * ``unverified_payment``: payments linked but waiting for review, months that need a pick, provider reports without a matched
   bank payment (told once a week).
 * ``card_payment_due``: a card statement due within 3 days (or past due) not paid to its minimum by verified payments.
+* ``loan_due_soon``: a loan payment you owe (a bank loan instalment, a debt, money borrowed from a person) due within 3 days
+  and not paid.
 * ``loan_installment_missed``: a bank loan instalment marked missed, or money borrowed from a person overdue.
 * ``loan_payment_linked``: a payment linked to a loan in the last 3 days by anyone but the person (automation, a policy).
 * ``source_stopped``: an account that had activity and has reported nothing for 10 days (told once a week).
@@ -33,6 +38,8 @@ notice releases its claims for the next run):
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -46,16 +53,18 @@ NOTICE_KIND = "finance_alerts"
 RECENT_DAYS = 3
 STOPPED_DAYS = 10
 KINDS: tuple[str, ...] = (
-    "installment_due_tomorrow", "installment_paid", "unverified_payment", "card_payment_due", "loan_installment_missed", "loan_payment_linked",
-    "source_stopped", "budget_nearly_exhausted", "unexpected_bank_charge", "suspected_duplicate", "refund_received", "new_recurring_charge",
+    "installment_due_tomorrow", "installment_paid", "unverified_payment", "card_payment_due", "loan_due_soon", "loan_installment_missed",
+    "loan_payment_linked", "source_stopped", "budget_nearly_exhausted", "unexpected_bank_charge", "suspected_duplicate", "refund_received", "new_recurring_charge",
     "salary_received", "salary_differs", "lender_balance_differs",
 )
-DEFAULTS: dict[str, bool] = dict.fromkeys(KINDS, True)
+DEFAULTS: dict[str, bool] = dict.fromkeys(KINDS, True)  # in the app; the other channels' defaults are in ``alert_channels``
+LOAN_TYPES = frozenset({"personal_loan", "vehicle_finance", "mortgage", "employer_loan", "borrowed_person", "other", "informal"})
 TITLES: dict[str, str] = {
     "installment_due_tomorrow": "Installment due tomorrow",
     "installment_paid": "Installment paid and matched",
     "unverified_payment": "A payment needs your check",
     "card_payment_due": "Card payment due",
+    "loan_due_soon": "Loan payment due soon",
     "loan_installment_missed": "A loan payment was missed",
     "loan_payment_linked": "A loan payment was linked",
     "source_stopped": "An account stopped reporting",
@@ -110,9 +119,14 @@ def compose(data: AlertData) -> list[Alert]:
     out: list[Alert] = []
     ov = data.overview
     # Installments due tomorrow, and installments whose bank payment was matched.
+    loans = {ob.id for ob in ov.items if ob.direction == "owe" and ob.type in LOAN_TYPES}
     for item in ov.calendar:
         if item.obligation_id.startswith("installment_order:") and item.on == today + timedelta(days=1) and item.status in ("due", "review"):
             out.append(Alert("installment_due_tomorrow", f"{item.obligation_id}:{item.on.isoformat()}", item.on,
+                             f"{item.name}: {_money(item.amount, item.currency)} is due on {item.on.isoformat()}. It is not paid yet."))
+        elif (item.obligation_id in loans and item.direction == "owe" and item.status == "due" and item.amount > 0
+              and today <= item.on <= today + timedelta(days=RECENT_DAYS)):
+            out.append(Alert("loan_due_soon", f"{item.obligation_id}:{item.on.isoformat()}", item.on,
                              f"{item.name}: {_money(item.amount, item.currency)} is due on {item.on.isoformat()}. It is not paid yet."))
     for ob in ov.items:
         for h in ob.history:
@@ -129,8 +143,7 @@ def compose(data: AlertData) -> list[Alert]:
             out.append(Alert("lender_balance_differs", f"{ob.id}:{ob.verified_on}:{ob.verified_balance}", _week(today),
                              f"{ob.name}: the lender's balance of {_money(ob.verified_balance, ob.currency)} on {ob.verified_on} differs from "
                              f"{_money(ob.remaining, ob.currency)} worked out from your records by {_money(ob.difference or Decimal(0), ob.currency)}."))
-        if ob.direction == "owe" and ob.overdue_amount > 0 and ob.type in ("personal_loan", "vehicle_finance", "mortgage", "employer_loan", "borrowed_person",
-                                                                           "other", "informal"):
+        if ob.direction == "owe" and ob.overdue_amount > 0 and ob.type in LOAN_TYPES:
             out.append(Alert("loan_installment_missed", f"{ob.id}:{ob.overdue_amount}", _week(today),
                              f"{ob.name}: {_money(ob.overdue_amount, ob.currency)} that was due is not matched to a payment."))
     # Cards: a statement due within 3 days, or past due, not paid to its minimum by verified payments.
@@ -217,29 +230,47 @@ def compose(data: AlertData) -> list[Alert]:
     return list(unique.values())
 
 
-def settings(context: TenantContext) -> dict[str, bool]:
+def _stored(context: TenantContext) -> Any:
     from .personal import AlertSettings
     from .personal_store import open_personal_store
 
     with open_personal_store(context) as store:
         rows = [s for s in store.list(context, "alert_settings") if isinstance(s, AlertSettings)]
-    chosen = rows[0].kinds if rows else {}
-    return {k: bool(chosen.get(k, DEFAULTS[k])) for k in KINDS}
+    return rows[0] if rows else None
 
 
-def save_settings(context: TenantContext, kinds: dict[str, bool]) -> dict[str, bool]:
+def channel_settings(context: TenantContext) -> dict[str, dict[str, bool]]:
+    """Every kind's channels (``in_app``, ``push``, ``email``): the person's choice, else the default."""
+    from .alert_channels import resolve
+
+    current = _stored(context)
+    return resolve(KINDS, current.kinds if current else {})
+
+
+def settings(context: TenantContext) -> dict[str, bool]:
+    """Which kinds are on in the app."""
+    return {k: v["in_app"] for k, v in channel_settings(context).items()}
+
+
+def save_settings(context: TenantContext, kinds: dict[str, bool], channels: dict[str, dict[str, bool]] | None = None) -> dict[str, dict[str, bool]]:
+    """Save the in-app switches (``kinds``) and any channel choices; unknown kinds and channels are ignored. Answers every kind's channels."""
+    from .alert_channels import CHANNELS, resolve, stored_key
     from .personal import AlertSettings
     from .personal_store import open_personal_store
 
     now = utc_now()
+    chosen = {k: bool(v) for k, v in kinds.items() if k in DEFAULTS}
+    for kind, picks in (channels or {}).items():
+        if kind in DEFAULTS:
+            chosen.update({stored_key(kind, c): bool(on) for c, on in picks.items() if c in CHANNELS})
     with open_personal_store(context) as store:
         rows = [s for s in store.list(context, "alert_settings") if isinstance(s, AlertSettings)]
         current = rows[0] if rows else None
-        merged = {**(current.kinds if current else {}), **{k: bool(v) for k, v in kinds.items() if k in DEFAULTS}}
+        merged = {**(current.kinds if current else {}), **chosen}
         store.save("alert_settings", AlertSettings(
             id=current.id if current else new_id("fin_alerts"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
             owner_user_id=context.user_id, kinds=merged, created_at=current.created_at if current else now, updated_at=now))
-    return {k: bool(merged.get(k, DEFAULTS[k])) for k in KINDS}
+    return resolve(KINDS, merged)
 
 
 def gather(context: TenantContext, now: datetime) -> AlertData:
@@ -290,48 +321,97 @@ def gather(context: TenantContext, now: datetime) -> AlertData:
 
 
 def preview(context: TenantContext, now: datetime | None = None) -> tuple[date, list[Alert], dict[str, bool]]:
-    """What would be told today (claims ignored) and which kinds are on."""
+    """What would be told today (claims ignored) and which kinds are on in at least one channel."""
     data = gather(context, now or utc_now())
-    return data.today, compose(data), settings(context)
+    return data.today, compose(data), {k: any(v.values()) for k, v in channel_settings(context).items()}
 
 
 def run(context: TenantContext, *, now: datetime, dry_run: bool = False) -> tuple[int, int]:
-    """Send today's alerts: one notice per kind listing the items not told before. Answers (notices sent, notices failed)."""
-    from .rules_store import open_rule_stores
+    """Send today's alerts: per kind and channel one notice for the items that channel has not told yet. Answers (notices sent,
+    notices failed), every channel counted."""
+    from . import alert_channels as C
 
-    chosen = settings(context)
-    if not any(chosen.values()):
+    chosen = channel_settings(context)
+    if not any(any(v.values()) for v in chosen.values()):
         return 0, 0
     data = gather(context, now)
-    found = [a for a in compose(data) if chosen.get(a.kind)]
+    found = [a for a in compose(data) if any(chosen[a.kind].values())]
     if dry_run:
         return len({a.kind for a in found}), 0
+    wanted = any(on for a in found for c, on in chosen[a.kind].items() if c != "in_app")
+    # Read once per run, off any transaction: whether a phone and an address can be reached at all.
+    reach = C.reach(context) if wanted else C.Reach(False, None, None, None)
+    email_paused = False
     sent = failed = 0
     for kind in KINDS:
         items = [a for a in found if a.kind == kind]
         if not items:
             continue
-        claimed: list[Alert] = []
-        for alert in items:
-            with open_rule_stores(context) as (_finance, store):
-                if store.claim_item_notices(context, f"alert:{kind}", [alert.key[:200]], alert.on, now):
-                    claimed.append(alert)
-        if not claimed:
-            continue
-        body = " ".join(a.body for a in claimed[:5])
-        if len(claimed) > 5:
-            body += f" And {len(claimed) - 5} more under Finance."
-        title = TITLES[kind] if len(claimed) == 1 else f"{TITLES[kind]} ({len(claimed)})"
-        if _send(context, title, body):
-            sent += 1
-        else:
-            for alert in claimed:
-                with open_rule_stores(context) as (_finance, store):
-                    store.release_item_notices(context, f"alert:{kind}", [alert.key[:200]], alert.on)
+        for channel in C.CHANNELS:
+            if not chosen[kind][channel] or not reach.available(channel) or (channel == "email" and email_paused):
+                continue  # nothing is claimed for a channel that is off or cannot be reached
+            claim_kind, keys = _claim_keys(kind, channel, items)
+            claimed = _claim(context, claim_kind, keys, items, now)
+            if not claimed:
+                continue
+            keep = False
+            if channel == "in_app":
+                ok = _send(context, *_in_app_text(kind, claimed))
+            elif channel == "push":
+                ok = C.send_push(context, kind, len(claimed))
+            else:
+                result = C.send_email(reach.email or "", kind, len(claimed))
+                ok, keep = result == "sent", result == "permanent"
+                email_paused = not ok  # one failed email: this person's other emails wait for the next run, no storm
+            if ok:
+                sent += 1
+                continue
             failed += 1
-    with open_rule_stores(context) as (_finance, store):
+            if not keep:  # a transient failure: released, so the next daily run tries once more
+                _release(context, claim_kind, keys, claimed)
+    with _claims(context) as store:
         store.prune_item_notices(context, data.today - timedelta(days=14))
     return sent, failed
+
+
+def _claim_keys(kind: str, channel: str, items: list[Alert]) -> tuple[str, dict[str, str]]:
+    """The claim kind and each item's claim key: in the app as before (``alert:<kind>``); on the phone and by email the
+    channel's own claim kind with the item key behind its alert kind."""
+    from .alert_channels import EMAIL_CLAIM, PUSH_CLAIM
+
+    if channel == "in_app":
+        return f"alert:{kind}", {a.key: a.key[:200] for a in items}
+    return (PUSH_CLAIM if channel == "push" else EMAIL_CLAIM), {a.key: f"{kind}:{a.key}"[:200] for a in items}
+
+
+@contextmanager
+def _claims(context: TenantContext) -> Iterator[Any]:
+    from .rules_store import open_rule_stores
+
+    with open_rule_stores(context) as (_finance, store):
+        yield store
+
+
+def _claim(context: TenantContext, claim_kind: str, keys: dict[str, str], items: list[Alert], now: datetime) -> list[Alert]:
+    claimed: list[Alert] = []
+    for alert in items:
+        with _claims(context) as store:
+            if store.claim_item_notices(context, claim_kind, [keys[alert.key]], alert.on, now):
+                claimed.append(alert)
+    return claimed
+
+
+def _release(context: TenantContext, claim_kind: str, keys: dict[str, str], claimed: list[Alert]) -> None:
+    for alert in claimed:
+        with _claims(context) as store:
+            store.release_item_notices(context, claim_kind, [keys[alert.key]], alert.on)
+
+
+def _in_app_text(kind: str, claimed: list[Alert]) -> tuple[str, str]:
+    body = " ".join(a.body for a in claimed[:5])
+    if len(claimed) > 5:
+        body += f" And {len(claimed) - 5} more under Finance."
+    return (TITLES[kind] if len(claimed) == 1 else f"{TITLES[kind]} ({len(claimed)})"), body
 
 
 def _send(context: TenantContext, title: str, body: str) -> bool:
@@ -352,4 +432,5 @@ def _send(context: TenantContext, title: str, body: str) -> bool:
         return False
 
 
-__all__ = ["DEFAULTS", "KINDS", "NOTICE_KIND", "TITLES", "Alert", "AlertData", "compose", "gather", "preview", "run", "save_settings", "settings"]
+__all__ = ["DEFAULTS", "KINDS", "LOAN_TYPES", "NOTICE_KIND", "TITLES", "Alert", "AlertData", "channel_settings", "compose", "gather", "preview",
+           "run", "save_settings", "settings"]

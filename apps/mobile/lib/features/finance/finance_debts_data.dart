@@ -388,11 +388,96 @@ class CreditCardView {
   }
 }
 
+/// Where a financial alert can go (docs/finance.md#alert-channels). A push or
+/// an email carries the alert's fixed words only, never the details.
+const alertChannels = ['in_app', 'push', 'email'];
+
+/// One alert kind and its channels; [on] is the in-app switch.
 class AlertKindSetting {
-  const AlertKindSetting({required this.kind, required this.on});
+  const AlertKindSetting(
+      {required this.kind,
+      required this.on,
+      this.push = false,
+      this.email = false});
   final String kind;
-  final bool on;
+  final bool on, push, email;
+
+  bool channel(String name) => switch (name) {
+        'push' => push,
+        'email' => email,
+        _ => on,
+      };
+
+  AlertKindSetting withChannel(String name, bool value) => AlertKindSetting(
+      kind: kind,
+      on: name == 'in_app' ? value : on,
+      push: name == 'push' ? value : push,
+      email: name == 'email' ? value : email);
+
+  static AlertKindSetting read(JsonReader r) {
+    final on = r.optBool('in_app') ?? r.optBool('on') ?? true;
+    return AlertKindSetting(
+        kind: r.string('kind'),
+        on: on,
+        push: r.optBool('push') ?? false,
+        email: r.optBool('email') ?? false);
+  }
 }
+
+/// Whether a channel can be used now and, if not, why (`not_configured`,
+/// `push_off`, `no_device`, `email_off`, `no_address`).
+class AlertChannelInfo {
+  const AlertChannelInfo({required this.available, this.reason});
+  final bool available;
+  final String? reason;
+}
+
+class AlertSettingsView {
+  const AlertSettingsView({required this.kinds, this.channels = const {}});
+  final List<AlertKindSetting> kinds;
+  final Map<String, AlertChannelInfo> channels;
+
+  /// The in-app channel always can; an older server that names no channels
+  /// leaves push and email unusable rather than promising them.
+  bool usable(String channel) =>
+      channel == 'in_app' || (channels[channel]?.available ?? false);
+
+  /// The string key saying why a channel cannot be used, or null.
+  String? reasonKey(String channel) {
+    if (channel == 'in_app' || channels.isEmpty) return null;
+    final info = channels[channel];
+    if (info == null || info.available) return null;
+    return 'alerts.why.$channel.${info.reason ?? 'not_configured'}';
+  }
+
+  AlertSettingsView withKinds(List<AlertKindSetting> next) =>
+      AlertSettingsView(kinds: next, channels: channels);
+
+  static AlertSettingsView read(JsonReader r) {
+    final found = r.optObject('channels');
+    return AlertSettingsView(
+      kinds: r.objects('kinds', AlertKindSetting.read),
+      channels: {
+        if (found != null)
+          for (final c in alertChannels)
+            if (found.optObject(c) case final info?)
+              c: AlertChannelInfo(
+                  available: info.optBool('available') ?? false,
+                  reason: info.optString('reason')),
+      },
+    );
+  }
+}
+
+/// The PUT body: every kind's channels, plus the in-app switch older
+/// servers read.
+Map<String, Object?> alertSettingsBody(List<AlertKindSetting> kinds) => {
+      'kinds': {for (final k in kinds) k.kind: k.on},
+      'channels': {
+        for (final k in kinds)
+          k.kind: {'in_app': k.on, 'push': k.push, 'email': k.email}
+      },
+    };
 
 class AlertPreviewItem {
   const AlertPreviewItem(
@@ -521,20 +606,14 @@ class FinanceDebtsRepository {
       api.request('PUT', '$base/people-loans/${_id(loanId)}/agreed-balance',
           body: {'balance': balance});
 
-  Future<List<AlertKindSetting>> alertSettings() async =>
-      (await _get('/alerts/settings')).objects(
-          'kinds',
-          (r) => AlertKindSetting(
-              kind: r.string('kind'), on: r.optBool('on') ?? true));
+  Future<AlertSettingsView> alertSettings() async =>
+      AlertSettingsView.read(await _get('/alerts/settings'));
 
-  Future<List<AlertKindSetting>> saveAlertSettings(
-          Map<String, bool> kinds) async =>
-      JsonReader.of(await api
-              .request('PUT', '$base/alerts/settings', body: {'kinds': kinds}))
-          .objects(
-              'kinds',
-              (r) => AlertKindSetting(
-                  kind: r.string('kind'), on: r.optBool('on') ?? true));
+  Future<AlertSettingsView> saveAlertSettings(
+          List<AlertKindSetting> kinds) async =>
+      AlertSettingsView.read(JsonReader.of(await api.request(
+          'PUT', '$base/alerts/settings',
+          body: alertSettingsBody(kinds))));
 
   Future<List<AlertPreviewItem>> alertPreview() async =>
       (await _get('/alerts/preview')).objects(

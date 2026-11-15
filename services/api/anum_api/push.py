@@ -31,6 +31,8 @@ event                                          recipients                       
 ``commerce.alert.raised``                       active owners and members        ``commerce_alerts``
                                                (``commerce:operate``)
 ``tyre_alerts.raised``                         active members (``tyre:read``)    ``tyre_alerts``
+``finance.alert.raised``                       the person it is private to      ``push_enabled`` and the
+                                               (``finance:read``)               alert's own push choice
 =============================================  ==============================  =====================
 
 Recipients are resolved as the application role inside the event's tenant and workspace
@@ -394,6 +396,8 @@ class PushKind(StrEnum):
     MISSED_CALL = "missed_call"
     # A calendar reminder before an event starts (docs/calendar.md#reminders).
     CALENDAR_REMINDER = "calendar_reminder"
+    # A personal financial alert the person sends to the phone (docs/finance.md#alert-channels).
+    FINANCE_ALERT = "finance_alert"
 
 
 # Which notification preference switch gates each kind.
@@ -416,6 +420,8 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.INCOMING_CALL: "push_enabled",
     PushKind.MISSED_CALL: "push_enabled",
     PushKind.CALENDAR_REMINDER: "push_enabled",
+    # Chosen per alert kind in the financial alert settings; push_enabled still applies.
+    PushKind.FINANCE_ALERT: "push_enabled",
 }
 
 # Fixed text: a push never carries the task, the prompt, the tool call or a PR title.
@@ -435,6 +441,8 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.INCOMING_CALL: ("Incoming call", "A teammate is calling you. Open ANUM to answer."),
     PushKind.MISSED_CALL: ("Missed call", "A teammate tried to call you in ANUM."),
     PushKind.CALENDAR_REMINDER: ("Event reminder", "An event on your calendar starts soon. Open ANUM to see it."),
+    # The fallback; each alert kind has its own fixed words (``finance.alert_channels.GENERIC``).
+    PushKind.FINANCE_ALERT: ("Money alert", "Something in your finances needs a look. Open ANUM to see it."),
 }
 
 # The same fixed text in Arabic, for phones whose app shows Arabic (``push_devices.language``).
@@ -454,12 +462,23 @@ TEXT_AR: dict[PushKind, tuple[str, str]] = {
     PushKind.INCOMING_CALL: ("مكالمة واردة", "زميل يتصل بك. افتح ANUM للرد."),
     PushKind.MISSED_CALL: ("مكالمة فائتة", "حاول زميل الاتصال بك في ANUM."),
     PushKind.CALENDAR_REMINDER: ("تذكير بحدث", "حدث في تقويمك يبدأ قريبًا. افتح ANUM لرؤيته."),
+    PushKind.FINANCE_ALERT: ("تنبيه مالي", "شيء في أموالك يحتاج إلى نظرة. افتح ANUM لرؤيته."),
 }
 
 
 def push_text(kind: PushKind, language: str | None) -> tuple[str, str]:
     """The fixed title and body of a kind in the phone's language (English when unknown)."""
     return (TEXT_AR if language == "ar" else TEXT)[kind]
+
+
+def intent_text(intent: PushIntent, language: str | None) -> tuple[str, str]:
+    """A financial alert says which kind it is, in fixed words (no amount, name or account); every other kind its own text."""
+    if intent.kind == PushKind.FINANCE_ALERT and intent.finance_alert_kind:
+        from .finance.alert_channels import generic
+
+        title, body = generic(intent.finance_alert_kind, language)
+        return title, f"{body} {'افتح ANUM لرؤيته.' if language == 'ar' else 'Open ANUM to see it.'}"
+    return push_text(intent.kind, language)
 
 # Notification kinds that stay in the app (the inbox row and the web bell): their
 # ``notification.created`` event never becomes a phone push. A visitor checked in for a host
@@ -481,6 +500,7 @@ EVENT_KINDS: dict[str, PushKind] = {
     "automation.notification": PushKind.AUTOMATION_NOTICE,
     "automation_run.failed": PushKind.AUTOMATION_FAILED,
     "app_call.ringing": PushKind.INCOMING_CALL,
+    "finance.alert.raised": PushKind.FINANCE_ALERT,
 }
 
 
@@ -505,6 +525,8 @@ class PushIntent:
     named_users: tuple[str, ...] = ()
     # The event belongs to a private task (docs/tasks.md#private-tasks): only this user is told.
     private_to: str | None = None
+    # A financial alert's kind (docs/finance.md#alert-channels): picks its fixed words and the screen it opens.
+    finance_alert_kind: str | None = None
 
     def data(self) -> dict[str, str]:
         """Deep-link ids only (FCM data values must be strings)."""
@@ -521,6 +543,7 @@ class PushIntent:
             "automation_run_id": self.automation_run_id,
             "workflow_id": self.workflow_id,
             "app_call_id": self.app_call_id,
+            "finance_alert_kind": self.finance_alert_kind,
         }
         return {key: value for key, value in values.items() if value}
 
@@ -529,6 +552,8 @@ class PushIntent:
             return f"tyre_alerts:{self.workspace_id}"
         if self.app_call_id:
             return f"app_call:{self.app_call_id}:{self.kind.value}"
+        if self.finance_alert_kind:
+            return f"finance_alert:{self.finance_alert_kind}"
         return self.approval_id or self.request_id or self.alert_id or self.work_item_id or self.automation_run_id or self.task_id or self.event_id
 
 
@@ -563,6 +588,15 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         return PushIntent(**common, approval_id=event.subject, task_id=task_id)
     if kind == PushKind.TYRE_ALERTS:
         return PushIntent(**common)
+    if kind == PushKind.FINANCE_ALERT:
+        # Only for the person the alert is private to, and only a known kind (its fixed words); never anyone else.
+        from .finance.alert_channels import GENERIC
+
+        recipient = event.payload.get("recipient")
+        alert = event.payload.get("alert_kind")
+        if not isinstance(recipient, str) or not recipient or event.private_to != recipient or alert not in GENERIC:
+            return None
+        return PushIntent(**common, recipient=recipient, finance_alert_kind=str(alert))
     if kind == PushKind.INCOMING_CALL:
         recipient = event.payload.get("recipient")
         call_id = event.payload.get("call_id")
@@ -634,7 +668,7 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
         elif intent.kind == PushKind.TEAM_WORK:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.WORK_READ):
                 recipients = [intent.recipient]
-        elif intent.kind in {PushKind.FINANCE_REPORT, PushKind.FINANCE_ADVICE}:
+        elif intent.kind in {PushKind.FINANCE_REPORT, PushKind.FINANCE_ADVICE, PushKind.FINANCE_ALERT}:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.FINANCE_READ):
                 recipients = [intent.recipient]
         elif intent.kind == PushKind.CALENDAR_REMINDER:
@@ -814,7 +848,7 @@ class PushDispatcher:
         gate = asyncio.Semaphore(MAX_IN_FLIGHT)
 
         async def one(target: _Target) -> SendOutcome:
-            title, body = push_text(intent.kind, target.language)
+            title, body = intent_text(intent, target.language)
             async with gate:
                 return await sender.send(
                     PushMessage(token=target.token, title=title, body=body, data=intent.data(), collapse_id=intent.collapse_id())

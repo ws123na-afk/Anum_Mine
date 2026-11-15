@@ -49,7 +49,43 @@ export interface DebtProfileInput {
   fees?: string | null; card_limit?: string | null; card_statement_day?: number | null; card_statement_balance?: string | null;
   card_statement_minimum?: string | null; card_statement_on?: string | null;
 }
-export interface AlertKind { kind: string; on: boolean; title: string }
+/** Where a financial alert can go (docs/finance.md#alert-channels). A push or an email carries fixed words only, never the details. */
+export const ALERT_CHANNELS = ['in_app', 'push', 'email'] as const;
+export type AlertChannel = typeof ALERT_CHANNELS[number];
+export interface AlertKind { kind: string; on: boolean; title: string; in_app?: boolean; push?: boolean; email?: boolean }
+export interface AlertChannelInfo { available: boolean; reason: string | null; message: string | null }
+export type AlertChannels = Record<AlertChannel, AlertChannelInfo>;
+export interface AlertSettingsView { kinds: AlertKind[]; channels?: AlertChannels; note?: string }
+
+/** The channel choice of one kind; an older server answers only `on` (the in-app switch). */
+export function alertChannel(kind: AlertKind, channel: AlertChannel): boolean {
+  return channel === 'in_app' ? (kind.in_app ?? kind.on) : Boolean(kind[channel]);
+}
+
+/** Whether a channel can be used now; the in-app channel always can. */
+export function channelUsable(channels: AlertChannels | undefined, channel: AlertChannel): boolean {
+  return channel === 'in_app' || Boolean(channels?.[channel]?.available);
+}
+
+/** The catalog key that says why a channel cannot be used (`falert.why.push.no_device`), or null when it can. */
+export function channelReasonKey(channels: AlertChannels | undefined, channel: AlertChannel): string | null {
+  if (channel === 'in_app' || !channels) return null;
+  const info = channels[channel];
+  return info && !info.available ? `falert.why.${channel}.${info.reason ?? 'not_configured'}` : null;
+}
+
+/** The PUT body: every kind's three channels, plus the in-app switch older servers read. */
+export function alertSettingsBody(kinds: AlertKind[]): { kinds: Record<string, boolean>; channels: Record<string, Record<AlertChannel, boolean>> } {
+  return {
+    kinds: Object.fromEntries(kinds.map((k) => [k.kind, alertChannel(k, 'in_app')])),
+    channels: Object.fromEntries(kinds.map((k) => [k.kind, { in_app: alertChannel(k, 'in_app'), push: alertChannel(k, 'push'), email: alertChannel(k, 'email') }])),
+  };
+}
+
+/** One kind with one channel turned on or off. */
+export function withChannel(kind: AlertKind, channel: AlertChannel, on: boolean): AlertKind {
+  return channel === 'in_app' ? { ...kind, in_app: on, on } : { ...kind, [channel]: on };
+}
 export interface AlertPreviewItem { kind: string; title: string; body: string; on: string; evidence: string; on_for_you: boolean }
 
 export const QUESTIONS = ['cash', 'owe', 'due_week', 'installment_today', 'card_missing', 'category_spend', 'words_spend', 'sent_home', 'owed_to_me',

@@ -237,6 +237,12 @@ class DebtsApi {
     'installment_due_tomorrow': true,
     'refund_received': true
   };
+  final alertPush = <String, bool>{
+    'installment_due_tomorrow': true,
+    'refund_received': true
+  };
+  Map<String, Object?>? lastAlertBody;
+  bool emailConfigured = false;
 
   ApiResponse? route(ApiRequest r) {
     final path = r.uri.path;
@@ -254,14 +260,35 @@ class DebtsApi {
     }
     if (path == '$fin/alerts/settings') {
       if (r.method == 'PUT') {
+        lastAlertBody = r.body;
         final body = r.body?['kinds'] as Map<String, Object?>? ?? const {};
         body.forEach((k, v) => alertKinds[k] = v == true);
+        final channels =
+            r.body?['channels'] as Map<String, Object?>? ?? const {};
+        channels.forEach((k, v) =>
+            alertPush[k] = (v as Map<String, Object?>)['push'] == true);
       }
       return ok({
         'kinds': [
           for (final e in alertKinds.entries)
-            {'kind': e.key, 'on': e.value, 'title': e.key}
-        ]
+            {
+              'kind': e.key,
+              'on': e.value,
+              'title': e.key,
+              'in_app': e.value,
+              'push': alertPush[e.key] ?? false,
+              'email': false,
+            }
+        ],
+        'channels': {
+          'in_app': {'available': true, 'reason': null, 'message': null},
+          'push': {'available': true, 'reason': null, 'message': null},
+          'email': {
+            'available': emailConfigured,
+            'reason': emailConfigured ? null : 'not_configured',
+            'message': null
+          },
+        },
       });
     }
     if (path == '$fin/alerts/preview') {
@@ -388,11 +415,46 @@ void main() {
       (tester) async {
     final api = DebtsApi();
     await pumpModule(tester, FinancialAlertsScreen(repository: api.repo()));
-    await tapVisible(tester, find.byKey(const Key('alert-refund_received')));
+    await tapVisible(
+        tester, find.byKey(const Key('alert-refund_received-in_app')));
     await tapVisible(tester, find.byKey(const Key('alerts-save')));
     expect(api.alertKinds['refund_received'], isFalse);
+    // The saved toast covers the bottom of the page for a moment.
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
     await tapVisible(tester, find.byKey(const Key('alerts-preview')));
     expect(find.textContaining('not counted as paid'), findsOneWidget);
+    expectClean(tester);
+  });
+
+  testWidgets(
+      'alerts choose push per kind; email says why it cannot be used, in Arabic too',
+      (tester) async {
+    final api = DebtsApi();
+    await pumpModule(tester, FinancialAlertsScreen(repository: api.repo()));
+    expect(find.byKey(const Key('alerts-why-email')), findsOneWidget);
+    expect(find.textContaining('no mail server'), findsOneWidget);
+    final email = tester.widget<FilterChip>(
+        find.byKey(const Key('alert-refund_received-email')));
+    expect(email.onSelected, isNull);
+    await tapVisible(
+        tester, find.byKey(const Key('alert-refund_received-push')));
+    await tapVisible(tester, find.byKey(const Key('alerts-save')));
+    expect(api.alertPush['refund_received'], isFalse);
+    expect(api.alertPush['installment_due_tomorrow'], isTrue);
+    final channels = api.lastAlertBody?['channels'] as Map<String, Object?>;
+    expect(channels['refund_received'],
+        {'in_app': true, 'push': false, 'email': false});
+    expectClean(tester);
+
+    final arabic = DebtsApi()..emailConfigured = true;
+    await pumpModule(tester, FinancialAlertsScreen(repository: arabic.repo()),
+        locale: const Locale('ar'));
+    expect(find.byKey(const Key('alerts-why-email')), findsNothing);
+    expect(find.text('إشعار الهاتف'), findsWidgets);
+    final enabled = tester.widget<FilterChip>(
+        find.byKey(const Key('alert-refund_received-email')));
+    expect(enabled.onSelected, isNotNull);
     expectClean(tester);
   });
 

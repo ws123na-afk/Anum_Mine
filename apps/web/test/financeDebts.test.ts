@@ -2,7 +2,10 @@
 // #financial-alerts, #advisor-answers): the page helpers and the catalog keys. Every value is fake and low entropy.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { answerParams, evidenceKey, evidenceTone, grouped, profileBody, PROFILE_TYPES, QUESTIONS, statusTone, type Obligation } from '../src/lib/financeDebts.ts';
+import {
+  ALERT_CHANNELS, alertChannel, alertSettingsBody, answerParams, channelReasonKey, channelUsable, evidenceKey, evidenceTone, grouped, profileBody, PROFILE_TYPES,
+  QUESTIONS, statusTone, withChannel, type AlertChannels, type AlertKind, type Obligation,
+} from '../src/lib/financeDebts.ts';
 import { financeDebtsEn } from '../src/lib/messages/financeDebts.en.ts';
 import { financeDebtsAr } from '../src/lib/messages/financeDebts.ar.ts';
 import { en } from '../src/lib/messages/en.ts';
@@ -52,6 +55,45 @@ describe('the debt overview helpers', () => {
     assert.equal(evidenceKey('reported'), 'fdebt.evidence.reported');
     assert.equal(evidenceKey('provider_statement'), 'fdebt.source.provider_statement');
     assert.equal(evidenceKey('something_new'), null);
+  });
+});
+
+describe('the alert channels', () => {
+  const kind = (over: Partial<AlertKind> = {}): AlertKind => ({ kind: 'card_payment_due', on: true, title: 'Card payment due', in_app: true, push: true, email: false, ...over });
+  const reach = (push: boolean, email: boolean, reason: string | null = null): AlertChannels => ({
+    in_app: { available: true, reason: null, message: null },
+    push: { available: push, reason: push ? null : 'no_device', message: null },
+    email: { available: email, reason: email ? null : reason, message: null },
+  });
+
+  it('reads each channel, and an older answer with only the in-app switch', () => {
+    assert.deepEqual(ALERT_CHANNELS.map((c) => alertChannel(kind(), c)), [true, true, false]);
+    assert.deepEqual(ALERT_CHANNELS.map((c) => alertChannel({ kind: 'refund_received', on: false, title: 'Refund received' }, c)), [false, false, false]);
+  });
+
+  it('turns one channel on or off and keeps the in-app switch the older server reads in step', () => {
+    const off = withChannel(kind(), 'in_app', false);
+    assert.equal(off.on, false);
+    assert.equal(off.in_app, false);
+    assert.equal(withChannel(kind(), 'email', true).email, true);
+    assert.deepEqual(alertSettingsBody([withChannel(kind(), 'push', false)]), {
+      kinds: { card_payment_due: true }, channels: { card_payment_due: { in_app: true, push: false, email: false } },
+    });
+  });
+
+  it('says why a channel cannot be used, with a catalog key in both languages', () => {
+    const none = reach(false, false, 'not_configured');
+    assert.equal(channelUsable(none, 'in_app'), true);
+    assert.equal(channelUsable(none, 'push'), false);
+    assert.equal(channelReasonKey(none, 'in_app'), null);
+    assert.equal(channelReasonKey(none, 'push'), 'falert.why.push.no_device');
+    assert.equal(channelReasonKey(none, 'email'), 'falert.why.email.not_configured');
+    assert.equal(channelReasonKey(reach(true, true), 'email'), null);
+    for (const key of ['push.not_configured', 'push.push_off', 'push.no_device', 'email.not_configured', 'email.email_off', 'email.no_address']) {
+      assert.ok(`falert.why.${key}` in financeDebtsEn && `falert.why.${key}` in financeDebtsAr, key);
+    }
+    for (const c of ALERT_CHANNELS) assert.ok(`falert.channel.${c}` in financeDebtsEn, c);
+    assert.ok('falert.kind.loan_due_soon' in financeDebtsEn && 'falert.hint.loan_due_soon' in financeDebtsAr);
   });
 });
 

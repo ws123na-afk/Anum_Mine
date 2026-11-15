@@ -124,3 +124,57 @@ test('Ask answers with the records and the calculation, in Arabic too', async ({
   await shot(page, `ask-ar-${page.viewportSize()?.width}`);
   expect(await horizontalOverflow(page)).toBe(0);
 });
+
+// Financial alerts by channel (docs/finance.md#alert-channels): each kind in the app, by phone push or by email; a channel
+// the server or the person cannot use says why and cannot be turned on.
+const alertKinds = ['installment_due_tomorrow', 'card_payment_due', 'loan_due_soon', 'refund_received'].map((kind) => ({
+  kind, on: true, title: kind, in_app: true, push: kind !== 'refund_received', email: false,
+}));
+const alertChannels = {
+  in_app: { available: true, reason: null, message: null },
+  push: { available: true, reason: null, message: null },
+  email: { available: false, reason: 'not_configured', message: 'Email is not set up on this ANUM server.' },
+};
+
+async function mockAlerts(page: Page): Promise<{ puts: unknown[] }> {
+  const state = { puts: [] as unknown[] };
+  await mockFinance(page);  // registered first: the routes below are tried before it
+  await page.route('http://localhost:8000/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/v1/finance/alerts/settings' && request.method() === 'PUT') {
+      const body = request.postDataJSON() as { channels: Record<string, Record<string, boolean>> };
+      state.puts.push(body);
+      return json({ kinds: alertKinds.map((k) => ({ ...k, ...body.channels[k.kind], on: body.channels[k.kind].in_app })), channels: alertChannels });
+    }
+    if (path === '/api/v1/finance/alerts/settings') return json({ kinds: alertKinds, channels: alertChannels, note: '' });
+    if (path === '/api/v1/notification-preferences') {
+      return json({ task_completed: true, approval_required: true, run_failed: true, automation_failed: true, email_enabled: false, desktop_enabled: true, push_enabled: true });
+    }
+    if (path === '/api/v1/notification-channels') return json({ email: { configured: false, address_known: false } });
+    if (path === '/api/v1/push/status') return json({ available: true, provider: 'fcm', project_id: null, message: 'Phone push is on.' });
+    if (path === '/api/v1/me/devices') return json([]);
+    return route.fallback();
+  });
+  return state;
+}
+
+test('financial alerts choose in the app, phone push or email per kind, and say why email is unavailable', async ({ page }) => {
+  const state = await mockAlerts(page);
+  await page.goto('/#notifications');
+  const group = page.getByRole('group', { name: 'Card payment due' });
+  await expect(group.getByRole('checkbox', { name: /^Phone push/ })).toBeChecked();
+  await expect(group.getByRole('checkbox', { name: /^Email/ })).toBeDisabled();
+  await expect(page.getByText(/Email is not set up on this ANUM server \(no mail server\)/)).toBeVisible();
+  await group.getByRole('checkbox', { name: /^Phone push/ }).uncheck();
+  await page.getByRole('button', { name: 'Save alerts' }).click();
+  await expect(page.getByText('Financial alerts saved.')).toBeVisible();
+  expect(state.puts).toHaveLength(1);
+  const sent = state.puts[0] as { kinds: Record<string, boolean>; channels: Record<string, Record<string, boolean>> };
+  expect(sent.channels.card_payment_due).toEqual({ in_app: true, push: false, email: false });
+  expect(sent.kinds.card_payment_due).toBe(true);
+  await shot(page, `alerts-${page.viewportSize()?.width}`);
+  expect(await horizontalOverflow(page)).toBe(0);
+  expect(await clippedControls(page)).toEqual([]);
+});

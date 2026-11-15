@@ -1,0 +1,10 @@
+/* Settings, Notifications, Financial alerts: one row per alert kind with its three channels (docs/finance.md#alert-channels). */
+.alertChannelRow { border-top: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); justify-content: space-between; margin-top: var(--d-s4); min-width: 0; padding-top: var(--d-s4); }
+.alertChannelText { flex: 1 1 260px; min-width: 0; }
+.alertChannelText strong { font-size: var(--text-md); font-weight: 600; }
+.alertChannelText p { color: var(--d-muted); font-size: var(--text-md); margin-top: 2px; }
+.alertChannelChecks { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); }
+.alertChannelChecks label { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 44px; }
+.alertChannelChecks input { accent-color: var(--d-violet); flex: none; height: 20px; min-height: 0; width: 20px; }
+.alertChannelChecks label[data-unavailable] { color: var(--d-muted); }
+.alertChannelNotes { display: grid; gap: var(--d-s2); margin-top: var(--d-s3); }
