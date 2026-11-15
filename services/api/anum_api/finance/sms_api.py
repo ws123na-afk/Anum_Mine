@@ -1235,10 +1235,12 @@ def ledger_dashboard(
             if entry.kind in plain_kinds:
                 continue
             lent = bool(lending) and any(p.transaction_id in lending for p in entry.postings if p.transaction_id)
+            part = max((getattr(lending, "partial", {}).get(p.transaction_id, Decimal(0)) for p in entry.postings if p.transaction_id), default=Decimal(0))
             for p in entry.postings:
                 ledger_account = L.lending_account(p.ledger_account, p.account_id) if lent else p.ledger_account
-                rows.append(L.Row(day=entry.posted_on, ledger_account=ledger_account, account_id=p.account_id, amount=p.amount, currency=p.currency,
-                                  kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
+                for account_name, value in L.lent_split(ledger_account, p.account_id, p.amount, part if not lent else Decimal(0)):
+                    rows.append(L.Row(day=entry.posted_on, ledger_account=account_name, account_id=p.account_id, amount=value, currency=p.currency,
+                                      kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
         window_rows = finance.transactions_between(context, window_start, window_end)
         # Rows no rule recognised are in no figure: the dashboard says how many (the summary's rule, flows.py).
         kinds = {a.id: a.kind for a in accounts}
@@ -1248,10 +1250,12 @@ def ledger_dashboard(
             account = by_id.get(txn.account_id)
             if (txn.id in linked and txn.id not in plain) or account is None:
                 continue
+            part = getattr(lending, "partial", {}).get(txn.id, Decimal(0))
             for leg in L.derived_legs(txn, account, lending=txn.id in lending):
-                rows.append(L.Row(day=txn.posted_on, ledger_account=leg.ledger_account, account_id=leg.account_id, amount=leg.amount, currency=leg.currency,
-                                  kind="statement", category=txn.category.value, merchant=txn.description[:60] if leg.account_id is None else None,
-                                  entry_id=f"txn:{txn.id}"))
+                for account_name, value in L.lent_split(leg.ledger_account, leg.account_id, leg.amount, part):
+                    rows.append(L.Row(day=txn.posted_on, ledger_account=account_name, account_id=leg.account_id, amount=value, currency=leg.currency,
+                                      kind="statement", category=txn.category.value, merchant=txn.description[:60] if leg.account_id is None else None,
+                                      entry_id=f"txn:{txn.id}"))
         sums = finance.account_sums(context)
         balances = {a.id: a.opening_balance + sums.get(a.id, Decimal(0)) for a in accounts}
         settings = svc.settings_for(store, context)

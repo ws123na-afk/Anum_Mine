@@ -460,6 +460,34 @@ def debt_payments(
     )
 
 
+def _not_more_than_owed(context: TenantContext, debt: Debt, canonical_id: str, amount: Decimal, *, asked: bool) -> Decimal:
+    """A payment matched to a debt is never more than the debt owes now (docs/finance.md#bills-and-budgets): the excess would
+    vanish from every figure (a balance never goes below zero). An amount asked for above what is owed is refused; without
+    one, the match takes what is owed and the rest of the payment keeps its category. A retry of a match already made, and an
+    amount above the payment itself, are left to ``links.create`` (``over_allocated``)."""
+    from . import obligations as O
+
+    links = O.load(context)  # its own short unit of work first
+    if any(p.debt_id == debt.id and p.canonical_id == canonical_id for p in links.debt_payments):
+        return amount
+    with open_link_stores(context) as (_finance, store, link_store):
+        caps = K.capacity(store.chain(context, canonical_id))
+        live = link_store.live_links(context, canonical_id)
+    if amount > caps.get(debt.currency, Decimal(0)) - K.used(live, DEBT_DIMENSION, debt.currency):
+        return amount
+    with open_finance_store(context) as store:
+        today = today_in(settings_for(store, context))
+        accounts = store.list_accounts(context)
+        sums = store.account_sums(context)
+    owed = O.current_debts([debt], accounts, sums, links, today)[0].balance
+    if not asked and 0 < owed < amount:
+        return owed
+    if amount > owed:
+        raise K.LinkError(409, f"This debt owes {debt.currency} {owed:,} now, less than the {debt.currency} {amount:,} matched. Match only "
+                          "what paid it; the rest of the payment keeps its own category.", "over_debt", {"owed": str(owed), "currency": debt.currency})
+    return amount
+
+
 @router.post("/debts/{debt_id}/payments", response_model=LinkResult, status_code=status.HTTP_201_CREATED)
 @refusals
 def match_debt_payment(
@@ -471,6 +499,7 @@ def match_debt_payment(
     _manage(context)
     debt = _own_debt(context, debt_id)
     amount = _match_amount(context, body.canonical_id, DEBT_DIMENSION, debt.id, debt.currency, body.amount, Decimal(0))
+    amount = _not_more_than_owed(context, debt, body.canonical_id, amount, asked=body.amount is not None)
     made = K.create(context, K.LinkRequest(
         canonical_id=body.canonical_id, dimension=DEBT_DIMENSION, role="payment", target_type=DEBT_TARGET, target_id=debt.id,
         amount=amount, currency=debt.currency, idempotency_key=idempotency_key,

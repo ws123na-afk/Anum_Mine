@@ -244,13 +244,15 @@ def test_debt_payments_count_once_in_one_currency_and_principal_never_goes_negat
     assert call("POST", f"/debts/{second['id']}/payments", json={"canonical_id": money_in}).json()["code"] == "not_a_payment"
     big = canonical(typed(bank["id"], "-900", "SAMPLE LOAN PAYMENT TWO", on=TODAY, category="transfer")["id"])
     assert call("POST", f"/debts/{first['id']}/payments", json={"canonical_id": big, "amount": "901"}).json()["code"] == "over_allocated"
-    made(f"/debts/{first['id']}/payments", {"canonical_id": big})
-    assert owed() == Decimal("1000.00")  # the first debt is paid off (900 against 600 left) and shows zero, not -300
+    # Never more than the debt owes: 900 asked against 600 left is refused; without an amount the match takes the 600.
+    assert call("POST", f"/debts/{first['id']}/payments", json={"canonical_id": big, "amount": "900"}).json()["code"] == "over_debt"
+    assert made(f"/debts/{first['id']}/payments", {"canonical_id": big})["link"]["amount"] == "600.00"
+    assert owed() == Decimal("1000.00")  # the first debt is paid off and shows zero, not -300
     assert all(Decimal(d["amount"]) >= 0 for d in summary(TODAY[:7])["debts"])
     # Undoing the payment row voids its link and the debt owes again.
     rows = {t["description"]: t["id"] for t in call("GET", "/transactions").json()["items"]}
     assert call("DELETE", f"/transactions/{rows['SAMPLE LOAN PAYMENT']}").status_code == 204
-    assert owed() == Decimal("1100.00")  # the first debt now carries only the 900: 100 left, plus the second 1000
+    assert owed() == Decimal("1400.00")  # the first debt now carries only the 600 matched: 400 left, plus the second 1000
     after = summary(TODAY[:7])
     assert (money(after["spend"]), money(after["income"])) == (0, Decimal("400.00"))
 
@@ -316,3 +318,31 @@ def test_logs_carry_no_device_token_message_text_or_bank_details(caplog: pytest.
     texts = [f"{r.getMessage()} {r.__dict__}" for r in caplog.records]
     for needle in (s["token"], MARK, "45.50", "99.00", "**1234", "anum_sms_example"):
         assert not any(needle in t for t in texts), needle
+
+
+def test_lending_part_of_a_purchase_keeps_the_rest_as_spending() -> None:
+    bank = account()
+    loan = made("/people-loans", {"person": "Friend", "direction": "lent", "amount": "300", "currency": "SAR", "lent_on": "2026-11-10"})
+    paid = typed(bank["id"], "-500", "JARIR BOOKSTORE", category="shopping")
+    made(f"/people-loans/{loan['id']}/links", {"canonical_id": canonical(paid["id"]), "kind": "handed", "amount": "300"})
+    assert figures()["spend"] == Decimal("200.00")
+
+
+def test_a_repayment_cannot_be_linked_beyond_what_the_loan_expects() -> None:
+    bank = account()
+    loan = made("/people-loans", {"person": "Friend", "direction": "lent", "amount": "300", "currency": "SAR", "lent_on": "2026-11-01"})
+    back = canonical(typed(bank["id"], "500", "FROM FRIEND", category="income")["id"])
+    response = call("POST", f"/people-loans/{loan['id']}/links", json={"canonical_id": back, "kind": "repayment", "amount": "500"})
+    assert response.status_code == 409 and response.json()["code"] == "over_loan", response.text
+    # Linking what the loan expects leaves the excess counted as income, never hidden.
+    made(f"/people-loans/{loan['id']}/links", {"canonical_id": back, "kind": "repayment", "amount": "300"})
+    assert figures()["income"] == Decimal("200.00")
+
+
+def test_a_debt_payment_cannot_pay_more_than_the_debt_owes() -> None:
+    bank = account()
+    debt = made("/debts", {"name": "Loan", "kind": "other", "balance": "1000", "currency": "SAR"})
+    paid = canonical(typed(bank["id"], "-1500", "SAMPLE LOAN PAYMENT", on=TODAY, category="transfer")["id"])
+    response = call("POST", f"/debts/{debt['id']}/payments", json={"canonical_id": paid, "amount": "1500"})
+    assert response.status_code in (409, 422), response.text
+    assert call("POST", f"/debts/{debt['id']}/payments", json={"canonical_id": paid, "amount": "1000"}).status_code == 201

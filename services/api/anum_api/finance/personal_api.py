@@ -438,6 +438,12 @@ def link_people_loan(loan_id: str, body: LoanLinkInput, idempotency_key: str | N
     figures = P.loan_figures(loan, links, today)
     role = P.handed_role(loan.direction) if body.kind == "handed" else P.repaid_role(loan.direction)
     expected = max(loan.amount - figures.handed, Decimal(0)) if body.kind == "handed" else figures.outstanding
+    # Never more than the loan still expects: the excess of a repayment (or of money handed over) stays in the payment's own
+    # category, so it is counted as income or spending instead of hidden as a transfer (docs/finance.md#lent-and-borrowed).
+    already = any(l.canonical_id == body.canonical_id for l in links)
+    if body.amount is not None and not already and quantize(body.amount, loan.currency) > expected:
+        raise K.LinkError(409, f"This loan expects {loan.currency} {expected:,} more. Link only that part; the rest of the payment keeps its category.",
+                          "over_loan", {"expected": str(expected), "currency": loan.currency})
     return _link(context, repository, dimension=P.PERSON_LOAN_DIMENSION, target=P.PERSON_LOAN_TARGET, target_id=loan.id, role=role,
                  currency=loan.currency, body=LinkInput(canonical_id=body.canonical_id, amount=body.amount), expected=expected, key=idempotency_key,
                  action="finance.person_loan.link")

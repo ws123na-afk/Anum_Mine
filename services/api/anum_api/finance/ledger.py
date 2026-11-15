@@ -300,6 +300,15 @@ def lending_account(ledger_account: str, account_id: str | None) -> str:
     return ledger_account
 
 
+def lent_split(ledger_account: str, account_id: str | None, amount: Decimal, lent: Decimal) -> list[tuple[str, Decimal]]:
+    """A posting of a payment only part of which is lent or borrowed with a person (``flows.Lending.partial``): the lent
+    part of its income or expense side is a transfer, the rest stays where it was. Other postings are unchanged."""
+    if lent <= 0 or account_id is not None or not (ledger_account.startswith("income:") or ledger_account.startswith("expense:")):
+        return [(ledger_account, amount)]
+    part = min(lent, abs(amount)) * (1 if amount > 0 else -1)
+    return [(acc, value) for acc, value in (("suspense:transfer", part), (ledger_account, amount - part)) if value != 0]
+
+
 @dataclass
 class Row:
     """One posting with what the dashboard filters on."""
