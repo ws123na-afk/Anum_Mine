@@ -297,7 +297,8 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 curl -fsS http://127.0.0.1:18000/health | tee "$WORK/health.json"; echo
-grep -q '"environment":"staging"' "$WORK/health.json" || fail "API is not running with ANUM_ENVIRONMENT=staging"
+grep -qx '{"status":"ok"}' "$WORK/health.json" || fail "API /health must answer only the status (it is public)"
+test "$(kubectl -n "$NS" exec deployment/anum-api -- printenv ANUM_ENVIRONMENT)" = "staging" || fail "API is not running with ANUM_ENVIRONMENT=staging"
 curl -fsS http://127.0.0.1:18080/healthz; echo
 curl -fsS -D - -o /dev/null http://127.0.0.1:18000/health | grep -qi '^content-security-policy:' || fail "API has no CSP header"
 curl -fsS -D - -o /dev/null http://127.0.0.1:18080/ | grep -qi '^content-security-policy:' || fail "web has no CSP header"

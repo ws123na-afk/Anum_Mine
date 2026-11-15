@@ -51,7 +51,7 @@ Both kinds are in-app only (the web bell and the phone's Notifications screen), 
 
 ## Outside uptime check
 
-ANUM cannot say it is down while it is down. `GET /health` on the API host answers `{"status": "ok", "environment": ...}` without sign-in and is not rate limited, so a free external monitor can poll it. The page shows the address with a copy button. Steps for the owner ([Monitoring basics](deploy-oracle.md#monitoring-basics)):
+ANUM cannot say it is down while it is down. `GET /health` on the API host answers `{"status": "ok"}` (nothing else: no environment, version or host) without sign-in and is not rate limited, so a free external monitor can poll it. The page shows the address with a copy button. Steps for the owner ([Monitoring basics](deploy-oracle.md#monitoring-basics)):
 
 1. Create a free account at UptimeRobot (50 monitors, 5-minute checks) or Better Stack (free tier).
 2. Add an HTTP(S) monitor for `https://api.anum360os.com/health`, interval 5 minutes, keyword `ok` if the service offers a keyword check.

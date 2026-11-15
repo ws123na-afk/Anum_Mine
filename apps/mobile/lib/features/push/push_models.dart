@@ -63,6 +63,16 @@ class PushDevice {
         : '$platformName phone';
     return '$name, ends in $tokenHint';
   }
+
+  /// [title] in the app's language. The label is the phone's own name and
+  /// stays as registered.
+  String titleIn({required bool arabic}) {
+    if (!arabic) return title;
+    final name = (label?.trim().isNotEmpty ?? false)
+        ? label!.trim()
+        : (platform == 'ios' ? 'آيفون أو آيباد' : 'هاتف أندرويد');
+    return '$name، ينتهي بـ $tokenHint';
+  }
 }
 
 enum PushDestinationKind {

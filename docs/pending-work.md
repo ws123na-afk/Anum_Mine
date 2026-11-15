@@ -125,6 +125,18 @@ The safety net is in place ([Invariant tests](finance.md#how-figures-are-counted
 - Closed by pf3/alerts: Guardian caps (the Budgets page, `cap_near` and `cap_over`, the alert job) are judged against the cap plus what a paired rollover budget carried in, and other spending budgets alert on their `available`. A cap pairs only with exactly one active monthly spending budget whose only category is the cap's. The payment and trade gate and the review queue take a carried overspend off the cap but never add carried money left (the cap is a confirmed rule; loosening it stays the owner's). The phone has no Guardian caps budget page, so the carried note shows on the web only.
 - No owner step.
 
+## Operations: mail, phone push, health and B2 keys (November 2026, branch `ops/mail`)
+
+Done, no migration: system email now carries `Date` and `Message-ID`, sends with the address of `ANUM_SMTP_FROM` as envelope sender, keeps a title with line breaks on one `Subject` line, refuses at once (with the setting named, also on Connection setup) a sender that is not one address, a port that does not match the TLS mode and a login without a password, and logs a mail finally not sent with the recipient's domain only ([Notifications: Email](notifications.md#email)). FCM `INVALID_ARGUMENT` removes a phone only when FCM blames the token. The phone removes its old registration when Firebase rotates the token, and the Phone push card speaks Arabic. A Google calendar connection whose grant lacks `calendar.calendarlist.readonly` is told to connect again (same account, updated in place) without asking Google. `GET /health` answers only `{"status":"ok"}` (it named the environment). [Outgoing mail](deploy-oracle.md#outgoing-mail), [Uptime monitoring](deploy-oracle.md#uptime-monitoring) and [Backblaze B2 keys](deploy-oracle.md#backblaze-b2-keys) describe the owner side.
+
+Owner steps:
+1. Mail: decide Brevo only (recommended while Oracle blocks port 25), VM only or both, and publish exactly that row's SPF record at `anum360os.com` ([Outgoing mail](deploy-oracle.md#outgoing-mail)); for Brevo only: `v=spf1 include:spf.brevo.com ~all`. Keep DKIM and DMARC. In Mailcow set the Brevo relay host for `anum360os.com`; then fill `ANUM_SMTP_*` and Keycloak's Email settings and send the test email.
+2. Push: `ANUM_FCM_SERVICE_ACCOUNT_JSON` in `infra/oracle/.env` (the whole service-account key, one line, single quotes); `google-services.json` and `GoogleService-Info.plist` as the GitHub secrets `ANUM_ANDROID_GOOGLE_SERVICES_JSON` and `ANUM_IOS_GOOGLE_SERVICE_INFO_PLIST`; for iPhones, the APNs authentication key uploaded in Firebase, Project settings, Cloud Messaging ([Phone push](deploy-oracle.md#phone-push)).
+3. Uptime: create the four UptimeRobot monitors in [Uptime monitoring](deploy-oracle.md#uptime-monitoring).
+4. Backblaze: print the key IDs in use with the `grep` in [Backblaze B2 keys](deploy-oracle.md#backblaze-b2-keys) and delete the key whose keyID is not listed.
+
+Not done: none of this was tried against the real Mailcow, Brevo, FCM or Google (fakes only); the calendar "connect again" sentence comes from the server in English on both apps; the FCM rule for `INVALID_ARGUMENT` follows FCM's documented error shapes, so a token FCM rejects without naming it stays registered until the per-person phone limit pushes it out.
+
 ## Owner steps (only the owner can do these)
 
 1. **Update the Oracle VM** to get everything above live, once CI is green again: `cd ~/anum && sudo bash infra/oracle/update.sh`.

@@ -32,8 +32,6 @@ spec:
           value: "http://{{ $fullname }}-api:{{ .Values.api.service.port }}"
         - name: WEB_URL
           value: {{ if .Values.web.enabled }}"http://{{ $fullname }}-web:{{ .Values.web.service.port }}"{{ else }}""{{ end }}
-        - name: EXPECTED_ENVIRONMENT
-          value: {{ .Values.config.ANUM_ENVIRONMENT | quote }}
       command:
         - python
         - -c
@@ -51,7 +49,8 @@ spec:
           status, headers, body = get(api + "/health")
           health = json.loads(body)
           assert status == 200 and health["status"] == "ok", (status, body)
-          assert health["environment"] == os.environ["EXPECTED_ENVIRONMENT"], health
+          # Public liveness names nothing about the deployment (no environment, version or host).
+          assert health == {"status": "ok"}, health
           assert headers.get("content-security-policy"), "API response has no CSP header"
           print("api /health ok:", health)
           # OIDC mode: a request without a bearer token is refused.

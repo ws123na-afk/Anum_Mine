@@ -495,7 +495,7 @@ try { Invoke-WebRequest -UseBasicParsing "https://auth.staging.example.com/admin
 
 ```powershell
 $Api = "https://api.staging.example.com"
-Invoke-RestMethod "$Api/health"                                   # status ok, environment staging
+Invoke-RestMethod "$Api/health"                                   # status ok (nothing else: it is public)
 (Invoke-WebRequest -UseBasicParsing "$Api/health").Headers["Strict-Transport-Security"]
 try { Invoke-WebRequest -UseBasicParsing "$Api/api/v1/tasks" } catch { $_.Exception.Response.StatusCode }   # Unauthorized (401)
 try { Invoke-WebRequest -UseBasicParsing "$Api/docs" } catch { $_.Exception.Response.StatusCode }           # NotFound (404)
@@ -640,6 +640,64 @@ Going back by hand to an older commit works the same way as before: check out th
 - Oracle Console → the instance → **Metrics** (CPU, memory, network); **Monitoring → Alarms** can e-mail you on high CPU or a stopped instance.
 - Certificates renew automatically; Let's Encrypt e-mails `ACME_EMAIL` if renewal keeps failing (usually DNS or the security list).
 - The web app stops responding and `https://<API>/health` times out: count the API's database connections with `docker compose exec postgres psql -U postgres -d anum -c "select state, count(*) from pg_stat_activity where usename = 'anum_app' group by 1"` and look for `QueuePool limit` in `docker compose logs --tail 200 api`. Fifteen connections `idle in transaction` is the pool used up; open event streams used to hold one connection each until October 2026 ([Realtime](realtime.md#implementation)). `docker compose restart api` frees them at once.
+
+### Uptime monitoring
+
+The public health answers name nothing about the deployment: the API's `GET /health` answers `200` with exactly `{"status":"ok"}` (no version, environment, host or setting; it is not rate limited and needs no sign-in) and the web's `GET /healthz` answers `200` with `ok`. Keycloak's own `/health` stays on its private port; Caddy answers `404` for it on `<AUTH>`. Operator details are only in the signed-in [System health](system-health.md) page. Monitor definitions for UptimeRobot (free plan, 5-minute interval):
+
+| Friendly name | Monitor type | URL | Check | Interval |
+|---|---|---|---|---|
+| ANUM API | Keyword (alert when keyword not exists) | `https://api.anum360os.com/health` | keyword `"status":"ok"`, case sensitive | 5 minutes |
+| ANUM web app | Keyword (alert when keyword not exists) | `https://app.anum360os.com/healthz` | keyword `ok` | 5 minutes |
+| ANUM sign-in | HTTP(s) | `https://auth.anum360os.com/realms/anum/.well-known/openid-configuration` | status 200 (UptimeRobot alerts on 4xx and 5xx) | 5 minutes |
+| ANUM mail server (only with Mailcow) | Port | `mail.anum360os.com`, port 993 | port open | 5 minutes |
+
+Alert contact: your email (and the UptimeRobot phone app). A keyword monitor also catches a proxy error page that answers 200. Leave the timeout at UptimeRobot's default (30 seconds).
+
+### Outgoing mail
+
+Who sends mail from this stack, and through which host (from `infra/oracle/compose.yaml`, `.env.example` and the code):
+
+| Sender | Settings | Host it connects to | Sends as |
+|---|---|---|---|
+| ANUM system email: invitations, notification and team work email, finance alerts, calendar reminders, report delivery, portal sign-in codes, the test email ([Notifications: Email](notifications.md#email)) | `ANUM_SMTP_HOST`, `ANUM_SMTP_PORT`, `ANUM_SMTP_SECURITY`, `ANUM_SMTP_USERNAME`, `ANUM_SMTP_PASSWORD`, `ANUM_SMTP_FROM` in `.env` (empty: off) | Whatever `ANUM_SMTP_HOST` names: Mailcow on this VM (`mail.anum360os.com`, 587 STARTTLS) or Brevo's relay (`smtp-relay.brevo.com`, 587 STARTTLS, login = the Brevo login, password = a Brevo **SMTP key**) | `ANUM_SMTP_FROM`, for example `ANUM <notifications@anum360os.com>` |
+| Keycloak: password reset, email verification, sign-up ([Self-serve sign-up](#self-serve-sign-up)) | Keycloak admin console, realm `anum`, Realm settings, Email (stored in Keycloak's database, not `.env`) | The host typed there; same two choices | The From address typed there |
+| Email Center: people's own mailboxes ([Email Center](email.md#email-center)) | `ANUM_MAILSERVER_SMTP_HOST` (587) | Mailcow (`mail.anum360os.com`); ANUM refuses a relay service here. Mailcow's Postfix then delivers to the recipient's server, **from the VM's address** unless Mailcow has a relay host | The person's mailbox or alias |
+| Email campaigns ([Brevo](brevo.md)) | Brevo API key, pasted in the web app | `api.brevo.com` (HTTPS); Brevo's servers send | The verified Brevo sender |
+| Backups, GlitchTip, Beszel, heal timer | none | They send no mail (backup failures show in System health and `systemctl --failed`) | |
+
+So the only machines that can hand mail for `anum360os.com` to the internet are **the VM itself** (Mailcow's Postfix, `84.13.132.198`) and **Brevo**. ANUM and Keycloak never deliver to recipients directly: they submit to one of those two.
+
+**Oracle blocks outgoing port 25** on new tenancies (and does not lift it for a Free Tier account), so Mailcow on this VM cannot deliver to Gmail or Outlook by itself: such mail waits in Mailcow's queue (Mail health shows the queued count). Unless you have Oracle's written port 25 exception, Mailcow must send through a relay: in Mailcow, System, Configuration, Routing, **Sender-dependent transports**, add `[smtp-relay.brevo.com]:587` with the Brevo login and an SMTP key, then Mail setup, Domains, `anum360os.com`, Edit, **Relayhost**: that transport. Check the result with a test to a Gmail address: the received headers should show SPF, DKIM and DMARC `pass`.
+
+Pick one row and publish exactly its SPF record as the **only** `v=spf1` TXT record at `anum360os.com` (one SPF record per name; two make every check fail). Keep the existing DKIM (`brevo1._domainkey`, `brevo2._domainkey`) and DMARC (`_dmarc`, `v=DMARC1; p=none; ...`) records as they are; tighten DMARC to `p=quarantine` only after a few weeks of reports showing nothing but these senders.
+
+| Decision | When it is true | SPF record (TXT at `anum360os.com`) | Also needed |
+|---|---|---|---|
+| **Brevo only** (recommended while port 25 is blocked) | ANUM (`ANUM_SMTP_HOST`) and Keycloak send through Brevo's relay or through Mailcow, and Mailcow relays everything through Brevo | `v=spf1 include:spf.brevo.com ~all` | Nothing more: Brevo signs with the `brevo1`/`brevo2` DKIM records that already exist, which also satisfies DMARC |
+| **VM only** | Oracle lifted the port 25 block for this VM and Mailcow delivers directly; nobody uses Brevo for `anum360os.com` | `v=spf1 ip4:84.13.132.198 ~all` | Mailcow's DKIM record for the domain (Mailcow, Mail setup, Domains, DNS: `dkim._domainkey` TXT, it is not in DNS today), and a reverse DNS (PTR) name for `84.13.132.198` that matches `mail.anum360os.com` (an Oracle request); without them Gmail treats the mail as spam |
+| **Both** | Mailcow delivers directly (port 25 open) **and** Brevo also sends for the domain (relay or campaigns) | `v=spf1 ip4:84.13.132.198 include:spf.brevo.com ~all` | Both rows' extras |
+
+`ip4:` is used instead of `mx` so the record costs no extra DNS lookup and keeps working if MX moves. Brevo campaigns sent from another domain (for example `easyvoicequote.com`) need that domain's own SPF and Brevo DKIM ([Sending domains for Brevo](email.md#sending-domains-for-brevo)). ANUM never changes DNS; the owner does at the DNS host.
+
+After the record is live: set `ANUM_SMTP_*` in `.env` (one command at a time; the password with `read -s`), `docker compose up -d api`, and press **Send me a test email** in Settings, Notifications. Settings, Integrations, Connection setup names any setting that cannot work (a sender that is not one address, port 465 with `starttls` or 587 with `tls`, a login without a password).
+
+### Backblaze B2 keys
+
+Two kinds of B2 consumer exist in this repository, each with its own application key in `infra/oracle/.env` (the `keyID` is the `*_ACCESS_KEY` value, the `applicationKey` the `*_SECRET_KEY` value):
+
+| Consumer | Variables | Used by |
+|---|---|---|
+| Off-site backups (bucket `anum-ws123na-backups`) | `ANUM_BACKUP_S3_ENDPOINT`, `ANUM_BACKUP_S3_REGION`, `ANUM_BACKUP_S3_BUCKET`, `ANUM_BACKUP_S3_ACCESS_KEY`, `ANUM_BACKUP_S3_SECRET_KEY` | The `backup-upload` container (rclone, nightly), `backup.sh fetch`, `backup.sh reconcile` |
+| Workspace files (only if the Files bucket is on B2) | `ANUM_S3_ENDPOINT`, `ANUM_S3_REGION`, `ANUM_S3_BUCKET`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY` (the shared `x-object-storage` block) | The `api` and `retention` containers, `backup.sh files-reconcile` |
+
+Nothing else in ANUM reads a B2 key (Render's `deploy-render.md` uses the same `ANUM_S3_*` names on Render, not on this VM; other stacks on the VM have their own `.env`). To find the unused key without showing a secret, print only the key IDs and endpoints on the VM:
+
+```bash
+grep -E '^ANUM_(BACKUP_)?S3_(ACCESS_KEY|ENDPOINT|BUCKET)=' ~/anum/infra/oracle/.env
+```
+
+Every key ID printed there is in use (an `ANUM_S3_ENDPOINT` that is not `backblazeb2.com` means the files key is not a B2 key). In Backblaze, Application Keys, the key whose keyID is not in that list is the unused one: delete it there. Never print or paste the `*_SECRET_KEY` lines.
 
 ## Changing an Address Later
 

@@ -388,6 +388,14 @@ def _smtp(_: TenantContext) -> dict[str, Any]:
     missing = [name for name, value in (("ANUM_SMTP_HOST", host), ("ANUM_SMTP_FROM", sender)) if not value]
     if settings.smtp_username and not _secret(settings.smtp_password):
         missing.append("ANUM_SMTP_PASSWORD")
+    if not missing:
+        from .notifications import sender_problem
+
+        problem = sender_problem() or ""
+        if problem.startswith("ANUM_SMTP_FROM"):
+            missing.append("ANUM_SMTP_FROM")
+        elif problem.startswith("ANUM_SMTP_PORT"):
+            missing += ["ANUM_SMTP_PORT", "ANUM_SMTP_SECURITY"]
     return {"status": SetupStatus.ERROR, "missing": missing} if missing else {"status": SetupStatus.CONNECTED}
 
 

@@ -292,8 +292,7 @@ fi
 if tls_ok "$API_HOST"; then
   fetch "https://$API_HOST/health"
   if [ "$CODE" = "200" ] && grep -q '"status":"ok"' "$TMP/body"; then
-    environment="$(sed -n 's/.*"environment":"\([a-z]*\)".*/\1/p' "$TMP/body")"
-    record PASS "API /health" "200, environment ${environment:-?}"
+    record PASS "API /health" "200"
   else
     record FAIL "API /health" "answered $CODE (docker compose ps api; docker compose logs api)"
   fi

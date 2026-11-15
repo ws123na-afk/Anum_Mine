@@ -10,8 +10,9 @@ minute before it expires.
 ``FcmSender.send`` tries one message at most ``max_attempts`` times. 429, 5xx and
 network errors are retried with exponential backoff and full jitter (a ``Retry-After``
 header is honoured up to ``MAX_RETRY_AFTER_SECONDS``); a 401 drops the cached access
-token and retries; ``UNREGISTERED``, ``INVALID_ARGUMENT`` and ``SENDER_ID_MISMATCH``
-mean the device token is no longer usable and the caller removes the device. Nothing in
+token and retries; ``UNREGISTERED`` and ``SENDER_ID_MISMATCH`` mean the device token is no longer usable
+and the caller removes the device; ``INVALID_ARGUMENT`` does only when FCM blames the
+token itself (a malformed message must never remove every phone). Nothing in
 this module logs or raises with a device token, an access token or the private key.
 
 This module does not import ``anum_api.settings``: the settings validator uses
@@ -226,7 +227,7 @@ class FcmSender:
                 code = _error_code(response)
                 # Only FCM's token error codes remove a device: a bare 404 or 403 can also
                 # mean a wrong project, which must not wipe every registered phone.
-                if code in INVALID_TOKEN_CODES:
+                if code in INVALID_TOKEN_CODES and _token_to_blame(response, code):
                     return SendOutcome.UNREGISTERED
                 if status == 401:
                     self._forget_token()
@@ -262,6 +263,32 @@ def _error_code(response: httpx.Response) -> str | None:
             return str(detail["errorCode"])
     status = error.get("status")
     return str(status) if status else None
+
+
+def _token_to_blame(response: httpx.Response, code: str) -> bool:
+    """Whether an invalid-token code really blames the device token.
+
+    ``INVALID_ARGUMENT`` also answers a malformed message (a data value, a header): taking it
+    as a dead token would delete every phone at once. It counts only when FCM names the token
+    (a ``message.token`` field violation, or "registration token" in the message) and no other
+    field.
+    """
+    if code != "INVALID_ARGUMENT":
+        return True
+    try:
+        error = response.json().get("error") or {}
+    except (ValueError, AttributeError):
+        return False
+    fields = [
+        str(violation.get("field") or "")
+        for detail in error.get("details") or []
+        if isinstance(detail, dict)
+        for violation in detail.get("fieldViolations") or []
+        if isinstance(violation, dict)
+    ]
+    if any(field and field != "message.token" for field in fields):
+        return False
+    return "message.token" in fields or "registration token" in str(error.get("message") or "").lower()
 
 
 def _retry_after(response: httpx.Response) -> float | None:

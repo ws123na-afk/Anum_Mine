@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from email.message import EmailMessage
+from email.utils import formataddr, formatdate, getaddresses, make_msgid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -155,16 +156,63 @@ def _smtp_failure(exc: smtplib.SMTPException) -> EmailRefused:
     return EmailRefused(f"The mail server refused the message ({name})")
 
 
+# Implicit TLS is spoken on 465 and STARTTLS on 587/25: the other pairing makes the
+# client wait for a greeting that never comes and every send times out as "unreachable".
+_WRONG_PORTS = {"tls": frozenset({587, 25}), "starttls": frozenset({465})}
+
+
+def _one_address(value: str | None) -> tuple[str, str] | None:
+    """``(display name, address)`` when ``value`` is exactly one plain mailbox, else None."""
+    if not value or "\r" in value or "\n" in value:
+        return None
+    found = getaddresses([value])
+    if len(found) != 1:
+        return None
+    name, address = found[0]
+    local, at, domain = address.rpartition("@")
+    if not at or not local or "." not in domain or any(c.isspace() for c in address):
+        return None
+    return name, address
+
+
+def sender_problem() -> str | None:
+    """Why the configured sender cannot be used (a sentence safe to show), or None."""
+    if _one_address(settings.smtp_from) is None:
+        return "ANUM_SMTP_FROM must be one email address, for example ANUM <notifications@example.com>"
+    wrong = _WRONG_PORTS.get(settings.smtp_security, frozenset())
+    if settings.smtp_port in wrong:
+        expected = "465 with ANUM_SMTP_SECURITY=tls" if settings.smtp_security == "starttls" else "587 with ANUM_SMTP_SECURITY=starttls"
+        return f"ANUM_SMTP_PORT {settings.smtp_port} does not match ANUM_SMTP_SECURITY={settings.smtp_security}: use {expected}"
+    if settings.smtp_username and not settings.smtp_password:
+        return "ANUM_SMTP_USERNAME is set without ANUM_SMTP_PASSWORD"
+    return None
+
+
+def _subject_line(subject: str) -> str:
+    """One header line: a user-written title may hold line breaks, which a header may not."""
+    return " ".join(subject.split())[:250]
+
+
 def send_email(to: str, subject: str, text: str, attachments: Sequence[tuple[str, str, bytes]] = ()) -> None:
     """Send one plain-text email through the configured SMTP server, with optional
     ``(filename, content_type, bytes)`` attachments (a delivered report)."""
-    host, sender = settings.smtp_host, settings.smtp_from
-    if not host or not sender:
+    host = settings.smtp_host
+    if not host or not settings.smtp_from:
         raise EmailRefused("SMTP is not configured")
+    problem = sender_problem()
+    if problem:
+        raise EmailRefused(problem)
+    sender = _one_address(settings.smtp_from)
+    recipient = _one_address(to)
+    if sender is None or recipient is None:
+        raise EmailRefused("The recipient address is not a valid email address")
     message = EmailMessage()
-    message["From"] = sender
-    message["To"] = to
-    message["Subject"] = subject
+    message["From"] = formataddr(sender)
+    message["To"] = recipient[1]
+    message["Subject"] = _subject_line(subject)
+    # Mail servers and receivers (Gmail among them) reject or distrust mail without these.
+    message["Date"] = formatdate(localtime=False)
+    message["Message-ID"] = make_msgid(domain=sender[1].rpartition("@")[2])
     message.set_content(text)
     for filename, content_type, content in attachments:
         main_type, _, sub_type = content_type.partition("/")
@@ -195,7 +243,7 @@ def send_email(to: str, subject: str, text: str, attachments: Sequence[tuple[str
         secret = settings.smtp_password.get_secret_value() if settings.smtp_password else None
         if login and secret:
             client.login(login, secret)
-        client.send_message(message)
+        client.send_message(message, from_addr=sender[1], to_addrs=[recipient[1]])
     except EmailRefused:
         raise
     except smtplib.SMTPException as exc:
@@ -224,6 +272,17 @@ class MailOutcome:
     error: str | None = None
     # ``failed`` only: the last try failed for a reason that may pass (unreachable, 4xx), so a later run may try again.
     transient: bool = False
+
+
+def _failed(to: str, attempts: int, error: str, *, transient: bool) -> MailOutcome:
+    """Log a system email that was not sent: the safe sentence and the recipient's domain only,
+    never the address, the message or a credential."""
+    domain = to.rpartition("@")[2][:120] if "@" in to else "-"
+    logger.warning(
+        "System email not sent",
+        extra={"anum_mail_domain": domain, "anum_mail_attempts": attempts, "anum_mail_transient": transient, "anum_error": error[:160]},
+    )
+    return MailOutcome("failed", attempts, error, transient=transient)
 
 
 def send_with_retries(
@@ -255,11 +314,11 @@ def send_with_retries(
         except EmailRefused as exc:
             error = str(exc)[:300]
             if not exc.transient or attempt >= attempts:
-                return MailOutcome("failed", attempt, error, transient=exc.transient)
+                return _failed(to, attempt, error, transient=exc.transient)
         except OSError as exc:
             error = _unreachable(exc).args[0]
             if attempt >= attempts:
-                return MailOutcome("failed", attempt, error, transient=True)
+                return _failed(to, attempt, error, transient=True)
         else:
             return MailOutcome("sent", attempt, None)
         sleep(delay * (2 ** (attempt - 1)))
