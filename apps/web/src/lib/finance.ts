@@ -195,11 +195,15 @@ export function safeNote(line: Pick<FinanceSafeLine, 'note' | 'params' | 'curren
   if (note === 'minimum_in_bill') return t('finance.safe.note.minimum_in_bill', { bill: isolate(params.bill ?? '') });
   if (note === 'minimum_due' || note === 'minimum_passed') return t(`finance.safe.note.${note}`, { day: isolate(params.day ?? '') });
   if (note === 'goal_derived') return t('finance.safe.note.goal_derived', { left: isolate(formatAmount(params.left ?? '0', line.currency)), count: Number(params.months ?? 1) });
+  if (note === 'installment_due' || note === 'installment_overdue')
+    return t(`finance.safe.note.${note}`, { number: isolate(params.number ?? ''), of: isolate(params.of ?? ''), date: isolate(params.date ?? '') });
+  if (note === 'budget_reserve')
+    return t('finance.safe.note.budget_reserve', { spent: isolate(formatAmount(params.spent ?? '0', line.currency)), amount: isolate(formatAmount(params.amount ?? '0', line.currency)) });
   return t(`finance.safe.note.${note}` as MessageKey);
 }
 
 /** The group a line is shown under, in build order. */
-export const SAFE_GROUPS = ['balance', 'bill', 'minimum_payment', 'goal', 'buffer'] as const;
+export const SAFE_GROUPS = ['balance', 'bill', 'minimum_payment', 'goal', 'buffer', 'installment', 'remittance', 'budget'] as const;
 
 // ---- Stage 4: the Guardian rules ------------------------------------------------------------------
 

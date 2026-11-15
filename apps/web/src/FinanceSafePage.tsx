@@ -109,6 +109,9 @@ function AvailableNow({ data, currency, summaries, bills, guardian, latest, repo
   const row = data.currencies.find((c) => c.currency === currency)!;
   const committed = add(currency, row.bills, row.minimum_payments);
   const setAside = add(currency, row.goals, row.buffer);
+  // Unpaid installments, money home still to send and budgets kept back (docs/finance.md#safe-to-spend).
+  const planned = row.planned ?? '0';
+  const hasPlanned = Number(planned) > 0;
   const dueBills = bills.kind === 'ready' ? bills.value.filter((b) => b.currency === currency && b.due_on <= data.month_end) : [];
   const newest = latest.kind === 'ready' ? latest.value.items[0]?.posted_on ?? null : null;
   const age = newest ? daysBetween(newest, data.today) : null;
@@ -128,11 +131,15 @@ function AvailableNow({ data, currency, summaries, bills, guardian, latest, repo
         <li><span>{t('fsafe.calc.bills')}</span><Money value={committed} currency={currency} /></li>
         <li className="op" aria-hidden="true">-</li>
         <li><span>{t('fsafe.calc.goals')}</span><Money value={setAside} currency={currency} /></li>
+        {hasPlanned && <><li className="op" aria-hidden="true">-</li>
+          <li><span>{t('fsafe.planned')}</span><Money value={planned} currency={currency} /></li></>}
         <li className="op" aria-hidden="true">=</li>
         <li className={`result ${row.short ? 'short' : ''}`}><span>{t('fsafe.calc.result')}</span><Money value={row.safe_to_spend} currency={currency} signed /></li>
       </ol>
-      <p className="visuallyHidden">{t('fsafe.calc.sentence', { balance: formatAmount(row.available, currency), bills: formatAmount(committed, currency), goals: formatAmount(setAside, currency), result: formatAmount(row.safe_to_spend, currency) })}</p>
-      <span className="finCalcMeta">{t('fsafe.kpi.accounts', { count: data.accounts_counted })}{data.excluded.length > 0 && ` · ${t('fsafe.review.excluded', { count: data.excluded.length })}`}</span>
+      <p className="visuallyHidden">{hasPlanned
+        ? t('fsafe.calc.sentencePlanned', { balance: formatAmount(row.available, currency), bills: formatAmount(committed, currency), goals: formatAmount(setAside, currency), planned: formatAmount(planned, currency), result: formatAmount(row.safe_to_spend, currency) })
+        : t('fsafe.calc.sentence', { balance: formatAmount(row.available, currency), bills: formatAmount(committed, currency), goals: formatAmount(setAside, currency), result: formatAmount(row.safe_to_spend, currency) })}</p>
+      <span className="finCalcMeta">{t('fsafe.cardNotCash')} {t('fsafe.kpi.accounts', { count: data.accounts_counted })}{data.excluded.length > 0 && ` · ${t('fsafe.review.excluded', { count: data.excluded.length })}`}</span>
     </section>
     <ForecastCard forecast={forecast} currency={currency} onRetry={onRetryForecast} onOpenSettings={() => onOpen('settings')} />
     <ExpectedIncomeCard base={currency} onChanged={onRetryForecast} />

@@ -53,6 +53,13 @@ The four gaps the [review](audits/2026-11-12-product-review.md) lists for the ph
 ## Open work from the November 2026 depth batch (web leads)
 
 
+## Personal finance: budgets, categories, safe to spend and recurring (pf/budgets, November 2026)
+
+- Migration `0185_pf_budgets` is chained after `0184_pf_matching` (a parallel branch); renumber at merge if that one lands under another number. Referenced in `services/api/migrations/versions/0185_pf_budgets.py`, `services/api/tests/test_postgres_finance_pf_budgets.py`, `services/api/anum_api/db/finance_repository.py`, `services/api/anum_api/finance/models.py` and `docs/finance.md`.
+- Rollback caveat: rows filed under the five new categories cannot be read by the previous release's category list; roll back only before such rows exist or refile them first.
+- The automatic recurring-bill link records its policy, reason, confidence and evidence in the audit record; when the matching work adds evidence fields to links themselves, move them there.
+- Not built: usage of a subscription is what the owner marks (often, sometimes, rarely); ANUM has no usage data of its own. Budgets have no rollover of an unspent amount to the next period. The advisor's essential categories are unchanged (family and charity are not in its runway yet).
+
 ## Owner steps (only the owner can do these)
 
 1. **Update the Oracle VM** to get everything above live, once CI is green again: `cd ~/anum && sudo bash infra/oracle/update.sh`.

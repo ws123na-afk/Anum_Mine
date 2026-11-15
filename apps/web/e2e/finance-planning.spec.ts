@@ -112,7 +112,12 @@ test('recurring and calendar tabs list the bills, and a detected payment is kept
   await mockApi(page);
   await page.goto('/#finance-bills');
   await page.getByRole('tab', { name: 'Recurring' }).click();
-  await page.getByRole('button', { name: 'Keep as bill' }).click();
+  // A found payment says what it is and that its price moved; keeping it opens the short confirm (docs/finance.md#recurring-payments).
+  const found = page.getByRole('region', { name: 'Recurring payments found' });
+  await expect(found.getByText(/Streaming/)).toBeVisible();
+  await expect(found.getByText(/Price changed by/)).toBeVisible();
+  await found.getByRole('button', { name: 'Keep as bill' }).click();
+  await page.getByRole('dialog', { name: 'Keep NETFLIX.COM as a bill' }).getByRole('button', { name: 'Keep as bill' }).click();
   await expect(page.getByText('NETFLIX.COM saved as a bill.')).toBeVisible();
   await page.getByRole('tab', { name: 'Calendar' }).click();
   await expect(page.getByRole('button', { name: /^Rent, AED/ }).first()).toBeVisible();

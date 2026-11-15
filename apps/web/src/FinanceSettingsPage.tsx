@@ -25,7 +25,7 @@ import './financePages.css';
 
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
+  'clothing', 'family', 'personal_care', 'family_support', 'charity', 'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 const ZONES = ['Asia/Dubai', 'Asia/Riyadh', 'Asia/Qatar', 'Asia/Kuwait', 'Asia/Bahrain', 'Asia/Muscat', 'Asia/Karachi', 'Asia/Kolkata', 'Europe/London', 'UTC'];
 

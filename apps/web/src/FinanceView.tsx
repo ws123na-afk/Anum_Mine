@@ -73,7 +73,7 @@ const SettingsPage = lazy(() => import('./FinanceSettingsPage').then((m) => ({ d
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
+  'clothing', 'family', 'personal_care', 'family_support', 'charity', 'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);

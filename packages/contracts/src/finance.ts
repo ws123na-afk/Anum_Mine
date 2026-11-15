@@ -8,7 +8,7 @@ export type FinanceAccountKind = 'bank' | 'card' | 'cash' | 'loan' | 'investment
 export type FinanceCategory =
   | 'income' | 'cashback' | 'refunds' | 'transfer' | 'groceries' | 'dining' | 'transport' | 'fuel' | 'utilities' | 'telecom' | 'housing'
   | 'food' | 'room_rent' | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'interest'
-  | 'cash' | 'other';
+  | 'cash' | 'other' | 'clothing' | 'family' | 'personal_care' | 'family_support' | 'charity';
 /** `match`: set by matching with another record (an own-transfer pair, a refund's purchase); `system`: by ANUM. Never the owner's choice. */
 export type FinanceCategorySource = 'rule' | 'owner_rule' | 'manual' | 'none' | 'match' | 'system';
 /**
@@ -115,6 +115,8 @@ export interface FinanceTransactionInput {
   subcategory_id?: string | null;
   /** PATCH only: the category came from the AI suggestion (kept, never learned from). */
   from_ai_suggestion?: boolean;
+  /** PATCH only (docs/finance.md#learned-merchants): file this merchant's later payments the same way. */
+  learn_merchant?: boolean;
 }
 
 export interface FinancePage<T> { items: T[]; total: number; limit: number; offset: number }
@@ -513,6 +515,11 @@ export interface FinanceBill {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** docs/finance.md#recurring-payments: kept on every edit; changed under Bills and budgets, Recurring. */
+  merchant?: string | null;
+  recurring_kind?: FinanceRecurringKind | null;
+  auto_link?: boolean;
+  usage?: FinanceSubscriptionUsage | null;
 }
 
 export interface FinanceBillInput {
@@ -550,6 +557,12 @@ export interface FinanceBillSuggestion {
   category: FinanceCategory;
   account_id: string;
   occurrences: number;
+  /** docs/finance.md#recurring-payments: the kind, the merchant key, the newest amount and a price change of 5 percent or more. */
+  kind?: FinanceRecurringKind;
+  merchant?: string | null;
+  last_amount?: FinanceMoney | null;
+  price_change?: FinanceMoney | null;
+  transaction_ids?: string[];
 }
 
 export interface FinanceDebt {
@@ -738,10 +751,12 @@ export interface FinancePlanInput {
   fx_max_age_days?: number;
 }
 
-export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer';
+export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer' | 'installment' | 'remittance' | 'budget';
 export type FinanceSafeNote =
   | 'account_balance' | 'bill_due' | 'bill_overdue' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'minimum_overdue' | 'minimum_in_bill' | 'goal_set' | 'goal_derived'
-  | 'goal_no_plan' | 'goal_reached' | 'goal_paused' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
+  | 'goal_no_plan' | 'goal_reached' | 'goal_paused' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived'
+  | 'installment_due' | 'installment_overdue' | 'installment_in_bill' | 'remittance_due' | 'remittance_in_bill' | 'remittance_sent'
+  | 'budget_reserve' | 'budget_spent';
 
 /** One line of the figure: positive for money you have, negative for a deduction. */
 export interface FinanceSafeLine {
@@ -766,6 +781,10 @@ export interface FinanceCurrencySafeToSpend {
   per_day: FinanceMoney;
   short: boolean;
   lines: FinanceSafeLine[];
+  /** Unpaid installments, regular remittances not sent yet and budgets kept back (docs/finance.md#safe-to-spend). */
+  planned?: FinanceMoney;
+  /** The figure in one English sentence (the assistant's wording; clients word the lines themselves). */
+  explanation?: string;
   /** With a salary profile in this currency: the next usual pay day and the net expected then. */
   next_pay_on?: string | null;
   expected_pay?: FinanceMoney | null;
@@ -1661,3 +1680,154 @@ export interface FinanceAdvisorNoteSummary {
   survival: { currency: string; status: string; days: number | null }[]; coming: { currency: string; amount: FinanceMoney }[]; actions: number; urgent: number;
 }
 export interface FinanceAdvisorNotePage { items: FinanceAdvisorNoteSummary[]; total: number; limit: number; offset: number }
+
+
+// -- Personal finance: category ontology, learned merchants, budgets, recurring (docs/finance.md) -----------
+
+export type FinanceRecurringKind = 'rent' | 'phone' | 'internet' | 'streaming' | 'subscription' | 'insurance' | 'school_fees' | 'loan'
+  | 'remittance' | 'membership' | 'utility' | 'installment' | 'other';
+export type FinanceSubscriptionUsage = 'often' | 'sometimes' | 'rarely';
+
+export interface FinanceSubcategoryNode { id: string; name: string; name_ar: string | null; built_in: boolean; archived: boolean; essential: boolean }
+export interface FinanceCategoryNode { id: FinanceCategory; name: string; name_ar: string; spending: boolean; essential: boolean; subcategories: FinanceSubcategoryNode[] }
+export interface FinanceCategoryGroup { id: string; name: string; name_ar: string; categories: FinanceCategoryNode[]; debt_types: string[] }
+export interface FinanceCategorySpend { group: string; category: FinanceCategory; subcategory_id: string | null; currency: string; amount: FinanceMoney; count: number }
+export interface FinanceCategoryTree {
+  groups: FinanceCategoryGroup[];
+  month: string | null;
+  spend: FinanceCategorySpend[];
+  /** group: currency: amount, never added across currencies. */
+  group_totals: Record<string, Record<string, FinanceMoney>>;
+}
+
+export interface FinanceCategoryMapping {
+  merchant: string;
+  direction: 'in' | 'out';
+  category: FinanceCategory;
+  subcategory_id: string | null;
+  transaction_type: string | null;
+  confirmations: number;
+  enabled: boolean;
+  example: string | null;
+  source_transaction_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface FinanceCategoryMappingPage { items: FinanceCategoryMapping[]; total: number; limit: number; offset: number }
+
+export type FinanceBudgetKind = 'spending' | 'savings' | 'emergency' | 'sinking_fund' | 'remittance' | 'debt';
+export type FinanceBudgetPeriod = 'monthly' | 'weekly' | 'custom';
+export type FinanceAllocationBucket = 'housing' | 'food' | 'transport' | 'family' | 'debts' | 'cards' | 'savings' | 'remittances' | 'other';
+export type FinanceBudgetRisk = 'ok' | 'watch' | 'high' | 'over' | 'behind' | 'unknown';
+
+export interface FinancePlanBudgetInput {
+  name: string;
+  kind: FinanceBudgetKind;
+  period: FinanceBudgetPeriod;
+  currency: string;
+  amount: string;
+  categories: FinanceCategory[];
+  subcategory_ids: string[];
+  starts_on?: string | null;
+  ends_on?: string | null;
+  fixed: boolean;
+  essential?: boolean | null;
+  allocation?: FinanceAllocationBucket | null;
+  goal_id?: string | null;
+  debt_ids: string[];
+  alert_percent: number;
+  reserve_in_safe_to_spend: boolean;
+  active: boolean;
+  notes?: string | null;
+}
+
+export interface FinancePlanComingItem { bill_id: string; name: string; due_on: string; amount: FinanceMoney; overdue: boolean }
+
+export interface FinancePlanBudgetLine {
+  id: string;
+  name: string;
+  kind: FinanceBudgetKind;
+  period: FinanceBudgetPeriod;
+  currency: string;
+  amount: FinanceMoney;
+  period_start: string;
+  period_end: string;
+  days_left: number;
+  categories: FinanceCategory[];
+  subcategory_ids: string[];
+  fixed: boolean;
+  essential: boolean;
+  allocation: FinanceAllocationBucket;
+  alert_percent: number;
+  reserve_in_safe_to_spend: boolean;
+  active: boolean;
+  notes: string | null;
+  goal_id: string | null;
+  debt_ids: string[];
+  /** null: nothing records it (a goal saved by hand). */
+  spent: FinanceMoney | null;
+  remaining: FinanceMoney | null;
+  over: FinanceMoney;
+  percent: number | null;
+  coming: FinanceMoney;
+  coming_items: FinancePlanComingItem[];
+  forecast: FinanceMoney | null;
+  risk: FinanceBudgetRisk;
+  rows: number;
+  basis: 'spending' | 'goal_account' | 'goal' | 'remittances' | 'family_support' | 'debt_payments';
+  goal_saved: FinanceMoney | null;
+  goal_target: FinanceMoney | null;
+}
+
+export interface FinancePlanTotals { currency: string; budget: FinanceMoney; spent: FinanceMoney; remaining: FinanceMoney; coming: FinanceMoney; forecast: FinanceMoney }
+export interface FinancePlanReport { on: string; today: string; budgets: FinancePlanBudgetLine[]; totals: FinancePlanTotals[] }
+
+export interface FinanceAllocationLine { budget_id: string; name: string; bucket: FinanceAllocationBucket; monthly: FinanceMoney }
+export interface FinanceAllocationView {
+  currency: string;
+  income: FinanceMoney | null;
+  income_source: 'salary_profile' | 'records' | null;
+  buckets: Record<FinanceAllocationBucket, FinanceMoney>;
+  allocated: FinanceMoney;
+  unallocated: FinanceMoney | null;
+  lines: FinanceAllocationLine[];
+  left_out: FinanceAllocationLine[];
+}
+export interface FinanceAllocationReport { month: string; currencies: FinanceAllocationView[] }
+
+export interface FinanceRecurringFound extends FinanceBillSuggestion { key: string }
+export interface FinanceKeptBill {
+  id: string;
+  name: string;
+  amount: FinanceMoney;
+  currency: string;
+  cadence: FinanceCadence;
+  next_due_on: string;
+  category: FinanceCategory;
+  account_id: string | null;
+  active: boolean;
+  source: FinanceBillSource;
+  merchant: string | null;
+  recurring_kind: FinanceRecurringKind | null;
+  auto_link: boolean;
+  usage: FinanceSubscriptionUsage | null;
+  last_paid_on: string | null;
+  last_amount: FinanceMoney | null;
+  price_change: FinanceMoney | null;
+  still_billing_rarely_used: boolean;
+}
+export interface FinanceRecurringView { today: string; found: FinanceRecurringFound[]; kept: FinanceKeptBill[]; dismissed: number }
+export interface FinanceRecurringConfirmInput {
+  key?: string | null;
+  name: string;
+  amount: string;
+  currency: string;
+  cadence: FinanceCadence;
+  next_due_on: string;
+  category: FinanceCategory;
+  account_id?: string | null;
+  merchant?: string | null;
+  recurring_kind?: FinanceRecurringKind | null;
+  auto_link: boolean;
+  usage?: FinanceSubscriptionUsage | null;
+}

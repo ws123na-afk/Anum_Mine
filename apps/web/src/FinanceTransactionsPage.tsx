@@ -18,9 +18,10 @@ import {
 } from './lib/financeRegister';
 import { categoryLabel, formatAmount, formatAmounts, isolate, monthLabel, rangeLabel, shiftMonth } from './lib/finance';
 import { describeError } from './lib/errors';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
 import { smsSettings } from './lib/financeSmsApi';
 import { aiSuggestion, listSubcategories } from './lib/financeRulesApi';
+import { categoryTree } from './lib/financeBudgetsApi';
 import { kindLabel } from './lib/financeSms';
 import { upload as uploadToVault, addLink as linkDocument } from './lib/vaultApi';
 import { ConfirmDialog, Modal } from './Dialog';
@@ -41,7 +42,7 @@ const PAGE = 25;
 export type TxTab = 'transactions' | 'ledger' | 'sms' | 'imports';
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'other',
+  'clothing', 'family', 'personal_care', 'family_support', 'charity', 'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'other',
 ];
 
 /** The months the period picker offers: this one and the 23 before it, plus the chosen one when it is older. */
@@ -331,7 +332,14 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
   const [undoBatch, setUndoBatch] = useState<string | null>(null);
   const [subs, setSubs] = useState<FinanceSubcategory[]>([]);
   const [sub, setSub] = useState('');
+  // Built-in subcategories (docs/finance.md#category-ontology) come with the category tree; the owner's own from /subcategories.
+  const [builtIn, setBuiltIn] = useState<{ id: string; parent: FinanceCategory; name: string }[]>([]);
+  const [learnMerchant, setLearnMerchant] = useState(true);
   useEffect(() => { listSubcategories().then(setSubs).catch(() => setSubs([])); }, []);
+  useEffect(() => {
+    categoryTree().then((tree) => setBuiltIn(tree.groups.flatMap((g) => g.categories.flatMap((c) => c.subcategories.filter((x) => x.built_in)
+      .map((x) => ({ id: x.id, parent: c.id, name: getLocale() === 'ar' && x.name_ar ? x.name_ar : x.name })))))).catch(() => setBuiltIn([]));
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
   const headingId = useId(), categoryId = useId(), typeId = useId(), subId = useId();
   const load = useCallback(async () => {
@@ -356,6 +364,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
         ...(learn ? { remember_category_match: learnPhrase.trim() } : {}),
         ...(fromAi && categoryChanged && fromAi === category ? { from_ai_suggestion: true } : {}),
         ...(subChanged || (categoryChanged && sub) ? { subcategory_id: sub || null } : {}),
+        ...(!learn && learnMerchant ? { learn_merchant: true } : {}),
       });
       setFromAi(null); setUndoBatch(null);
       setNotice({ text: typeChanged && kind && !categoryChanged ? t('freg.drawer.typeSaved', { type: typeLabel(kind) }) : t('freg.drawer.categorySaved', { category: categoryLabel(category) }) });
@@ -472,10 +481,11 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       <select id={categoryId} value={category} onChange={(e) => { setCategory(e.target.value as FinanceCategory); setCategoryTouched(true); setSub(''); }}>
         {CATEGORIES.map((c) => <option key={c} value={c}>{c === d.suggested_category ? t('freg.drawer.suggestedOption', { category: categoryLabel(c) }) : categoryLabel(c)}</option>)}
       </select>
-      {subs.some((s) => s.parent === category && !s.archived) && <>
+      {(subs.some((s) => s.parent === category && !s.archived) || builtIn.some((s) => s.parent === category)) && <>
         <label htmlFor={subId}>{t('fsug.editor.subcategory')}</label>
         <select id={subId} value={sub} onChange={(e) => setSub(e.target.value)}>
           <option value="">{t('fsug.editor.none')}</option>
+          {builtIn.filter((s) => s.parent === category).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           {subs.filter((s) => s.parent === category && (!s.archived || s.id === sub)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select></>}
       <label htmlFor={typeId}>{t('freg.drawer.chooseType')}</label>
@@ -485,6 +495,9 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       </select>
     </div>
     {["sms", "apple_pay"].includes(row.origin) && <p className="muted">This transaction is linked to an SMS or Apple Pay journal entry. Make its category correction under Finance → iPhone SMS → Review to preserve the audit trail.</p>}
+    {["manual", "statement"].includes(row.origin) && !learn && <label className="field"><input type="checkbox" checked={learnMerchant} onChange={(e) => setLearnMerchant(e.target.checked)} />
+      {t('fcat.drawer.learn')}<small className="muted">{t('fcat.drawer.learnHint')}</small>
+    </label>}
     {["manual", "statement"].includes(row.origin) && <label className="field"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />
       Remember this category for future matching descriptions
     </label>}

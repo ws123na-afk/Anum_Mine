@@ -9,6 +9,7 @@ export const financeSuggestionsEn = {
   'fsug.view.queue': 'Queue',
   'fsug.view.rules': 'Rules',
   'fsug.view.merchants': 'Merchants and subcategories',
+  'fsug.view.categories': 'Categories',
   'fsug.view.automation': 'Automation',
   'fsug.loading': 'Loading...',
   'fsug.kind.all': 'All',

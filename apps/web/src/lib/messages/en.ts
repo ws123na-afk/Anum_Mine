@@ -33,6 +33,7 @@ import { financeMatchingEn } from './financeMatching.en.ts';
 import { financeDebtsEn } from './financeDebts.en.ts';
 import { financeSuggestionsEn } from './financeSuggestions.en.ts';
 import { financePlanningEn } from './financePlanning.en.ts';
+import { financeBudgetsEn } from './financeBudgets.en.ts';
 import { financeRefundsEn } from './financeRefunds.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
@@ -173,6 +174,7 @@ export const en = {
   ...financeDebtsEn,
   ...financeSuggestionsEn,
   ...financePlanningEn,
+  ...financeBudgetsEn,
   ...financeRefundsEn,
   ...financeIntelActionsEn,
   ...teamEn,

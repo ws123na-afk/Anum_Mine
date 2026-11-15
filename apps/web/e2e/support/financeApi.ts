@@ -1,6 +1,7 @@
 // Mocked /api/v1/finance answers (docs/finance.md) shared by finance.spec.ts and the workspace mock
 // (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
 // round amounts, never real account numbers.
+import { budgetsReply } from './financeBudgetsApi';
 import { equityBody } from './financeEquity';
 import { matchingReply, matchingState, type MatchingState } from './financeMatchingApi';
 import { suggestionsReply, suggestionsState, type SuggestionsState } from './financeSuggestionsApi';
@@ -711,6 +712,8 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   if (sub.startsWith('/advisor')) return advisorReply((state.advisor ??= advisorState(1)), method, url, body);
   const matched = matchingReply((state.matching ??= matchingState()), method, sub, url, body);
   if (matched) return matched;
+  const budgeted = budgetsReply(state, method, sub, url, body);
+  if (budgeted) return budgeted;
   const learned = suggestionsReply((state.suggestions ??= suggestionsState()), method, sub, url, body);
   if (learned) return learned;
   const stages = financeStagesReply(state, method, sub, body, url);

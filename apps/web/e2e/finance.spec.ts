@@ -275,8 +275,9 @@ test('a bill is added, a recurring payment is kept as a bill, and a goal shows i
   await page.goto('/#finance-bills');
   await page.getByRole('tab', { name: 'Recurring' }).click();
   await page.getByRole('region', { name: 'Recurring payments found' }).getByRole('button', { name: 'Keep as bill' }).click();
+  await page.getByRole('dialog', { name: 'Keep NETFLIX.COM as a bill' }).getByRole('button', { name: 'Keep as bill' }).click();
   await expect(page.getByText('NETFLIX.COM saved as a bill.')).toBeVisible();
-  expect(sent.some((r) => r.method === 'POST' && (r.body as { source?: string }).source === 'detected')).toBe(true);
+  expect(sent.some((r) => r.method === 'POST' && r.path === '/api/v1/finance/recurring/confirm')).toBe(true);
   await page.getByRole('button', { name: 'Add bill' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Add bill' });
   await dialog.getByLabel('Name').fill('School fees');

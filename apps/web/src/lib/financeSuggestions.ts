@@ -2,8 +2,8 @@
 // test/financeSuggestions.test.ts without a browser.
 import type { FinanceRuleContent, FinanceRuleMatch, FinanceSuggestion, FinanceSuggestionQueue } from '@anum/contracts';
 
-export type SuggestionsView = 'queue' | 'rules' | 'merchants' | 'automation';
-export const SUGGESTION_VIEWS: readonly SuggestionsView[] = ['queue', 'rules', 'merchants', 'automation'];
+export type SuggestionsView = 'queue' | 'rules' | 'merchants' | 'categories' | 'automation';
+export const SUGGESTION_VIEWS: readonly SuggestionsView[] = ['queue', 'rules', 'merchants', 'categories', 'automation'];
 
 /** The view a link opens (`#finance-suggestions?view=automation`, from Finance settings); the queue otherwise. */
 export function suggestionsViewFromHash(hash: string): SuggestionsView {
@@ -144,7 +144,7 @@ export function matchSummary(match: FinanceRuleMatch): string[] {
 
 export const RULE_CATEGORIES = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
+  'clothing', 'family', 'personal_care', 'family_support', 'charity', 'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ] as const;
 
 /** Never automated, in the order the Automation tab lists them (docs/finance.md#automation-policies). */
