@@ -1,7 +1,7 @@
 // The transaction register and account overview (docs/finance.md#register-and-account-overview).
 // Read only; amounts are decimal strings and never added across currencies.
 import type {
-  FinanceCategory, FinanceCategorySource, FinanceCurrencyAmount, FinanceTransaction, FinanceTransactionType, FinanceTypeSource,
+  FinanceAccountFreshness, FinanceCategory, FinanceCategorySource, FinanceCurrencyAmount, FinanceTransaction, FinanceTransactionType, FinanceTypeSource,
 } from './finance.js';
 
 export type FinanceOrigin = 'sms' | 'apple_pay' | 'statement' | 'manual';
@@ -85,6 +85,41 @@ export interface FinanceRegisterDetail {
   sources: FinanceRegisterSource[];
   receipt_document_ids: string[];
   duplicate: FinanceRegisterRow | null;
+  /** What decided the category: the owner, a learned rule, a built-in rule, matching or nothing (docs/finance.md#transaction-detail). */
+  category_by?: 'owner' | 'learned' | 'rule' | 'match' | 'system' | 'none';
+  /** Records this payment is linked to (bills, debts, loans, payslips), receipts left out. */
+  links?: FinanceLinkedRecord[];
+  /** The purchase a refund gives back, the refunds of a purchase, a fee row. */
+  related?: FinanceRelatedRow[];
+  /** More than one record shares this payment (0 otherwise). */
+  split_count?: number;
+}
+
+/** pending: the link waits for review; provisional: an SMS, Apple Pay or typed record only; verified: a statement or counted cash. */
+export type FinanceLinkEvidence = 'pending' | 'provisional' | 'verified';
+
+export interface FinanceLinkedRecord {
+  id: string;
+  dimension: string;
+  role: string;
+  target_type: string;
+  target_id: string;
+  target_name: string | null;
+  amount: string | null;
+  currency: string | null;
+  status: 'active' | 'needs_review';
+  evidence: FinanceLinkEvidence;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface FinanceRelatedRow {
+  id: string;
+  relation: 'refund_of' | 'refunded_by' | 'fee_of' | 'fee' | 'related';
+  posted_on: string;
+  amount: string;
+  currency: string;
+  description: string;
 }
 
 export type FinanceAccountSource = 'manual' | 'sms' | 'apple_wallet' | 'statement';
@@ -110,6 +145,8 @@ export interface FinanceAccountOverview {
   last_statement?: { import_id: string; filename: string; imported_at: string; status: 'tied' | 'differs' | 'unknown'; closing: string | null; difference: string | null; not_in_ledger?: number } | null;
   /** The latest reconciliation session; `last_reconciled_at` is its completion once one is completed and unchanged. */
   reconciliation?: { id: string; status: 'open' | 'completed' | 'changed'; period_start: string; period_end: string; completed_at: string | null } | null;
+  /** How current the account is: the summary's own freshness for it (docs/finance.md#dashboard). */
+  freshness?: FinanceAccountFreshness | null;
 }
 
 export interface FinanceAccountsOverview {

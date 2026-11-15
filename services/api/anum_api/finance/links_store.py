@@ -26,6 +26,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
+from .match_store import BackfillRun, MatchRecord
 from .sms_store import SmsStore, open_sms_stores
 from .store import FinanceStore
 
@@ -127,6 +128,17 @@ class LinkStore(Protocol):
     def purge_events(self, context: TenantContext, before: datetime) -> int: ...
     def event_summary(self, context: TenantContext, since: datetime) -> list[EventSummary]: ...
     def list_events(self, context: TenantContext, *, integration: str, outcome: str | None, limit: int, offset: int) -> tuple[list[DeviceEvent], int]: ...
+    # the matching engine's decisions and backfill runs (match_store.py, migration 0184_pf_matching)
+    def get_match(self, context: TenantContext, record_id: str) -> MatchRecord | None: ...
+    def match_for_pair(self, context: TenantContext, canonical_id: str, target_id: str) -> MatchRecord | None: ...
+    def add_match(self, record: MatchRecord) -> bool: ...
+    def save_match(self, record: MatchRecord, *, expected_version: int) -> bool: ...
+    def list_matches(self, context: TenantContext, *, outcome: str | None = None, kind: str | None = None, run_id: str | None = None,
+                     limit: int = 50, offset: int = 0) -> tuple[list[MatchRecord], int]: ...
+    def add_run(self, run: BackfillRun) -> bool: ...
+    def get_run(self, context: TenantContext, run_id: str) -> BackfillRun | None: ...
+    def save_run(self, run: BackfillRun, *, expected_version: int) -> bool: ...
+    def list_runs(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[BackfillRun], int]: ...
     def export_everything(self, context: TenantContext) -> dict[str, list[dict[str, Any]]]: ...
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
@@ -148,6 +160,66 @@ class InMemoryLinkStore:
         self.links: dict[str, FinanceLink] = {}
         self.allocations: dict[str, BusinessAllocation] = {}
         self.events: dict[str, DeviceEvent] = {}
+        self.matches: dict[str, MatchRecord] = {}
+        self.runs: dict[str, BackfillRun] = {}
+
+    # -- match records and backfill runs ----------------------------------------------------------------
+
+    def get_match(self, context: TenantContext, record_id: str) -> MatchRecord | None:
+        found = self.matches.get(record_id)
+        return found.model_copy(deep=True) if found and _mine(found, context) else None
+
+    def match_for_pair(self, context: TenantContext, canonical_id: str, target_id: str) -> MatchRecord | None:
+        found = next((m for m in self.matches.values() if _mine(m, context) and m.canonical_id == canonical_id and m.target_id == target_id), None)
+        return found.model_copy(deep=True) if found else None
+
+    def add_match(self, record: MatchRecord) -> bool:
+        """At most one record per transaction and target (the database's unique index): False when one exists."""
+        with self.lock:
+            if any(_mine(m, _ctx(record)) and m.canonical_id == record.canonical_id and m.target_id == record.target_id for m in self.matches.values()):
+                return False
+            self.matches[record.id] = record.model_copy(deep=True)
+            return True
+
+    def save_match(self, record: MatchRecord, *, expected_version: int) -> bool:
+        with self.lock:
+            current = self.matches.get(record.id)
+            if current is None or current.version != expected_version or not _mine(current, _ctx(record)):
+                return False
+            self.matches[record.id] = record.model_copy(deep=True)
+            return True
+
+    def list_matches(self, context: TenantContext, *, outcome: str | None = None, kind: str | None = None, run_id: str | None = None,
+                     limit: int = 50, offset: int = 0) -> tuple[list[MatchRecord], int]:
+        rows = [m for m in list(self.matches.values()) if _mine(m, context) and (outcome is None or m.outcome == outcome)
+                and (kind is None or m.kind == kind) and (run_id is None or m.run_id == run_id)]
+        rows.sort(key=lambda m: (m.updated_at, m.id), reverse=True)
+        return [m.model_copy(deep=True) for m in rows[offset:offset + limit]], len(rows)
+
+    def add_run(self, run: BackfillRun) -> bool:
+        """One running backfill per person (the database's partial unique index): False when one runs."""
+        with self.lock:
+            if run.status == "running" and any(_mine(r, _ctx(run)) and r.status == "running" for r in self.runs.values()):
+                return False
+            self.runs[run.id] = run.model_copy(deep=True)
+            return True
+
+    def get_run(self, context: TenantContext, run_id: str) -> BackfillRun | None:
+        found = self.runs.get(run_id)
+        return found.model_copy(deep=True) if found and _mine(found, context) else None
+
+    def save_run(self, run: BackfillRun, *, expected_version: int) -> bool:
+        with self.lock:
+            current = self.runs.get(run.id)
+            if current is None or current.version != expected_version or not _mine(current, _ctx(run)):
+                return False
+            self.runs[run.id] = run.model_copy(deep=True)
+            return True
+
+    def list_runs(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[BackfillRun], int]:
+        rows = [r for r in list(self.runs.values()) if _mine(r, context)]
+        rows.sort(key=lambda r: (r.started_at, r.id), reverse=True)
+        return [r.model_copy(deep=True) for r in rows[offset:offset + limit]], len(rows)
 
     def add_link(self, link: FinanceLink) -> None:
         with self.lock:
@@ -260,17 +332,20 @@ class InMemoryLinkStore:
             "finance_links": [l.model_dump(mode="json", exclude={"idem_key"}) for l in self.links.values() if _mine(l, context)],
             "business_allocations_made": [a.model_dump(mode="json") for a in self.allocations.values() if _made_by(a, context)],
             "device_events": [e.model_dump(mode="json") for e in self.events.values() if _mine(e, context)],
+            "match_records": [m.model_dump(mode="json") for m in self.matches.values() if _mine(m, context)],
+            "backfill_runs": [r.model_dump(mode="json") for r in self.runs.values() if _mine(r, context)],
         }
 
     def count_everything(self, context: TenantContext) -> int:
         return (sum(1 for l in self.links.values() if _mine(l, context)) + sum(1 for e in self.events.values() if _mine(e, context))
-                + sum(1 for a in self.allocations.values() if _made_by(a, context)))
+                + sum(1 for a in self.allocations.values() if _made_by(a, context))
+                + sum(1 for m in self.matches.values() if _mine(m, context)) + sum(1 for r in self.runs.values() if _mine(r, context)))
 
     def delete_everything(self, context: TenantContext) -> int:
-        """The person's links and events, and the allocation rows they made in business workspaces."""
+        """The person's links, events, match records and backfill runs, and the allocation rows they made in business workspaces."""
         with self.lock:
             removed = self.count_everything(context)
-            for table, test in ((self.links, _mine), (self.events, _mine), (self.allocations, _made_by)):
+            for table, test in ((self.links, _mine), (self.events, _mine), (self.allocations, _made_by), (self.matches, _mine), (self.runs, _mine)):
                 for key in [k for k, v in table.items() if test(v, context)]:  # type: ignore[operator]
                     del table[key]
             return removed

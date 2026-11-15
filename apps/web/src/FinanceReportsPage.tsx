@@ -57,7 +57,7 @@ export function FinanceReportsPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
       const first = await api.getSummary(month ?? undefined);
       if (!current()) return;
       if (!month) { setMonth(first.month); setToday(first.today); return; }
-      const others = await Promise.all(monthsEnding(month, MONTHS).slice(0, -1).map((m) => api.getSummary(m)));
+      const others = await Promise.all(monthsEnding(month, MONTHS).slice(0, -1).map((m) => api.getSummary(m, 'figures')));
       if (!current()) return;
       setToday(first.today);
       setPersonal({ kind: 'ready', value: { months: [...others, first], current: first, previous: others[others.length - 1] ?? null } });
@@ -417,7 +417,7 @@ function CustomBusiness({ onPersonal }: { onPersonal: () => void }) {
 
 const CUSTOM_CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
+  'clothing', 'family', 'personal_care', 'family_support', 'charity', 'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 
 /** A custom period and filter: how many records match, and the CSV of exactly those records. */

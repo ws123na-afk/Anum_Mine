@@ -1,0 +1,60 @@
+/* Finance settings, Automatic matching (FinanceMatching.tsx, docs/finance-matching.md). Shared tokens only. */
+.fmatchWide { grid-column: 1 / -1; }
+.fmatchCard { min-width: 0; }
+.fmatchPolicy { display: grid; gap: var(--d-s3); min-width: 0; }
+.fmatchState { border-radius: var(--d-r-control); font-weight: 600; margin: 0; padding: var(--d-s2) var(--d-s3); }
+.fmatchState.ok { background: rgb(var(--c-ok) / .12); }
+.fmatchState.warn { background: rgb(var(--c-warn) / .14); }
+.fmatchSwitches { display: grid; gap: 0 var(--d-s4); grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.fmatchCheck { align-items: flex-start; display: flex; gap: var(--d-s2); margin: var(--d-s1) 0; min-height: 28px; }
+.fmatchCheck input { flex: none; height: 20px; margin: 2px 0 0; min-height: 0; padding: 0; width: 20px; }
+.fmatchCheck span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.fmatchFixed { display: grid; gap: var(--d-s1); font-size: var(--text-sm); margin: 0; padding-inline-start: var(--d-s4); }
+.fmatchMin { margin: 0; max-width: 260px; }
+.fmatchFieldset { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); margin: 0; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.fmatchFieldset legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding: 0 var(--d-s1); }
+.fmatchFieldset p { font-size: var(--text-sm); margin: 0; }
+.fmatchNote { font-size: var(--text-sm); margin: 0; }
+.fmatchNever summary, .fmatchEvidence summary { color: var(--d-muted); cursor: pointer; font-size: var(--text-sm); min-height: 24px; }
+.fmatchNever ul, .fmatchEvidence ul { display: grid; gap: var(--d-s1); margin: var(--d-s1) 0 0; padding-inline-start: var(--d-s4); }
+
+.fmatchTabs { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fmatchTab {
+  align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-pill); color: var(--d-muted); cursor: pointer;
+  display: inline-flex; font: inherit; font-size: var(--text-sm); gap: var(--d-s2); min-height: 36px; padding: 0 var(--d-s3); white-space: nowrap;
+}
+.fmatchTab.on { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); font-weight: 600; }
+.fmatchBadge { background: var(--d-surface-2); border-radius: var(--d-r-pill); color: inherit; font-size: var(--text-xs); padding: 0 var(--d-s2); }
+@media (max-width: 760px) { .fmatchTabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; } .fmatchTab { flex: none; } }
+
+.fmatchList, .fmatchOrders { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); list-style: none; margin: 0; padding: 0; }
+.fmatchItem, .fmatchOrder, .fmatchRun {
+  align-content: start; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: var(--d-s2); min-width: 0;
+  padding: var(--d-s3);
+}
+.fmatchItemHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fmatchKind { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+.fmatchItem h3, .fmatchOrder h3 { font-size: var(--text-md); margin: 0; overflow-wrap: anywhere; }
+.fmatchWhy { margin: 0; overflow-wrap: anywhere; }
+.fmatchFlags { color: rgb(var(--c-warn)); display: grid; font-size: var(--text-sm); gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.fmatchActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fmatchActions > button, .finCardActions > button { align-items: center; display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); min-height: 36px; padding: 0 var(--d-s3); }
+.fmatchActions svg, .finCardActions svg, .fmatchRun svg { height: 16px; width: 16px; }
+
+.fmatchTable { border-collapse: collapse; font-size: var(--text-sm); width: 100%; }
+.fmatchTable th, .fmatchTable td { border-top: 1px solid var(--d-line); padding: var(--d-s1) var(--d-s2); text-align: start; vertical-align: middle; }
+.fmatchTable th { font-weight: 600; white-space: nowrap; }
+.fmatchTable td:nth-child(2), .fmatchTable td:nth-child(3) { white-space: nowrap; }
+@media (max-width: 480px) { .fmatchTable td:nth-child(2) { display: none; } }
+
+.fmatchProgress { height: 10px; width: 100%; }
+.fmatchCounts { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); margin: 0; }
+.fmatchCounts > div { display: grid; gap: 2px; min-width: 0; }
+.fmatchCounts dt { color: var(--d-muted); font-size: var(--text-xs); }
+.fmatchCounts dd { font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.fmatchCounts dd.muted { font-weight: 400; }
+.fmatchCapture { display: grid; gap: var(--d-s2); min-width: 0; }
+.fmatchSub { font-size: var(--text-sm); margin: var(--d-s2) 0 0; }
+.fmatchPlain { display: grid; font-size: var(--text-sm); gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.fmatchPlain li { overflow-wrap: anywhere; }
+.fmatchBad { color: rgb(var(--c-stop)); }

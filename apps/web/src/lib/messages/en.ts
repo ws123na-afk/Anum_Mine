@@ -29,9 +29,13 @@ import { financeDepthEn } from './financeDepth.en.ts';
 import { financeDepth2En } from './financeDepth2.en.ts';
 import { financeLastGapsEn } from './financeLastGaps.en.ts';
 import { financeLoansEn } from './financeLoans.en.ts';
+import { financeMatchingEn } from './financeMatching.en.ts';
+import { financeDebtsEn } from './financeDebts.en.ts';
 import { financeSuggestionsEn } from './financeSuggestions.en.ts';
 import { financePlanningEn } from './financePlanning.en.ts';
+import { financeBudgetsEn } from './financeBudgets.en.ts';
 import { financeRefundsEn } from './financeRefunds.en.ts';
+import { financeCoreEn } from './financeCore.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { hqEn } from './hq.en.ts';
@@ -167,9 +171,13 @@ export const en = {
   ...financeDepth2En,
   ...financeLastGapsEn,
   ...financeLoansEn,
+  ...financeMatchingEn,
+  ...financeDebtsEn,
   ...financeSuggestionsEn,
   ...financePlanningEn,
+  ...financeBudgetsEn,
   ...financeRefundsEn,
+  ...financeCoreEn,
   ...financeIntelActionsEn,
   ...teamEn,
   ...appCallsEn,

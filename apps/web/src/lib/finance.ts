@@ -13,10 +13,12 @@ export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe'
  * Sections inside a Finance page, each deep-linked as `#finance-<tab>-<section>` (docs/finance.md#finance-shell).
  * The personal money pages moved into the pages they belong to; their old hashes still open the new place.
  */
-export type FinanceSection = 'people' | 'send-home' | 'fixed' | 'salary' | 'trips' | 'loans';
+export type FinanceSection = 'people' | 'send-home' | 'fixed' | 'salary' | 'trips' | 'loans' | 'overview' | 'cards';
 const SECTIONS: Record<string, { tab: FinanceTab; section: FinanceSection }> = {
   'debts-people': { tab: 'debts', section: 'people' },
   'debts-loans': { tab: 'debts', section: 'loans' },
+  'debts-overview': { tab: 'debts', section: 'overview' },
+  'debts-cards': { tab: 'debts', section: 'cards' },
   'goals-send-home': { tab: 'goals', section: 'send-home' },
   'goals-trips': { tab: 'goals', section: 'trips' },
   'bills-fixed': { tab: 'bills', section: 'fixed' },
@@ -193,11 +195,15 @@ export function safeNote(line: Pick<FinanceSafeLine, 'note' | 'params' | 'curren
   if (note === 'minimum_in_bill') return t('finance.safe.note.minimum_in_bill', { bill: isolate(params.bill ?? '') });
   if (note === 'minimum_due' || note === 'minimum_passed') return t(`finance.safe.note.${note}`, { day: isolate(params.day ?? '') });
   if (note === 'goal_derived') return t('finance.safe.note.goal_derived', { left: isolate(formatAmount(params.left ?? '0', line.currency)), count: Number(params.months ?? 1) });
+  if (note === 'installment_due' || note === 'installment_overdue')
+    return t(`finance.safe.note.${note}`, { number: isolate(params.number ?? ''), of: isolate(params.of ?? ''), date: isolate(params.date ?? '') });
+  if (note === 'budget_reserve')
+    return t('finance.safe.note.budget_reserve', { spent: isolate(formatAmount(params.spent ?? '0', line.currency)), amount: isolate(formatAmount(params.amount ?? '0', line.currency)) });
   return t(`finance.safe.note.${note}` as MessageKey);
 }
 
 /** The group a line is shown under, in build order. */
-export const SAFE_GROUPS = ['balance', 'bill', 'minimum_payment', 'goal', 'buffer'] as const;
+export const SAFE_GROUPS = ['balance', 'bill', 'minimum_payment', 'goal', 'buffer', 'installment', 'remittance', 'budget'] as const;
 
 // ---- Stage 4: the Guardian rules ------------------------------------------------------------------
 

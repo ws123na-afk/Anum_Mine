@@ -6,7 +6,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, Gauge, Layers, Link2, Plus, Repeat, Search, Wallet } from 'lucide-react';
 import type {
-  FinanceAccount, FinanceBill, FinanceBillOccurrence, FinanceBillSchedule, FinanceBillSuggestion, FinanceBudgetAlert, FinanceBudgetLine, FinanceBudgetReport,
+  FinanceAccount, FinanceBill, FinanceBillOccurrence, FinanceBillSchedule, FinanceBudgetAlert, FinanceBudgetLine, FinanceBudgetReport,
   FinanceCategory, FinanceGuardian,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
@@ -40,6 +40,10 @@ const weekday = (day: string) => formatDateTime(`${day}T12:00:00Z`, { weekday: '
 const totalText = (row: CurrencyTotal | null, fallbackCurrency: string) => formatAmount(row?.amount ?? '0', row?.currency ?? fallbackCurrency);
 
 const FixedCosts = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.CommitmentsSection })));
+// The owner's own budgets and the salary allocation, and the recurring payments (docs/finance.md#budgets-and-planning,
+// #recurring-payments): their own chunks, loaded when the tab opens.
+const PlanBudgets = lazy(() => import('./FinanceBudgetPlans').then((m) => ({ default: m.PlanBudgetsSection })));
+const RecurringPayments = lazy(() => import('./FinanceRecurring').then((m) => ({ default: m.RecurringPayments })));
 
 export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onChanged }: {
   initial: 'bills' | 'budgets' | 'fixed'; accounts: FinanceAccount[]; base: string; today: string; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
@@ -154,9 +158,11 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
         {bills.kind === 'ready' && <FinanceInstallmentStatement bills={bills.value} today={today} refreshKey={statementReload} onRefresh={() => void loadBills()} />}
         <div className="fplColumns wideStart"><div className="fplColumn">{upcoming}{rules}</div><div className="fplColumn">{health}{riskBanner}<LinkPayCard /></div></div>
       </>}
-      {section === 'budgets' && <>{riskBanner}<div className="fplColumns"><div className="fplColumn">{health}</div><div className="fplColumn"><LinkPayCard /></div></div>{rules}</>}
-      {section === 'recurring' && <RecurringCard bills={bills} accounts={accounts} retry={() => void loadBills()} onAdd={() => setEditing('new')} onEdit={setEditing}
-        onToggle={(b) => void toggleBill(b)} onRemove={setRemoving} onKept={(name) => { setNotice({ text: t('finance.bills.kept', { name }) }); reloadBills(); }} />}
+      {section === 'budgets' && <>{riskBanner}<Suspense fallback={<Notice busy>{t('fbud.loading')}</Notice>}><PlanBudgets base={base} /></Suspense>
+        <div className="fplColumns"><div className="fplColumn">{health}</div><div className="fplColumn"><LinkPayCard /></div></div>{rules}</>}
+      {section === 'recurring' && <><Suspense fallback={<Notice busy>{t('fplan.loading')}</Notice>}><RecurringPayments onChanged={reloadBills} /></Suspense>
+        <RecurringCard bills={bills} accounts={accounts} retry={() => void loadBills()} onAdd={() => setEditing('new')} onEdit={setEditing}
+          onToggle={(b) => void toggleBill(b)} onRemove={setRemoving} /></>}
       {section === 'calendar' && <CalendarCard rows={rows} month={month} today={schedule.value.today} onPick={(row) => (row.status === 'paid' ? openBill(row.bill_id) : setMatching(row))} />}
     </div>
     {gmailImport && <Modal title="Import Tamara payments from connected Gmail" className="formDialog" onClose={() => setGmailImport(false)}>
@@ -330,29 +336,15 @@ function LinkPayCard() {
 
 // ---- Recurring ----------------------------------------------------------------------------------------
 
-function RecurringCard({ bills, accounts, retry, onAdd, onEdit, onToggle, onRemove, onKept }: {
+// The found recurring payments (keep, not a bill) are in FinanceRecurring.tsx; this card is every saved bill.
+function RecurringCard({ bills, accounts, retry, onAdd, onEdit, onToggle, onRemove }: {
   bills: Load<FinanceBill[]>; accounts: FinanceAccount[]; retry: () => void; onAdd: () => void; onEdit: (b: FinanceBill) => void; onToggle: (b: FinanceBill) => void;
-  onRemove: (b: FinanceBill) => void; onKept: (name: string) => void;
+  onRemove: (b: FinanceBill) => void;
 }) {
-  const [suggestions, setSuggestions] = useState<FinanceBillSuggestion[]>([]);
-  const [saving, setSaving] = useState<string | null>(null), [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
-  useEffect(() => { void api.billSuggestions().then(setSuggestions).catch(() => setSuggestions([])); }, [bills]);
   const names = new Map(accounts.map((a) => [a.id, a.name]));
-  async function keep(s: FinanceBillSuggestion) {
-    setSaving(s.name); setError(null);
-    try { await api.createBill({ name: s.name, amount: s.amount, currency: s.currency, cadence: s.cadence, next_due_on: s.next_due_on, category: s.category, account_id: s.account_id, source: 'detected' }); onKept(s.name); }
-    catch (e) { setError(describeError(e)); } finally { setSaving(null); }
-  }
   const list = bills.kind === 'ready' ? bills.value.filter((b) => !q.trim() || b.name.toLowerCase().includes(q.trim().toLowerCase())) : [];
   return <>
-    {suggestions.length > 0 && <FinCard title={t('finance.bills.suggestions')} subtitle={t('finance.bills.suggestionsText')}>
-      {error && <Notice error>{error}</Notice>}
-      <ul className="cmList">{suggestions.map((s) => <li key={`${s.account_id}-${s.name}`}>
-        <div><strong dir="auto">{s.name}</strong><small>{t(`finance.cadence.${s.cadence}` as MessageKey)} · {t('finance.bills.seen', { count: s.occurrences })} · {t('finance.bills.next', { date: isolate(s.next_due_on) })}</small></div>
-        <div className="finItemEnd"><Money value={s.amount} currency={s.currency} /><button type="button" className="secondary" disabled={saving === s.name} onClick={() => void keep(s)}><Plus aria-hidden="true" />{t('finance.bills.keep')}</button></div>
-      </li>)}</ul>
-    </FinCard>}
     <FinCard title={t('fplan.recurring.title')} actions={<button type="button" className="secondary" onClick={onAdd}><Plus aria-hidden="true" />{t('finance.bills.add')}</button>}>
       {bills.kind === 'loading' && <Notice busy>{t('fplan.loading')}</Notice>}
       {bills.kind === 'denied' && <Denied />}

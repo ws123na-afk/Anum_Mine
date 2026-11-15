@@ -15,10 +15,11 @@ from .models import InstallmentRefundNotice, InstallmentStatementEntry
 
 _AMOUNT = r"([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
 _ORDER = re.compile(r"\bOrder\s*(?:Number|ID|No\.?|Reference)\s*[:#]?\s*\n?\s*([\w-]{5,160})", re.I)
-_LINES = re.compile(r"(Paid today|Due on\s+\d{2}[.\-/]\d{2}[.\-/]\d{4})\s*[:\-]?\s*(?:\r?\n\s*)?" + _AMOUNT + r"\s*SAR", re.I)
-_PAID = re.compile(r"(?:received your payment of|payment of)\s*SAR\s*" + _AMOUNT + r"\s+for\s+the\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+payment", re.I)
-# "Refund 580 SAR", "Refunded amount: SAR 580.00", "Refund amount\nSAR 1,200": the currency on either side.
-_REFUND = re.compile(r"\bRefund(?:ed)?(?:\s+amount)?\s*[:\-]?\s*(?:\r?\n\s*)?(?:SAR\s*" + _AMOUNT + r"|" + _AMOUNT + r"\s*SAR)", re.I)
+_LINES = re.compile(r"(Paid today|Due on\s+\d{2}[.\-/]\d{2}[.\-/]\d{4})\s*[:\-]?\s*(?:\r?\n\s*)?" + _AMOUNT + r"\s*(SAR|AED)", re.I)
+_PAID = re.compile(r"(?:received your payment of|payment of)\s*(?:SAR|AED)\s*" + _AMOUNT + r"\s+for\s+the\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+payment", re.I)
+# "Refund 580 SAR", "Refunded amount: SAR 580.00", "Refund amount\nAED 1,200": the currency (SAR or AED, Tamara's Saudi and UAE
+# stores) on either side.
+_REFUND = re.compile(r"\bRefund(?:ed)?(?:\s+amount)?\s*[:\-]?\s*(?:\r?\n\s*)?(?:(?:SAR|AED)\s*" + _AMOUNT + r"|" + _AMOUNT + r"\s*(?:SAR|AED))", re.I)
 # Wording that means the whole order was refunded or cancelled, not one item of it.
 _FULL = re.compile(r"\b(?:full(?:y)?\s+refund(?:ed)?|refunded\s+in\s+full|order\s+(?:has\s+been|was|is)\s+(?:fully\s+)?(?:refunded|cancell?ed))\b", re.I)
 _ORDINALS = dict(zip("first second third fourth fifth sixth seventh eighth ninth tenth".split(), range(1, 11)))
@@ -74,7 +75,8 @@ def refund_notice(message: MailEvidence, order: str) -> InstallmentRefundNotice:
     found = _REFUND.search(message.text)
     amount = _money(found.group(1) or found.group(2)) if found else None
     return InstallmentRefundNotice(
-        provider="Tamara", order_id=order[:160], amount=amount, currency="SAR", full=bool(_FULL.search(message.text)),
+        provider="Tamara", order_id=order[:160], amount=amount, currency="AED" if found and "aed" in found.group(0).lower() else "SAR",
+        full=bool(_FULL.search(message.text)),
         received_on=message.received_at.date(), message_ref=message.provider_message_id[:200], source_email=_link(message),
     )
 
@@ -131,7 +133,7 @@ def extract_tamara_statement(messages: Iterable[MailEvidence]) -> tuple[list[Ins
                 rows.append(InstallmentStatementEntry(
                     provider="Tamara", order_id=order, merchant=_merchant(subject),
                     purchase_on=msg.received_at.date(), due_on=due_on,
-                    installment=i, total_installments=1, amount=value, currency="SAR",
+                    installment=i, total_installments=1, amount=value, currency=line.group(3).upper(),
                     source_status="paid" if "paid today" in line.group(1).lower() else "scheduled",
                     source_email=_link(msg), review_notes=None,
                 ))

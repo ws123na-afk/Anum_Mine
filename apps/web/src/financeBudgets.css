@@ -1,0 +1,37 @@
+/* Budgets, salary allocation, recurring payments and categories (docs/finance.md#budgets-and-planning). Shared tokens only. */
+.fbudTotals { margin: 0 0 var(--d-s2); }
+.fbudList { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); list-style: none; margin: 0; padding: 0; }
+.fbudItem { border: 1px solid var(--d-line); border-radius: var(--d-radius); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.fbudItem.paused { opacity: .75; }
+.fbudHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.fbudHead > strong { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.fbudFigures { display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1) var(--d-s3); }
+.fbudFigures .bad { color: var(--d-stop); font-weight: 600; }
+.fbudComing { display: grid; font-size: var(--text-sm); gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.fbudComing li { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.fbudAlloc { display: grid; gap: var(--d-s2); }
+.fbudAlloc + .fbudAlloc { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
+.fbudAllocTable { max-width: 420px; }
+.fbudForm { display: grid; gap: var(--d-s3); }
+.fbudRow > .field, .fbudForm > .field { margin: 0; }
+.fbudRow { align-items: end; display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+.fbudPick { border: 1px solid var(--d-line); border-radius: var(--d-radius); display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: var(--d-s3); }
+.fbudChecks { display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); }
+.fbudCheck { align-items: center; display: flex; gap: var(--d-s2); justify-content: flex-start; min-height: 32px; text-align: start; }
+.fbudCheck input[type="checkbox"] { flex: 0 0 auto; height: 18px; margin: 0; min-height: 0; width: 18px; }
+.fbudChips { display: flex; flex-wrap: wrap; gap: var(--d-s1); margin-top: var(--d-s1); }
+.fbudDialog { max-width: min(720px, 100%); width: 100%; }
+.fcatGroups { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.fcatGroup { border: 1px solid var(--d-line); border-radius: var(--d-radius); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.fcatGroup h3 { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; letter-spacing: .02em; margin: 0; text-transform: uppercase; }
+.fcatCategory .fsugChips { list-style: none; margin: 0; padding: 0; }
+.fcatCategory { display: grid; gap: var(--d-s1); }
+.fcatCategoryHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fcatCategoryHead > strong { flex: 1 1 auto; }
+.fsugChip.mine { font-weight: 600; }
+/* Recurring and learned-merchant rows: the text keeps its width and the actions wrap below it on narrow screens. */
+.frecList > li { flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.frecList > li > div:first-child { display: grid; flex: 1 1 240px; gap: var(--d-s1); min-width: 0; overflow-wrap: anywhere; }
+.frecList > li > div:first-child > .finChip { justify-self: start; }
+.frecList .finItemEnd { flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
+.frecList .finItemEnd select { max-width: 100%; min-width: 0; }

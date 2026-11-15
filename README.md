@@ -184,6 +184,7 @@ x-user-roles: owner,member
 - [iPhone SMS banking and the double-entry ledger: device tokens, review queue, taught formats, reconciliation and the dashboard (off by default)](docs/finance-sms.md)
 - [PDF bank statements: reading text, scanned and password-protected statements, balance checks, taught layouts and import](docs/finance-statements.md)
 - [Finance links and business allocations: one payment linked to vehicles, purchases, documents and businesses without a second posting](docs/finance-links.md)
+- [Finance matching: automatic links under an approved policy, Tamara installments, history backfill and SMS and Apple Pay capture health](docs/finance-matching.md)
 - [iPhone integrations: one device token with scopes, per-integration switches, failed events, tests and Shortcut setup (Settings, Integrations, iPhone)](docs/iphone-integrations.md)
 - [Fund research: real data with sources, an AI summary that can only cite the data, backtests and paper runs](docs/finance-research.md)
 - [All-market trading plan and release gates (live trading off)](docs/finance-all-markets-implementation.md)

@@ -17,6 +17,7 @@ import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { LoanSplitDialog } from './FinanceLoanSplit';
+import { LoanPromises } from './FinanceLoanPromises';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import './financePages.css';
@@ -255,6 +256,14 @@ function LoanForm({ loan, base, onDone }: { loan: FinancePersonLoan | null; base
   </form>;
 }
 
+// Migration 0186_pf_debts: promises to pay and the agreed balance (docs/finance.md#lent-and-borrowed).
+type LoanExtras = { promises?: { id: string; made_on: string; due_by: string; amount: string; note: string | null }[];
+  promise_states?: { id: string; status: string; paid: string }[]; verified_balance?: string | null };
+function promisesOf(loan: object) {
+  const extra = loan as LoanExtras;
+  return (extra.promises ?? []).map((p) => ({ ...p, ...(extra.promise_states ?? []).find((s) => s.id === p.id) }));
+}
+
 function LoanDetail({ loan, onClose }: { loan: FinancePersonLoan; onClose: () => void }) {
   const [state, reload] = useLoad(() => pm.getLoan(loan.id), [loan.id]);
   const [linking, setLinking] = useState<'handed' | 'repayment' | null>(null);
@@ -287,6 +296,7 @@ function LoanDetail({ loan, onClose }: { loan: FinancePersonLoan; onClose: () =>
         </table></div>
       </>}
       {error && <Notice error>{error}</Notice>}
+      <LoanPromises loanId={l.id} currency={l.currency} promises={promisesOf(l)} agreed={(l as LoanExtras).verified_balance ?? null} onChanged={reload} />
       <h3 className="finAdvisorSub">{t('fpm.movements.title')}</h3>
       <Movements rows={l.movements} onUnlink={(id) => { pm.unlinkLoan(l.id, id).then(reload).catch((e) => setError(describeError(e))); }} />
       <div className="actions">

@@ -59,6 +59,35 @@ class Flow(StrEnum):
     UNCATEGORIZED = "uncategorized"  # no rule recognised it: held for review, neither income nor spend
 
 
+class Lending(frozenset):  # type: ignore[type-arg]
+    """The ``lending`` set every reader passes around (``obligations.Links.lending_ids``): the transactions linked IN FULL to
+    money lent or borrowed with a person (transfers). ``partial`` holds the transactions only part of which is linked
+    (transaction id: the linked amount, positive, in its currency): only that part is a transfer, the rest counts by its
+    category (``remainder``), so lending SAR 300 of a SAR 500 purchase leaves SAR 200 of spending."""
+
+    partial: dict[str, Decimal]
+
+    def __new__(cls, full: Iterable[str] = (), partial: Mapping[str, Decimal] | None = None) -> "Lending":
+        made = super().__new__(cls, full)
+        made.partial = dict(partial or {})
+        return made
+
+
+def lent_part(t: Transaction, lending: AbstractSet[str] | None) -> Decimal:
+    """How much of ``t`` (positive) is linked to a loan with a person when only part of it is; 0 otherwise."""
+    partial = getattr(lending, "partial", None)
+    return partial.get(t.id, Decimal(0)) if partial else Decimal(0)
+
+
+def remainder(t: Transaction, lending: AbstractSet[str] | None) -> Transaction:
+    """``t`` with the part linked to a loan with a person taken out (the same row when none is)."""
+    lent = lent_part(t, lending)
+    if lent <= 0:
+        return t
+    left = max(abs(t.amount) - lent, Decimal(0))
+    return t.model_copy(update={"amount": left if t.amount > 0 else -left})
+
+
 def flow_for_type(kind: TransactionType, category: Category) -> Flow:
     """The one counting rule per transaction type (docs/finance.md#transaction-types)."""
     if kind == TransactionType.UNCATEGORIZED:
@@ -106,7 +135,8 @@ def spend_rows(rows: Iterable[Transaction], kinds: Mapping[str, AccountKind] | N
     """Rows that move spend: purchases (negative) and refunds in a spending category (positive).
 
     ``-sum(amount)`` over them is the net spend; per category it is that category's net spend."""
-    return [t for t in rows if t.amount != 0 and flow_of(t, kinds, lending) == Flow.SPEND]
+    out = [remainder(t, lending) for t in rows]
+    return [t for t in out if t.amount != 0 and flow_of(t, kinds, lending) == Flow.SPEND]
 
 
 def is_spend_debit(t: Transaction, kinds: Mapping[str, AccountKind] | None = None, lending: AbstractSet[str] | None = None) -> bool:
@@ -128,6 +158,9 @@ class Figures:
     uncategorized_count: int = 0
     uncategorized_in: dict[str, Decimal] = field(default_factory=dict)
     uncategorized_out: dict[str, Decimal] = field(default_factory=dict)
+    # Money that moved but is neither income nor spend, by why it is left out (``excluded_kind``):
+    # (kind, currency): [money in, money out (positive), count]. Shown so "excluded" is never a silent gap.
+    excluded: dict[tuple[str, str], list] = field(default_factory=dict)
 
     def net(self) -> dict[str, Decimal]:
         """Cash flow: income, cashback and unmatched refunds received, less net spend."""
@@ -136,13 +169,39 @@ class Figures:
         return {c: self.income.get(c, zero) + self.cashback.get(c, zero) + self.refunds.get(c, zero) - self.spend.get(c, zero) for c in keys}
 
 
+# Why a transfer is not income or spend (docs/finance.md#how-figures-are-counted): the dashboard lists each.
+EXCLUDED_KINDS = ("own_transfer", "card_payment", "loan_principal", "lending", "other_transfer")
+
+
+def excluded_kind(t: Transaction, kinds: Mapping[str, AccountKind] | None = None, lending: AbstractSet[str] | None = None) -> str:
+    """For a row whose flow is ``transfer``: an own transfer, a card repayment, loan principal (borrowed or repaid),
+    money lent or borrowed with a person, or another movement (investment, currency exchange, collection)."""
+    if lending and t.id in lending:
+        return "lending"
+    kind = t.transaction_type if t.transaction_type is not None else txn_types.derive(
+        t.category, t.amount, (kinds or {}).get(t.account_id), t.category_source).type
+    if kind == TransactionType.INTERNAL_TRANSFER:
+        return "own_transfer"
+    if kind == TransactionType.CARD_PAYMENT:
+        return "card_payment"
+    if kind in (TransactionType.LOAN_PRINCIPAL, TransactionType.LOAN_RECEIVED):
+        return "loan_principal"
+    return "other_transfer"
+
+
 def _add(target: dict[str, Decimal], currency: str, amount: Decimal) -> None:
     target[currency] = target.get(currency, Decimal(0)) + amount
 
 
 def figures(rows: Iterable[Transaction], kinds: Mapping[str, AccountKind] | None = None, lending: AbstractSet[str] | None = None) -> Figures:
     out = Figures()
-    for t in rows:
+    for row in rows:
+        lent = lent_part(row, lending)
+        if lent > 0:  # the part linked to a loan with a person is left out as lending (docs/finance.md#lent-and-borrowed)
+            slot = out.excluded.setdefault(("lending", row.currency), [Decimal(0), Decimal(0), 0])
+            slot[0 if row.amount > 0 else 1] += min(lent, abs(row.amount))
+            slot[2] += 1
+        t = remainder(row, lending)
         if t.amount == 0:
             continue
         flow = flow_of(t, kinds, lending)
@@ -159,6 +218,13 @@ def figures(rows: Iterable[Transaction], kinds: Mapping[str, AccountKind] | None
             _add(out.spend, t.currency, -t.amount)
             value, count = out.by_category.get((t.category, t.currency), (Decimal(0), 0))
             out.by_category[(t.category, t.currency)] = (value - t.amount, count + (1 if t.amount < 0 else 0))
+        elif flow == Flow.TRANSFER:
+            slot = out.excluded.setdefault((excluded_kind(t, kinds, lending), t.currency), [Decimal(0), Decimal(0), 0])
+            if t.amount > 0:
+                slot[0] += t.amount
+            else:
+                slot[1] -= t.amount
+            slot[2] += 1
     out.income = dict(sorted(out.income.items()))
     out.cashback = dict(sorted(out.cashback.items()))
     out.refunds = dict(sorted(out.refunds.items()))
@@ -185,5 +251,5 @@ def ledger_flow(ledger_account: str) -> Flow | None:
     return None
 
 
-__all__ = ["Figures", "Flow", "LIABILITY_KINDS", "NOT_SPEND", "TRANSFER_LEDGER", "UNCATEGORIZED_LEDGER", "classify", "flow_for_type", "figures", "flow_of", "is_spend_debit",
-           "kinds_of", "ledger_flow", "spend_rows"]
+__all__ = ["EXCLUDED_KINDS", "LIABILITY_KINDS", "NOT_SPEND", "TRANSFER_LEDGER", "UNCATEGORIZED_LEDGER", "Figures", "Flow", "Lending", "classify",
+    "excluded_kind", "figures", "flow_for_type", "flow_of", "is_spend_debit", "kinds_of", "ledger_flow", "lent_part", "remainder", "spend_rows"]

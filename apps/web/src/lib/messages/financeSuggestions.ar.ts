@@ -9,6 +9,7 @@ export const financeSuggestionsAr = {
   'fsug.view.queue': 'قائمة المراجعة',
   'fsug.view.rules': 'القواعد',
   'fsug.view.merchants': 'التجار والفئات الفرعية',
+  'fsug.view.categories': 'الفئات',
   'fsug.view.automation': 'الأتمتة',
   'fsug.loading': 'جارٍ التحميل...',
   'fsug.kind.all': 'الكل',

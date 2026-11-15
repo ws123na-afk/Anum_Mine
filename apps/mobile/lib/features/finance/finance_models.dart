@@ -1,5 +1,6 @@
 import '../../data/json_read.dart';
 import '../../src/localization/money_format.dart';
+import 'finance_core_models.dart';
 
 // The app's one amount parser; Finance sends its decimal string as typed.
 export '../../src/localization/amount_input.dart' show parseAmount;
@@ -119,8 +120,13 @@ class FinanceSummary {
     required this.goals,
     this.netWorth = const [],
     this.netWorthExcluded = const [],
+    this.dashboard = const FinanceDashboard(),
   });
   final String month, baseCurrency;
+
+  /// The dashboard contract (docs/finance.md#dashboard): cash against cards,
+  /// what the month left out, upcoming payments, review and freshness.
+  final FinanceDashboard dashboard;
 
   /// Net worth per currency, line by line (docs/finance.md#how-figures-are-counted):
   /// never added across currencies.
@@ -174,6 +180,7 @@ class FinanceSummary {
       netWorth: r.optObjects('net_worth_parts', NetWorthPart.fromJson),
       netWorthExcluded:
           r.optObjects('net_worth_excluded', NetWorthExcluded.fromJson),
+      dashboard: FinanceDashboard.fromJson(r),
     );
   }
 

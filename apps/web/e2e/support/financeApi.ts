@@ -1,7 +1,9 @@
 // Mocked /api/v1/finance answers (docs/finance.md) shared by finance.spec.ts and the workspace mock
 // (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
 // round amounts, never real account numbers.
+import { budgetsReply } from './financeBudgetsApi';
 import { equityBody } from './financeEquity';
+import { matchingReply, matchingState, type MatchingState } from './financeMatchingApi';
 import { suggestionsReply, suggestionsState, type SuggestionsState } from './financeSuggestionsApi';
 import { planningReply } from './financePlanningApi';
 import { reportDetail, reportList } from './financeReports';
@@ -49,6 +51,8 @@ export interface FinanceState {
   trading: TradingState;
   /** Finance, Suggestions: the queue, rules, spellings and automation (made on first use unless a spec sets it). */
   suggestions?: SuggestionsState;
+  /** Automatic matching (docs/finance-matching.md): made on first use unless a spec sets it. */
+  matching?: MatchingState;
 }
 
 export interface TradingState {
@@ -582,6 +586,21 @@ function summary(state: FinanceState, requested: string | null) {
     upcoming_bills: upcoming, bills_due: upcoming.length ? [{ currency: 'AED', amount: money(upcoming.reduce((s, b) => s + Number(b.amount), 0)) }] : [],
     debts: state.debts.length ? [{ currency: 'AED', amount: '2450.00' }] : [], minimum_payments: state.debts.length ? [{ currency: 'AED', amount: '250.00' }] : [], debt_count: state.debts.length,
     goals: state.goals.map((g) => ({ id: g.id, name: g.name, currency: g.currency, target_amount: g.target_amount, saved_amount: g.saved_amount, percent: 25, target_on: g.target_on })),
+    // The dashboard contract (docs/finance.md#dashboard), SYNTHETIC figures.
+    detail: 'full',
+    excluded: rows.length ? [{ kind: 'own_transfer', currency: 'AED', money_in: '500.00', money_out: '500.00', count: 2 }] : [],
+    positions: state.accounts.length ? [{
+      currency: 'AED', cash: money(state.accounts.filter((a) => a.kind === 'bank' || a.kind === 'cash').reduce((sum, a) => sum + Number(a.balance), 0)), investments: '0.00',
+      card_owed: money(state.accounts.filter((a) => a.kind === 'card').reduce((sum, a) => sum + Math.max(0, -Number(a.balance)), 0)), card_in_credit: '0.00',
+      card_limit: null, card_available: null, loans_owed: '0.00' }] : [],
+    upcoming_payments: upcoming.map((b) => ({ kind: 'bill', id: b.id, name: b.name, provider: null, amount: b.amount, currency: b.currency, due_on: b.due_on, days_until: b.days_until, overdue: false, status: 'pending' })),
+    payments_due: upcoming.length ? [{ currency: 'AED', amount: money(upcoming.reduce((s, b) => s + Number(b.amount), 0)) }] : [],
+    income_breakdown: income ? [{ kind: 'other_income', currency: 'AED', amount: money(income), count: rows.filter((r) => Number(r.amount) > 0).length }] : [],
+    salary: null,
+    review: { uncategorized: 2, sms_review: 0, links_need_review: 1, installments_review: 0, total: 3 },
+    freshness: state.accounts.filter((a) => !a.archived).map((a, i) => ({
+      account_id: a.id, sources: i === 0 ? ['manual', 'sms'] : ['manual'], last_activity_on: day(0), last_import_at: null, last_sms_at: i === 0 ? `${day(0)}T08:00:00Z` : null,
+      last_apple_pay_at: null, verified_balance: null, verified_at: null, verified_by: null, difference: null, balance_kind: 'estimated', state: i === 0 ? 'current' : 'manual', credit_limit: null })),
   };
 }
 
@@ -706,6 +725,10 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   const ok = (value: unknown, status = 200) => ({ status, body: value });
   const sub = path.slice('/api/v1/finance'.length);
   if (sub.startsWith('/advisor')) return advisorReply((state.advisor ??= advisorState(1)), method, url, body);
+  const matched = matchingReply((state.matching ??= matchingState()), method, sub, url, body);
+  if (matched) return matched;
+  const budgeted = budgetsReply(state, method, sub, url, body);
+  if (budgeted) return budgeted;
   const learned = suggestionsReply((state.suggestions ??= suggestionsState()), method, sub, url, body);
   if (learned) return learned;
   const stages = financeStagesReply(state, method, sub, body, url);

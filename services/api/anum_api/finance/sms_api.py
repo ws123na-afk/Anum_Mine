@@ -576,6 +576,19 @@ def _device_event(context: TenantContext | None, device_id: str | None, key: str
         record_event(context, device_id, key, key, outcome, code)
 
 
+def _match_after(context: TenantContext, message: SmsMessage) -> None:
+    """A payment just recorded or attached: let the owner's matching policy link it now (docs/finance-matching.md), in its
+    own short units of work after ingestion committed. Never fails the request; the daily job retries."""
+    if message.status not in (MessageStatus.POSTED, MessageStatus.ATTACHED) or not message.entry_id:
+        return
+    from .matching_service import match_payment
+
+    with open_sms_stores(context) as (_finance, store):
+        entry = store.get_entry(context, message.entry_id)
+    if entry is not None:
+        match_payment(context, entry.canonical_id or entry.id, entry.posted_on)
+
+
 @router.post("/sms/ingest", response_model=IngestResult)
 def sms_ingest(request: Request, body: IngestBody, authorization: str | None = Header(default=None)) -> Any:
     """One forwarded message from an iPhone Shortcut (docs/finance-sms.md#the-shortcut)."""
@@ -611,6 +624,7 @@ def sms_ingest(request: Request, body: IngestBody, authorization: str | None = H
         _ingest_audit(context, message.id, "success", {"status": message.status.value, "reason": message.reason, "rule": message.rule.split(":")[0]})
         if outcome.notify:
             svc.notify(context, outcome.notify, now)
+        _match_after(context, message)
     return IngestResult(status=message.status.value, reason=message.reason, message_id=message.id if message.status != MessageStatus.REJECTED else None,
                         replayed=outcome.replayed, text=RESULT_TEXT.get(message.status.value, "Saved."))
 
@@ -670,6 +684,7 @@ def wallet_ingest(request: Request, body: WalletBody, authorization: str | None 
         _ingest_audit(context, message.id, "success", {"status": message.status.value, "reason": message.reason, "source": "wallet"})
         if outcome.notify:
             svc.notify(context, outcome.notify, now)
+        _match_after(context, message)
     return IngestResult(status=message.status.value, reason=message.reason, message_id=message.id, replayed=outcome.replayed,
                         text=WALLET_TEXT.get(message.status.value, "Saved."))
 
@@ -1220,10 +1235,12 @@ def ledger_dashboard(
             if entry.kind in plain_kinds:
                 continue
             lent = bool(lending) and any(p.transaction_id in lending for p in entry.postings if p.transaction_id)
+            part = max((getattr(lending, "partial", {}).get(p.transaction_id, Decimal(0)) for p in entry.postings if p.transaction_id), default=Decimal(0))
             for p in entry.postings:
                 ledger_account = L.lending_account(p.ledger_account, p.account_id) if lent else p.ledger_account
-                rows.append(L.Row(day=entry.posted_on, ledger_account=ledger_account, account_id=p.account_id, amount=p.amount, currency=p.currency,
-                                  kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
+                for account_name, value in L.lent_split(ledger_account, p.account_id, p.amount, part if not lent else Decimal(0)):
+                    rows.append(L.Row(day=entry.posted_on, ledger_account=account_name, account_id=p.account_id, amount=value, currency=p.currency,
+                                      kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
         window_rows = finance.transactions_between(context, window_start, window_end)
         # Rows no rule recognised are in no figure: the dashboard says how many (the summary's rule, flows.py).
         kinds = {a.id: a.kind for a in accounts}
@@ -1233,10 +1250,12 @@ def ledger_dashboard(
             account = by_id.get(txn.account_id)
             if (txn.id in linked and txn.id not in plain) or account is None:
                 continue
+            part = getattr(lending, "partial", {}).get(txn.id, Decimal(0))
             for leg in L.derived_legs(txn, account, lending=txn.id in lending):
-                rows.append(L.Row(day=txn.posted_on, ledger_account=leg.ledger_account, account_id=leg.account_id, amount=leg.amount, currency=leg.currency,
-                                  kind="statement", category=txn.category.value, merchant=txn.description[:60] if leg.account_id is None else None,
-                                  entry_id=f"txn:{txn.id}"))
+                for account_name, value in L.lent_split(leg.ledger_account, leg.account_id, leg.amount, part):
+                    rows.append(L.Row(day=txn.posted_on, ledger_account=account_name, account_id=leg.account_id, amount=value, currency=leg.currency,
+                                      kind="statement", category=txn.category.value, merchant=txn.description[:60] if leg.account_id is None else None,
+                                      entry_id=f"txn:{txn.id}"))
         sums = finance.account_sums(context)
         balances = {a.id: a.opening_balance + sums.get(a.id, Decimal(0)) for a in accounts}
         settings = svc.settings_for(store, context)

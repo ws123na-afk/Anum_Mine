@@ -27,6 +27,7 @@ from .rules import (
     AliasBook,
     AutomationSettings,
     FinanceRule,
+    LearnedRule,
     MerchantAlias,
     Subcategory,
     active_rules,
@@ -363,13 +364,29 @@ def owner_rules(finance: Any, context: TenantContext) -> list[Any]:
     plain phrase list in ``FinanceSettings.category_rules`` (the older model, read until the first save copies it in)."""
     store = rules_store_for(finance)
     versions = store.list_versions(context)
+    book = AliasBook.of(store.list_aliases(context))
     if versions:
-        book = AliasBook.of(store.list_aliases(context))
-        return [replace(rule, book=book) for rule in active_rules(versions)]
-    from .summary import settings_for
+        found = [replace(rule, book=book) for rule in active_rules(versions)]
+    else:
+        from .summary import settings_for
 
-    legacy = settings_for(finance, context).category_rules
-    return [ActiveRule.from_content(f"legacy-{i}", 1, from_legacy(rule), "imported") for i, rule in enumerate(legacy)]
+        legacy = settings_for(finance, context).category_rules
+        found = [ActiveRule.from_content(f"legacy-{i}", 1, from_legacy(rule), "imported") for i, rule in enumerate(legacy)]
+    # The owner's learned merchant mappings run after the owner's rules and before the built-in ones
+    # (docs/finance.md#learned-merchants).
+    return found + learned_rules(finance, context, book)
+
+
+def learned_rules(finance: Any, context: TenantContext, book: AliasBook | None = None) -> list[Any]:
+    """The owner's enabled learned merchant mappings as rules (``rules.LearnedRule``)."""
+    getter = getattr(finance, "get_planning", None)
+    if getter is None:
+        return []
+    mappings = getter(context).category_mappings
+    if not mappings:
+        return []
+    book = book if book is not None else AliasBook.of(rules_store_for(finance).list_aliases(context))
+    return [replace(LearnedRule.of_mapping(m), book=book) for m in mappings if m.enabled]
 
 
 def alias_book(finance: Any, context: TenantContext) -> AliasBook:
@@ -377,6 +394,6 @@ def alias_book(finance: Any, context: TenantContext) -> AliasBook:
 
 
 __all__ = [
-    "BatchChange", "InMemoryRulesStore", "RowState", "RuleBatch", "RulesStore", "SuggestionDecision", "alias_book", "open_rule_stores", "owner_rules",
+    "BatchChange", "InMemoryRulesStore", "RowState", "RuleBatch", "RulesStore", "SuggestionDecision", "alias_book", "learned_rules", "open_rule_stores", "owner_rules",
     "rules_memory_store", "rules_store_for",
 ]

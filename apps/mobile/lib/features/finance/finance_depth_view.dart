@@ -9,6 +9,8 @@ import '../records_kit/records_widgets.dart';
 import 'finance_controller.dart';
 import 'finance_depth_controller.dart';
 import 'finance_depth_models.dart';
+import 'finance_core_repository.dart';
+import 'finance_core_view.dart';
 import 'finance_depth_strings.dart';
 import 'finance_keyword_rules.dart';
 import 'finance_more_menu.dart';
@@ -787,8 +789,14 @@ class TransactionScreen extends StatelessWidget {
       required this.transactionId,
       this.row,
       this.onChanged,
+      this.core,
       super.key});
   final FinanceDepthRepository repository;
+
+  /// The register's detail (docs/finance.md#transaction-detail): sources,
+  /// category, links with their evidence, related rows and the note. Null
+  /// where no API client was given (then only the row and FX are shown).
+  final FinanceCoreRepository? core;
   final String transactionId;
   final FinanceTransaction? row;
   final Future<void> Function()? onChanged;
@@ -819,6 +827,18 @@ class TransactionScreen extends StatelessWidget {
                     RecordsField(d.t('tx.notes'), t.notes!),
                 ]),
           ),
+        if (core != null)
+          TransactionEvidenceSection(
+              repository: core!,
+              transactionId: transactionId,
+              onChanged: onChanged,
+              onOpen: (id) => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                      builder: (_) => TransactionScreen(
+                          repository: repository,
+                          core: core,
+                          transactionId: id,
+                          onChanged: onChanged)))),
         FxSection(
             repository: repository,
             transactionId: transactionId,

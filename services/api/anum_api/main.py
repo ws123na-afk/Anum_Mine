@@ -187,6 +187,7 @@ from .finance.sms_learning_api import router as finance_sms_learning_router
 from .finance.links_api import router as finance_links_router
 from .finance.commitments_api import router as finance_commitments_router
 from .finance.bank_loans_api import router as finance_bank_loans_router
+from .finance.debts_api import router as finance_debts_router  # docs/finance.md#debt-overview
 from .finance.tamara_email_api import router as finance_tamara_email_router
 from .finance.installment_refunds_api import router as finance_installment_refunds_router
 from .finance.pdf_api import router as finance_pdf_router
@@ -195,11 +196,14 @@ from .finance.advisor_api import router as finance_advisor_router
 from .finance.personal_api import router as finance_personal_router
 from .finance.revaluation_api import router as finance_revaluation_router
 from .finance.tags_api import router as finance_tags_router
+from .finance.categories_api import router as finance_categories_router
+from .finance.recurring_api import router as finance_recurring_router
 from .finance.salary_api import router as finance_salary_router
 from .finance.card_fx_api import router as finance_card_fx_router  # docs/finance.md#card-fx-and-fees
 from .finance.reconciliation_api import router as finance_reconciliation_router
 from .finance.forecast_api import router as finance_forecast_router  # docs/finance.md#forecast
 from .finance.rules_api import router as finance_rules_router
+from .finance.matching_api import router as finance_matching_router
 from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
 from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.research_api import router as finance_research_router
@@ -636,6 +640,7 @@ app.include_router(commerce_router)
 # Before the finance router: GET /accounts/overview must not be read as an account id.
 app.include_router(finance_register_router)
 app.include_router(finance_rules_router)
+app.include_router(finance_matching_router)
 app.include_router(finance_router)
 app.include_router(finance_plan_router)
 app.include_router(finance_trading_router)
@@ -647,6 +652,7 @@ app.include_router(finance_sms_learning_router)
 app.include_router(finance_links_router)
 app.include_router(finance_commitments_router)
 app.include_router(finance_bank_loans_router)
+app.include_router(finance_debts_router)
 app.include_router(finance_tamara_email_router)
 app.include_router(finance_installment_refunds_router)
 app.include_router(finance_pdf_router)
@@ -654,6 +660,8 @@ app.include_router(finance_statement_router)
 app.include_router(finance_advisor_router)
 app.include_router(finance_personal_router)
 app.include_router(finance_tags_router)
+app.include_router(finance_categories_router)
+app.include_router(finance_recurring_router)
 app.include_router(finance_revaluation_router)
 app.include_router(finance_salary_router)
 app.include_router(finance_reconciliation_router)

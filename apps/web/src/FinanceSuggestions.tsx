@@ -2,7 +2,7 @@
 // that waits for the owner, the owner's versioned rules with preview, apply and undo, merchant spellings and
 // subcategories, and the automation switches. Every figure and decision is the API's; nothing changes until the owner
 // accepts, approves or applies, and every change that touches earlier rows can be undone.
-import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Bot, Check, History, Inbox, ListChecks, Pencil, Plus, RotateCcw, Search, Store, Tags, Trash2, Undo2, X } from 'lucide-react';
 import type {
   FinanceAccount, FinanceAutomation, FinanceAutomationPolicy, FinanceCategory, FinanceMerchantAlias, FinanceRule, FinanceRuleBatchPage,
@@ -24,6 +24,9 @@ import { Denied, Empty, LoadError, Notice, failed, type Load } from './FinancePa
 import { FinBanner, FinCard, FinanceTabs, FinancePageHead, StatusChip, tabPanel } from './FinanceShell';
 import './financeSuggestions.css';
 
+// Categories and learned merchants (docs/finance.md#category-ontology): its own chunk, loaded when the tab opens.
+const CategoriesView = lazy(() => import('./FinanceCategories').then((m) => ({ default: m.CategoriesView })));
+
 const PAGE = 20;
 const typeLabel = (type: FinanceTransactionType) => t(`freg.type.${type}` as MessageKey);
 const when = (value: string) => formatDateTime(value, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -40,6 +43,7 @@ export function SuggestionsPage({ onOpenHash }: { onOpenHash?: (hash: string) =>
       {view === 'queue' && <QueueView onOpenHash={onOpenHash} onAddRule={() => { setView('rules'); setRuleSeed((n) => n + 1); }} />}
       {view === 'rules' && <RulesView openNew={ruleSeed} />}
       {view === 'merchants' && <MerchantsView />}
+      {view === 'categories' && <Suspense fallback={<Notice busy>{t('fcat.loading')}</Notice>}><CategoriesView /></Suspense>}
       {view === 'automation' && <AutomationView />}
     </div>
   </div>;

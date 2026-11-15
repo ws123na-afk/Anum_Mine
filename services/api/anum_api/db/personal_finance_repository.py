@@ -16,7 +16,7 @@ from sqlalchemy import Boolean, Date, DateTime, Numeric, SmallInteger, String, d
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.finance.personal import ExpectedIncome, LoanBatch, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
+from anum_api.finance.personal import AlertSettings, ExpectedIncome, LoanBatch, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -52,6 +52,11 @@ class FinancePersonLoanRecord(Base, _Owned):
     first_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
+    # Migration 0186_pf_debts.
+    contact_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    promises: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    verified_balance: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    verified_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
 
 class FinancePayslipRecord(Base, _Owned):
@@ -153,8 +158,19 @@ class FinanceLoanBatchRecord(Base, _Owned):
     undone_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
 
 
+class FinanceAlertSettingsRecord(Base, _Owned):
+    """Which financial alerts one person wants (migration ``0186_pf_debts``, docs/finance.md#financial-alerts)."""
+
+    __tablename__ = "finance_alert_settings"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    kinds: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
 RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord, FinanceSalaryProfileRecord, FinanceExpectedIncomeRecord,
-           FinancePersonalTagRecord, FinanceLoanBatchRecord)
+           FinancePersonalTagRecord, FinanceLoanBatchRecord, FinanceAlertSettingsRecord)
 _BY_KIND: dict[str, tuple[type[Any], type[Any]]] = {
     "person_loan": (FinancePersonLoanRecord, PersonLoan),
     "payslip": (FinancePayslipRecord, Payslip),
@@ -163,9 +179,10 @@ _BY_KIND: dict[str, tuple[type[Any], type[Any]]] = {
     "expected_income": (FinanceExpectedIncomeRecord, ExpectedIncome),
     "tag": (FinancePersonalTagRecord, PersonalTag),
     "loan_batch": (FinanceLoanBatchRecord, LoanBatch),
+    "alert_settings": (FinanceAlertSettingsRecord, AlertSettings),
 }
 _ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on", "expected_income": "expected_on", "tag": "created_at",
-          "loan_batch": "created_at"}
+          "loan_batch": "created_at", "alert_settings": "created_at"}
 
 
 def _mine(record: Any, context: TenantContext) -> list[Any]:
@@ -198,6 +215,8 @@ class SqlAlchemyPersonalStore:
             values["deductions"] = [d.model_dump(mode="json") for d in item.deductions]
         if kind == "loan_batch":
             values["items"] = [i.model_dump(mode="json") for i in item.items]
+        if kind == "person_loan":
+            values["promises"] = [p.model_dump(mode="json") for p in item.promises]
         if kind == "salary_profile":
             values["rules"] = [r.model_dump(mode="json") for r in item.rules]
             values["decisions"] = [d.model_dump(mode="json") for d in item.decisions]
@@ -244,4 +263,4 @@ class SqlAlchemyPersonalStore:
         return sum(int(self.session.execute(delete(r).where(*_mine(r, context))).rowcount or 0) for r in RECORDS)
 
 
-__all__ = ["RECORDS", "FinanceExpectedIncomeRecord", "FinanceLoanBatchRecord", "FinancePersonalTagRecord", "SqlAlchemyPersonalStore"]
+__all__ = ["RECORDS", "FinanceAlertSettingsRecord", "FinanceExpectedIncomeRecord", "FinanceLoanBatchRecord", "FinancePersonalTagRecord", "SqlAlchemyPersonalStore"]

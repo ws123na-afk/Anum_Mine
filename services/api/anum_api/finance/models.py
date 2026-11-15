@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -51,6 +51,12 @@ class Category(StrEnum):
     SUBSCRIPTIONS = "subscriptions"
     TRAVEL = "travel"
     INSURANCE = "insurance"
+    # The personal ontology of November 2026 (docs/finance.md#category-ontology): spending categories with their own groups.
+    CLOTHING = "clothing"  # clothes, shoes, tailoring, laundry and dry cleaning
+    FAMILY = "family"  # family and children: formula, diapers, childcare, toys
+    PERSONAL_CARE = "personal_care"  # barber, salon, toiletries, cosmetics, fitness
+    FAMILY_SUPPORT = "family_support"  # money sent to family: parents, spouse, relatives, remittances
+    CHARITY = "charity"  # zakat, sadaqah, donations, Umrah and Hajj
     FEES = "fees"
     INTEREST = "interest"  # interest or profit: received on savings (income) or charged on a card or loan (spend)
     CASH = "cash"
@@ -140,6 +146,32 @@ class CategoryRule(BaseModel):
 
     match: str = Field(min_length=2, max_length=80)
     category: Category
+
+
+class CategoryMapping(BaseModel):
+    """What the owner filed one merchant as, on one side (money in or out): stored when the owner corrects a row by hand.
+
+    Later rows of the same merchant (the merchant key, after the owner's aliases) and side follow it, after the owner's own
+    rules and before the built-in ones. Rows the owner set by hand are never changed by it; switching it off or removing it
+    stops it at once. ``confirmations`` counts how often the owner chose exactly this (a different choice starts again at 1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    merchant: str = Field(min_length=2, max_length=120)  # the folded merchant key
+    direction: Literal["in", "out"]
+    category: Category
+    subcategory_id: str | None = Field(default=None, max_length=80)
+    transaction_type: TransactionType | None = None
+    confirmations: int = Field(default=1, ge=1)
+    enabled: bool = True
+    source_transaction_id: str | None = Field(default=None, max_length=80)
+    example: str | None = Field(default=None, max_length=200)  # the description it was learned from, for the owner to recognise
+    created_at: datetime
+    updated_at: datetime
+
+    @property
+    def key(self) -> str:
+        return f"{self.direction}:{self.merchant}"
 
 
 class _Owned(BaseModel):
@@ -240,6 +272,11 @@ class Bill(_Owned):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Recurring payments (docs/finance.md#recurring-payments, migration 0185_pf_budgets), all optional.
+    merchant: str | None = Field(default=None, max_length=120)  # the merchant key a detected payment was confirmed for
+    recurring_kind: str | None = Field(default=None, max_length=30)  # rent, phone, internet, streaming, ... (``recurring.KINDS``)
+    auto_link: bool = False  # the owner allows a later unique, strong payment to be linked to this bill's due date
+    usage: str | None = Field(default=None, pattern=r"^(often|sometimes|rarely)$")  # how much the owner uses a subscription
 
 
 class Debt(_Owned):
@@ -272,6 +309,18 @@ class Debt(_Owned):
     loan_account_id: str | None = None  # the account a bank debit leaves
     loan_status: str | None = None  # "open", "paid_off" or "closed"
     loan_closed_on: date | None = None  # when it was paid off or closed
+    # The debt overview and card terms (migration 0186_pf_debts, docs/finance.md#debt-overview, #credit-cards), all optional.
+    debt_type: str | None = None  # personal_loan, vehicle_finance, mortgage, credit_card, employer_loan, salary_advance, bnpl, informal, other
+    verified_balance: Decimal | None = None  # what the lender's own statement or app said is owed
+    verified_on: date | None = None  # the day that figure was read
+    disputed_amount: Decimal | None = None  # an amount the person disputes with the lender
+    dispute_note: str | None = None
+    fees: Decimal | None = None  # fees paid on it so far (processing, late), when known
+    card_limit: Decimal | None = None  # a card's credit limit as printed by the bank
+    card_statement_day: int | None = Field(default=None, ge=1, le=31)  # the day the statement closes
+    card_statement_balance: Decimal | None = None  # the last statement's balance
+    card_statement_minimum: Decimal | None = None  # the last statement's minimum payment
+    card_statement_on: date | None = None  # the last statement's date
 
 
 class Goal(_Owned):
@@ -431,12 +480,63 @@ class InstallmentRefundRecord(BaseModel):
     undone_by: str | None = None
 
 
+class BudgetKind(StrEnum):
+    """What a budget plans (docs/finance.md#budgets-and-planning)."""
+
+    SPENDING = "spending"  # spending in its categories and subcategories
+    SAVINGS = "savings"  # money set aside into a goal
+    EMERGENCY = "emergency"  # the emergency reserve (a goal with the purpose emergency)
+    SINKING_FUND = "sinking_fund"  # saving ahead for a known cost (a goal with a target date)
+    REMITTANCE = "remittance"  # money sent home
+    DEBT = "debt"  # payments to debts and cards
+
+
+class BudgetPeriod(StrEnum):
+    MONTHLY = "monthly"
+    WEEKLY = "weekly"
+    CUSTOM = "custom"
+
+
+ALLOCATION_BUCKETS = ("housing", "food", "transport", "family", "debts", "cards", "savings", "remittances", "other")
+
+
+class Budget(BaseModel):
+    """One budget the owner planned. The figures (spent, left, forecast) are worked out on every read from linked rows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str = Field(min_length=1, max_length=80)
+    kind: BudgetKind = BudgetKind.SPENDING
+    period: BudgetPeriod = BudgetPeriod.MONTHLY
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    amount: Decimal = Field(gt=0)
+    categories: list[Category] = Field(default_factory=list, max_length=30)
+    subcategory_ids: list[str] = Field(default_factory=list, max_length=60)
+    starts_on: date | None = None  # a custom period's first day; a weekly budget's week starts on its weekday (Monday without)
+    ends_on: date | None = None  # a custom period's last day
+    fixed: bool = False  # a fixed cost (rent, school fees) rather than a variable one (groceries)
+    essential: bool = True
+    allocation: str | None = Field(default=None, pattern=r"^(housing|food|transport|family|debts|cards|savings|remittances|other)$")
+    goal_id: str | None = Field(default=None, max_length=80)
+    debt_ids: list[str] = Field(default_factory=list, max_length=20)
+    alert_percent: int = Field(default=80, ge=50, le=99)
+    reserve_in_safe_to_spend: bool = False  # keep what is left of it back in Safe to spend (a planned commitment)
+    active: bool = True
+    notes: str | None = Field(default=None, max_length=500)
+    created_at: datetime
+    updated_at: datetime
+
+
 class Planning(BaseModel):
     debt_plans: list[DebtPlan] = Field(default_factory=list, max_length=20)
     budget_alerts: list[BudgetAlert] = Field(default_factory=list, max_length=100)
     installment_entries: list[InstallmentStatementEntry] = Field(default_factory=list, max_length=3000)
     installment_refund_notices: list[InstallmentRefundNotice] = Field(default_factory=list, max_length=3000)
     installment_refunds: list[InstallmentRefundRecord] = Field(default_factory=list, max_length=2000)
+    # Migration 0185_pf_budgets: the owner's budgets and learned merchant mappings.
+    budgets: list[Budget] = Field(default_factory=list, max_length=200)
+    category_mappings: list[CategoryMapping] = Field(default_factory=list, max_length=2000)
 
 
 # -- Stage 5: FX rates ------------------------------------------------------------------------

@@ -1689,3 +1689,18 @@ def test_finance_reserve_migration_is_expand_only() -> None:
     assert '"finance_goals"' in upgrade and '"reserve_months"' in upgrade and "nullable=true" in upgrade
     assert "ck_finance_goals_reserve_months" in upgrade
     assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
+def test_pf_debts_migration_is_expand_only_with_nullable_columns_an_owner_only_alert_table_and_a_widened_claim_check() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0186_pf_debts.py").read_text(encoding="utf-8")
+    assert 'revision = "0186_pf_debts"' in revision_text and len("0186_pf_debts") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: nullable columns (promises has a default), one new table, and the claim check widened (the old kinds stay).
+    assert "op.drop_column" not in upgrade and "op.drop_table" not in upgrade and "alter_column" not in upgrade
+    assert "op.add_column(debts, sa.column(name, kind, nullable=true))" in upgrade and "server_default=sa.text(\"'[]'::jsonb\")" in upgrade
+    assert upgrade.count("op.create_table(") == 1 and '"finance_alert_settings"' in revision_text
+    assert "{old_claim_kinds} or kind like 'alert:%'" in upgrade and "'reconciliation_overdue'" in revision_text
+    assert "force row level security" in upgrade and "owner_only_finance_alert_settings" in upgrade and "as restrictive" in upgrade
+    assert "create policy lifecycle_purge_finance_alert_settings" in upgrade and "with check (false)" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade

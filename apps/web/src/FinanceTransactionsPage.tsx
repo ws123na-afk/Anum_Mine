@@ -18,9 +18,10 @@ import {
 } from './lib/financeRegister';
 import { categoryLabel, formatAmount, formatAmounts, isolate, monthLabel, rangeLabel, shiftMonth } from './lib/finance';
 import { describeError } from './lib/errors';
-import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
 import { smsSettings } from './lib/financeSmsApi';
 import { aiSuggestion, listSubcategories } from './lib/financeRulesApi';
+import { categoryTree } from './lib/financeBudgetsApi';
 import { kindLabel } from './lib/financeSms';
 import { upload as uploadToVault, addLink as linkDocument } from './lib/vaultApi';
 import { ConfirmDialog, Modal } from './Dialog';
@@ -28,6 +29,7 @@ import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './Fi
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, ScopeSwitch, StatusChip, tabPanel } from './FinanceShell';
 import { FxDetails } from './FinanceFxDetails';
 import { TransferPair } from './FinanceTransferPair';
+import { TxnNote, TxnRecords } from './FinanceCoreParts';
 import { Import, TransactionForm } from './FinanceView';
 import { useMediaQuery } from './PageParts';
 import './financeRegister.css';
@@ -41,7 +43,7 @@ const PAGE = 25;
 export type TxTab = 'transactions' | 'ledger' | 'sms' | 'imports';
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'other',
+  'clothing', 'family', 'personal_care', 'family_support', 'charity', 'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'other',
 ];
 
 /** The months the period picker offers: this one and the 23 before it, plus the chosen one when it is older. */
@@ -331,7 +333,14 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
   const [undoBatch, setUndoBatch] = useState<string | null>(null);
   const [subs, setSubs] = useState<FinanceSubcategory[]>([]);
   const [sub, setSub] = useState('');
+  // Built-in subcategories (docs/finance.md#category-ontology) come with the category tree; the owner's own from /subcategories.
+  const [builtIn, setBuiltIn] = useState<{ id: string; parent: FinanceCategory; name: string }[]>([]);
+  const [learnMerchant, setLearnMerchant] = useState(true);
   useEffect(() => { listSubcategories().then(setSubs).catch(() => setSubs([])); }, []);
+  useEffect(() => {
+    categoryTree().then((tree) => setBuiltIn(tree.groups.flatMap((g) => g.categories.flatMap((c) => c.subcategories.filter((x) => x.built_in)
+      .map((x) => ({ id: x.id, parent: c.id, name: getLocale() === 'ar' && x.name_ar ? x.name_ar : x.name })))))).catch(() => setBuiltIn([]));
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
   const headingId = useId(), categoryId = useId(), typeId = useId(), subId = useId();
   const load = useCallback(async () => {
@@ -356,6 +365,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
         ...(learn ? { remember_category_match: learnPhrase.trim() } : {}),
         ...(fromAi && categoryChanged && fromAi === category ? { from_ai_suggestion: true } : {}),
         ...(subChanged || (categoryChanged && sub) ? { subcategory_id: sub || null } : {}),
+        ...(!learn && learnMerchant ? { learn_merchant: true } : {}),
       });
       setFromAi(null); setUndoBatch(null);
       setNotice({ text: typeChanged && kind && !categoryChanged ? t('freg.drawer.typeSaved', { type: typeLabel(kind) }) : t('freg.drawer.categorySaved', { category: categoryLabel(category) }) });
@@ -452,12 +462,11 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       {t('freg.drawer.duplicateText', { amount: isolate(formatAmount(d.duplicate.amount, d.duplicate.currency)), date: d.duplicate.posted_on, description: d.duplicate.description })}
     </FinBanner>}
     {Number(row.amount) > 0 && (/room\\s*rent|rent\\s*room|bed\\s*space|accommodation\\s*rent|إيجار\\s*غرفة|ايجار\\s*غرفة/i.test(row.description) || category === 'room_rent') &&
-      <FinBanner tone="warn" icon={<AlertTriangle />} title="Check payment direction">
-        This room-rent entry is incoming. If you paid it, verify the statement debit and correct it to money out. Nothing is changed automatically.
-      </FinBanner>}
+      <FinBanner tone="warn" icon={<AlertTriangle />} title={t('fcore.tx.directionTitle')}>{t('fcore.tx.directionText')}</FinBanner>}
     {row.transaction_type === 'uncategorized' && <FinBanner tone="warn" icon={<AlertTriangle />} title={t('freg.drawer.uncategorizedTitle')}>{t('freg.drawer.uncategorizedText')}</FinBanner>}
     {row.type_reason === 'refund_suggested' && <FinBanner icon={<ReceiptText />}>{t('freg.drawer.refundSuggested')}</FinBanner>}
     {row.links_need_review > 0 && <FinBanner tone="warn" icon={<AlertTriangle />}>{t('freg.drawer.linksReview', { count: row.links_need_review })}</FinBanner>}
+    <TxnRecords detail={d} onOpen={onOpen} />
     <div className="fregAttach">
       <div><strong><Paperclip aria-hidden="true" />{t('freg.drawer.receipt')}</strong>
         <small className="muted">{row.receipts ? t('freg.drawer.receipts', { count: row.receipts }) : row.canonical_id ? t('freg.drawer.receiptHint') : t('freg.drawer.receiptNeedsSave')}</small></div>
@@ -467,15 +476,17 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     {row.receipts > 0 && <p className="fregReceiptsLink"><a href="#vault">{t('freg.drawer.openVault')}</a></p>}
     <FxDetails transactionId={row.id} onChanged={() => { void load(); onChanged(); }} />
     <TransferPair transactionId={row.id} onChanged={() => { void load(); onChanged(); }} />
+    <TxnNote transactionId={row.id} notes={row.notes} onSaved={() => { void load(); onChanged(); }} />
     <div className="fregCategory">
       <label htmlFor={categoryId}>{t('freg.drawer.chooseCategory')}</label>
       <select id={categoryId} value={category} onChange={(e) => { setCategory(e.target.value as FinanceCategory); setCategoryTouched(true); setSub(''); }}>
         {CATEGORIES.map((c) => <option key={c} value={c}>{c === d.suggested_category ? t('freg.drawer.suggestedOption', { category: categoryLabel(c) }) : categoryLabel(c)}</option>)}
       </select>
-      {subs.some((s) => s.parent === category && !s.archived) && <>
+      {(subs.some((s) => s.parent === category && !s.archived) || builtIn.some((s) => s.parent === category)) && <>
         <label htmlFor={subId}>{t('fsug.editor.subcategory')}</label>
         <select id={subId} value={sub} onChange={(e) => setSub(e.target.value)}>
           <option value="">{t('fsug.editor.none')}</option>
+          {builtIn.filter((s) => s.parent === category).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           {subs.filter((s) => s.parent === category && (!s.archived || s.id === sub)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select></>}
       <label htmlFor={typeId}>{t('freg.drawer.chooseType')}</label>
@@ -484,13 +495,16 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
         {TRANSACTION_TYPES.map((k) => <option key={k} value={k}>{typeLabel(k)}</option>)}
       </select>
     </div>
-    {["sms", "apple_pay"].includes(row.origin) && <p className="muted">This transaction is linked to an SMS or Apple Pay journal entry. Make its category correction under Finance → iPhone SMS → Review to preserve the audit trail.</p>}
-    {["manual", "statement"].includes(row.origin) && <label className="field"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />
-      Remember this category for future matching descriptions
+    {["sms", "apple_pay"].includes(row.origin) && <p className="muted">{t('fcore.tx.smsOrigin')}</p>}
+    {["manual", "statement"].includes(row.origin) && !learn && <label className="field"><input type="checkbox" checked={learnMerchant} onChange={(e) => setLearnMerchant(e.target.checked)} />
+      {t('fcat.drawer.learn')}<small className="muted">{t('fcat.drawer.learnHint')}</small>
     </label>}
-    {learn && <label className="field"><span>Merchant/description to remember (specific phrase)</span>
+    {["manual", "statement"].includes(row.origin) && <label className="field"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />
+      {t('fcore.tx.remember')}
+    </label>}
+    {learn && <label className="field"><span>{t('fcore.tx.rememberPhrase')}</span>
       <input value={learnPhrase} maxLength={80} onChange={(e) => setLearnPhrase(e.target.value)} />
-      <small>Applies to future imports only. Review the phrase so unrelated payments are not affected.</small>
+      <small>{t('fcore.tx.rememberHint')}</small>
     </label>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {undoBatch && <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void undoSimilar(undoBatch)}>{t('fsug.undo')}</button>}
@@ -500,7 +514,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
         <Tags aria-hidden="true" />{busy === 'category' ? t('finance.saving') : kind && kind !== row.transaction_type ? t('freg.drawer.save') : t('freg.drawer.saveCategory')}</button>
       {Number(row.amount) > 0 && ['statement', 'manual'].includes(row.origin) &&
         <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => setReversePending(true)}>
-          <AlertTriangle aria-hidden="true" />Correct to money out
+          <AlertTriangle aria-hidden="true" />{t('fcore.tx.correctOut')}
         </button>}
       {['manual', 'statement'].includes(row.origin) && row.category_source === 'manual' &&
         <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => setSimilar(true)}>{t('fsug.similar.button')}</button>}
@@ -509,8 +523,8 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       {d.duplicate && <button type="button" className="secondary danger" disabled={Boolean(busy)} onClick={() => setRemoving(true)}>{t('freg.drawer.deleteCopy')}</button>}
       <button type="button" className="secondary" onClick={onClose}>{t('freg.drawer.done')}</button>
     </div>
-    {reversePending && <ConfirmDialog title="Confirm outgoing payment" confirmLabel="Correct to money out" danger busy={busy === 'direction'} onConfirm={() => void correctDirection(row)} onCancel={() => setReversePending(false)}>
-      <p>Only confirm after checking the bank statement and selecting the correct expense category. This changes {row.currency} {row.amount} from incoming to outgoing, updates the ledger and may change your balance. The original record remains auditable.</p>
+    {reversePending && <ConfirmDialog title={t('fcore.tx.confirmOutTitle')} confirmLabel={t('fcore.tx.correctOut')} danger busy={busy === 'direction'} onConfirm={() => void correctDirection(row)} onCancel={() => setReversePending(false)}>
+      <p>{t('fcore.tx.confirmOutText', { amount: isolate(formatAmount(row.amount, row.currency)) })}</p>
     </ConfirmDialog>}
     {similar && <Suspense fallback={null}><SimilarDialog transactionId={row.id} onClose={() => setSimilar(false)}
       onDone={(text, batchId) => { setSimilar(false); setNotice({ text }); setUndoBatch(batchId ?? null); onChanged(); }} /></Suspense>}

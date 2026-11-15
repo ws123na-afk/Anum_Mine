@@ -35,6 +35,14 @@ def test_register_joins_sources_receipts_and_running_balance_under_rls(client: T
         overview = client.get(f"{API}/accounts/overview", headers=ME).json()
         item = next(a for a in overview["accounts"] if a["account_id"] == card)
         assert {"sms", "apple_wallet"} <= set(item["sources"])
+        # The dashboard's freshness (docs/finance.md#dashboard) reads the same journal sources under RLS.
+        fresh = item["freshness"]
+        assert fresh["last_sms_at"] and fresh["last_apple_pay_at"] and fresh["state"] == "current"
+        summary = client.get(f"{API}/summary", headers=ME).json()
+        assert next(f for f in summary["freshness"] if f["account_id"] == card) == fresh
+        assert summary["positions"] and summary["review"]["total"] >= 0
+        theirs = client.get(f"{API}/summary", headers=STRANGER).json()
+        assert theirs["freshness"] == [] and theirs["positions"] == [] and theirs["review"]["total"] == 0
         assert client.get(f"{API}/accounts/{card}/activity", headers=ME, params={"days": 7}).json()["days"][-1]["outflow"] == "150.00"
         assert client.get(f"{API}/register", headers=STRANGER).json()["total"] == 0
         assert client.get(f"{API}/register/{row['id']}", headers=STRANGER).status_code == 404

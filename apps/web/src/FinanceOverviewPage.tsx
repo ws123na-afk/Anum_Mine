@@ -9,7 +9,7 @@ import { ArrowRight, Briefcase, CalendarClock, ClipboardCheck, ExternalLink, Fil
 import type { BooksBill, BooksReport, FinanceAccount, FinanceSummary, FinanceTransaction } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import * as books from './lib/businessBooksApi';
-import { categoryLabel, dueLabel, formatAmount, isolate, monthLabel, shiftMonth, spendCurrencies, type FinanceTab } from './lib/finance';
+import { categoryLabel, formatAmount, isolate, monthLabel, shiftMonth, spendCurrencies, type FinanceTab } from './lib/finance';
 import { delta, monthRange, monthsEnding, type Delta, type FinanceScope } from './lib/financeNav';
 import { businessTotals, netWorth, personalFlows, percentOf, type MonthFlow } from './lib/financeStatements';
 import { expenseBreakdown, breakdownTotal, previousMonthName, trendFor } from './lib/ops';
@@ -17,6 +17,8 @@ import { lineLabel, paymentStateLabel } from './lib/businessBooks';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { SafeToSpendCard } from './FinancePlan';
+import { CashCardsCard, FreshnessLine, IncomeCard, ReviewCard, UpcomingRows } from './FinanceCoreParts';
+import { freshnessFor } from './lib/financeDashboard';
 import { FxBalancesCard } from './FinanceFxBalances';
 import { FinBanner, FinCard, FinancePageHead, FinanceSectionNav, KpiCard, KpiRow, PeriodPicker, ScopeSwitch, StatusChip } from './FinanceShell';
 import { ShareBars, TrendLines } from './OpsParts';
@@ -54,7 +56,7 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
     setRecent({ kind: 'loading' });
     setReview({ kind: 'loading' });
     const range = monthRange(shownMonth);
-    const [before, tx, queue] = await Promise.allSettled([api.getSummary(shiftMonth(shownMonth, -1)), api.listTransactions({ from: range.from, to: range.to, limit: 5, offset: 0 }),
+    const [before, tx, queue] = await Promise.allSettled([api.getSummary(shiftMonth(shownMonth, -1), 'figures'), api.listTransactions({ from: range.from, to: range.to, limit: 5, offset: 0 }),
       api.guardianReview({ month: shownMonth, state: 'awaiting', limit: 1 })]);
     setPrevious(before.status === 'fulfilled' ? before.value : null);
     setRecent(tx.status === 'fulfilled' ? { kind: 'ready', value: tx.value.items } : failed(tx.reason));
@@ -71,7 +73,7 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
     if (shownScope !== 'personal' || !shownMonth || !s) return;
     let live = true;
     setHistory({ kind: 'loading' });
-    Promise.all(monthsEnding(shownMonth, 6).slice(0, -1).map((m) => api.getSummary(m)))
+    Promise.all(monthsEnding(shownMonth, 6).slice(0, -1).map((m) => api.getSummary(m, 'figures')))
       .then((rows) => { if (live) setHistory({ kind: 'ready', value: [...rows, s] }); })
       .catch((e) => { if (live) setHistory(failed(e)); });
     return () => { live = false; };
@@ -159,6 +161,13 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
           <small>{review.kind === 'denied' || review.kind === 'error' ? t('fov.link.reviewUnavailable') : t('fov.link.reviewHint')}</small></span>
         <ArrowRight className="cmFlip" aria-hidden="true" /></button></li>
     </ul>
+    {shownScope !== 'business' && s.positions && <div className="fovRow">
+      <CashCardsCard summary={s} currency={cur} />
+      <div className="fovColumn">
+        <IncomeCard summary={s} currency={cur} />
+        <ReviewCard summary={s} onOpen={onOpen} />
+      </div>
+    </div>}
     <div className="fovRow">
       <FlowCard scope={shownScope} business={business} history={history} summary={s} currency={cur} month={shownMonth} onRetry={() => void loadBusiness()} />
       <SpendingCard scope={shownScope} business={business} summary={s} currency={cur} onOpen={onOpen} onRetry={() => void loadBusiness()} />
@@ -169,17 +178,15 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
         <ActivityCard scope={shownScope} recent={recent} business={business} accounts={accountList} onOpen={onOpen} onRetry={() => void loadPersonal()} />
         <FinCard title={t('finance.overview.accounts')} icon={<Landmark />} actions={<button type="button" className="cmLinkButton" onClick={() => onOpen('accounts')}>{t('finance.overview.manage')}</button>}>
           {s.accounts.length === 0 ? <p className="muted">{t('finance.accounts.none')}</p> : <ul className="cmList">{s.accounts.filter((a) => !a.archived).map((a) => <li key={a.id}>
-            <div><strong dir="auto">{a.name}</strong><small>{t(`finance.kind.${a.kind}` as MessageKey)}{a.last4 ? ` · ${t('finance.accounts.endingIn', { last4: a.last4 })}` : ''}</small></div>
+            <div><strong dir="auto">{a.name}</strong><small>{t(`finance.kind.${a.kind}` as MessageKey)}{a.last4 ? ` · ${t('finance.accounts.endingIn', { last4: a.last4 })}` : ''}</small>
+              <FreshnessLine freshness={freshnessFor(s, a.id)} currency={a.currency} health={false} /></div>
             <Money value={a.balance} currency={a.currency} signed /></li>)}</ul>}
         </FinCard>
       </div>
       <div className="fovColumn">
         <SafeToSpendCard base={s.base_currency} onOpen={onOpen} />
         <FinCard title={t('finance.overview.upcoming')} icon={<CalendarClock />} actions={<button type="button" className="cmLinkButton" onClick={() => onOpen('bills')}>{t('finance.overview.allBills')}</button>}>
-          {s.upcoming_bills.length === 0 ? <p className="muted">{t('finance.bills.noneDue')}</p>
-            : <ul className="cmList">{s.upcoming_bills.slice(0, 5).map((row) => <li key={`${row.id}-${row.due_on}`}>
-              <div><strong dir="auto">{row.name}</strong><small><bdi dir="ltr">{row.due_on}</bdi> · {dueLabel(row.days_until)} · {categoryLabel(row.category)}</small></div>
-              <Money value={row.amount} currency={row.currency} /></li>)}</ul>}
+          <UpcomingRows summary={s} />
           {review.kind === 'ready' && review.value.awaiting > 0 && <FinBanner tone="warn" title={t('fov.review.title', { count: review.value.awaiting })}
             action={<button type="button" className="secondary" onClick={() => onOpen('guardian')}>{t('fov.review.open')}</button>}>{review.value.first ?? ''}</FinBanner>}
           <p className="muted fovNote"><Lock aria-hidden="true" />{t('finance.readOnly')}</p>

@@ -21,6 +21,7 @@ import { FxBalancesCard } from './FinanceFxBalances';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
 import { AccountForm } from './FinanceView';
 import { CategoryChip, LedgerScope } from './FinanceTransactionsPage';
+import { FreshnessLine } from './FinanceCoreParts';
 import './financeRegister.css';
 
 const SOURCE_ICON: Record<FinanceAccountSource, typeof Wallet> = { sms: MessageSquare, apple_wallet: Smartphone, statement: FileText, manual: PenLine };
@@ -194,6 +195,7 @@ function AccountCard({ account: a, info, selected, onSelect }: { account: Financ
           {shown ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button>}</span>
       <small className="muted">{updated ? t('facct.updated', { date: updated }) : t('facct.noActivity')}</small>
     </div>
+    {info?.freshness && <div className="facctFresh"><FreshnessLine freshness={info.freshness} currency={a.currency} /></div>}
   </div>;
 }
 

@@ -68,6 +68,8 @@ class Links:
     payslip_credits: dict[str, set[str]] = field(default_factory=dict)
     # Payments accepted at once for bank loans (``LoanBatch``): their salary months count as paid instalments.
     loan_batches: list = field(default_factory=list)
+    # Regular remittances (sent every month): Safe to spend keeps the ones not sent yet this month back.
+    remittances: list = field(default_factory=list)
 
 
 def load(context: TenantContext) -> Links:
@@ -108,13 +110,15 @@ def load(context: TenantContext) -> Links:
         slips = people.list(context, "payslip")
         profiles = people.list(context, "salary_profile")
         batches = [b for b in people.list(context, "loan_batch") if b.status == "active"]
+        remittances = [r for r in people.list(context, "remittance") if r.regular]
     credits: dict[str, set[str]] = {}
     for slip in slips:
         if slip.id in by_slip:
             credits.setdefault(slip.month, set()).update(by_slip[slip.id])
     return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=lending,
                  person_loans=loans, loan_links=[l for l in loan_rows if l.status != LinkStatus.VOID],
-                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits, loan_batches=batches)
+                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits, loan_batches=batches,
+                 remittances=remittances)
 
 
 def _lending(sms: object, links: object, context: TenantContext) -> tuple[list, frozenset[str]]:
@@ -122,13 +126,38 @@ def _lending(sms: object, links: object, context: TenantContext) -> tuple[list, 
     from .links_store import LinkStatus
     from .personal import PERSON_LOAN_DIMENSION
 
+    from .flows import Lending
+    from .links import live_entry
+
     loan_rows, _ = links.list_links(context, canonical_id=None, dimension=PERSON_LOAN_DIMENSION, target_type=None,  # type: ignore[attr-defined]
                                     target_id=None, status=None, limit=10_000, offset=0)
-    found: set[str] = set()
-    for canonical in {l.canonical_id for l in loan_rows if l.status != LinkStatus.VOID}:
-        for entry in sms.chain(context, canonical):  # type: ignore[attr-defined]
-            found.update(p.transaction_id for p in entry.postings if p.transaction_id)
-    return loan_rows, frozenset(found)
+    # Only the linked amount is lending: a transaction linked in full is a transfer; one linked in part keeps the rest in
+    # its category (``flows.Lending``). A link without an amount covers the whole transaction.
+    linked: dict[str, dict[str, Decimal] | None] = {}
+    for link in loan_rows:
+        if link.status == LinkStatus.VOID:
+            continue
+        sums = linked.setdefault(link.canonical_id, {})
+        if sums is None:
+            continue
+        if link.amount is None or not link.currency:
+            linked[link.canonical_id] = None
+        else:
+            sums[link.currency] = sums.get(link.currency, Decimal(0)) + link.amount
+    full: set[str] = set()
+    partial: dict[str, Decimal] = {}
+    for canonical, sums in linked.items():
+        chain = sms.chain(context, canonical)  # type: ignore[attr-defined]
+        ids = {p.transaction_id for entry in chain for p in entry.postings if p.transaction_id}
+        current = live_entry(chain)
+        own = [p for p in (current.postings if current is not None else []) if p.account_id]
+        size = abs(own[0].amount) if own else Decimal(0)
+        lent = (sums or {}).get(own[0].currency, Decimal(0)) if own else Decimal(0)
+        if sums is None or not own or lent >= size:
+            full.update(ids)
+        elif lent > 0:
+            partial.update(dict.fromkeys(ids, lent))
+    return loan_rows, Lending(full, partial)
 
 
 def lending_ids_on(finance: object, context: TenantContext) -> frozenset[str]:

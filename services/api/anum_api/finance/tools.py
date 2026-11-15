@@ -47,7 +47,10 @@ READ_TOOLS = (
     # Research (docs/finance-research.md#assistant): a fund's figures with sources, or the owner's IBKR
     # portfolio as IBKR last reported it. Read only; every number comes from the data.
     "finance.research",
+    # The Money Advisor's answers (docs/finance.md#advisor-answers): worked out from the records, with the records. Read only.
+    "finance.answer",
 )
+ANSWER_TOOL = "finance.answer"
 # Stage 6: an assistant may only PROPOSE a simulated (paper or shadow) order. It waits for the
 # person's own approval with the code shown; there is no tool that approves, trades for real,
 # turns live on, changes a kill switch or sets live limits.
@@ -578,7 +581,44 @@ async def _widen_propose(call: ToolCall, context: TenantContext) -> ToolResult:
     )
 
 
+async def _answer(call: ToolCall, context: TenantContext) -> ToolResult:
+    """One Money Advisor question answered from the caller's own records, with the records, the calculation and what is missing."""
+    if not _has(context, Permission.FINANCE_READ):
+        return _denied()
+    import asyncio
+
+    from . import advisor_answers as AA
+
+    args = dict(call.arguments)
+    question = str(args.pop("question", ""))
+    if question not in AA.QUESTIONS:
+        return ToolResult(status="failed", summary="Ask one of the questions the Money Advisor answers.", output={"questions": list(AA.QUESTIONS)})
+    found = await asyncio.to_thread(AA.answer, context, question, **{k: str(v)[:60] for k, v in args.items() if v not in (None, "")})
+    lines = [found.answer, *found.calculation[:12]]
+    lines += [f"{r.on.isoformat() if r.on else '-'} · {r.label}" + (f" · {r.currency} {r.amount:,}" if r.amount is not None and r.currency else "")
+              + (f" · {r.evidence}" if r.evidence else "") for r in found.records[:15]]
+    if found.missing:
+        lines.append("Missing: " + " ".join(found.missing[:5]))
+    if not found.complete:
+        lines.append("This answer may be incomplete: it is not confirmed beyond the records listed.")
+    return ToolResult(status="succeeded", summary="\n".join(lines), output={**found.model_dump(mode="json"), "note": UNTRUSTED_NOTE},
+                      audit_metadata={"question": question, "records": len(found.records), "complete": found.complete})
+
+
 SCHEMAS: dict[str, dict[str, Any]] = {
+    ANSWER_TOOL: {
+        "type": "object",
+        "properties": {
+            "question": {"type": "string", "enum": ["cash", "owe", "due_week", "installment_today", "card_missing", "category_spend", "words_spend",
+                                                    "sent_home", "owed_to_me", "loan_priority", "after_salary", "afford", "subscriptions_rose",
+                                                    "uncategorized", "stale_sources", "backfill_changes"]},
+            "category": {"type": "string", "maxLength": 40}, "words": {"type": "string", "maxLength": 60},
+            "country": {"type": "string", "maxLength": 40}, "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+            "month": {"type": "string", "pattern": r"^\d{4}-(0[1-9]|1[0-2])$"}, "amount": {"type": "string", "pattern": r"^\d{1,12}(\.\d{1,3})?$"},
+        },
+        "required": ["question"],
+        "additionalProperties": False,
+    },
     "finance.research": {
         "type": "object",
         "properties": {"symbol": {"type": "string", "pattern": r"^[A-Za-z][A-Za-z0-9.]{0,9}$", "description": "A listed US ETF; leave out for your portfolio"}},
@@ -694,6 +734,12 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
         "finance.paper.portfolios": (
             "Your own SIMULATED paper and shadow portfolios: simulated cash, positions and P&L with the fee and slippage "
             "assumptions. Read only; not real trades and no promise of returns.", _paper_portfolios,
+        ),
+        ANSWER_TOOL: (
+            "Answer a question about your own money from your records (cash, what you owe, payments due this week, today's installment, "
+            "missing card payments, spend by category or words, money sent home, who owes you, which debt first, what remains after the next "
+            "salary, can you afford an amount, subscriptions that rose, uncategorized transactions, accounts not synced, changes after a "
+            "backfill), with the records, the calculation and what is missing. Read only.", _answer,
         ),
     }
     for name, (description, handler) in tools.items():
@@ -956,6 +1002,12 @@ def plan_call(prompt: str, today: date | None = None) -> ToolCall | None:
     planned = planning_call(text)
     if planned is not None:
         return planned
+    # The Money Advisor's questions ("how much do I owe", "who owes me", "did I pay today's Tamara installment"): answered from the records.
+    from .advisor_answers import ask_call
+
+    asked_money = ask_call(text)
+    if asked_money is not None:
+        return ToolCall(name=ANSWER_TOOL, arguments={"question": asked_money[0], **asked_money[1]})
     if is_money_movement(text):
         return None
     proposal = _proposal(text)

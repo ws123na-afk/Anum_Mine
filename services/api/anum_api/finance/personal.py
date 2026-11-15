@@ -86,6 +86,39 @@ class PersonLoan(_Owned):
     first_due_on: date | None = None
     created_at: datetime
     updated_at: datetime
+    # Migration 0186_pf_debts (docs/finance.md#lent-and-borrowed): the person in Contacts, what they promised to pay and by
+    # when, and the balance both sides last agreed (compared with what the links say is left).
+    contact_id: str | None = Field(default=None, max_length=80)
+    promises: list["LoanPromise"] = Field(default_factory=list, max_length=50)
+    verified_balance: Decimal | None = None
+    verified_on: date | None = None
+
+
+class LoanPromise(BaseModel):
+    """A promise to pay: ``amount`` in the loan's currency by ``due_by``, made on ``made_on``. Its status is read from the
+    repayments linked on or after ``made_on`` (``promise_status``), never typed."""
+
+    id: str = Field(min_length=1, max_length=80)
+    made_on: date
+    due_by: date
+    amount: Decimal
+    note: str | None = Field(default=None, max_length=300)
+
+
+PromiseStatus = Literal["kept", "part_kept", "broken", "pending"]
+
+
+def promise_status(promise: LoanPromise, repayments: list[tuple[date, Decimal]], today: date) -> tuple[PromiseStatus, Decimal]:
+    """(status, repaid toward it): the repayments dated from ``made_on`` to ``due_by`` count toward the promise."""
+    paid = sum((amount for on, amount in repayments if promise.made_on <= on <= promise.due_by), Decimal(0))
+    if paid >= promise.amount:
+        return "kept", paid
+    if today <= promise.due_by:
+        return "pending", paid
+    return ("part_kept" if paid > 0 else "broken"), paid
+
+
+PersonLoan.model_rebuild()
 
 
 LoanStatus = Literal["open", "due_soon", "overdue", "repaid", "closed"]
@@ -444,6 +477,18 @@ class SalaryProfile(_Owned):
     updated_at: datetime
 
 
+# -- which financial alerts the person wants (migration 0186_pf_debts, docs/finance.md#financial-alerts) ------------
+
+
+class AlertSettings(_Owned):
+    """Per alert kind: on or off. A kind left out keeps its default (``alerts.DEFAULTS``)."""
+
+    id: str
+    kinds: dict[str, bool] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
 # -- payments found for a bank loan, accepted in one batch ------------------------------------------
 
 
@@ -673,7 +718,7 @@ def commitment_totals(rows: list[Commitment]) -> dict[str, Decimal]:
 
 __all__ = [
     "PROJECT_DIMENSION", "PersonalTag", "TAG_DIMENSIONS", "TAG_TARGET", "TRIP_DIMENSION", "tag_totals",
-    "Commitment", "Deduction", "DeductionKind", "ExpectedIncome", "Installment", "LoanBatch", "LoanBatchItem", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
+    "AlertSettings", "LoanPromise", "promise_status", "Commitment", "Deduction", "DeductionKind", "ExpectedIncome", "Installment", "LoanBatch", "LoanBatchItem", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
     "PERSON_LOAN_DIMENSION", "PERSON_LOAN_TARGET", "PayMonth", "Payslip", "PayslipFigures", "PersonLoan", "ProviderCost", "REMITTANCE_DIMENSION",
     "REMITTANCE_TARGET", "RemitMonth", "Remittance", "SalaryDecision", "SalaryDeductionReason", "SalaryProfile", "SalaryRule", "SalaryRuleKind",
     "commitment_totals", "effective_rate", "fee_percent", "fixed_commitments", "handed_role",

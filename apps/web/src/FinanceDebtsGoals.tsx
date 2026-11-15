@@ -30,13 +30,17 @@ import './financePlanning.css';
 // `people`: Lent and borrowed (#finance-debts-people); `send-home`: money sent to family (#finance-goals-send-home);
 // `trips`: personal trips and projects that payments are tagged to (#finance-goals-trips);
 // `loans`: bank and finance loans with their terms and schedule (#finance-debts-loans, docs/finance.md#bank-loans).
-type Section = 'debts' | 'loans' | 'goals' | 'plan' | 'history' | 'people' | 'send-home' | 'trips';
-const SECTIONS: readonly Section[] = ['debts', 'loans', 'goals', 'plan', 'history', 'people', 'send-home', 'trips'];
+// `overview`: every obligation with its sources, the calendar and the repayment order; `cards`: credit cards with their statements
+// (docs/finance.md#debt-overview, #credit-cards).
+type Section = 'overview' | 'debts' | 'loans' | 'cards' | 'goals' | 'plan' | 'history' | 'people' | 'send-home' | 'trips';
+const SECTIONS: readonly Section[] = ['overview', 'debts', 'loans', 'cards', 'goals', 'plan', 'history', 'people', 'send-home', 'trips'];
 const People = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.PeopleSection })));
 const SendHome = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.RemittancesSection })));
 const Trips = lazy(() => import('./FinanceTags').then((m) => ({ default: m.TagsSection })));
 const Loans = lazy(() => import('./FinanceBankLoan').then((m) => ({ default: m.LoansSection })));
 const FinishedLoans = lazy(() => import('./FinanceBankLoan').then((m) => ({ default: m.FinishedLoansCard })));
+const Overview = lazy(() => import('./FinanceDebtOverview').then((m) => ({ default: m.DebtOverviewSection })));
+const Cards = lazy(() => import('./FinanceDebtOverview').then((m) => ({ default: m.CardsSection })));
 const HISTORY_PAGE = 10;
 const DEBT_ICON: Record<FinanceDebtKind, typeof CreditCard> = { card: CreditCard, loan: Car, mortgage: Home, other: Landmark };
 
@@ -146,6 +150,11 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
   if (section === 'people' || section === 'send-home' || section === 'trips') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
     <Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}>{section === 'people' ? <People base={base} /> : section === 'trips' ? <Trips />
       : <SendHome base={base} onOpen={onOpen} />}</Suspense>
+  </div></div>;
+  if (section === 'overview' || section === 'cards') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
+    <Suspense fallback={<Notice busy>{t('fdebt.loading')}</Notice>}>{section === 'overview'
+      ? <Overview onAddDebt={() => { setSection('debts'); setEditingDebt('new'); }} onChanged={() => { void loadDebts(); onChanged(); }} />
+      : <Cards onChanged={() => { void loadDebts(); onChanged(); }} />}</Suspense>
   </div></div>;
   if (section === 'loans') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
     <Suspense fallback={<Notice busy>{t('floan.loading')}</Notice>}><Loans debts={debts.kind === 'ready' ? debts.value : []} accounts={accounts} loans={loans} selected={loanId}

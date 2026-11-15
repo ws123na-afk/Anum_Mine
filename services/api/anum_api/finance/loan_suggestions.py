@@ -87,6 +87,10 @@ def repayments(snap: SG.Snapshot, loans: list[P.PersonLoan], links: list[Any]) -
     if not open_loans:
         return []
     out = []
+    # Unnamed transactions that are exactly a loan's next repayment, per loan: when two or more fit the same loan (several people
+    # sending the same amount), none is proposed as that loan's repayment; each waits for a review instead.
+    exact_only: dict[str, list[str]] = {}
+    plans: list[tuple[Any, str, Decimal, TransactionType, list, list]] = []
     for t in snap.rows:
         canonical = snap.canon.get(t.id)
         if t.posted_on < since or canonical is None or canonical in linked or t.amount == 0:
@@ -108,6 +112,14 @@ def repayments(snap: SG.Snapshot, loans: list[P.PersonLoan], links: list[Any]) -
                 named.append((loan, f))
             elif agree is None and kind in REPAYMENT_TYPES and f.next_due_amount > 0 and amount == f.next_due_amount:
                 exact.append((loan, f))
+        plans.append((t, canonical, amount, kind, named, exact))
+        if not named and len(exact) == 1:
+            exact_only.setdefault(exact[0][0].id, []).append(t.id)
+    for t, canonical, amount, kind, named, exact in plans:
+        people = {_person_key(loan.person) for loan, _f in exact}
+        if not named and (len(people) > 1 or (len(exact) == 1 and len(exact_only.get(exact[0][0].id, [])) > 1)):
+            out.append(_review(t, amount, exact, exact_only))
+            continue
         choice = named if len(named) == 1 else (exact if len(exact) == 1 and not named else [])
         if not choice:
             split = _split(t, amount, kind, open_loans)
@@ -133,6 +145,31 @@ def repayments(snap: SG.Snapshot, loans: list[P.PersonLoan], links: list[Any]) -
             href="#finance-debts-people", occurred_on=t.posted_on,
         ))
     return out
+
+
+def _review(t: Any, amount: Decimal, exact: list[tuple[P.PersonLoan, P.LoanFigures]], exact_only: dict[str, list[str]]) -> SG.Suggestion:
+    """A repayment that cannot be told apart: no name, and the amount fits loans with more than one person, or more than one
+    transaction fits the same loan. Nothing is proposed for linking: the owner picks on the loan's page."""
+    people = sorted({loan.person[:80] for loan, _f in exact})
+    others = sorted({tid for loan, _f in exact for tid in exact_only.get(loan.id, []) if tid != t.id})
+    if len(people) > 1:
+        why = f"The amount is exactly the next repayment from {len(people)} people ({', '.join(people)}), and the description names no one."
+        count = len(people)
+    else:
+        why = (f"{len(others) + 1} transactions of this amount fit the next repayment from {people[0]}, and none names the person. "
+               "Link the right one on the loan's page.")
+        count = len(others) + 1
+    first = exact[0][0]
+    return SG.Suggestion(
+        key=f"loan_repayment_review:{t.id}"[:200], producer="person_loans", kind="loan_repayment",
+        detected=f"This {'money in' if t.amount > 0 else 'payment'} may be a loan repayment, but it cannot be told apart.",
+        why=why, params={"person": ", ".join(people)[:80], "direction": first.direction.value, "currency": first.currency, "amount": str(amount),
+                         "review": "1", "candidates": str(count)},
+        evidence=[SG._txn(t)] + [SG.Evidence(label=loan.person[:120], ref_type="other", ref_id=loan.id, value=f"{loan.currency} {f.next_due_amount}")
+                                 for loan, f in exact[:5]],
+        confidence=None, effect=SG._out(t), action=SG.ProposedAction(kind="open", transaction_ids=[t.id]), href="#finance-debts-people",
+        occurred_on=t.posted_on,
+    )
 
 
 def _due_now(f: P.LoanFigures) -> Decimal:

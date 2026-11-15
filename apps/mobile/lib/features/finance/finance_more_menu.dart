@@ -2,10 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../records_kit/records_export.dart';
 import 'finance_advisor_screens.dart';
+import 'finance_budget_data.dart';
+import 'finance_budget_screens.dart';
+import 'finance_budget_strings.dart';
 import 'finance_controller.dart';
+import 'finance_debts_data.dart';
+import 'finance_debts_screens.dart';
+import 'finance_debts_strings.dart';
 import 'finance_income_screens.dart';
 import 'finance_keyword_rules.dart';
 import 'finance_loans_screens.dart';
+import 'finance_matching_data.dart';
+import 'finance_matching_screens.dart';
+import 'finance_matching_strings.dart';
 import 'finance_more_strings.dart';
 import 'finance_import_screens.dart';
 import 'finance_recon_screens.dart';
@@ -33,6 +42,17 @@ enum FinanceMorePage {
   tags,
   fx,
   keywords,
+  matching,
+  // docs/finance.md#debt-overview: the debt overview, the payment calendar,
+  // credit cards, financial alerts and the advisor's answers.
+  debts,
+  calendar,
+  cards,
+  alerts,
+  ask,
+  budgets,
+  recurring,
+  categories,
 }
 
 class FinanceMoreMenu extends StatelessWidget {
@@ -58,9 +78,13 @@ class FinanceMoreMenu extends StatelessWidget {
             PopupMenuItem(
               key: Key('finance-more-${page.name}'),
               value: page,
-              child: Text(
+              child: Text(FinanceBudgetStrings.of(context)
+                      .maybe('menu.${page.name}') ??
+                  FinanceDebtsStrings.of(context).maybe('menu.${page.name}') ??
                   FinanceToolsStrings.of(context).maybe('menu.${page.name}') ??
-                      m.t('menu.${page.name}')),
+                  FinanceMatchingStrings.of(context)
+                      .maybe('menu.${page.name}') ??
+                  m.t('menu.${page.name}')),
             ),
       ],
     );
@@ -94,6 +118,25 @@ Future<void> openFinanceMore(
       FinanceMorePage.tags => TagsScreen(repository: more),
       FinanceMorePage.fx => FxBalancesScreen(repository: more),
       FinanceMorePage.keywords => KeywordRulesScreen(controller: depth!),
+      FinanceMorePage.matching =>
+        MatchingHubScreen(repository: FinanceMatchingRepository(more.api)),
+      FinanceMorePage.debts =>
+        DebtOverviewScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.calendar =>
+        PaymentCalendarScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.cards =>
+        CreditCardsScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.alerts =>
+        FinancialAlertsScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.ask =>
+        AdvisorAskScreen(repository: FinanceDebtsRepository(more.api)),
+      // docs/finance.md#budgets-and-planning, #recurring-payments, #category-ontology
+      FinanceMorePage.budgets =>
+        BudgetsScreen(repository: FinanceBudgetRepository(more.api)),
+      FinanceMorePage.recurring =>
+        RecurringScreen(repository: FinanceBudgetRepository(more.api)),
+      FinanceMorePage.categories =>
+        SpendingCategoriesScreen(repository: FinanceBudgetRepository(more.api)),
     },
   ));
   if (!context.mounted) return;
@@ -106,7 +149,10 @@ Future<void> openFinanceMore(
   // Statement imports, SMS and rules change what Finance shows.
   if (page == FinanceMorePage.import ||
       page == FinanceMorePage.sms ||
-      page == FinanceMorePage.rules) {
+      page == FinanceMorePage.rules ||
+      page == FinanceMorePage.budgets ||
+      page == FinanceMorePage.recurring ||
+      page == FinanceMorePage.categories) {
     await controller.load();
   }
 }
