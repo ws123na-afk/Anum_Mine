@@ -122,6 +122,14 @@ The four gaps the [review](audits/2026-11-12-product-review.md) lists for the ph
 - **Not built:** other chosen calendars are read only and read in full each pass (no per-calendar sync token); delivery from the inbox's own mailbox (reports go from the server's address). The phone edits a purchase's items, a return's items and a return's proof document since 15 November (gap/phone, [Purchases](purchases.md#mobile)); attaching the proof with the system picker needs a check on a real phone.
 - **Not built:** the phone does not edit a purchase's or a return's items or a return's proof document. (Closed in the business gap batch below: other chosen calendars now read incrementally, and reports can go from the person's own mailbox.)
 
+## Personal finance: one local day (November 2026, branch `fix/finance-local-date`)
+
+Finance's "today" is the owner's Finance time zone everywhere ([One rule for "today"](finance.md#local-day)); CI's late-evening failures were the debt tests reading the UTC date. Left as it is, with the reason:
+
+- `obligations.debt_balance` still compares a payment's posted day with the UTC date the debt was saved (`debt.created_at.date()`); the function has no time zone, and a payment matched before the last edit is already left out by `matched_at >= updated_at`.
+- The assistant's word parser (`tools.plan_call`) holds no tenant, so "last month" is read in the default zone (Asia/Dubai); the finance tool it calls then answers in the owner's zone.
+- Trading and market research keep their own clocks (exchange time zones, UTC): they are not Personal Finance days.
+
 ## Personal Finance invariants (November 2026)
 
 The safety net is in place ([Invariant tests](finance.md#how-figures-are-counted)). Two accounting defects it found on `main` (15 November) are not fixed yet, because their code is being reworked with loans and debts:

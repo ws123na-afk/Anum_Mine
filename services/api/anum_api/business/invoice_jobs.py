@@ -306,10 +306,13 @@ def run_automation(result: PassResult, *, today: date, now: datetime) -> None:
 def run(*, now: datetime | None = None) -> dict[str, int]:
     moment = now or utc_now()
     result = PassResult()
-    # Discovery reads the UTC day; the work then uses the business's own day, so a business east of UTC is served once
-    # both have turned (a few hours late at most), and a pass never rediscovers work that is not due yet.
-    run_schedules(result, today=moment.date(), now=moment)
-    run_automation(result, today=moment.date(), now=moment)
+    # Discovery reads the latest day any business can be on (the UTC day plus one: no zone is a full day ahead of UTC);
+    # each workspace's work then uses its own day (``business_day``): only schedules due by that day are drafted and the
+    # automation claims that day once (``claim_day``), so a business east of UTC is served as soon as its day turns, not
+    # hours later at UTC midnight, and nothing runs early or twice.
+    latest = moment.date() + timedelta(days=1)
+    run_schedules(result, today=latest, now=moment)
+    run_automation(result, today=latest, now=moment)
     return asdict(result)
 
 

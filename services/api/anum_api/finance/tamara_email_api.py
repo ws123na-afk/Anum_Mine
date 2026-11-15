@@ -25,7 +25,7 @@ from ..email_providers import EmailProvider
 from ..schemas import TenantContext
 from .api import _manage
 from .models import InstallmentRefundNotice, InstallmentStatementEntry
-from .tamara_email import MailEvidence, extract_tamara_refunds, extract_tamara_statement
+from .tamara_email import MailEvidence, extract_tamara_refunds, extract_tamara_statement, local_day
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 logger = logging.getLogger("anum_api.finance.tamara_email")
@@ -74,13 +74,23 @@ def _load_tamara_messages(context: TenantContext, account_id: str, limit: int):
     return account, ordered[:limit]
 
 
+def owner_timezone(context: TenantContext) -> str:
+    """The owner's Finance time zone, the one rule for a local day in Personal Finance."""
+    from .store import open_finance_store
+    from .summary import settings_for
+
+    with open_finance_store(context) as store:
+        return settings_for(store, context).timezone
+
+
 def note_unread(context: TenantContext, found: list[tuple[str, date]]) -> int:
-    """Note the Tamara emails of the last ``UNREAD_NOTE_DAYS`` days that could not be read (id and day only), once each."""
+    """Note the Tamara emails of the last ``UNREAD_NOTE_DAYS`` days that could not be read (id and the owner's local day only), once each."""
     from ..schemas import utc_now
     from .rules_store import open_rule_stores
+    from .summary import owner_today
 
     now = utc_now()
-    recent = [(i, d) for i, d in found if d >= now.date() - timedelta(days=UNREAD_NOTE_DAYS)][:200]
+    recent = [(i, d) for i, d in found if d >= owner_today(context, now) - timedelta(days=UNREAD_NOTE_DAYS)][:200]
     if not recent:
         return 0
     try:
@@ -109,6 +119,7 @@ async def installment_email_preview(
     # Every database read runs in a worker thread, in its own short unit of work, so the event
     # loop never waits for a pooled connection (docs/realtime.md#event-loop).
     account, messages = await asyncio.to_thread(_load_tamara_messages, context, account_id, limit)
+    timezone = await asyncio.to_thread(owner_timezone, context)
     matches = [m for m in messages if m.from_address.lower().strip().endswith("@tamara.co")
                or m.from_address.lower().strip().endswith(".tamara.co")]
     # Strict sender verification occurs inside the extraction function as well.
@@ -130,12 +141,12 @@ async def installment_email_preview(
     checked = await asyncio.gather(*(inspect(m) for m in matches))
     evidence = [m for m, _ in checked if m is not None]
     warnings = [warning for _, warning in checked if warning]
-    rows, skipped = extract_tamara_statement(evidence)
+    rows, skipped = extract_tamara_statement(evidence, timezone)
     warnings.extend(skipped[:50])
     unreadable = {w.partition(": ")[0] for w in [*warnings, *skipped]}
-    await asyncio.to_thread(note_unread, context, [(m.id, m.received_at.date()) for m in matches if m.id in unreadable])
+    await asyncio.to_thread(note_unread, context, [(m.id, local_day(m.received_at, timezone)) for m in matches if m.id in unreadable])
     if len(messages) == limit:
         warnings.append("Mailbox scan reached its message limit; older receipts may be missing. Sync/import historical mail separately.")
     return TamaraEmailPreview(account_id=account.id, address=account.address,
-        messages_checked=len(messages), messages_matched=len(evidence), rows=rows, refunds=extract_tamara_refunds(evidence),
+        messages_checked=len(messages), messages_matched=len(evidence), rows=rows, refunds=extract_tamara_refunds(evidence, timezone),
         warnings=warnings[:80])

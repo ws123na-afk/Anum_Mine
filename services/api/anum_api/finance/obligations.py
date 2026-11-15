@@ -292,12 +292,13 @@ def current_debts(debts: list[Debt], accounts: list[Account], balances: dict[str
     """The debts with today's balance (copies; nothing stored changes). A debt with bank loan terms owes what its schedule
     and matched payments leave (``loan_debt``) unless a card or loan account already counts it. With ``today``, money
     borrowed from a person that is still open is added as a debt (``borrowed_debts``)."""
-    from ..schemas import utc_now
     from . import bank_loans as BL
+    from .models import FinanceSettings
+    from .summary import today_in
 
     by_id = {a.id: a for a in accounts}
     payments = links.debt_payments if links is not None else []
-    day = today or utc_now().date()
+    day = today or today_in(FinanceSettings())  # every caller passes the owner's local day; this is the default zone's
     out = [loan_debt(d, links, day) if BL.has_terms(d) and not has_account(d, by_id)
            else d.model_copy(update={"balance": debt_balance(d, by_id, balances, payments)}) for d in debts]
     if links is not None and today is not None:

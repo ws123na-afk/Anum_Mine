@@ -530,22 +530,29 @@ def backfill_changes(context: TenantContext, today: date, *, days: int = 7, **_:
     from .personal_store import open_personal_store
     from .rules_store import open_rule_stores
 
+    from .summary import local_day, settings_for
+
     since = today - timedelta(days=max(1, min(days, 90)))
-    with open_rule_stores(context) as (_finance, store):
+    with open_rule_stores(context) as (finance, store):
         batches, _ = store.list_batches(context, limit=200, offset=0)
-    recent = [b for b in batches if b.created_at.date() >= since]
+        tz = settings_for(finance, context).timezone  # a record's day is the owner's local day, like ``today``
+
+    def day(moment: datetime) -> date:
+        return local_day(moment, tz)
+
+    recent = [b for b in batches if day(b.created_at) >= since]
     with open_personal_store(context) as people:
-        loan_batches = [b for b in people.list(context, "loan_batch") if b.created_at.date() >= since]
+        loan_batches = [b for b in people.list(context, "loan_batch") if day(b.created_at) >= since]
     made = []
     with open_link_stores(context) as (_f, _sms, links):
         for dimension in (DEBT_DIMENSION, PERSON_LOAN_DIMENSION, "bill", "transfer"):
             rows, _ = links.list_links(context, canonical_id=None, dimension=dimension, target_type=None, target_id=None, status=None, limit=5_000, offset=0)
-            made += [l for l in rows if l.created_at.date() >= since and l.created_by != context.user_id]
-    records = [Record(ref_type="batch", ref_id=b.id, on=b.created_at.date(), label=f"{b.origin} re-filing: {len(b.changes)} row(s)" + (" (undone)" if b.status == "undone" else ""),
+            made += [l for l in rows if day(l.created_at) >= since and l.created_by != context.user_id]
+    records = [Record(ref_type="batch", ref_id=b.id, on=day(b.created_at), label=f"{b.origin} re-filing: {len(b.changes)} row(s)" + (" (undone)" if b.status == "undone" else ""),
                       evidence=b.status) for b in recent]
-    records += [Record(ref_type="batch", ref_id=b.id, on=b.created_at.date(), label=f"Loan payments accepted: {len(b.items)}" + (" (undone)" if b.status == "undone" else ""),
+    records += [Record(ref_type="batch", ref_id=b.id, on=day(b.created_at), label=f"Loan payments accepted: {len(b.items)}" + (" (undone)" if b.status == "undone" else ""),
                        evidence=b.status) for b in loan_batches]
-    records += [Record(ref_type="link", ref_id=l.id, on=l.created_at.date(), label=f"{l.dimension} link by {l.created_by}", amount=l.amount, currency=l.currency,
+    records += [Record(ref_type="link", ref_id=l.id, on=day(l.created_at), label=f"{l.dimension} link by {l.created_by}", amount=l.amount, currency=l.currency,
                        evidence=getattr(l.status, "value", l.status)) for l in made]
     if not records:
         return Answer(question="backfill_changes", as_of=today, answer=f"Nothing was re-filed or linked automatically since {since.isoformat()}.")

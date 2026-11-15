@@ -279,10 +279,10 @@ def find_candidates(context: TenantContext, for_: str, *, direction: str | None 
         raise _invalid("Bills, debts and remittances are paid with money out.")
     if for_ == "payslip" and wanted_direction != "in":
         raise _invalid("A payslip is matched to the salary credit (money in).")
-    centre = around or utc_now().date()
     needle = (q or "").casefold().strip()
     wanted = currency.upper() if currency else None
-    with open_link_stores(context) as (_finance, store, links):
+    with open_link_stores(context) as (finance, store, links):
+        centre = around or today_in(settings_for(finance, context))  # the owner's local day, like every due date
         entries = store.list_entries(context, start=centre - timedelta(days=60), end=centre + timedelta(days=15), limit=5_000)
         taken, _ = links.list_links(context, canonical_id=None, dimension=for_, target_type=None, target_id=None, status=None, limit=10_000, offset=0)
     chains: dict[str, list[Any]] = {}
@@ -782,7 +782,7 @@ def _save_plan(context: TenantContext, body: PlanBudgetInput, budget_id: str | N
     owned = _owned_sub_ids(context)
     now = utc_now()
     with open_finance_store(context) as store:
-        today = today_in(settings_for(store, context))
+        today = today_in(settings_for(store, context), now)
         planning: Planning = store.get_planning(context)
         existing = next((b for b in planning.budgets if b.id == budget_id), None) if budget_id else None
         if budget_id and existing is None:

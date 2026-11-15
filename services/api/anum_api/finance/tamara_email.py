@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Iterable
 
-from .models import InstallmentRefundNotice, InstallmentStatementEntry
+from .models import DEFAULT_TIMEZONE, InstallmentRefundNotice, InstallmentStatementEntry
 
 _AMOUNT = r"([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
 _ORDER = re.compile(r"\bOrder\s*(?:Number|ID|No\.?|Reference)\s*[:#]?\s*\n?\s*([\w-]{5,160})", re.I)
@@ -34,6 +34,14 @@ class MailEvidence:
     subject: str
     text: str
     received_at: datetime
+
+
+def local_day(moment: datetime, timezone: str = DEFAULT_TIMEZONE) -> date:
+    """The owner's local day an email arrived (``summary.local_day``): an email received at 21:30 UTC is already the next
+    day in Dubai, and its "Paid today" is that day."""
+    from .summary import local_day as owner_local_day
+
+    return owner_local_day(moment, timezone)
 
 
 def _date(value: str, *, fallback: date) -> date | None:
@@ -70,18 +78,18 @@ def _link(evidence: MailEvidence) -> str:
     return "https://mail.google.com/mail/u/0/#all/" + evidence.provider_message_id
 
 
-def refund_notice(message: MailEvidence, order: str) -> InstallmentRefundNotice:
+def refund_notice(message: MailEvidence, order: str, timezone: str = DEFAULT_TIMEZONE) -> InstallmentRefundNotice:
     """What one refund or order-updated email says: the refunded amount and whether it covers the whole order."""
     found = _REFUND.search(message.text)
     amount = _money(found.group(1) or found.group(2)) if found else None
     return InstallmentRefundNotice(
         provider="Tamara", order_id=order[:160], amount=amount, currency="AED" if found and "aed" in found.group(0).lower() else "SAR",
         full=bool(_FULL.search(message.text)),
-        received_on=message.received_at.date(), message_ref=message.provider_message_id[:200], source_email=_link(message),
+        received_on=local_day(message.received_at, timezone), message_ref=message.provider_message_id[:200], source_email=_link(message),
     )
 
 
-def extract_tamara_refunds(messages: Iterable[MailEvidence]) -> list[InstallmentRefundNotice]:
+def extract_tamara_refunds(messages: Iterable[MailEvidence], timezone: str = DEFAULT_TIMEZONE) -> list[InstallmentRefundNotice]:
     """Every refund or order-updated email from Tamara's own domain that names its order, oldest first."""
     found: dict[str, InstallmentRefundNotice] = {}
     for msg in sorted(messages, key=lambda m: (m.received_at, m.message_id)):
@@ -89,7 +97,7 @@ def extract_tamara_refunds(messages: Iterable[MailEvidence]) -> list[Installment
             continue
         order = _ORDER.search(msg.text)
         if order:
-            notice = refund_notice(msg, order.group(1))
+            notice = refund_notice(msg, order.group(1), timezone)
             found.setdefault(notice.message_ref, notice)
     return list(found.values())
 
@@ -98,7 +106,7 @@ def _is_refund(subject: str) -> bool:
     return bool(re.search(r"refund|refunded|order status has been updated", subject, re.I))
 
 
-def extract_tamara_statement(messages: Iterable[MailEvidence]) -> tuple[list[InstallmentStatementEntry], list[str]]:
+def extract_tamara_statement(messages: Iterable[MailEvidence], timezone: str = DEFAULT_TIMEZONE) -> tuple[list[InstallmentStatementEntry], list[str]]:
     """Extract only explicit schedules and provider-reported payments.
 
     A refund email that names an amount, or says the whole order was refunded, is refund evidence
@@ -126,13 +134,13 @@ def extract_tamara_statement(messages: Iterable[MailEvidence]) -> tuple[list[Ins
         if re.search(r"order confirmed", subject, re.I):
             rows = []
             for i, line in enumerate(_LINES.finditer(msg.text), start=1):
-                due_on = _date(line.group(1), fallback=msg.received_at.date())
+                due_on = _date(line.group(1), fallback=local_day(msg.received_at, timezone))
                 value = _money(line.group(2))
                 if due_on is None or value is None:
                     continue
                 rows.append(InstallmentStatementEntry(
                     provider="Tamara", order_id=order, merchant=_merchant(subject),
-                    purchase_on=msg.received_at.date(), due_on=due_on,
+                    purchase_on=local_day(msg.received_at, timezone), due_on=due_on,
                     installment=i, total_installments=1, amount=value, currency=line.group(3).upper(),
                     source_status="paid" if "paid today" in line.group(1).lower() else "scheduled",
                     source_email=_link(msg), review_notes=None,
@@ -153,7 +161,7 @@ def extract_tamara_statement(messages: Iterable[MailEvidence]) -> tuple[list[Ins
     output: list[InstallmentStatementEntry] = []
     for order, rows in schedules.items():
         # Only refund emails that say neither how much nor "the whole order" still need a person.
-        notices = [m for m in refunds.get(order, []) if not (lambda n: n.amount is not None or n.full)(refund_notice(m, order))]
+        notices = [m for m in refunds.get(order, []) if not (lambda n: n.amount is not None or n.full)(refund_notice(m, order, timezone))]
         for row in rows:
             payment = payments.get(order, {}).get(row.installment)
             if payment and payment[0] == row.amount:

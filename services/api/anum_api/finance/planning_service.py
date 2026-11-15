@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 
-from ..schemas import TenantContext, utc_now
+from ..schemas import TenantContext
 from . import commitment_math as M
 from . import obligations
 from . import personal as P
@@ -288,8 +288,13 @@ async def live_research(context: TenantContext, query: str) -> LiveResearch:
     from ..business.research import _registry as registry
     from ..web_search import WEB_SEARCH_TOOL
 
+    import asyncio
+
+    from .summary import owner_today
+
     text = " ".join(query.split())[:300]
-    today = utc_now().date()
+    # The figures' "as of" day is the owner's local day; read off the event loop (docs/realtime.md#event-loop).
+    today = await asyncio.to_thread(owner_today, context)
     if not text:
         return LiveResearch("failed", text, today, message="Say what to look up.")
     if registry is None or WEB_SEARCH_TOOL not in registry.names:
