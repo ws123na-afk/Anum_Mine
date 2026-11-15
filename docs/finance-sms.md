@@ -182,6 +182,10 @@ Off by default. It works only after the person turns it on with an explicit cons
 
 For an import whose rows were added anyway, `GET /sms/reconcile/{import_id}` matches each statement row with an SMS-recorded transaction on the same account with the same amount within 3 days. Confirming (`POST`) reverses the statement copy's entry, attaches the line as a `statement` source of the recorded transaction and marks it reconciled; statement rows no message reported stay as imported, and recorded messages missing from the statement are listed for checking.
 
+## Capture health
+
+Whether the iPhone is sending payments (devices, last capture and failure per channel, unknown senders, card mappings, gaps), and what iOS Shortcuts cannot expose, is on Finance settings and the phone: [Capture health](finance-matching.md#capture-health). Payments recorded here are matched to their bills and installments under the owner's policy: [Finance matching](finance-matching.md).
+
 ## Dashboard
 
 `GET /api/v1/finance/ledger/dashboard?month=&account_id=&currency=&category=&kind=`: income, expenses and surplus for the month; balances (with the bank's last stated balance and the difference); cards with what is owed, the limit and utilization; loans; assets, liabilities and net worth per currency (never added across currencies); spending by category and by merchant; the last 12 months and this year; money in transit; `uncategorized_count` (the month's rows no rule recognised, in neither income nor expenses, shown as "N uncategorized, not counted"); bills due; goals; debts with the months to clear them at the minimum payment; and sync status. `GET /ledger/entries` lists the journal.
