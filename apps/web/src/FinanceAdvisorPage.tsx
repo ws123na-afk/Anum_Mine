@@ -28,7 +28,9 @@ const AdvisorPlan = lazy(() => import('./FinanceAdvisorPlan').then((m) => ({ def
 // Salary and payslips sit here because the advisor is where income already shows: the salary it found, the one income
 // figure and the "No salary found" step (docs/finance.md#salary).
 const SalarySection = lazy(() => import('./FinanceSalary').then((m) => ({ default: m.SalarySection })));
-type AdvisorView = 'note' | 'plan' | 'salary';
+// Ask: a money question answered from the records (docs/finance.md#advisor-answers).
+const AdvisorAnswers = lazy(() => import('./FinanceAdvisorAnswers').then((m) => ({ default: m.AdvisorAnswers })));
+type AdvisorView = 'note' | 'ask' | 'plan' | 'salary';
 
 const day = (value: string) => formatDateTime(`${value}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
@@ -72,10 +74,14 @@ export function FinanceAdvisorPage({ onOpen, base = 'AED', initialView = 'note' 
   const viewingPast = Boolean(shown && latestId && shown.id !== latestId);
 
   const tabs = <FinanceTabs label={t('fplanx.views')} idPrefix="fadvv" value={view} onChange={setView}
-    items={[{ id: 'note', label: t('fplanx.view.note') }, { id: 'plan', label: t('fplanx.view.plan') }, { id: 'salary', label: t('fplanx.view.salary') }]} />;
+    items={[{ id: 'note', label: t('fplanx.view.note') }, { id: 'ask', label: t('fanswer.tab') }, { id: 'plan', label: t('fplanx.view.plan') }, { id: 'salary', label: t('fplanx.view.salary') }]} />;
   if (view === 'salary') return <div className="finPage finAdvisorPage">
     <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fsal.profile.title')} tabs={tabs} />
     <div {...tabPanel('fadvv', 'salary')}><Suspense fallback={<Notice busy>{t('fsal.loading')}</Notice>}><SalarySection base={base} /></Suspense></div>
+  </div>;
+  if (view === 'ask') return <div className="finPage finAdvisorPage">
+    <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fanswer.sub')} tabs={tabs} />
+    <div {...tabPanel('fadvv', 'ask')}><Suspense fallback={<Notice busy>{t('fanswer.loading')}</Notice>}><AdvisorAnswers base={base} /></Suspense></div>
   </div>;
   if (view === 'plan') return <div className="finPage finAdvisorPage">
     <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fplanx.subtitle')} tabs={tabs} />

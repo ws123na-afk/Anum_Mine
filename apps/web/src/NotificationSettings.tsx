@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useState } from 'react';
 import { CircleDot, RefreshCw, Smartphone, Trash2 } from 'lucide-react';
 import * as api from './lib/api';
 import { describeError } from './lib/errors';
@@ -23,6 +23,9 @@ import {
   type PushStatus,
 } from './lib/push';
 
+// Financial alerts (docs/finance.md#financial-alerts): shown only to people who can read finance.
+const FinanceAlertSettings = lazy(() => import('./FinanceAlertSettings').then((m) => ({ default: m.FinanceAlertSettings })));
+
 // Settings › Notifications (docs/notifications.md): what this user wants to hear about in this
 // workspace (PUT /api/v1/notification-preferences) and phone push, whether the server can send it
 // and which of the user's phones are registered. Phones register themselves from the mobile app;
@@ -33,6 +36,7 @@ export function NotificationSettings() {
   return <>
     <NotificationSwitches onSaved={setSaved} />
     <PhonePushDevices prefs={saved} />
+    <Suspense fallback={null}><FinanceAlertSettings /></Suspense>
   </>;
 }
 
