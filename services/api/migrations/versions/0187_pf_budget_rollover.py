@@ -8,8 +8,7 @@ docs/finance.md#budget-rollover.
   an earlier period keeps its own terms and its carried figures are never rewritten. The row keeps its forced RLS of
   ``0057`` (tenant, workspace and the restrictive owner-only policy) and is exported and deleted with Finance as before.
 
-Chained after ``0188_pf_fx_matching`` on ``main``. On this branch the newest revision was ``0186_pf_debts``: renumber
-``down_revision`` at merge (file name and ids stay ``0189_pf_budget_rollover``).
+Chained after ``0186_pf_debts``.
 
 Expand only. The previous release never reads or writes the column (its upserts of ``finance_plans`` set only the columns
 it knows, and the default fills new rows); its budgets then show without carried money. Rollback: ``alembic downgrade
@@ -20,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0189_pf_budget_rollover"
+revision = "0187_pf_budget_rollover"
 down_revision = "0186_pf_debts"
 branch_labels = None
 depends_on = None

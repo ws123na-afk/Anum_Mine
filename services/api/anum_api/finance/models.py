@@ -545,7 +545,7 @@ class OverspendMode(StrEnum):
 
 class BudgetTerms(BaseModel):
     """The terms one budget used from the period starting ``effective_from`` until the next entry (migration
-    ``0189_pf_budget_rollover``). Written only for the current period when the owner saves the budget; an entry for an
+    ``0187_pf_budget_rollover``). Written only for the current period when the owner saves the budget; an entry for an
     earlier period is never changed, so every closed period keeps the amount, categories and rollover it had."""
 
     model_config = ConfigDict(extra="ignore")
@@ -571,7 +571,7 @@ class Planning(BaseModel):
     # Migration 0185_pf_budgets: the owner's budgets and learned merchant mappings.
     budgets: list[Budget] = Field(default_factory=list, max_length=200)
     category_mappings: list[CategoryMapping] = Field(default_factory=list, max_length=2000)
-    # Migration 0189_pf_budget_rollover: each budget's terms period by period (docs/finance.md#budget-rollover).
+    # Migration 0187_pf_budget_rollover: each budget's terms period by period (docs/finance.md#budget-rollover).
     budget_rollovers: list[BudgetTerms] = Field(default_factory=list, max_length=20000)
 
 

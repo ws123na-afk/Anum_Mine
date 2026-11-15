@@ -255,7 +255,7 @@ class FinancePlanRecord(Base):
     # Migration 0185_pf_budgets.
     budgets: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     category_mappings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
-    # Migration 0189_pf_budget_rollover.
+    # Migration 0187_pf_budget_rollover.
     budget_rollovers: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TS)
 

@@ -99,7 +99,7 @@ def test_budgets_mappings_and_recurring_settings_are_the_owners_only(client: Tes
 
 
 def test_budget_rollover_terms_live_on_the_owners_row_only(client: TestClient, database_engine: Engine) -> None:
-    """Migration ``0189_pf_budget_rollover``: ``finance_plans.budget_rollovers`` (not null, default ``[]``) holds each budget's
+    """Migration ``0187_pf_budget_rollover``: ``finance_plans.budget_rollovers`` (not null, default ``[]``) holds each budget's
     terms period by period on the owner's forced-RLS row (docs/finance.md#budget-rollover)."""
     with database_engine.connect() as connection:
         nullable, default = connection.execute(text(

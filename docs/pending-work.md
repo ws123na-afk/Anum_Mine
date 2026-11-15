@@ -89,7 +89,6 @@ The safety net is in place ([Invariant tests](finance.md#how-figures-are-counted
 
 ## Personal finance: budget rollover (pf2/rollover, November 2026)
 
-- Migration `0189_pf_budget_rollover` was written on a branch whose newest revision was `0186_pf_debts`, so its `down_revision` is `0186_pf_debts`; at merge set it to `0188_pf_fx_matching` (or the newest head). Referenced in `services/api/migrations/versions/0189_pf_budget_rollover.py`, `services/api/tests/test_migrations.py`, `services/api/tests/test_postgres_finance_pf_budgets.py`, `services/api/anum_api/db/finance_repository.py`, `services/api/anum_api/finance/models.py` and `docs/finance.md`.
 - Rollover is for spending budgets only; savings, money home and debt budgets are targets, not caps, and do not carry.
 - Budget alerts (Guardian caps and the alert job) still measure against the amount, not `available`.
 - No owner step.
