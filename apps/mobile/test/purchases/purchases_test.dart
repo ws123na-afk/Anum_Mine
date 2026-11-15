@@ -164,19 +164,19 @@ class PurchasesApi {
                   }
               ]
             : [
-          {
-            'id': 'pitem_1',
-            'owner_user_id': 'user_me',
-            'purchase_id': 'pur_1',
-            'position': 0,
-            'description': 'Phone case',
-            'sku': null,
-            'quantity': '2',
-            'unit_price': '99.99',
-            'warranty_until': null,
-            'created_at': '2026-11-01T08:00:00Z',
-          }
-        ],
+                {
+                  'id': 'pitem_1',
+                  'owner_user_id': 'user_me',
+                  'purchase_id': 'pur_1',
+                  'position': 0,
+                  'description': 'Phone case',
+                  'sku': null,
+                  'quantity': '2',
+                  'unit_price': '99.99',
+                  'warranty_until': null,
+                  'created_at': '2026-11-01T08:00:00Z',
+                }
+              ],
         'shipments': shipments,
         'returns': returns,
         'events': [eventJson('pev_1', 'ordered', 'shipped')],
@@ -800,18 +800,20 @@ void main() {
       final fake = PurchasesApi()..returns.add(returnJson('pret_1'));
       await pumpPurchases(tester, fake, receipts: FakeReceipts());
       await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
-      expect(find.textContaining('Returned items: Whole order'), findsOneWidget);
+      expect(
+          find.textContaining('Returned items: Whole order'), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('return-actions-pret_1')));
       await tapVisible(tester, find.byKey(const Key('action-items')));
-      await tester.enterText(
-          find.byKey(const Key('return-qty-pitem_1')), '5');
+      await tester.enterText(find.byKey(const Key('return-qty-pitem_1')), '5');
       await tapVisible(tester, find.byKey(const Key('return-items-save')));
       expect(find.text('Enter a number from 0 to 2.'), findsOneWidget);
-      await tester.enterText(
-          find.byKey(const Key('return-qty-pitem_1')), '1');
+      await tester.enterText(find.byKey(const Key('return-qty-pitem_1')), '1');
       await tapVisible(tester, find.byKey(const Key('return-items-save')));
       expect(
-          fake.api.sent('PATCH', '/api/v1/purchases/returns/pret_1').single.body,
+          fake.api
+              .sent('PATCH', '/api/v1/purchases/returns/pret_1')
+              .single
+              .body,
           {
             'items': [
               {'item_id': 'pitem_1', 'quantity': '1'}

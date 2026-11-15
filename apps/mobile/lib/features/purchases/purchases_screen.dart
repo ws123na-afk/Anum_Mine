@@ -866,6 +866,5 @@ class _TrackingLinks extends StatelessWidget {
 }
 
 /// "2.000" shown as "2".
-String _quantity(String value) => value.contains('.')
-    ? value.replaceFirst(RegExp(r'\.?0+$'), '')
-    : value;
+String _quantity(String value) =>
+    value.contains('.') ? value.replaceFirst(RegExp(r'\.?0+$'), '') : value;

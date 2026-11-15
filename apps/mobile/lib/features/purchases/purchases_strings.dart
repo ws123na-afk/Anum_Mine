@@ -217,7 +217,8 @@ class PurchasesStrings extends ModuleStrings {
     'itemNeedsName': 'Name the item.',
     'itemBadQuantity': 'Enter a quantity above zero, such as 1 or 2.5.',
     'itemBadPrice': 'Enter a price such as 49.90, or leave it empty.',
-    'itemsNone': 'No items yet. Add what was ordered so a return can name them.',
+    'itemsNone':
+        'No items yet. Add what was ordered so a return can name them.',
     'itemsSaved': 'Items saved.',
     'itemsSum': 'Items add up to {amount}',
     'itemPriced': '{quantity} × {description}, {price} each',

@@ -101,9 +101,8 @@ extension FinanceSmsSettingsApi on FinanceMoreRepository {
   Future<SmsSettings> smsSettings() async => SmsSettings.fromJson(JsonReader.of(
       await api.request('GET', '${FinanceMoreRepository.base}/sms/settings')));
 
-  Future<void> saveSmsSettings(Map<String, Object?> body) => api.request(
-      'PUT', '${FinanceMoreRepository.base}/sms/settings',
-      body: body);
+  Future<void> saveSmsSettings(Map<String, Object?> body) => api
+      .request('PUT', '${FinanceMoreRepository.base}/sms/settings', body: body);
 }
 
 /// The web's `PUT /sms/settings` body from the form's values: empty rows
@@ -155,8 +154,10 @@ Map<String, Object?> smsSettingsBody({
           if (s.trim().isNotEmpty)
             {
               'sender': s.trim(),
-              'bank': s.trim().toLowerCase().substring(
-                  0, s.trim().length < 40 ? s.trim().length : 40),
+              'bank': s
+                  .trim()
+                  .toLowerCase()
+                  .substring(0, s.trim().length < 40 ? s.trim().length : 40),
             }
       ],
       'ai_enabled': ai,
@@ -518,8 +519,7 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
       return decimalText(text) == null ? s.t('amountBad') : null;
     }
 
-    Widget removeButton(String key, String label, VoidCallback onTap) =>
-        Align(
+    Widget removeButton(String key, String label, VoidCallback onTap) => Align(
           alignment: AlignmentDirectional.centerEnd,
           child: TextButton.icon(
             key: Key(key),
@@ -553,8 +553,7 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
               decoration: InputDecoration(labelText: s.t('ledgerKind')),
               items: [
                 for (final k in const ['personal', 'business'])
-                  DropdownMenuItem(
-                      value: k, child: Text(s.t('ledgerKind.$k'))),
+                  DropdownMenuItem(value: k, child: Text(s.t('ledgerKind.$k'))),
               ],
               onChanged: _busy ? null : (v) => _kind = v ?? _kind,
             ),
@@ -733,8 +732,7 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
                     key: Key('sms-wallet-card-$i'),
                     initialValue: _wallet[i].card,
                     maxLength: 80,
-                    decoration:
-                        InputDecoration(labelText: s.t('wallet.card')),
+                    decoration: InputDecoration(labelText: s.t('wallet.card')),
                     onChanged: (v) => _wallet[i].card = v,
                   ),
                   TextFormField(
@@ -743,8 +741,7 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
                     maxLength: 4,
                     keyboardType: TextInputType.number,
                     textDirection: TextDirection.ltr,
-                    decoration:
-                        InputDecoration(labelText: s.t('wallet.last4')),
+                    decoration: InputDecoration(labelText: s.t('wallet.last4')),
                     onChanged: (v) => _wallet[i].last4 = v,
                     validator: (v) {
                       final text = (v ?? '').trim();
@@ -804,9 +801,8 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
                 value: _consent,
-                onChanged: _busy
-                    ? null
-                    : (v) => setState(() => _consent = v ?? false),
+                onChanged:
+                    _busy ? null : (v) => setState(() => _consent = v ?? false),
                 title: Text(s.t('aiConsent')),
               ),
           ],
@@ -840,7 +836,6 @@ class _SmsSettingsScreenState extends State<SmsSettingsScreen> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: context.palette.line)),
         child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children),
+            crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
       );
 }

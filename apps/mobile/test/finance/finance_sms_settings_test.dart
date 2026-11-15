@@ -56,7 +56,12 @@ class SettingsFake {
             'kind': 'bank',
             'currency': 'AED'
           },
-          {'id': 'acc_cash', 'name': 'Wallet cash', 'kind': 'cash', 'currency': 'AED'},
+          {
+            'id': 'acc_cash',
+            'name': 'Wallet cash',
+            'kind': 'cash',
+            'currency': 'AED'
+          },
         ]);
       case ('PUT', '/sms/settings'):
         if (viewer) {
@@ -144,13 +149,15 @@ void main() {
 
   testWidgets('AI help needs the consent; a 409 is shown in the API words',
       (tester) async {
-    final fake = await open(tester)..conflict = true;
+    final fake = await open(tester)
+      ..conflict = true;
     await tester.ensureVisible(find.byKey(const Key('sms-settings-ai-on')));
     await tester.tap(find.byKey(const Key('sms-settings-ai-on')));
     await tester.pumpAndSettle();
     await save(tester);
     expect(
-        find.text('Tick the agreement to turn on AI help, or turn AI help off.'),
+        find.text(
+            'Tick the agreement to turn on AI help, or turn AI help off.'),
         findsOneWidget);
     expect(fake.api.sent('PUT', '$fin/sms/settings'), isEmpty);
     await tester.tap(find.byKey(const Key('sms-settings-ai-consent')));
@@ -166,7 +173,8 @@ void main() {
   });
 
   testWidgets('a viewer is refused in the API words', (tester) async {
-    final fake = await open(tester)..viewer = true;
+    final fake = await open(tester)
+      ..viewer = true;
     await save(tester);
     expect(find.textContaining('A viewer reads only.'), findsOneWidget);
     expect(fake.version, 5);
@@ -183,9 +191,7 @@ void main() {
   testWidgets('Arabic at 320 px and 200% text lays out without overflow',
       (tester) async {
     await open(tester,
-        size: const Size(320, 6000),
-        textScale: 2,
-        locale: const Locale('ar'));
+        size: const Size(320, 6000), textScale: 2, locale: const Locale('ar'));
     expect(tester.takeException(), isNull);
     expect(find.text('أرقام البطاقات والحسابات'), findsWidgets);
     expect(find.text('حفظ'), findsOneWidget);

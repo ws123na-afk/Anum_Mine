@@ -109,8 +109,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   final _form = GlobalKey<FormState>();
   late final _date = TextEditingController(text: widget.row.postedOn);
   late final _amount = TextEditingController(text: widget.row.amount);
-  late final _description =
-      TextEditingController(text: widget.row.description);
+  late final _description = TextEditingController(text: widget.row.description);
   bool _busy = false;
   String? _error;
 
@@ -173,8 +172,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
                 signed: true, decimal: true),
             textDirection: TextDirection.ltr,
             decoration: InputDecoration(
-                labelText:
-                    s.t('amount', {'currency': widget.row.currency}),
+                labelText: s.t('amount', {'currency': widget.row.currency}),
                 hintText: '-45.00'),
             validator: (v) {
               final value = signedDecimal(v ?? '');

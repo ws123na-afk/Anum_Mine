@@ -119,8 +119,7 @@ class _PurchaseItemsScreenState extends State<PurchaseItemsScreen> {
           Text(s.t('itemsHelp'), style: TextStyle(color: p.muted)),
           if (_lines.isEmpty)
             Text(s.t('itemsNone'),
-                key: const Key('items-none'),
-                style: TextStyle(color: p.muted)),
+                key: const Key('items-none'), style: TextStyle(color: p.muted)),
           for (var i = 0; i < _lines.length; i++)
             Container(
               key: ObjectKey(_lines[i]),
@@ -180,8 +179,9 @@ class _PurchaseItemsScreenState extends State<PurchaseItemsScreen> {
                       alignment: AlignmentDirectional.centerEnd,
                       child: TextButton.icon(
                         key: Key('item-remove-$i'),
-                        onPressed:
-                            _busy ? null : () => setState(() => _lines.removeAt(i)),
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() => _lines.removeAt(i)),
                         icon: const Icon(Icons.delete_outline),
                         label: Text(s.t('itemRemove')),
                       ),
@@ -192,7 +192,8 @@ class _PurchaseItemsScreenState extends State<PurchaseItemsScreen> {
             alignment: AlignmentDirectional.centerStart,
             child: OutlinedButton.icon(
               key: const Key('item-add'),
-              onPressed: _busy ? null : () => setState(() => _lines.add(_Line())),
+              onPressed:
+                  _busy ? null : () => setState(() => _lines.add(_Line())),
               icon: const Icon(Icons.add),
               label: Text(s.t('itemAdd')),
             ),
@@ -223,9 +224,8 @@ class _PurchaseItemsScreenState extends State<PurchaseItemsScreen> {
 }
 
 /// "2.000" read as "2" (the API keeps three decimals).
-String _trimZeros(String value) => value.contains('.')
-    ? value.replaceFirst(RegExp(r'\.?0+$'), '')
-    : value;
+String _trimZeros(String value) =>
+    value.contains('.') ? value.replaceFirst(RegExp(r'\.?0+$'), '') : value;
 
 /// The return's `items` from how many of each go back: empty and zero are
 /// left out, so nothing at all is the whole order.
@@ -236,8 +236,8 @@ List<Map<String, Object?>> returnItemsBody(Map<String, String> picked) => [
     ];
 
 /// Opens a return's items; true when they were saved.
-Future<bool> editReturnItems(BuildContext context, PurchaseDetailController c,
-    PurchaseReturn r) async {
+Future<bool> editReturnItems(
+    BuildContext context, PurchaseDetailController c, PurchaseReturn r) async {
   final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
       builder: (_) => ReturnItemsScreen(controller: c, item: r)));
   if (saved == true && context.mounted) {
@@ -329,7 +329,8 @@ class _ReturnItemsScreenState extends State<ReturnItemsScreen> {
                   final n = double.tryParse(_number(text) ?? '');
                   final max = double.tryParse(i.quantity) ?? 0;
                   return n == null || n < 0 || n > max
-                      ? s.t('returnBadQuantity', {'max': _trimZeros(i.quantity)})
+                      ? s.t(
+                          'returnBadQuantity', {'max': _trimZeros(i.quantity)})
                       : null;
                 },
               ),

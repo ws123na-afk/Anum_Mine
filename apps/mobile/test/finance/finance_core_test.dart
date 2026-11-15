@@ -314,8 +314,9 @@ void main() {
       expect(find.textContaining('Balance after: '), findsWidgets);
       await tester.tap(find.byKey(const Key('register-download')));
       await tester.pumpAndSettle();
-      final sent =
-          api.fake.sent('GET', '/api/v1/finance/transactions/export.csv').single;
+      final sent = api.fake
+          .sent('GET', '/api/v1/finance/transactions/export.csv')
+          .single;
       expect(sent.uri.queryParameters,
           {'account_id': 'acc_current', 'from': '2026-11-01'});
       expect(saver.saved['anum-transactions.csv'], contains('2026-11-15'));

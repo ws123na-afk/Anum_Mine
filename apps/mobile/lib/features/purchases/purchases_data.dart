@@ -252,7 +252,8 @@ class PurchaseReturn {
         disputeNote: j.optString('dispute_note'),
         items: j.optObjects(
             'items',
-            (l) => ReturnLine(l.string('item_id'),
+            (l) => ReturnLine(
+                l.string('item_id'),
                 switch (l.json['quantity']) {
                   final num n => n.toString(),
                   final String t => t,

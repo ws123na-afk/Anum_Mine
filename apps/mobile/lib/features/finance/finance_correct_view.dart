@@ -304,8 +304,8 @@ class _TransactionCorrectionPanelState
 
   Future<void> _edit() async {
     final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
-        builder: (_) => TransactionEditScreen(
-            repository: widget.repository, row: _row)));
+        builder: (_) =>
+            TransactionEditScreen(repository: widget.repository, row: _row)));
     if (saved != true || !mounted) return;
     final e = TransactionEditStrings.of(context);
     setState(() {

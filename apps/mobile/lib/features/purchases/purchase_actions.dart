@@ -434,8 +434,8 @@ Future<void> chooseReceipt(BuildContext context, PurchaseDetailController c,
 
 /// Attaches a return's proof from the document vault (search, or upload a
 /// new file there), or removes it: the same sheet as a receipt.
-Future<void> chooseReturnProof(BuildContext context,
-    PurchaseDetailController c, PurchaseReturn r, PurchaseReceipts receipts) async {
+Future<void> chooseReturnProof(BuildContext context, PurchaseDetailController c,
+    PurchaseReturn r, PurchaseReceipts receipts) async {
   final s = PurchasesStrings.of(context);
   final picked = await showRecordsSheet<_ReceiptPick>(
       context,
@@ -444,8 +444,7 @@ Future<void> chooseReturnProof(BuildContext context,
           hasReceipt: r.proofDocumentId != null,
           proof: true));
   if (picked == null || !context.mounted) return;
-  await runPurchaseAction(
-      context,
+  await runPurchaseAction(context,
       () => c.updateReturn(r, {'proof_document_id': picked.documentId}),
       done: s.t(picked.documentId == null ? 'proofRemoved' : 'proofAttached'));
 }
@@ -545,8 +544,7 @@ class _ReceiptSheetState extends State<_ReceiptSheet> {
                   ? null
                   : () => Navigator.of(context).pop(const _ReceiptPick(null)),
               icon: const Icon(Icons.link_off),
-              label:
-                  Text(s.t(widget.proof ? 'proofRemove' : 'receiptRemove')),
+              label: Text(s.t(widget.proof ? 'proofRemove' : 'receiptRemove')),
             ),
         ]),
         const SizedBox(height: AnumSpacing.sm),
