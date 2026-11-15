@@ -6,6 +6,9 @@ import 'finance_controller.dart';
 import 'finance_income_screens.dart';
 import 'finance_keyword_rules.dart';
 import 'finance_loans_screens.dart';
+import 'finance_matching_data.dart';
+import 'finance_matching_screens.dart';
+import 'finance_matching_strings.dart';
 import 'finance_more_strings.dart';
 import 'finance_import_screens.dart';
 import 'finance_recon_screens.dart';
@@ -33,6 +36,7 @@ enum FinanceMorePage {
   tags,
   fx,
   keywords,
+  matching,
 }
 
 class FinanceMoreMenu extends StatelessWidget {
@@ -60,6 +64,8 @@ class FinanceMoreMenu extends StatelessWidget {
               value: page,
               child: Text(
                   FinanceToolsStrings.of(context).maybe('menu.${page.name}') ??
+                      FinanceMatchingStrings.of(context)
+                          .maybe('menu.${page.name}') ??
                       m.t('menu.${page.name}')),
             ),
       ],
@@ -94,6 +100,8 @@ Future<void> openFinanceMore(
       FinanceMorePage.tags => TagsScreen(repository: more),
       FinanceMorePage.fx => FxBalancesScreen(repository: more),
       FinanceMorePage.keywords => KeywordRulesScreen(controller: depth!),
+      FinanceMorePage.matching =>
+        MatchingHubScreen(repository: FinanceMatchingRepository(more.api)),
     },
   ));
   if (!context.mounted) return;
