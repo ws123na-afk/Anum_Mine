@@ -2,10 +2,18 @@
 
 This route never stores financial data, modifies mail, or marks a payment as bank-verified.
 The user must explicitly review and import the preview in Finance.
+
+A Tamara email of the last two weeks that could not be read (no order reference, no due amounts, a truncated or
+unavailable body) is noted by its ANUM message id and received day only (``finance_notice_claims`` kind
+``alert:tamara_unread``, pruned with the other claims), so the daily alerts can tell it as ``capture_failed``
+(docs/finance.md#financial-alerts). No body, subject, amount or address is kept.
 """
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
@@ -20,6 +28,9 @@ from .models import InstallmentRefundNotice, InstallmentStatementEntry
 from .tamara_email import MailEvidence, extract_tamara_refunds, extract_tamara_statement
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
+logger = logging.getLogger("anum_api.finance.tamara_email")
+UNREAD_CLAIM = "alert:tamara_unread"
+UNREAD_NOTE_DAYS = 14
 
 
 class ConnectedMailbox(BaseModel):
@@ -63,6 +74,23 @@ def _load_tamara_messages(context: TenantContext, account_id: str, limit: int):
     return account, ordered[:limit]
 
 
+def note_unread(context: TenantContext, found: list[tuple[str, date]]) -> int:
+    """Note the Tamara emails of the last ``UNREAD_NOTE_DAYS`` days that could not be read (id and day only), once each."""
+    from ..schemas import utc_now
+    from .rules_store import open_rule_stores
+
+    now = utc_now()
+    recent = [(i, d) for i, d in found if d >= now.date() - timedelta(days=UNREAD_NOTE_DAYS)][:200]
+    if not recent:
+        return 0
+    try:
+        with open_rule_stores(context) as (_finance, store):
+            return sum(len(store.claim_item_notices(context, UNREAD_CLAIM, [message_id], day, now)) for message_id, day in recent)
+    except Exception as exc:  # noqa: BLE001 - the preview still answers; the warnings show the emails at once
+        logger.warning("finance_tamara_unread_not_noted error_class=%s", type(exc).__name__)
+        return 0
+
+
 @router.get("/installment-email/mailboxes", response_model=list[ConnectedMailbox])
 def installment_mailboxes(context: TenantContext = Depends(tenant_context)) -> list[ConnectedMailbox]:
     _manage(context)
@@ -104,6 +132,8 @@ async def installment_email_preview(
     warnings = [warning for _, warning in checked if warning]
     rows, skipped = extract_tamara_statement(evidence)
     warnings.extend(skipped[:50])
+    unreadable = {w.partition(": ")[0] for w in [*warnings, *skipped]}
+    await asyncio.to_thread(note_unread, context, [(m.id, m.received_at.date()) for m in matches if m.id in unreadable])
     if len(messages) == limit:
         warnings.append("Mailbox scan reached its message limit; older receipts may be missing. Sync/import historical mail separately.")
     return TamaraEmailPreview(account_id=account.id, address=account.address,

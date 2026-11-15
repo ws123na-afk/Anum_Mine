@@ -9,7 +9,8 @@ The person picks the channels per alert kind in Settings, Notifications, Financi
 * **Phone push** (default on for the time-critical kinds in ``PUSH_DEFAULT``): one ``finance.alert.raised`` event,
   private to the person, that ``push.PushDispatcher`` turns into one push per kind. It also needs the server's FCM key,
   the person's own ``push_enabled`` switch and a registered phone. FCM retries a transient failure itself (bounded,
-  ``ANUM_PUSH_MAX_ATTEMPTS``).
+  ``ANUM_PUSH_MAX_ATTEMPTS``); when no phone took it and FCM gave up only for now, the dispatcher reports it back
+  (``push_undelivered``) and the claims are released for the next daily run, at most ``MAX_PUSH_RETRIES`` times per item.
 * **Email** (default off: the person opts in): needs the mail server (``notifications.email_configured``), the person's
   ``email_enabled`` switch and an address ANUM knows. Sent with ``notifications.send_with_retries`` (three tries with
   backoff for a transient failure), never inside a transaction, in the person's email language (``calendar_email_language``,
@@ -30,8 +31,11 @@ the rest of that person's emails wait for the next run.
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any, Literal
 
 from ..schemas import TenantContext
@@ -43,6 +47,12 @@ CHANNELS: tuple[Channel, ...] = ("in_app", "push", "email")
 EVENT_SUBJECT = "finance_alert"
 PUSH_CLAIM = "alert:push"
 EMAIL_CLAIM = "alert:email"
+# A push FCM never took (every phone failed transiently after FCM's own retries) is tried again by the next daily run, at most
+# this many times per item: each retry claims a slot ``<n>:<digest>`` under this kind for the item's day.
+PUSH_RETRY_CLAIM = "alert:push_retry"
+MAX_PUSH_RETRIES = 2
+MAX_PUSH_REFS = 50
+_REF = re.compile(r"^[0-9a-f]{24}@\d{4}-\d{2}-\d{2}$")
 # Time-critical kinds that buzz the phone unless the person turns them off.
 PUSH_DEFAULT = frozenset({
     "installment_due_tomorrow", "installment_paid", "unverified_payment", "card_payment_due", "loan_due_soon", "loan_installment_missed",
@@ -212,16 +222,60 @@ def email_text(kind: str, count: int, language: str | None = None) -> tuple[str,
     return subject, f"{en_body}\n\n{ar_body}"
 
 
-def send_push(context: TenantContext, kind: str, count: int) -> bool:
-    """Record the push trigger: one ``finance.alert.raised`` event, private to the person, kind and count only."""
+def push_ref(claim_key: str, day: date) -> str:
+    """An opaque reference to one push claim: a digest of its key and its day (the key itself can hold figures)."""
+    return f"{hashlib.sha256(claim_key[:200].encode()).hexdigest()[:24]}@{day.isoformat()}"
+
+
+def push_refs(value: Any) -> tuple[str, ...]:
+    """The well-formed push claim references of an event payload (anything else is ignored)."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(v for v in value[:MAX_PUSH_REFS] if isinstance(v, str) and _REF.fullmatch(v))
+
+
+def push_undelivered(context: TenantContext, refs: tuple[str, ...] | list[str], now: datetime | None = None) -> int:
+    """The dispatcher's report that no phone took a push and FCM gave up only for now: release each named push claim so the
+    next daily run tries once more, at most ``MAX_PUSH_RETRIES`` times per item (then the claim stays, as for a refusal).
+    ``context`` is the person the alert is private to. Answers how many claims were released."""
+    from ..schemas import utc_now
+    from .rules_store import open_rule_stores
+
+    wanted: set[tuple[str, date]] = set()
+    for ref in push_refs(list(refs)):
+        digest, _, day = ref.partition("@")
+        wanted.add((digest, date.fromisoformat(day)))
+    if not wanted:
+        return 0
+    moment = now or utc_now()
+    released = 0
+    with open_rule_stores(context) as (_finance, store):
+        for key, day in store.list_item_notices(context, PUSH_CLAIM, min(d for _r, d in wanted)):
+            digest = push_ref(key, day).partition("@")[0]
+            if (digest, day) not in wanted:
+                continue
+            if not any(store.claim_item_notices(context, PUSH_RETRY_CLAIM, [f"{n}:{digest}"], day, moment) for n in range(1, MAX_PUSH_RETRIES + 1)):
+                continue  # retried enough: it stays told, like a refusal
+            store.release_item_notices(context, PUSH_CLAIM, [key], day)
+            released += 1
+    if released:
+        logger.info("finance_alert_push_released count=%s", released)
+    return released
+
+
+def send_push(context: TenantContext, kind: str, count: int, refs: list[str] | None = None) -> bool:
+    """Record the push trigger: one ``finance.alert.raised`` event, private to the person: kind, count and the opaque references
+    of its push claims (``push_ref``), so the dispatcher can report a push FCM never took (``push_undelivered``)."""
     from ..events import CanonicalEventName, create_event
     from ..team_work import open_team_unit
 
+    payload: dict[str, Any] = {"recipient": context.user_id, "alert_kind": kind, "count": count}
+    if refs:
+        payload["claims"] = list(refs[:MAX_PUSH_REFS])
     try:
         with open_team_unit(context) as unit:
             unit.repository.record_event(create_event(
-                CanonicalEventName.FINANCE_ALERT_RAISED, context, f"{EVENT_SUBJECT}:{kind}",
-                {"recipient": context.user_id, "alert_kind": kind, "count": count}, private_to=context.user_id,
+                CanonicalEventName.FINANCE_ALERT_RAISED, context, f"{EVENT_SUBJECT}:{kind}", payload, private_to=context.user_id,
             ).event)
         return True
     except Exception as exc:  # noqa: BLE001 - the claims are released and the next run tries again
@@ -246,5 +300,6 @@ def send_email(address: str, kind: str, count: int, language: str | None = None)
     return "transient" if outcome.status == "not_configured" or outcome.transient else "permanent"
 
 
-__all__ = ["CHANNELS", "EMAIL_CLAIM", "GENERIC", "GENERIC_AR", "PUSH_CLAIM", "PUSH_DEFAULT", "Channel", "Reach", "channel_view", "default", "email_text",
-           "generic", "reach", "resolve", "send_email", "send_push", "stored_key"]
+__all__ = ["CHANNELS", "EMAIL_CLAIM", "GENERIC", "GENERIC_AR", "MAX_PUSH_RETRIES", "PUSH_CLAIM", "PUSH_DEFAULT", "PUSH_RETRY_CLAIM", "Channel", "Reach",
+           "channel_view", "default", "email_text", "generic", "push_ref", "push_refs", "push_undelivered", "reach", "resolve", "send_email", "send_push",
+           "stored_key"]

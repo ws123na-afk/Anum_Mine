@@ -297,9 +297,8 @@ def score(p: Payment, o: Obligation) -> Candidate | None:
     fx: FxEvidence | None = None
     fx_missing = False
     if p.currency != o.currency:
-        # Across currencies only on the bank's own figures; a card is repaid in its own currency (an own transfer).
-        if o.kind == "card_repayment":
-            return None
+        # Across currencies only on the bank's own figures (a card repaid from an account in another currency too): the
+        # original amount the bank printed in the obligation's currency, else review only (``fx_evidence_missing``).
         if p.fx is not None and p.fx.original_currency != o.currency:
             return None  # the bank names another original currency
         if p.fx is not None and p.fx.sufficient:
@@ -372,8 +371,13 @@ def score(p: Payment, o: Obligation) -> Candidate | None:
         # No original amount: only what names this obligation (provider, order, merchant, loan account) makes it a candidate.
         if not {e.code for e in evidence} & {"provider", "order_reference", "merchant_words", "liability_account"}:
             return None
-        add("fx_evidence_missing", f"{p.currency} {p.amount} for {o.currency} {o.expected}")
-        exact, amount = False, o.expected
+        if o.kind == "card_repayment":
+            # A card has no amount due to compare with: what this pays of the card is not known, so the record keeps the bank side.
+            add("fx_evidence_missing", f"{p.currency} {left} for a {o.currency} card")
+            exact, amount = False, left
+        else:
+            add("fx_evidence_missing", f"{p.currency} {p.amount} for {o.currency} {o.expected}")
+            exact, amount = False, o.expected
     else:
         if fx is not None and fx.original_amount is not None:
             # The bank's original amount is what was paid of the obligation, in its currency; the bank side is the purchase.
@@ -500,23 +504,51 @@ def _collapse_groups(cands: list[Candidate]) -> tuple[list[Candidate], bool]:
 
 def _combined(p: Payment, obligations: list[Obligation], policy: MatchingPolicy) -> list[Candidate] | None:
     """One payment that pays exactly two or three open obligations of the same currency together (two installments of one
-    order, two bills on one day). Only a unique combination counts."""
+    order, two bills on one day). Only a unique combination counts.
+
+    Across currencies (docs/finance-matching.md#across-currencies) only on the bank's own figures: the parts are in the
+    currency the bank printed the original amount in and add up to that amount exactly; each part's bank side is its share of
+    the purchase (the bank's own conversion, the FX fee left out), the last part taking the rounding. A foreign purchase
+    partly linked already, or without the original amount, is never combined."""
+    fx = p.fx if p.fx is not None and p.fx.sufficient else None
     pool: list[Candidate] = []
     for o in obligations:
-        if o.currency != p.currency or o.expected >= p.amount:
+        whole = p.left.get(o.dimension, p.amount)
+        if o.currency != p.currency:
+            if fx is None or fx.original_currency != o.currency or whole < p.amount:
+                continue
+            whole = fx.original_amount or Decimal(0)
+        if o.expected >= whole:
             continue
-        trial = Payment(**{**p.__dict__, "amount": o.expected, "left": {o.dimension: o.expected}})
+        trial = Payment(**{**p.__dict__, "amount": o.expected, "currency": o.currency, "fx": None, "left": {o.dimension: o.expected}})
         c = score(trial, o)
         if c is not None and c.score >= policy.review_confidence:
             pool.append(Candidate(p, o, c.score, c.evidence, True, o.expected))
     found: list[tuple[Candidate, ...]] = []
     for size in (2, 3):
         for combo in combinations(pool, size):
-            if len({c.obligation.dimension for c in combo}) == 1 and sum((c.amount for c in combo), Decimal(0)) == p.left.get(combo[0].obligation.dimension, p.amount):
+            if len({c.obligation.dimension for c in combo}) != 1 or len({c.obligation.currency for c in combo}) != 1:
+                continue
+            ccy = combo[0].obligation.currency
+            whole = p.left.get(combo[0].obligation.dimension, p.amount) if ccy == p.currency else (fx.original_amount if fx else None)
+            if whole is not None and sum((c.amount for c in combo), Decimal(0)) == whole:
                 found.append(combo)
         if len(found) > 1:
             return None
-    return list(found[0]) if len(found) == 1 else None
+    if len(found) != 1:
+        return None
+    parts = list(found[0])
+    if parts[0].obligation.currency == p.currency or fx is None or not fx.original_amount:
+        return parts
+    # The bank side of each part: its share of the purchase at the bank's own conversion, the last part taking the rounding.
+    exponent = fx.purchase_amount.as_tuple().exponent
+    unit = Decimal(1).scaleb(min(exponent if isinstance(exponent, int) else -2, -2))
+    shares = [(fx.purchase_amount * c.amount / fx.original_amount).quantize(unit) for c in parts[:-1]]
+    shares.append(fx.purchase_amount - sum(shares, Decimal(0)))
+    note = f" at {fx.rate} ({fx.rate_kind})" if fx.rate is not None else ""
+    return [Candidate(p, c.obligation, c.score, [*c.evidence, _ev("fx_original", f"{c.obligation.currency} {fx.original_amount} = "
+                                                                   f"{p.currency} {fx.billed_amount}{note}")], True, c.amount, share, fx)
+            for c, share in zip(parts, shares, strict=True)]
 
 
 def decide(payments: list[Payment], obligations: list[Obligation], policy: MatchingPolicy, *, credits: Iterable[Payment] = (),

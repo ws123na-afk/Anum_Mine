@@ -41,7 +41,7 @@ Done in [Finance matching](finance-matching.md), migration `0184_pf_matching` (a
 Done in [Finance matching, across currencies](finance-matching.md#across-currencies), migration `0188_pf_fx_matching` (expand only: nullable `settled_amount`, `settled_currency`, `fx` on `finance_links` and `fx` on `finance_match_records`). It is chained after `0187_pf_budget_rollover`. A bill, installment or bank loan in one currency is matched to a debit in another only on the bank's printed original amount (SMS or statement); the obligation is settled in its own currency, the link's own amount stays the bank side without the FX fee, and a debit without an original amount waits (`fx_evidence_missing`). Web and phone show the bank figures on each match and in the transaction's currency details.
 
 - **Owner steps:** none beyond the matching policy above. A foreign purchase links on its own only when the bank's SMS or statement shows the original amount (for example "USD 100.00 (SAR 375.00)"); otherwise it waits in Matches for you.
-- **Not done:** Tamara's emails and CSV are not conversion evidence (they never give the card's charged amount), so an installment in another currency than the card waits unless the bank printed the original amount. A card repayment across currencies and combined payments across currencies are not matched. A foreign purchase already partly linked is never split further on its own. Accepting a match without an original amount links the whole debit (no rate is recorded); a part payment of that kind needs a hand link from the transaction.
+- **Not done:** Tamara's emails and CSV are not conversion evidence (they never give the card's charged amount), so an installment in another currency than the card waits unless the bank printed the original amount. (A card repayment across currencies and combined payments across currencies are matched on the bank's original amount since `gap/finance`, below.) A foreign purchase already partly linked is never split further on its own. Accepting a match without an original amount links the whole debit (no rate is recorded); a part payment of that kind needs a hand link from the transaction.
 
 ## Personal finance: debts, cards, alerts and advisor answers (November 2026, branch `pf/debts`)
 
@@ -59,7 +59,7 @@ Owner steps: for push, `ANUM_FCM_SERVICE_ACCOUNT_JSON` on the server (already ne
 
 Closed by pf3/alerts (no migration): a failed SMS parse or a statement import with unreadable rows is its own kind `capture_failed` (own channels, each message or import once); a borrowed person loan with its own reminder on is told by that reminder only; alert emails follow the person's email language (Settings, Notifications, Language of reminder and alert emails: English, Arabic, or both).
 
-Not done: a push dropped by FCM after its own retries is not retried by the next run (the dispatcher reports no outcome back to the claim). A statement file of which no row could be read is refused at import and leaves no record, so it raises no `capture_failed` alert (the import screen shows the error at once). Tamara emails and Gmail capture failures are not part of `capture_failed`.
+Not done: none of the three gaps listed here before; all closed by `gap/finance`, below.
 
 ## Personal finance: loans with people from Contacts (November 2026, branch `pf2/contacts`)
 
@@ -74,7 +74,19 @@ Not done: loans saved before this keep their typed names; nothing links them to 
 Done, no migration: one place for each match (the bills producer leaves out a due date the matching engine holds in review and never re-proposes a pair the engine decided; the debt attribution producer skips pairs the engine holds); transaction detail shows the engine's stored evidence state on its links (`evidence_source`, `match_id`), the display rule only for hand links; the loan repayment matcher uses the loan's Contacts person (phone number, then current name, then typed name; ties wait for review); a card repayment is checked against the stored statement (full, minimum, partial or over, on the match record; over-payment flagged `card_overpaid`, web and phone wording). Fixed on the way: a card repayment recorded on both the bank and the card account was flagged `refund_signal` by its own credit leg, so it never linked on its own. See [Finance matching](finance-matching.md#one-place-for-each-match).
 
 - **Owner steps:** none. Enter each card's last statement (Debts, Cards, Statement and terms) for the full, minimum or partial check.
-- **Not done:** Contacts keep no bank account or IBAN, so only phone numbers and names are compared. A review record keeps the statement comparison from when it was made; accepting it later does not recompute it. A card repayment linked by hand (Debts, a payment matched to the card) is not compared with the statement.
+- **Not done:** Contacts keep no bank account or IBAN, so only phone numbers and names are compared. (The statement comparison on accept and for hand links came with `gap/finance`, below.)
+
+## Personal finance: alert and matching gaps closed (November 2026, branch `gap/finance`)
+
+Done, no migration ([Finance matching](finance-matching.md#one-place-for-each-match), [across currencies](finance-matching.md#across-currencies), [Financial alerts](finance.md#financial-alerts), [Import history](finance.md#import-history)):
+- A financial alert push that no phone took after FCM's own retries (`SendOutcome.RETRY_LATER`, new) is reported back by the dispatcher and its claims are released for the next daily run, at most twice per item (`alert:push_retry` claim slots); a refusal, a removed phone or a push some phone took keeps them. The event carries only digests of its claim keys.
+- A statement file no row of which could be read is still refused, and the attempt is kept as a refused import (no rows, the reader's reasons) that `capture_failed` tells.
+- `capture_failed` also tells a Tamara email that could not be read when Gmail was read for installments (noted by id and day only) and, weekly while it lasts, the person's own Tamara Gmail mailbox that needs a new sign in or failed its sync.
+- A card repayment linked by hand from Debts is compared with the card's statement (its match record is accepted, or made with reason `hand_link`; unmatching sets it undone); accepting a card match later works the comparison out again.
+- Card repayments and combined payments across currencies follow the bank-printed original amount rule; without it they wait with `fx_evidence_missing` (a card repayment of that kind cannot be accepted: what it paid of the card is not known).
+
+- **Owner steps:** none.
+- **Not done:** a Tamara email that fails to read is only noticed when the person reads Gmail for installments (Bills, Sync Gmail); ANUM does not read Tamara emails on its own schedule. A card repayment across currencies without the bank's original amount cannot be linked from the match record; the owner imports the card statement or a bank message with both amounts, or links nothing. A hand link made from elsewhere than Debts (the transaction's own link form) is not compared with the card's statement.
 
 ## Calendar: repeating events, all-day events and reminders (November 2026 depth batch)
 

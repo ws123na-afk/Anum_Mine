@@ -190,8 +190,8 @@ def load(context: TenantContext, start: date, end: date, *, now: datetime | None
         if kind == DebtKind.CARD.value:
             if debt.account_id or debt.name:
                 statement_on = debt.card_statement_on if debt.card_statement_balance is not None else None
-                repaid = tuple(sorted((posted[l.canonical_id], l.canonical_id, l.amount or Decimal(0)) for l in live
-                                      if l.dimension == "debt" and l.target_id == debt.id and l.currency == debt.currency
+                repaid = tuple(sorted((posted[l.canonical_id], l.canonical_id, K.settled(l, debt.currency)) for l in live
+                                      if l.dimension == "debt" and l.target_id == debt.id and K.settled_currency(l) == debt.currency
                                       and statement_on is not None and posted.get(l.canonical_id, date.min) > statement_on))
                 obligations.append(E.Obligation(
                     kind="card_repayment", dimension="debt", target_type=DEBT_TARGET, target_id=debt.id, label=debt.name[:160],
@@ -304,7 +304,7 @@ def _record(context: TenantContext, d: E.Decision, c: E.Candidate, *, outcome: s
         id=new_id("fin_match"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
         canonical_id=d.payment.canonical_id, kind=o.kind, dimension=o.dimension, target_type=o.target_type, target_id=o.target_id,
         label=o.label, due_on=None if o.due_on == UNDATED_CARD else o.due_on, posted_on=d.payment.posted_on, amount=c.amount,
-        currency=o.currency, outcome=outcome,  # type: ignore[arg-type]
+        currency=d.payment.currency if (c.fx_missing and o.kind == "card_repayment") else o.currency, outcome=outcome,  # type: ignore[arg-type]
         evidence_state=d.state if outcome == "auto_linked" else "pending", reason_code=(reason or d.reason)[:40], confidence=d.confidence if c in d.parts else c.score,
         evidence=evidence[:30], flags=flags[:10], competitors=d.competitors, policy_version=policy.version, run_id=run_id, link_id=link_id,
         fingerprint=E.fingerprint(d.payment.fingerprint, o.fingerprint), fx=_fx_record(c), created_at=now, updated_at=now,
@@ -372,8 +372,8 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
             if pair in seen_targets:
                 continue
             seen_targets.add(pair)
-            coverage = E.card_coverage(c.obligation, d.payment.posted_on, d.payment.canonical_id, c.amount,
-                                       card_linked.get(c.obligation.target_id, ()))
+            coverage = None if c.fx_missing else E.card_coverage(c.obligation, d.payment.posted_on, d.payment.canonical_id, c.amount,
+                                                                 card_linked.get(c.obligation.target_id, ()))
             existing = snap.records.get(pair)
             if existing is not None and existing.outcome in OWNER_OUTCOMES:
                 counts.kept_owner_choice += 1
@@ -510,6 +510,85 @@ def _check_version(record: MatchRecord, version: int | None) -> None:
         raise K.LinkError(409, "This match changed since you opened it. Reload and try again.", "stale")
 
 
+def card_check(context: TenantContext, debt_id: str, canonical_id: str, amount: Decimal) -> tuple[str, str] | None:
+    """How one repayment to a card compares with the card's last statement now (``matching.card_coverage``): the card's other
+    repayments linked after the statement (by the engine, accepted or by hand) and this one, in the card's currency. None when the
+    card has no stored statement or the repayment was made on or before it."""
+    from .models import Debt, DebtKind
+    from .store import open_finance_store
+
+    with open_finance_store(context) as finance:
+        debt = finance.get_item(context, "debt", debt_id)
+    if not isinstance(debt, Debt) or getattr(debt.kind, "value", debt.kind) != DebtKind.CARD.value or debt.card_statement_on is None \
+            or debt.card_statement_balance is None:
+        return None
+    today = utc_now().date()
+    snap = load(context, debt.card_statement_on + timedelta(days=1), today + timedelta(days=1), only={canonical_id})
+    card = next((o for o in snap.obligations if o.kind == "card_repayment" and o.target_id == debt.id), None)
+    payment = next((p for p in (*snap.payments, *snap.linked) if p.canonical_id == canonical_id), None)
+    if card is None or payment is None:
+        return None
+    return E.card_coverage(card, payment.posted_on, canonical_id, amount)
+
+
+def _with_card_check(evidence: list[EvidenceItem], flags: list[str], coverage: tuple[str, str] | None) -> tuple[list[EvidenceItem], list[str]]:
+    """Evidence and flags with the statement comparison replaced by ``coverage``."""
+    kept = [e for e in evidence if not e.code.startswith("card_statement_")]
+    marks = [f for f in flags if f != CARD_OVERPAID]
+    if coverage is not None:
+        kept.append(EvidenceItem(code=f"card_statement_{coverage[0]}", value=coverage[1][:120]))
+        if coverage[0] == "over":
+            marks.append(CARD_OVERPAID)
+    return kept[:30], marks[:10]
+
+
+def record_hand_link(context: TenantContext, debt_id: str, link: Any, *, now: datetime | None = None) -> MatchRecord | None:
+    """A card repayment the owner linked by hand (Debts, Match a payment) is compared with the card's statement like an engine
+    link: its match record says so (outcome ``accepted``, reason ``hand_link``), and a record of the same pair waiting for review
+    is accepted with this link. Nothing for another kind of debt or a card without a stored statement and no record."""
+    from .links_store import open_link_stores
+    from .models import Debt, DebtKind
+    from .store import open_finance_store
+
+    moment = now or utc_now()
+    with open_finance_store(context) as finance:
+        debt = finance.get_item(context, "debt", debt_id)
+    if not isinstance(debt, Debt) or getattr(debt.kind, "value", debt.kind) != DebtKind.CARD.value:
+        return None
+    amount = K.settled(link, debt.currency)
+    coverage = card_check(context, debt.id, link.canonical_id, amount) if amount > 0 else None
+    with open_link_stores(context) as (_finance, _sms, links):
+        existing = links.match_for_pair(context, link.canonical_id, debt.id)
+    if existing is not None:
+        if existing.outcome in ("accepted", "auto_linked") and existing.link_id == link.id:
+            return existing
+        evidence, flags = _with_card_check(existing.evidence, existing.flags, coverage)
+        return _save_existing(context, existing, outcome="accepted", link_id=link.id, evidence_state="verified", decided_by=context.user_id,
+                              decided_at=moment, updated_at=moment, evidence=evidence, flags=flags, amount=amount, currency=debt.currency)
+    if coverage is None or amount <= 0:
+        return None
+    evidence, flags = _with_card_check([EvidenceItem(code="hand_link")], [], coverage)
+    record = MatchRecord(
+        id=new_id("fin_match"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+        canonical_id=link.canonical_id, kind="card_repayment", dimension=link.dimension, target_type=link.target_type, target_id=debt.id,
+        label=debt.name[:160], due_on=None, posted_on=None, amount=amount, currency=debt.currency, outcome="accepted", evidence_state="verified",
+        reason_code="hand_link", confidence=Decimal(1), evidence=evidence, flags=flags, policy_version="owner", link_id=link.id,
+        fingerprint=E.fingerprint(link.canonical_id, debt.id), decided_by=context.user_id, decided_at=moment, created_at=moment, updated_at=moment,
+    )
+    return _store_record(context, record, None)
+
+
+def hand_link_removed(context: TenantContext, link_id: str, canonical_id: str, debt_id: str, *, now: datetime | None = None) -> None:
+    """The owner unmatched a hand link from Debts: its record says undone, so the engine never links that pair again on its own."""
+    from .links_store import open_link_stores
+
+    moment = now or utc_now()
+    with open_link_stores(context) as (_finance, _sms, links):
+        existing = links.match_for_pair(context, canonical_id, debt_id)
+    if existing is not None and existing.link_id == link_id and existing.outcome in ("accepted", "auto_linked", "stale"):
+        _save_existing(context, existing, outcome="undone", decided_by=context.user_id, decided_at=moment, updated_at=moment)
+
+
 def accept(context: TenantContext, record_id: str, *, version: int | None, now: datetime | None = None) -> MatchRecord:
     """The owner links a match that waited for review: through ``links.create`` like every link."""
     moment = now or utc_now()
@@ -519,12 +598,21 @@ def accept(context: TenantContext, record_id: str, *, version: int | None, now: 
         raise K.LinkError(409, "Only a match waiting for review can be accepted.", "not_in_review")
     fx = record.fx
     if fx and fx.get("basis") == "missing":
+        if record.kind == "card_repayment":
+            # What a payment in another currency paid of the card is not known: no amount is guessed (docs/finance-matching.md#across-currencies).
+            raise K.LinkError(422, "The bank did not print this payment's amount in the card's currency, so ANUM cannot say how much of "
+                              "the card it paid. Import the card's statement (or the bank message that shows both amounts) and run "
+                              "matching again, or reject this match.", "fx_evidence_missing")
         # The owner confirms that this payment paid the obligation: the whole debit is the bank side, no rate is recorded.
         fx = {**fx, "basis": "owner_confirmed"}
     made = K.create(context, _link_request(record.canonical_id, record.dimension, record.target_type, record.target_id, record.amount,
                                            record.currency, fx), now=moment)
+    evidence, flags = record.evidence, record.flags
+    if record.kind == "card_repayment":
+        # The statement comparison as it stands now (it was worked out when the record was made; repayments may have come since).
+        evidence, flags = _with_card_check(record.evidence, record.flags, card_check(context, record.target_id, record.canonical_id, record.amount))
     return _save_existing(context, record, outcome="accepted", link_id=made.link.id, evidence_state="verified", decided_by=context.user_id,
-                          decided_at=moment, updated_at=moment)
+                          decided_at=moment, updated_at=moment, evidence=evidence, flags=flags)
 
 
 def reject(context: TenantContext, record_id: str, *, version: int | None, now: datetime | None = None) -> MatchRecord:
@@ -549,4 +637,5 @@ def undo(context: TenantContext, record_id: str, *, version: int | None, now: da
     return _save_existing(context, record, outcome="undone", decided_by=context.user_id, decided_at=moment, updated_at=moment)
 
 
-__all__ = ["Counts", "RECENT_DAYS", "Snapshot", "accept", "apply", "load", "match_payment", "policy_for", "reject", "run", "run_recent", "undo"]
+__all__ = ["Counts", "RECENT_DAYS", "Snapshot", "accept", "apply", "card_check", "hand_link_removed", "load", "match_payment", "policy_for",
+           "record_hand_link", "reject", "run", "run_recent", "undo"]

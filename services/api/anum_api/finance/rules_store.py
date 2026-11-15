@@ -111,6 +111,7 @@ class RulesStore(Protocol):
     def claim_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date, now: datetime) -> list[str]: ...
     def release_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date) -> None: ...
     def prune_item_notices(self, context: TenantContext, before: date) -> int: ...
+    def list_item_notices(self, context: TenantContext, kind: str, since: date) -> list[tuple[str, date]]: ...
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
 
@@ -312,6 +313,11 @@ class InMemoryRulesStore:
         with self._lock:
             for key in keys:
                 self.notice_claims.pop((*self._key(context), kind, key[:200], day), None)
+
+    def list_item_notices(self, context: TenantContext, kind: str, since: date) -> list[tuple[str, date]]:
+        """The item keys claimed under ``kind`` for days from ``since`` on, with their day."""
+        with self._lock:
+            return sorted((k[4], k[5]) for k in self.notice_claims if k[:3] == self._key(context) and k[3] == kind and k[5] >= since)
 
     def prune_item_notices(self, context: TenantContext, before: date) -> int:
         with self._lock:

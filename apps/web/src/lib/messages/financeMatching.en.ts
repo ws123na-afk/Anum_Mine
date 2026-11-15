@@ -98,6 +98,8 @@ export const financeMatchingEn = {
   'fmatch.reason.fx_original_amount': 'The bank printed the original amount, and it is what was due',
   'fmatch.reason.fx_evidence_missing': 'Paid in another currency, and the bank gave no original amount',
   'fmatch.evidence.fx_original': 'The bank\'s original amount and billed amount',
+  'fmatch.reason.hand_link': 'You linked this payment to the card by hand',
+  'fmatch.evidence.hand_link': 'Linked by you from Debts',
   'fmatch.evidence.fx_fee': 'Bank FX fee kept apart',
   'fmatch.evidence.fx_evidence_missing': 'No original amount from the bank',
   'fmatch.fx.title': 'Across currencies',

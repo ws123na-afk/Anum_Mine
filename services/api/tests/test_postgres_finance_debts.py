@@ -152,6 +152,15 @@ def test_alert_channels_claim_once_per_channel_and_the_push_trigger_is_private(c
         assert {"alert:loan_due_soon", "alert:push", "alert:email"} <= kinds
         private = connection.execute(text("select private_to from domain_events where type = 'finance.alert.raised'")).scalars().all()
         assert private and set(private) == {"owner_1"}
+        refs = connection.execute(text("select payload -> 'claims' from domain_events where type = 'finance.alert.raised'")).scalars().all()
+    # A push FCM never took: the dispatcher's report releases its claims under RLS, with a retry slot (gap/finance).
+    from anum_api.finance import alert_channels as C
+
+    released = C.push_undelivered(me, [r for found in refs for r in (found or [])])
+    assert released >= 1
+    with database_engine.connect() as connection:
+        kinds = set(connection.execute(text("select kind from finance_notice_claims where owner_user_id = 'owner_1'")).scalars())
+        assert C.PUSH_RETRY_CLAIM in kinds and C.PUSH_CLAIM not in kinds
     with database_engine.connect() as connection, connection.begin():
         connection.execute(text(f"set local role {APP_ROLE}"))
         connection.execute(text("select set_config('anum.tenant_id', :t, true), set_config('anum.workspace_id', :w, true), "

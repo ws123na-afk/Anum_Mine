@@ -109,7 +109,7 @@ def test_an_fx_fee_the_bank_included_is_kept_apart_from_what_the_installment_was
     assert (stored["bank_amount"], stored["fee_amount"], stored["fee_source"], stored["rate_kind"]) == ("375", "9.38", "markup_stated", "implied")
 
 
-def test_a_part_payment_across_currencies_waits_and_a_card_is_never_repaid_across_currencies() -> None:
+def test_a_part_payment_across_currencies_waits_and_a_card_is_repaid_across_currencies_only_on_the_banks_figures() -> None:
     d = only(E.decide([pay("225", evidence=fx(original="60", billed="225"))], [usd_installment()], policy()))
     assert d.outcome == "review" and d.reason == "partial_amount" and d.parts[0].amount == Decimal("60") and d.parts[0].bank_amount == Decimal("225")
     card = E.Obligation(kind="card_repayment", dimension="debt", target_type="finance_debt", target_id="fin_debt_card", label="USD card",
@@ -117,7 +117,13 @@ def test_a_part_payment_across_currencies_waits_and_a_card_is_never_repaid_acros
     repay = E.Payment(canonical_id="fin_je_9", posted_on=TODAY, account_id=BANK, amount=Decimal("375"), currency="SAR", direction="out", text="CARD PAYMENT",
                       sources=frozenset({"sms"}), kind="card_repayment", counter_account_id="fin_acct_usd_card",
                       left={"bill": Decimal("375"), "debt": Decimal("375")}, fx=fx())
-    assert E.decide([repay], [card], policy()).decisions == []
+    # The bank printed USD 100 for the SAR 375: the card is repaid USD 100 (the gap/finance batch; before it, never across currencies).
+    d = only(E.decide([repay], [card], policy(link_card_repayments=True)))
+    assert d.parts[0].amount == Decimal("100") and d.parts[0].bank_amount == Decimal("375") and d.reason == "fx_original_amount"
+    # Without the original amount it waits for the owner with the reason, never on a guessed rate.
+    unknown = E.Payment(**{**repay.__dict__, "fx": fx(original=None)})
+    d = only(E.decide([unknown], [card], policy(link_card_repayments=True)))
+    assert (d.outcome, d.reason, d.parts[0].fx_missing) == ("review", "fx_evidence_missing", True)
 
 
 def test_a_link_settles_the_obligation_in_its_own_currency_and_two_currencies_are_never_added() -> None:

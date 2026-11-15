@@ -542,7 +542,7 @@ def test_fcm_retries_with_backoff_and_honours_retry_after() -> None:
 
 def test_fcm_gives_up_after_the_last_attempt() -> None:
     fake, sleeps = FakeFcm([httpx.Response(500, json={}) for _ in range(3)]), []
-    assert _send(fake, sleeps) == SendOutcome.FAILED
+    assert _send(fake, sleeps) == SendOutcome.RETRY_LATER  # transient to the end: a later run may try again
     assert sleeps == [1.0, 2.0]
 
 
