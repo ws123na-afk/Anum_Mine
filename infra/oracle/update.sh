@@ -282,3 +282,6 @@ if [ "$SMOKE" = true ] && [ -f "$ORACLE_DIR/smoke.sh" ]; then
     exit 1
   fi
 fi
+
+# The one read-only check whose summary the owner pastes back (docs/deploy-oracle.md#verify-a-deployment).
+echo "Full check of this deployment (read-only): sudo bash $ORACLE_DIR/verify.sh"
