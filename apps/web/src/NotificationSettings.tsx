@@ -95,7 +95,7 @@ function NotificationSwitches({ onSaved }: { onSaved: (value: NotificationPrefer
         {item.key === 'email_enabled' && testResult && <p className={`notice ${testResult.tone === 'warning' ? 'errorNotice' : ''}`} role={testResult.tone === 'warning' ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{testResult.text}</p>}
         {item.key === 'calendar_email' && <label className="settingChoice">
           <span>{t('settings.notifications.calendar_email_language')}</span>
-          <select value={prefs.calendar_email_language ?? ''} disabled={saving || !prefs.calendar_email}
+          <select value={prefs.calendar_email_language ?? ''} disabled={saving}
             onChange={(e) => { setNote(null); setPrefs({ ...prefs, calendar_email_language: (e.target.value || null) as CalendarEmailLanguage | null }); }}>
             {CALENDAR_EMAIL_LANGUAGES.map((value) => <option key={value || 'both'} value={value}>{calendarEmailLanguageLabel(value)}</option>)}
           </select>

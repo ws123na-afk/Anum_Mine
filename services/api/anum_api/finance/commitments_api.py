@@ -69,7 +69,7 @@ from .models import (
     Planning,
     RolloverMode,
 )
-from .policy import current_rules
+from .policy import cap_carry, current_rules
 from .store import open_finance_store
 from .summary import month_range, settings_for, today_in
 
@@ -587,7 +587,8 @@ def get_budgets(month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]
         rules, version = current_rules(store, context)
         alerts = store.get_planning(context).budget_alerts
         rows = store.transactions_between(context, start, end) if rules.category_caps else []
-    return budget_report(rules, version, alerts, rows, month=label, start=start, end=end, today=today, lending=lending)
+        carried = cap_carry(store, context, rules, start, today=today, lending=lending)
+    return budget_report(rules, version, alerts, rows, month=label, start=start, end=end, today=today, lending=lending, carried=carried)
 
 
 class AlertRow(BaseModel):

@@ -42,7 +42,9 @@ Done in [Finance](finance.md#alert-channels), no migration (channel choices live
 
 Owner steps: for push, `ANUM_FCM_SERVICE_ACCOUNT_JSON` on the server (already needed for every push); for email, `ANUM_SMTP_HOST` and `ANUM_SMTP_FROM` (fix the `anum360os.com` SPF first, see CLAUDE.md), and `ANUM_PUBLIC_APP_URL` so the email links to the web app. Each person then turns on Email in Settings, Notifications and picks email per alert kind (off by default).
 
-Not done: "failed data capture" is the existing `source_stopped` kind (an account that stopped reporting); a failed SMS parse or import is not an alert kind of its own. A borrowed person loan with its own reminder on can be told twice in the app (`loan_due_soon` and the loan reminder). A push dropped by FCM after its own retries is not retried by the next run (the dispatcher reports no outcome back to the claim). Push text follows the phone's language; email is English only.
+Closed by pf3/alerts (no migration): a failed SMS parse or a statement import with unreadable rows is its own kind `capture_failed` (own channels, each message or import once); a borrowed person loan with its own reminder on is told by that reminder only; alert emails follow the person's email language (Settings, Notifications, Language of reminder and alert emails: English, Arabic, or both).
+
+Not done: a push dropped by FCM after its own retries is not retried by the next run (the dispatcher reports no outcome back to the claim). A statement file of which no row could be read is refused at import and leaves no record, so it raises no `capture_failed` alert (the import screen shows the error at once). Tamara emails and Gmail capture failures are not part of `capture_failed`.
 
 ## Personal finance: loans with people from Contacts (November 2026, branch `pf2/contacts`)
 
@@ -97,7 +99,7 @@ The safety net is in place ([Invariant tests](finance.md#how-figures-are-counted
 ## Personal finance: budget rollover (pf2/rollover, November 2026)
 
 - Rollover is for spending budgets only; savings, money home and debt budgets are targets, not caps, and do not carry.
-- Budget alerts (Guardian caps and the alert job) still measure against the amount, not `available`.
+- Closed by pf3/alerts: Guardian caps (the Budgets page, `cap_near` and `cap_over`, the alert job) are judged against the cap plus what a paired rollover budget carried in, and other spending budgets alert on their `available`. A cap pairs only with exactly one active monthly spending budget whose only category is the cap's. The payment and trade gate and the review queue take a carried overspend off the cap but never add carried money left (the cap is a confirmed rule; loosening it stays the owner's). The phone has no Guardian caps budget page, so the carried note shows on the web only.
 - No owner step.
 
 ## Owner steps (only the owner can do these)

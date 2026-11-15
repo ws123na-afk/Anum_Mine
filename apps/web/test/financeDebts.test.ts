@@ -95,6 +95,19 @@ describe('the alert channels', () => {
     for (const c of ALERT_CHANNELS) assert.ok(`falert.channel.${c}` in financeDebtsEn, c);
     assert.ok('falert.kind.loan_due_soon' in financeDebtsEn && 'falert.hint.loan_due_soon' in financeDebtsAr);
   });
+
+  it('names and explains every alert kind the server sends, failed capture included, in English and Arabic', () => {
+    // The server's list (services/api/anum_api/finance/alerts.py KINDS).
+    const kinds = ['installment_due_tomorrow', 'installment_paid', 'unverified_payment', 'card_payment_due', 'loan_due_soon', 'loan_installment_missed',
+      'loan_payment_linked', 'source_stopped', 'capture_failed', 'budget_nearly_exhausted', 'unexpected_bank_charge', 'suspected_duplicate',
+      'refund_received', 'new_recurring_charge', 'salary_received', 'salary_differs', 'lender_balance_differs'];
+    for (const kind of kinds) {
+      for (const part of ['kind', 'hint']) {
+        assert.ok(`falert.${part}.${kind}` in financeDebtsEn, `${part} ${kind} en`);
+        assert.ok(`falert.${part}.${kind}` in financeDebtsAr, `${part} ${kind} ar`);
+      }
+    }
+  });
 });
 
 describe('the catalogs', () => {

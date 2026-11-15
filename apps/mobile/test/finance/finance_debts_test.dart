@@ -339,6 +339,38 @@ class DebtsApi {
 }
 
 void main() {
+  test('every alert kind the server sends has a name, failed capture included',
+      () {
+    // The server's list (services/api/anum_api/finance/alerts.py KINDS).
+    const kinds = [
+      'installment_due_tomorrow',
+      'installment_paid',
+      'unverified_payment',
+      'card_payment_due',
+      'loan_due_soon',
+      'loan_installment_missed',
+      'loan_payment_linked',
+      'source_stopped',
+      'capture_failed',
+      'budget_nearly_exhausted',
+      'unexpected_bank_charge',
+      'suspected_duplicate',
+      'refund_received',
+      'new_recurring_charge',
+      'salary_received',
+      'salary_differs',
+      'lender_balance_differs',
+    ];
+    for (final arabic in [false, true]) {
+      final s = FinanceDebtsStrings(arabic);
+      for (final kind in kinds) {
+        expect(s.t('alert.$kind'), isNot('alert.$kind'), reason: kind);
+      }
+    }
+    expect(const FinanceDebtsStrings(true).t('alert.capture_failed'),
+        'تعذرت قراءة رسالة بنك أو كشف حساب');
+  });
+
   test('the catalogs match and use no long dashes', () {
     expect(FinanceDebtsStrings.catalogsMatch, isTrue);
     for (final text in FinanceDebtsStrings.allTexts) {

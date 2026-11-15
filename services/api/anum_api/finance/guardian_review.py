@@ -103,9 +103,10 @@ def _spend(rows: list[Transaction], lending: frozenset[str] | None = None) -> li
 
 
 def flag(rows: list[Transaction], rules: GuardianRules, timezone: str, now: datetime,
-         lending: frozenset[str] | None = None) -> list[tuple[Transaction, list[Reason]]]:
+         lending: frozenset[str] | None = None, carried: list[SpendRow] | None = None) -> list[tuple[Transaction, list[Reason]]]:
     """Each payment out in ``rows`` (one month) that a rule flags, with the rules' reasons. Pure. ``lending``: ids of
-    transactions lent or borrowed with a person, never counted or flagged."""
+    transactions lent or borrowed with a person, never counted or flagged. ``carried``: what a cap's paired rollover
+    budget carried into the month (``policy.cap_carry``), so the cap is judged as the gate judges it."""
     month: dict[tuple[Category, str], Decimal] = {}
     day: dict[tuple[date, str], Decimal] = {}
     flagged: list[tuple[Transaction, list[Reason]]] = []
@@ -115,6 +116,7 @@ def flag(rows: list[Transaction], rules: GuardianRules, timezone: str, now: date
             timezone=timezone,
             month_spend=[SpendRow(category=c, currency=cur, amount=v) for (c, cur), v in month.items()],
             day_spend=[SpendRow(currency=cur, amount=v) for (d, cur), v in day.items() if d == t.posted_on],
+            carried=list(carried or []),
         )
         action = GuardianAction(kind=ActionKind.RECORD, amount=amount, currency=t.currency, category=t.category,
                                 merchant=t.description, at=now)
@@ -159,7 +161,7 @@ def build_queue(store: FinanceStore, context: TenantContext, month: str | None, 
     history = store.transactions_between(context, start - timedelta(days=TYPICAL_DAYS), end)
     in_month = [t for t in history if start <= t.posted_on <= end]
     lending = lending_ids(store, context)
-    flagged = flag(in_month, active, settings.timezone, now, lending)
+    flagged = flag(in_month, active, settings.timezone, now, lending, _carried(store, context, active, start, now, lending))
     reviews = {r.transaction_id: r for r in store.list_reviews(context, [t.id for t, _ in flagged])}
     accounts = {a.id: a.name for a in store.list_accounts(context)}
     stats: dict[str, RuleStat] = {k: RuleStat(kind=k, count=0, last=None) for k in rules.configured_kinds()}
@@ -201,7 +203,18 @@ def reasons_for(store: FinanceStore, context: TenantContext, transaction: Transa
     """The reasons the queue shows for one payment: checked with the month's and the day's spend before it."""
     start = transaction.posted_on.replace(day=1)
     rows = [t for t in store.transactions_between(context, start, transaction.posted_on) if t.id != transaction.id] + [transaction]
-    return next((reasons for t, reasons in flag(rows, rules, timezone, now, lending_ids(store, context)) if t.id == transaction.id), [])
+    lending = lending_ids(store, context)
+    carried = _carried(store, context, rules, start, now, lending)
+    return next((reasons for t, reasons in flag(rows, rules, timezone, now, lending, carried) if t.id == transaction.id), [])
+
+
+def _carried(store: FinanceStore, context: TenantContext, rules: GuardianRules, month_start: date, now: datetime,
+             lending: frozenset[str]) -> list[SpendRow]:
+    from .policy import cap_carry
+
+    today = today_in(settings_for(store, context), now)
+    found = cap_carry(store, context, rules, month_start, today=today, lending=lending)
+    return [SpendRow(category=c, currency=cur, amount=v.carried_in) for (c, cur), v in found.items()]
 
 
 def snooze_end(now: datetime, days: int, timezone: str) -> datetime:

@@ -173,7 +173,7 @@ test('calendar reminder emails have their own switch and language, saved with th
   // On by default (older servers do not send it), with a warning while Email itself is off.
   await expect(calendar).toBeChecked();
   await expect(settings.getByText('Off while Email is off: switch Email on to get calendar reminder emails.')).toBeVisible();
-  const language = settings.getByLabel('Language of calendar reminder emails');
+  const language = settings.getByLabel('Language of reminder and alert emails');
   await expect(language).toHaveValue('');
   await settings.getByRole('checkbox', { name: /^Email/ }).check();
   await expect(settings.getByText(/Off while Email is off/)).toHaveCount(0);
@@ -181,9 +181,9 @@ test('calendar reminder emails have their own switch and language, saved with th
   await settings.getByRole('button', { name: 'Save notifications' }).click();
   await expect.poll(() => state.puts.length).toBe(1);
   expect(state.puts[0]).toMatchObject({ email_enabled: true, calendar_email: true, calendar_email_language: 'ar' });
-  // Turning calendar emails off disables the language choice and keeps it for later.
+  // Turning calendar emails off keeps the language: financial alert emails use it too.
   await calendar.uncheck();
-  await expect(language).toBeDisabled();
+  await expect(language).toBeEnabled();
   await settings.getByRole('button', { name: 'Save notifications' }).click();
   await expect.poll(() => state.puts.length).toBe(2);
   expect(state.puts[1]).toMatchObject({ calendar_email: false, calendar_email_language: 'ar' });

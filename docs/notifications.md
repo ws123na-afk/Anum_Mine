@@ -18,7 +18,7 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `desktop_enabled` | Desktop notifications | Not a phone channel. The channel switch for the web and desktop apps' [operating-system notifications](#desktop) |
 | `email_enabled` | Email | The channel switch for [email](#email): each kind above is also emailed to people who turned this on |
 | `calendar_email` | Calendar reminders by email (migration `0174_calendar_email_prefs`, default on) | Not a phone channel. Whether the calendar reminders an event asks to email reach this person by email, on top of `email_enabled` ([Calendar](calendar.md#reminders)); calendar reminder pushes follow `push_enabled` |
-| `calendar_email_language` | Language of calendar reminder emails (same migration): `en`, `ar`, or null for English then Arabic | Not a switch: the language the reminder email is written in |
+| `calendar_email_language` | Language of reminder and alert emails (same migration): `en`, `ar`, or null for English then Arabic | Not a switch: the language calendar reminder emails and [financial alert emails](finance.md#alert-channels) are written in |
 
 A client that saves the switches without `calendar_email` or `calendar_email_language` (an older phone app) leaves the stored values as they are; any other field omitted takes its default.
 

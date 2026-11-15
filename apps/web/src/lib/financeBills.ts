@@ -83,6 +83,12 @@ export function uniqueBills<T extends Pick<FinanceBillOccurrence, 'bill_id'>>(ro
   return rows.filter((r) => (seen.has(r.bill_id) ? false : (seen.add(r.bill_id), true)));
 }
 
+/** What a cap allows this month: the cap, or, for a cap paired with a rollover budget, the cap plus what carried in
+ * (docs/finance.md#budget-rollover). The server judges the state against the same figure. */
+export function budgetLimit(line: Pick<FinanceBudgetLine, 'cap' | 'available'>): string {
+  return line.available ?? line.cap;
+}
+
 export interface BudgetKpis { active: number; remaining: CurrencyTotal[]; budget: CurrencyTotal[] }
 
 export function budgetKpis(report: Pick<FinanceBudgetReport, 'budgets'>): BudgetKpis {
@@ -91,7 +97,7 @@ export function budgetKpis(report: Pick<FinanceBudgetReport, 'budgets'>): Budget
     for (const b of report.budgets) by.set(b.currency, (by.get(b.currency) ?? 0) + toMinor(pick(b), b.currency));
     return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([currency, minor]) => ({ currency, amount: fromMinor(minor, currency), count: report.budgets.filter((b) => b.currency === currency).length }));
   };
-  return { active: report.budgets.length, remaining: sum((b) => b.remaining), budget: sum((b) => b.cap) };
+  return { active: report.budgets.length, remaining: sum((b) => b.remaining), budget: sum((b) => budgetLimit(b)) };
 }
 
 /** The budget most at risk this month: the one whose pace ends furthest past its cap (already over counts first). */

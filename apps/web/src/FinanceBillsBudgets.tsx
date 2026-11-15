@@ -14,7 +14,7 @@ import * as plan from './lib/financePlanningApi';
 import { categoryLabel, formatAmount, isolate, minorDigits, monthLabel, type FinanceTab } from './lib/finance';
 import { remainingOf } from './lib/financeStatements';
 import { monthRange } from './lib/financeNav';
-import { budgetAtRisk, budgetKpis, budgetTone, billKpis, calendarWeeks, dayStrip, pickTotal, statusTone, type CurrencyTotal } from './lib/financeBills';
+import { budgetAtRisk, budgetKpis, budgetLimit, budgetTone, billKpis, calendarWeeks, dayStrip, pickTotal, statusTone, type CurrencyTotal } from './lib/financeBills';
 import { toMinor } from './lib/financeDebtPlan';
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
@@ -266,9 +266,10 @@ function HealthCard({ report, base, retry, onAdd }: { report: Load<FinanceBudget
     {value && (value.budgets.length === 0 ? <Empty icon={<Wallet aria-hidden="true" />} title={t('fplan.health.empty')} text={t('fplan.health.emptyText')}
       action={<button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('fplan.cap.add')}</button>} /> : <>
       <ul className="fplHealth">{value.budgets.slice(0, 6).map((b) => <li key={`${b.category}-${b.currency}`}>
-        <div className="fplHealthTop"><strong>{categoryLabel(b.category)}</strong><span dir="ltr">{formatAmount(b.spent, b.currency)} / {formatAmount(b.cap, b.currency)}</span>
+        <div className="fplHealthTop"><strong>{categoryLabel(b.category)}</strong><span dir="ltr">{formatAmount(b.spent, b.currency)} / {formatAmount(budgetLimit(b), b.currency)}</span>
           <StatusChip tone={budgetTone(b) === 'ok' ? 'ok' : budgetTone(b)}>{b.percent}%</StatusChip></div>
         <Progress percent={b.percent} tone={budgetTone(b)} label={t('fplan.health.aria', { category: categoryLabel(b.category), percent: b.percent })} />
+        {carriedNote(b) && <small className="muted">{carriedNote(b)}</small>}
         {b.state !== 'ok' && <small className={`fplHealthState ${b.state}`}>{t(`fplan.health.${b.state}` as MessageKey)}</small>}
       </li>)}</ul>
       {series && <div className="fplChartBlock">
@@ -277,6 +278,14 @@ function HealthCard({ report, base, retry, onAdd }: { report: Load<FinanceBudget
       </div>}
     </>)}
   </FinCard>;
+}
+
+/** What carried into a cap's month from its rollover budget, in words; null when nothing did. */
+function carriedNote(b: FinanceBudgetLine): string | null {
+  const carried = Number(b.carried_in ?? '0');
+  if (!b.rollover_budget_id || !carried) return null;
+  const amount = formatAmount(String(Math.abs(carried)), b.currency);
+  return t(carried > 0 ? 'fplan.health.carriedIn' : 'fplan.health.carriedOver', { amount });
 }
 
 // ---- Budget rules -------------------------------------------------------------------------------------
