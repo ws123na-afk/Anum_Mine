@@ -170,7 +170,7 @@ for name in sorted(config):
   restarts=""
   for container in $(docker ps --all --quiet --filter label=com.docker.compose.project=anum 2>/dev/null); do
     read -r service count started <<<"$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}} {{.RestartCount}} {{.State.StartedAt}}' "$container" 2>/dev/null || true)"
-    [ -n "${count:-}" ] && [ "$count" != 0 ] || continue
+    if [ -z "${count:-}" ] || [ "$count" = 0 ]; then continue; fi
     age="$(age_of "$started")"
     if [ -n "$age" ] && [ "$age" -lt 86400 ]; then restarts="$restarts $service($count)"; fi
   done
