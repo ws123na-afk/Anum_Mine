@@ -1,5 +1,6 @@
 import '../../data/json_read.dart';
 import 'finance_models.dart';
+import 'finance_rules_data.dart';
 
 /// The Personal Finance dashboard contract (docs/finance.md#dashboard) and the
 /// transaction register and its detail (docs/finance.md#transaction-detail),
@@ -399,15 +400,29 @@ class RegisterRow {
       this.notes,
       this.transactionType,
       this.canonicalId,
+      this.subcategoryId,
+      this.typeSource,
+      this.typeReason,
       this.linksNeedReview = 0});
   final String id, accountId, postedOn, amount, currency, description;
   final String category, categorySource, origin, status;
   final List<String> sources;
   final bool reconciled;
   final String? notes, transactionType, canonicalId;
+
+  /// The owner's or a built-in subcategory; null when none is set.
+  final String? subcategoryId;
+
+  /// Who set the type (`rule`, `owner`, `system`, `sms`, `match`) and why
+  /// (`refund_suggested` asks the owner to check a possible refund).
+  final String? typeSource, typeReason;
   final int linksNeedReview;
 
   bool get moneyIn => !amount.startsWith('-');
+
+  /// A typed or imported row: the owner corrects it here. An SMS or Apple
+  /// Pay row is corrected under iPhone SMS, Review (the API answers 409).
+  bool get editable => origin == 'manual' || origin == 'statement';
 
   factory RegisterRow.fromJson(JsonReader r) => RegisterRow(
         id: r.string('id'),
@@ -425,6 +440,9 @@ class RegisterRow {
         notes: r.optString('notes'),
         transactionType: r.optString('transaction_type'),
         canonicalId: r.optString('canonical_id'),
+        subcategoryId: r.optString('subcategory_id'),
+        typeSource: r.optString('type_source'),
+        typeReason: r.optString('type_reason'),
         linksNeedReview: r.optInt('links_need_review') ?? 0,
       );
 }
@@ -494,16 +512,23 @@ class RegisterDetail {
       required this.accountName,
       required this.categoryBy,
       required this.suggestedCategory,
+      this.suggestedBy = 'none',
+      this.kind,
       this.merchant,
       this.reference,
+      this.duplicate,
       this.sources = const [],
       this.links = const [],
       this.related = const [],
       this.splitCount = 0,
       this.receipts = 0});
   final RegisterRow row;
-  final String accountName, categoryBy, suggestedCategory;
-  final String? merchant, reference;
+  final String accountName, categoryBy, suggestedCategory, suggestedBy;
+  final String? kind, merchant, reference;
+
+  /// The older record this one may duplicate (same account, amount and
+  /// currency within two days); null when there is none.
+  final RegisterRow? duplicate;
   final List<SourceMessage> sources;
   final List<LinkedRecord> links;
   final List<RelatedRow> related;
@@ -525,6 +550,11 @@ class RegisterDetail {
       categoryBy:
           r.optString('category_by') ?? _by[row.categorySource] ?? 'none',
       suggestedCategory: r.optString('suggested_category') ?? row.category,
+      suggestedBy: r.optString('suggested_by') ?? 'none',
+      kind: r.optString('kind'),
+      duplicate: r.json['duplicate'] is Map
+          ? RegisterRow.fromJson(r.object('duplicate'))
+          : null,
       merchant: r.optString('merchant'),
       reference: r.optString('reference'),
       sources: r.optObjects('sources', SourceMessage.fromJson),
@@ -534,4 +564,45 @@ class RegisterDetail {
       receipts: r.object('row').optInt('receipts') ?? 0,
     );
   }
+
+  /// The phrase "Remember this category" starts with: the merchant when the
+  /// description holds it, else the description, at most 80 characters.
+  String get rememberPhrase {
+    final m = merchant;
+    final text = m != null &&
+            m.isNotEmpty &&
+            row.description.toLowerCase().contains(m.toLowerCase())
+        ? m
+        : row.description;
+    return text.length > 80 ? text.substring(0, 80) : text;
+  }
+}
+
+/// A subcategory the detail offers under its parent category: built in (with
+/// an Arabic name) or the owner's own (`archived` ones only while chosen).
+class SubcategoryChoice {
+  const SubcategoryChoice(
+      {required this.id,
+      required this.parent,
+      required this.name,
+      this.nameAr,
+      this.builtIn = false,
+      this.archived = false});
+  final String id, parent, name;
+  final String? nameAr;
+  final bool builtIn, archived;
+
+  String label(bool arabic) =>
+      arabic && (nameAr ?? '').isNotEmpty ? nameAr! : name;
+}
+
+/// "Apply to similar": the rule a correction suggests and its preview.
+class SimilarProposal {
+  const SimilarProposal(
+      {required this.content,
+      required this.preview,
+      required this.sourceTransactionId});
+  final RuleContentSpec content;
+  final RulePreview preview;
+  final String sourceTransactionId;
 }

@@ -44,8 +44,6 @@ class FinanceReviewStrings {
     'tx.save': 'Save',
     'tx.cancel': 'Cancel',
     'tx.filed': 'Saved as {type}.',
-    'tx.moreOnWeb':
-        'Rules, subcategories and Apply to similar are on the web: Finance, Transactions.',
     'type.income': 'Income',
     'type.expense': 'Spending',
     'type.internal_transfer': 'Between your accounts',
@@ -276,8 +274,6 @@ class FinanceReviewStrings {
     'tx.save': 'حفظ',
     'tx.cancel': 'إلغاء',
     'tx.filed': 'حُفظت على أنها {type}.',
-    'tx.moreOnWeb':
-        'القواعد والفئات الفرعية والتطبيق على المشابه على الويب: المالية، المعاملات.',
     'type.income': 'دخل',
     'type.expense': 'إنفاق',
     'type.internal_transfer': 'بين حساباتك',

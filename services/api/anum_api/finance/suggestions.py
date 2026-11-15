@@ -49,6 +49,7 @@ KIND_ORDER: tuple[str, ...] = (
 RECENT_DAYS = 120  # rows a classification suggestion looks at
 HISTORY_DAYS = 400  # what historical reuse learns from
 MAX_ITEMS = 2_000  # suggestions built per request at most
+ENGINE_OPEN = frozenset({"review", "stale"})  # match records waiting for the owner in Matches
 
 
 class Evidence(BaseModel):
@@ -152,6 +153,21 @@ class Snapshot:
     bills: list[Any] = field(default_factory=list)
     bill_links: list[Any] = field(default_factory=list)
     timezone: str = "Asia/Dubai"
+    # The matching engine's records (``match_store.MatchRecord``): one place decides a payment and obligation pair, so a
+    # producer never proposes a pair the engine already holds (docs/finance-matching.md#one-place-for-each-match).
+    match_records: list[Any] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self._held = {(m.canonical_id, m.target_id) for m in self.match_records}
+        self._reviewed = {m.target_id for m in self.match_records if m.outcome in ENGINE_OPEN}
+
+    def engine_holds(self, canonical_id: str, target_id: str) -> bool:
+        """The engine has a record for this pair (in review, linked, rejected, undone or stale): it is the engine's, not a suggestion's."""
+        return (canonical_id, target_id) in self._held
+
+    def engine_reviews(self, target_id: str) -> bool:
+        """A payment for this obligation waits in the engine's own review (Matches): the owner decides it there."""
+        return target_id in self._reviewed
 
 
 Producer = Callable[[Snapshot], list[Suggestion]]
@@ -327,10 +343,17 @@ def bills(snap: Snapshot) -> list[Suggestion]:
                 href="#finance-bills", occurred_on=occ.due_on,
             ))
         elif occ.status in ("overdue", "review"):
-            # The one payment matcher (GET /payment-candidates) proposes the payment when one fits: Accept links it.
             from .attribution import bill_link
+            from .commitments import bill_target_id
 
+            target = bill_target_id(occ.bill_id, occ.due_on)
+            if snap.engine_reviews(target):
+                continue  # the matching engine's review in Matches already shows this due date with its payment: one place, not two
+            # The one payment matcher (GET /payment-candidates) proposes the payment when one fits: Accept links it. A pair the
+            # engine already decided (linked, rejected or undone) is never proposed again here.
             proposal = bill_link(snap, occ) if occ.status == "overdue" else None
+            if proposal is not None and snap.engine_holds(proposal[0].canonical_id, target):
+                proposal = None
             evidence = [Evidence(label=occ.name[:120], ref_type="bill", ref_id=occ.bill_id, value=occ.due_on.isoformat())]
             params = {"name": occ.name[:80], "due_on": occ.due_on.isoformat()}
             if proposal is not None:
@@ -486,10 +509,11 @@ def snapshot(context: TenantContext, now: datetime) -> Snapshot:
         bill_items = [b for b in finance.list_items(context, "bill") if isinstance(b, Bill)]
         bill_links, _ = links.list_links(context, canonical_id=None, dimension=BILL_DIMENSION, target_type=BILL_TARGET, target_id=None,
                                          status=None, limit=10_000, offset=0)
+        matches, _ = links.list_matches(context, limit=50_000, offset=0)
         return Snapshot(context=context, now=now, today=today, accounts={a.id: a for a in finance.list_accounts(context)}, rows=rows,
                         aliases=alias_book(finance, context), imports=imports, review_messages=messages,
                         canon={tid: (e.canonical_id or e.id) for tid, e in entries.items()}, bills=bill_items, bill_links=bill_links,
-                        timezone=settings.timezone)
+                        timezone=settings.timezone, match_records=matches)
 
 
 class QueueCount(BaseModel):

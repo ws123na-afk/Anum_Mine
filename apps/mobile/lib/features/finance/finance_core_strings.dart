@@ -143,10 +143,6 @@ class FinanceCoreStrings extends ModuleStrings {
     'tx.by.match': 'Matching with another record',
     'tx.by.system': 'ANUM',
     'tx.by.none': 'Nothing yet',
-    'tx.changeCategory': 'Change category',
-    'tx.categorySaved': 'Category saved.',
-    'tx.smsOrigin':
-        'An SMS or Apple Pay message recorded this transaction. Correct its category under More in Finance, iPhone SMS, so the audit trail keeps the change.',
     'tx.links': 'Linked records',
     'tx.linksNone':
         'This payment is not linked to a bill, loan or other record.',
@@ -304,10 +300,6 @@ class FinanceCoreStrings extends ModuleStrings {
     'tx.by.match': 'المطابقة مع سجل آخر',
     'tx.by.system': 'ANUM',
     'tx.by.none': 'لا شيء بعد',
-    'tx.changeCategory': 'غيّر الفئة',
-    'tx.categorySaved': 'حُفظت الفئة.',
-    'tx.smsOrigin':
-        'سجلت هذه المعاملة رسالة نصية أو Apple Pay. صحح فئتها من المزيد في المالية، رسائل الآيفون، ليبقى التغيير في سجل التدقيق.',
     'tx.links': 'السجلات المرتبطة',
     'tx.linksNone': 'هذه الدفعة غير مرتبطة بفاتورة أو قرض أو سجل آخر.',
     'tx.evidenceHint':

@@ -1175,8 +1175,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// The register, a transaction's evidence and the salary history read the
   /// same API client as the More pages; null without one (then not offered).
-  FinanceCoreRepository? _core(FinanceController c) =>
-      c.more == null ? null : FinanceCoreRepository(c.more!.api);
+  FinanceCoreRepository? _core(FinanceController c) => c.more == null
+      ? null
+      : FinanceCoreRepository(c.more!.api, uploads: c.more!.uploads);
 
   Future<void> _openRegister(BuildContext context, FinanceController c,
       RegisterFilters filters) async {

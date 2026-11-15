@@ -111,6 +111,7 @@ export const financeMatchingAr = {
   'fmatch.flag.duplicate_event': 'قد تكون بلاغًا ثانيًا عن دفعة أخرى',
   'fmatch.flag.source_changed': 'تغيّرت الدفعة بعد ربطها',
   'fmatch.flag.link_removed': 'أُزيل الربط من صفحة أخرى',
+  'fmatch.flag.card_overpaid': 'دُفع أكثر من رصيد الكشف: بقي للبطاقة رصيد دائن',
   'fmatch.evidence.provider': 'تذكر مقدم الخدمة',
   'fmatch.evidence.provider_missing': 'لا تذكر مقدم الخدمة',
   'fmatch.evidence.order_reference': 'تذكر رقم الطلب',
@@ -126,6 +127,10 @@ export const financeMatchingAr = {
   'fmatch.evidence.amount_partial': 'جزء من المبلغ',
   'fmatch.evidence.date_close': 'في تاريخ الاستحقاق',
   'fmatch.evidence.date_window': 'قرب تاريخ الاستحقاق',
+  'fmatch.evidence.card_statement_full': 'يسدد كشف البطاقة كاملًا',
+  'fmatch.evidence.card_statement_minimum': 'يسدد الحد الأدنى للكشف',
+  'fmatch.evidence.card_statement_partial': 'يسدد جزءًا من كشف البطاقة',
+  'fmatch.evidence.card_statement_over': 'أكثر من رصيد كشف البطاقة',
 
   'fmatch.history.title': 'إعادة معالجة سجلك',
   'fmatch.history.subtitle': 'تُشغّل المطابقة نفسها على كل دفعاتك السابقة، من أقدم شهر، ويمكنها التوقف والمتابعة. المعاينة لا تغيّر شيئًا، والتطبيق يربط فقط ما تسمح به سياستك، وتشغيله مرة أخرى لا يضيف شيئًا.',

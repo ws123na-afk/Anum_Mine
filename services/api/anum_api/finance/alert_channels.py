@@ -12,7 +12,8 @@ The person picks the channels per alert kind in Settings, Notifications, Financi
   ``ANUM_PUSH_MAX_ATTEMPTS``).
 * **Email** (default off: the person opts in): needs the mail server (``notifications.email_configured``), the person's
   ``email_enabled`` switch and an address ANUM knows. Sent with ``notifications.send_with_retries`` (three tries with
-  backoff for a transient failure), never inside a transaction.
+  backoff for a transient failure), never inside a transaction, in the person's email language (``calendar_email_language``,
+  the one calendar reminder emails use: English, Arabic, or English followed by Arabic).
 
 **Nothing private leaves ANUM.** A push or an email carries only the fixed text of its kind (``GENERIC`` and
 ``GENERIC_AR``) and a link into ANUM: never an amount, a merchant or lender name, an account or card number, a date of a
@@ -45,7 +46,7 @@ EMAIL_CLAIM = "alert:email"
 # Time-critical kinds that buzz the phone unless the person turns them off.
 PUSH_DEFAULT = frozenset({
     "installment_due_tomorrow", "installment_paid", "unverified_payment", "card_payment_due", "loan_due_soon", "loan_installment_missed",
-    "budget_nearly_exhausted", "refund_received", "source_stopped",
+    "budget_nearly_exhausted", "refund_received", "source_stopped", "capture_failed",
 })
 
 # Fixed words per kind, the only text a push or an email carries: no amount, name, account digit or date.
@@ -58,6 +59,7 @@ GENERIC: dict[str, tuple[str, str]] = {
     "loan_installment_missed": ("A loan payment was missed", "A loan payment that was due is not matched to a payment."),
     "loan_payment_linked": ("A loan payment was linked", "A payment was linked to one of your loans automatically."),
     "source_stopped": ("An account stopped reporting", "One of your accounts has sent no transactions for a while."),
+    "capture_failed": ("A bank message or statement could not be read", "A bank message or a statement import could not be read, so it is not in your records yet."),
     "budget_nearly_exhausted": ("Budget alert", "A budget is nearly used up or over this month."),
     "unexpected_bank_charge": ("Bank charge", "A bank fee or interest was charged."),
     "suspected_duplicate": ("Possible duplicate payment", "A payment may have been recorded twice."),
@@ -76,6 +78,7 @@ GENERIC_AR: dict[str, tuple[str, str]] = {
     "loan_installment_missed": ("فاتت دفعة قرض", "دفعة قرض كانت مستحقة ولم تُطابق مع أي دفعة."),
     "loan_payment_linked": ("تم ربط دفعة قرض", "تم ربط دفعة بأحد قروضك تلقائيًا."),
     "source_stopped": ("حساب توقف عن الإرسال", "أحد حساباتك لم يرسل أي معاملات منذ مدة."),
+    "capture_failed": ("تعذرت قراءة رسالة بنك أو كشف حساب", "تعذرت قراءة رسالة من البنك أو كشف حساب مستورد، لذلك لم يُسجل بعد في سجلاتك."),
     "budget_nearly_exhausted": ("تنبيه الميزانية", "ميزانية أوشكت على النفاد أو تجاوزت حدها هذا الشهر."),
     "unexpected_bank_charge": ("رسوم بنكية", "تم خصم رسوم أو فائدة بنكية."),
     "suspected_duplicate": ("دفعة مكررة محتملة", "ربما سُجلت دفعة مرتين."),
@@ -116,6 +119,9 @@ class Reach:
     push_reason: str | None  # not_configured, push_off, no_device
     email: str | None  # the address, when email can be sent
     email_reason: str | None  # not_configured, email_off, no_address
+    # The language the person chose for emails (Settings, Notifications; the one calendar reminder emails use): ``en``,
+    # ``ar``, or None for English followed by Arabic.
+    email_language: str | None = None
 
     def available(self, channel: Channel) -> bool:
         return channel == "in_app" or (self.push if channel == "push" else self.email is not None)
@@ -155,7 +161,7 @@ def reach(context: TenantContext) -> Reach:
     else:
         address = recipient_address(context, context.user_id)
         email_reason = None if address else "no_address"
-    return Reach(push=push, push_reason=push_reason, email=address, email_reason=email_reason)
+    return Reach(push=push, push_reason=push_reason, email=address, email_reason=email_reason, email_language=preferences.calendar_email_language)
 
 
 def channel_view(found: Reach) -> dict[str, dict[str, Any]]:
@@ -177,15 +183,33 @@ def link() -> str | None:
     return f"{base}/#finance" if base else None
 
 
-def email_text(kind: str, count: int) -> tuple[str, str]:
-    """Subject and body of an alert email: the kind's fixed words and a link, never the details."""
-    title, body = generic(kind)
-    more = f" ({count})" if count > 1 else ""
+def email_text(kind: str, count: int, language: str | None = None) -> tuple[str, str]:
+    """Subject and body of an alert email: the kind's fixed words and a link, never the details. In the person's email
+    language: ``en``, ``ar``, or None for English followed by the same in Arabic (as calendar reminder emails)."""
     where = link()
-    open_line = f"Open ANUM to see the details: {where}" if where else "Open ANUM, Finance, to see the details."
-    return (f"ANUM: {title}{more}",
-            f"{body}\n\n{open_line}\n\nFor your privacy this email has no amounts, names or account numbers: they stay in ANUM.\n\n"
-            "You get it because email is on for this alert in Settings, Notifications, Financial alerts.")
+
+    def english() -> tuple[str, str]:
+        title, body = generic(kind, "en")
+        more = f" ({count})" if count > 1 else ""
+        open_line = f"Open ANUM to see the details: {where}" if where else "Open ANUM, Finance, to see the details."
+        return (f"ANUM: {title}{more}",
+                f"{body}\n\n{open_line}\n\nFor your privacy this email has no amounts, names or account numbers: they stay in ANUM.\n\n"
+                "You get it because email is on for this alert in Settings, Notifications, Financial alerts.")
+
+    def arabic() -> tuple[str, str]:
+        title, body = generic(kind, "ar")
+        more = f" ({count})" if count > 1 else ""
+        open_line = f"افتح ANUM لرؤية التفاصيل: {where}" if where else "افتح ANUM، المالية، لرؤية التفاصيل."
+        return (f"ANUM: {title}{more}",
+                f"{body}\n\n{open_line}\n\nحفاظًا على خصوصيتك لا تحتوي هذه الرسالة على مبالغ أو أسماء أو أرقام حسابات: تبقى في ANUM.\n\n"
+                "تصلك لأن البريد مفعّل لهذا التنبيه في الإعدادات، الإشعارات، التنبيهات المالية.")
+
+    if language == "en":
+        return english()
+    if language == "ar":
+        return arabic()
+    (subject, en_body), (_ar_subject, ar_body) = english(), arabic()
+    return subject, f"{en_body}\n\n{ar_body}"
 
 
 def send_push(context: TenantContext, kind: str, count: int) -> bool:
@@ -208,11 +232,12 @@ def send_push(context: TenantContext, kind: str, count: int) -> bool:
 EmailResult = Literal["sent", "transient", "permanent"]
 
 
-def send_email(address: str, kind: str, count: int) -> EmailResult:
-    """Send one alert email now (bounded retries with backoff). Never call it with a transaction open."""
+def send_email(address: str, kind: str, count: int, language: str | None = None) -> EmailResult:
+    """Send one alert email now (bounded retries with backoff), in the person's email language. Never call it with a
+    transaction open."""
     from .. import notifications
 
-    subject, text = email_text(kind, count)
+    subject, text = email_text(kind, count, language)
     outcome = notifications.send_with_retries(address, subject, text)
     if outcome.status == "sent":
         return "sent"

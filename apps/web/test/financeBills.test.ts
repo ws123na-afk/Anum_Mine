@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { FinanceBillOccurrence, FinanceBudgetLine } from '@anum/contracts';
-import { billKpis, budgetAtRisk, budgetKpis, budgetTone, calendarWeeks, dayStrip, isOpen, pickTotal, statusTone, uniqueBills } from '../src/lib/financeBills.ts';
+import { billKpis, budgetAtRisk, budgetKpis, budgetLimit, budgetTone, calendarWeeks, dayStrip, isOpen, pickTotal, statusTone, uniqueBills } from '../src/lib/financeBills.ts';
 
 const row = (over: Partial<FinanceBillOccurrence>): FinanceBillOccurrence => ({
   bill_id: 'b1', name: 'Rent', category: 'housing', cadence: 'monthly', account_id: null, due_on: '2026-11-15', days_until: 10, expected: '2500.00',
@@ -54,6 +54,13 @@ describe('budget figures', () => {
     assert.equal(k.active, 3);
     assert.deepEqual(k.remaining, [{ currency: 'AED', amount: '500.00', count: 1 }, { currency: 'SAR', amount: '620.50', count: 2 }]);
     assert.deepEqual(k.budget.find((b) => b.currency === 'SAR')?.amount, '1300.00');
+  });
+
+  test('a cap paired with a rollover budget counts what carried in', () => {
+    const carried = line({ cap: '1000.00', available: '1200.00', carried_in: '200.00', rollover_budget_id: 'food' });
+    assert.equal(budgetLimit(carried), '1200.00');
+    assert.equal(budgetLimit(line({ cap: '1000.00' })), '1000.00');  // an older server leaves it out
+    assert.deepEqual(budgetKpis({ budgets: [carried] }).budget, [{ currency: 'SAR', amount: '1200.00', count: 1 }]);
   });
 
   test('the budget at risk: over first, then the pace that ends furthest past its cap', () => {

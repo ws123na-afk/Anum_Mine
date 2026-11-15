@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -55,21 +55,42 @@ def lending_ids(store: FinanceStore, context: TenantContext) -> frozenset[str]:
     return lending_ids_on(store, context)
 
 
+def cap_carry(store: FinanceStore, context: TenantContext, rules: GuardianRules, day: date, *, today: date | None = None,
+              lending: frozenset[str] | None = None) -> dict[tuple[Category, str], Any]:
+    """What each Guardian cap's paired rollover budget carried into the month of ``day`` (``budget_rollover.cap_carry``),
+    read on the store's own unit of work. Empty (and nothing more is read) when no cap has such a budget."""
+    from . import budget_rollover as RO
+
+    if not rules.category_caps:
+        return {}
+    planning = store.get_planning(context)
+    span = RO.cap_window(rules.category_caps, planning.budgets, planning.budget_rollovers, day)
+    if span is None:
+        return {}
+    rows = store.transactions_between(context, span[0], span[1])
+    spend = spend_rows(rows, None, lending if lending is not None else lending_ids(store, context))
+    return RO.cap_carry(rules.category_caps, planning.budgets, planning.budget_rollovers, spend, on=day, today=today or day)
+
+
 def ledger_state(store: FinanceStore, context: TenantContext, day: date, *, exclude_id: str | None = None) -> LedgerState:
-    """The month of ``day`` up to and including it, and ``day`` itself."""
+    """The month of ``day`` up to and including it, and ``day`` itself, and what a rollover budget carried into a cap."""
     settings = settings_for(store, context)
     start = day.replace(day=1)
-    rows = _spend(store.transactions_between(context, start, day), exclude_id, lending_ids(store, context))
+    lending = lending_ids(store, context)
+    rows = _spend(store.transactions_between(context, start, day), exclude_id, lending)
     month: dict[tuple[Category, str], Decimal] = {}
     today: dict[str, Decimal] = {}
     for t in rows:
         month[(t.category, t.currency)] = month.get((t.category, t.currency), Decimal(0)) - t.amount
         if t.posted_on == day:
             today[t.currency] = today.get(t.currency, Decimal(0)) - t.amount
+    rules, _ = current_rules(store, context)
+    carried = cap_carry(store, context, rules, day, lending=lending)
     return LedgerState(
         timezone=settings.timezone,
         month_spend=[SpendRow(category=c, currency=cur, amount=v) for (c, cur), v in sorted(month.items(), key=lambda kv: (kv[0][0].value, kv[0][1]))],
         day_spend=[SpendRow(currency=cur, amount=v) for cur, v in sorted(today.items())],
+        carried=[SpendRow(category=c, currency=cur, amount=v.carried_in) for (c, cur), v in carried.items()],
     )
 
 
@@ -103,13 +124,17 @@ class GuardianAlerts(BaseModel):
 
 def month_alerts(store: FinanceStore, context: TenantContext, month: str | None = None, *, now: datetime | None = None) -> GuardianAlerts:
     settings = settings_for(store, context)
-    label, start, end = month_range(month, today_in(settings, now))
+    today = today_in(settings, now)
+    label, start, end = month_range(month, today)
     rules, version = current_rules(store, context)
     rules = rules.active()  # a paused kind raises no alert
     alerts: list[GuardianAlert] = []
     if rules.is_empty():
         return GuardianAlerts(month=label, version=version, alerts=alerts)
-    rows = _spend(store.transactions_between(context, start, end), lending=lending_ids(store, context))
+    lending = lending_ids(store, context)
+    rows = _spend(store.transactions_between(context, start, end), lending=lending)
+    # A cap with a paired rollover budget is judged against what is available this month: the cap plus what carried in.
+    carried = cap_carry(store, context, rules, start, today=today, lending=lending)
     by_cat: dict[tuple[Category, str], Decimal] = {}
     by_day: dict[tuple[date, str], Decimal] = {}
     for t in rows:
@@ -118,18 +143,23 @@ def month_alerts(store: FinanceStore, context: TenantContext, month: str | None 
     budget_alerts = store.get_planning(context).budget_alerts
     for cap in rules.category_caps:
         spent = by_cat.get((cap.category, cap.currency), Decimal(0))
-        params = {"category": cap.category.value, "currency": cap.currency, "spent": str(spent), "limit": str(cap.amount)}
+        carry = carried.get((cap.category, cap.currency))
+        limit = cap.amount + (carry.carried_in if carry else Decimal(0))
+        params = {"category": cap.category.value, "currency": cap.currency, "spent": str(spent), "limit": str(limit)}
+        if carry is not None:
+            params.update(cap=str(cap.amount), carried_in=str(carry.carried_in))
+        what = f"your cap of {cap.currency} {cap.amount}" if carry is None else f"the {cap.currency} {limit} available (your cap plus what carried in)"
         # Each budget's own threshold and switches (docs/finance.md#bills-and-budgets); 80 percent and both on by default.
         setting = next((a for a in budget_alerts if a.category == cap.category and a.currency == cap.currency), None)
         near = Decimal(setting.alert_percent) / 100 if setting else NEAR
-        if spent > cap.amount:
+        if spent > limit or limit <= 0:  # a carried overspend that used the whole cap up is over at once
             if setting is not None and not setting.alert_over:
                 continue
             alerts.append(GuardianAlert(code="cap_over", severity="over", rule="category_caps", params=params,
-                                        message=f"{cap.category.value}: {cap.currency} {spent} spent, over your cap of {cap.currency} {cap.amount}."))
-        elif spent >= cap.amount * near and (setting is None or setting.alert_near):
+                                        message=f"{cap.category.value}: {cap.currency} {spent} spent, over {what}."))
+        elif spent >= limit * near and (setting is None or setting.alert_near):
             alerts.append(GuardianAlert(code="cap_near", severity="near", rule="category_caps", params=params,
-                                        message=f"{cap.category.value}: {cap.currency} {spent} spent, near your cap of {cap.currency} {cap.amount}."))
+                                        message=f"{cap.category.value}: {cap.currency} {spent} spent, near {what}."))
     for phrase in rules.blocked_merchants:
         seen = [t for t in rows if merchant_matches(phrase, t.description)]
         if seen:

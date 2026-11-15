@@ -160,6 +160,11 @@ class BudgetLine(BaseModel):
     alert_over: bool
     projected: Decimal | None  # at this month's pace, for the current month only
     projected_over: Decimal | None  # how far past the cap that pace ends, when it does
+    # A cap with a paired rollover budget (docs/finance.md#budget-rollover): what carried into the month, and the cap plus
+    # that. ``remaining``, ``over``, ``percent``, ``state`` and the pace are judged against ``available``.
+    carried_in: Decimal = Decimal(0)
+    available: Decimal | None = None
+    rollover_budget_id: str | None = None
 
 
 class BudgetPoint(BaseModel):
@@ -197,10 +202,12 @@ def _spend_rows(rows: list[Transaction], lending: frozenset[str] | None = None) 
 
 
 def budget_report(rules: GuardianRules, version: int, alerts: list[BudgetAlert], rows: list[Transaction], *, month: str, start: date, end: date,
-                  today: date, lending: frozenset[str] | None = None) -> BudgetReport:
+                  today: date, lending: frozenset[str] | None = None, carried: dict[tuple[Category, str], Any] | None = None) -> BudgetReport:
     """Each cap with what was spent, what is left, its state and, this month, where the pace ends.
 
-    ``lending``: transactions lent or borrowed with a person, never spending (``flows.py``)."""
+    ``lending``: transactions lent or borrowed with a person, never spending (``flows.py``). ``carried``: what a cap's
+    paired rollover budget carried into the month (``budget_rollover.cap_carry``); the cap is then judged against
+    ``available`` = cap + carried in."""
     spend = _spend_rows(rows, lending)
     by_cat: dict[tuple[Category, str], Decimal] = {}
     by_day: dict[tuple[str, date], Decimal] = {}
@@ -216,14 +223,19 @@ def budget_report(rules: GuardianRules, version: int, alerts: list[BudgetAlert],
     for cap in rules.category_caps:
         spent = quantize(max(by_cat.get((cap.category, cap.currency), Decimal(0)), Decimal(0)), cap.currency)
         alert = alert_for(alerts, cap.category, cap.currency)
-        percent = int(spent * 100 / cap.amount) if cap.amount > 0 else 0
-        state: BudgetState = "over" if spent > cap.amount else "near" if spent * 100 >= cap.amount * alert.alert_percent else "ok"
+        carry = (carried or {}).get((cap.category, cap.currency))
+        carried_in = carry.carried_in if carry is not None else Decimal(0)
+        limit = quantize(cap.amount + carried_in, cap.currency)
+        percent = int(spent * 100 / limit) if limit > 0 else (100 if carry is not None else 0)
+        over_now = spent > limit or (carry is not None and limit <= 0)  # a carried overspend that used the cap up is over
+        state: BudgetState = "over" if over_now else "near" if spent * 100 >= limit * alert.alert_percent else "ok"
         projected = quantize(spent * days / elapsed, cap.currency) if current and elapsed > 0 else None
         lines.append(BudgetLine(
             category=cap.category, currency=cap.currency, cap=quantize(cap.amount, cap.currency), spent=spent,
-            remaining=quantize(max(cap.amount - spent, Decimal(0)), cap.currency), over=quantize(max(spent - cap.amount, Decimal(0)), cap.currency), percent=percent, state=state, alert_percent=alert.alert_percent,
+            remaining=quantize(max(limit - spent, Decimal(0)), cap.currency), over=quantize(max(spent - limit, Decimal(0)), cap.currency), percent=percent, state=state, alert_percent=alert.alert_percent,
             alert_near=alert.alert_near, alert_over=alert.alert_over, projected=projected,
-            projected_over=quantize(projected - cap.amount, cap.currency) if projected is not None and projected > cap.amount else None,
+            projected_over=quantize(projected - limit, cap.currency) if projected is not None and projected > limit else None,
+            carried_in=quantize(carried_in, cap.currency), available=limit, rollover_budget_id=carry.budget_id if carry is not None else None,
         ))
     lines.sort(key=lambda l: (-l.percent, l.category.value, l.currency))
     series: list[BudgetSeries] = []

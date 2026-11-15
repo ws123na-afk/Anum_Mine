@@ -198,6 +198,8 @@ export const financePlanningAr = {
   'fplan.health.aria': '{category}: أُنفق {percent}% من الميزانية',
   'fplan.health.near': 'قريب من الحد',
   'fplan.health.over': 'تجاوز الميزانية',
+  'fplan.health.carriedIn': 'يشمل {amount} مرحّلة من الشهر الماضي',
+  'fplan.health.carriedOver': 'ناقص {amount} تجاوزتها الشهر الماضي',
   'fplan.health.empty': 'لا ميزانيات بعد',
   'fplan.health.emptyText': 'الميزانية حد شهري لفئة. أضف واحدة لترى كيف يسير هذا الشهر.',
   'fplan.budgetChart.title': 'إنفاق الشهر في الفئات ذات الميزانية',

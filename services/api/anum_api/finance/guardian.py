@@ -307,9 +307,14 @@ class LedgerState(BaseModel):
     timezone: str = "Asia/Dubai"
     month_spend: list[SpendRow] = Field(default_factory=list)
     day_spend: list[SpendRow] = Field(default_factory=list)
+    # What a cap's paired rollover budget carried into this month (docs/finance.md#budget-rollover); below zero: an overspend.
+    carried: list[SpendRow] = Field(default_factory=list)
 
     def month(self, category: Category, currency: str) -> Decimal:
         return sum((r.amount for r in self.month_spend if r.category == category and r.currency == currency), Decimal(0))
+
+    def carried_in(self, category: Category, currency: str) -> Decimal:
+        return sum((r.amount for r in self.carried if r.category == category and r.currency == currency), Decimal(0))
 
     def day(self, currency: str) -> Decimal:
         return sum((r.amount for r in self.day_spend if r.currency == currency), Decimal(0))
@@ -387,10 +392,14 @@ def evaluate(action: GuardianAction, rules: GuardianRules, state: LedgerState) -
         for cap in rules.category_caps:
             if cap.category == action.category and cap.currency == currency:
                 spent = state.month(cap.category, currency)
-                if spent + amount > cap.amount:
+                # A carried overspend lowers the month's limit; carried money left never raises it here, because the gate
+                # is a confirmed rule and only the owner loosens it (reports and alerts show the higher figure).
+                limit = cap.amount + min(state.carried_in(cap.category, currency), Decimal(0))
+                if spent + amount > limit:
+                    what = f"your cap of {currency} {cap.amount}" if limit == cap.amount else f"the {currency} {limit} left of your cap after last month's overspend"
                     add("over_category_cap", "deny",
-                        f"With {currency} {spent} on {cap.category.value} this month, {shown} goes over your cap of {currency} {cap.amount}.",
-                        "category_caps", limit=str(cap.amount), spent=str(spent), currency=currency, category=cap.category.value)
+                        f"With {currency} {spent} on {cap.category.value} this month, {shown} goes over {what}.",
+                        "category_caps", limit=str(limit), spent=str(spent), currency=currency, category=cap.category.value)
     if action.kind == ActionKind.RECORD:
         # Money already gone: approval and the time rules (quiet hours, cooling off) do not apply.
         return _decide(reasons)

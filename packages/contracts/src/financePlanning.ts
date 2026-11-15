@@ -85,6 +85,11 @@ export interface FinanceBudgetLine {
   /** At this month's pace (current month only). */
   projected: string | null;
   projected_over: string | null;
+  /** A cap paired with a rollover budget (docs/finance.md#budget-rollover): what carried in and the cap plus that; the
+   * state, remaining, over and percent are judged against `available`. Older servers leave them out. */
+  carried_in?: string;
+  available?: string | null;
+  rollover_budget_id?: string | null;
 }
 
 export interface FinanceBudgetSeries { currency: string; budget: string; spent: string; points: { day: string; spent: string }[] }

@@ -198,6 +198,8 @@ export const financePlanningEn = {
   'fplan.health.aria': '{category}: {percent}% of the budget spent',
   'fplan.health.near': 'Near limit',
   'fplan.health.over': 'Over budget',
+  'fplan.health.carriedIn': 'Includes {amount} carried in from last month',
+  'fplan.health.carriedOver': 'Less {amount} overspent last month',
   'fplan.health.empty': 'No budgets yet',
   'fplan.health.emptyText': 'A budget is a monthly cap on a category. Add one to see how this month is going.',
   'fplan.budgetChart.title': 'Month spend in budgeted categories',

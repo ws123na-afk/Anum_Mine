@@ -128,6 +128,10 @@ class LinkedRecord(BaseModel):
     currency: str | None
     status: Literal["active", "needs_review"]
     evidence: LinkEvidence
+    # Where ``evidence`` comes from: the matching engine's own record of this link (``matching``: the state it stored when it
+    # linked or the owner accepted, upgraded when the bank confirmed it), else the display rule for links made by hand (``rule``).
+    evidence_source: Literal["matching", "rule"] = "rule"
+    match_id: str | None = None
     reason: str | None = None
     created_at: datetime
 
@@ -417,6 +421,28 @@ def link_evidence(status: str, row: RegisterRow, account_kind: AccountKind | Non
     return "provisional"
 
 
+ENGINE_LINKED = frozenset({"auto_linked", "accepted"})
+
+
+def _engine_records(context: TenantContext, canonical_id: str, links: list[Any]) -> dict[str, Any]:
+    """The matching engine's record behind each of these links (link id to ``MatchRecord``), when the engine made the link or the
+    owner accepted its match: its stored evidence state is the one shown. A link made by hand has none (the display rule applies)."""
+    from .matching_service import PROVISIONAL
+
+    # A link held for review for another reason than a provisional match (its payment changed under it) is pending, whatever
+    # the engine stored when it linked: the next run marks that record stale.
+    links = [l for l in links if getattr(l.status, "value", l.status) != "needs_review" or l.status_reason == PROVISIONAL]
+    if not canonical_id or not links:
+        return {}
+    out: dict[str, Any] = {}
+    with open_link_stores(context) as (_finance, _sms, store):
+        for link in links:
+            record = store.match_for_pair(context, canonical_id, link.target_id)
+            if record is not None and record.link_id == link.id and record.outcome in ENGINE_LINKED:
+                out[link.id] = record
+    return out
+
+
 CATEGORY_BY: dict[CategorySource, str] = {CategorySource.MANUAL: "owner", CategorySource.OWNER_RULE: "learned", CategorySource.RULE: "rule",
                                           CategorySource.MATCH: "match", CategorySource.SYSTEM: "system", CategorySource.NONE: "none"}
 
@@ -457,15 +483,18 @@ def register_detail(transaction_id: str, context: TenantContext = Depends(tenant
     receipts = [link.target_id for link in facts.links.get(canonical, [])
                 if link.status != "void" and link.dimension == "document" and link.role == "evidence"]
     linked: list[LinkedRecord] = []
+    engine = _engine_records(context, canonical, [l for l in facts.links.get(canonical, []) if l.status != "void" and l.dimension in ("bill", "debt")])
     for link in facts.links.get(canonical, []):
         if link.status == "void" or link.dimension == "document":
             continue
+        record = engine.get(link.id)
         key = parse_bill_target(link.target_id) if link.dimension == "bill" else None
         name = names.get(("bill", key[0])) if key else names.get((link.dimension, link.target_id))
         linked.append(LinkedRecord(id=link.id, dimension=link.dimension, role=link.role, target_type=link.target_type, target_id=link.target_id,
                                    target_name=name, amount=link.amount, currency=link.currency, status=link.status,
-                                   evidence=link_evidence(link.status, row, account.kind if account else None), reason=link.status_reason,
-                                   created_at=link.created_at))
+                                   evidence=record.evidence_state if record is not None else link_evidence(link.status, row, account.kind if account else None),
+                                   evidence_source="matching" if record is not None else "rule", match_id=record.id if record is not None else None,
+                                   reason=link.status_reason, created_at=link.created_at))
     by_id = {t.id: t for t in nearby}
     related: list[RelatedRow] = []
 

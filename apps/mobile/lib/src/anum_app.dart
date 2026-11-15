@@ -452,7 +452,8 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         intelRepository: ApiFinanceIntelRepository(api),
         personalRepository: ApiFinancePersonalRepository(api),
         depthRepository: ApiFinanceDepthRepository(api),
-        more: FinanceMoreRepository(api, pdf: fileTransfer),
+        more: FinanceMoreRepository(api,
+            pdf: fileTransfer, uploads: fileTransfer),
         loanPeople: ApiLoanPeopleSource(api),
         planner: ChatMoneyPlanner(ChatRepository(api, events)));
     // The post-close trading report notice opens Finance, Trading

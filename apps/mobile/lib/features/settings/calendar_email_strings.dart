@@ -22,7 +22,7 @@ class CalendarEmailStrings {
         'Also email the calendar reminders an event asks to send by email. Needs Email delivery above to be on.',
     'needsEmail':
         'Off while Email delivery is off: switch it on to get calendar reminder emails.',
-    'language': 'Language of calendar reminder emails',
+    'language': 'Language of reminder and alert emails',
     'both': 'English, then Arabic',
     'en': 'English',
     'ar': 'Arabic',
@@ -34,7 +34,7 @@ class CalendarEmailStrings {
         'أرسل بالبريد أيضًا تذكيرات التقويم التي يطلب الحدث إرسالها بالبريد. يلزم تفعيل التسليم بالبريد أعلاه.',
     'needsEmail':
         'متوقفة ما دام التسليم بالبريد متوقفًا: فعّله لتصلك رسائل تذكير التقويم.',
-    'language': 'لغة رسائل تذكير التقويم',
+    'language': 'لغة رسائل التذكير والتنبيهات بالبريد',
     'both': 'الإنجليزية ثم العربية',
     'en': 'الإنجليزية',
     'ar': 'العربية',

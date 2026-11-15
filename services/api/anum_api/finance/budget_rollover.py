@@ -169,8 +169,55 @@ def chain(budget: Any, history: list[BudgetTerms], spend: list[Transaction], *, 
     return out
 
 
+# -- Guardian caps (docs/finance.md#budget-rollover) ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CapCarry:
+    budget_id: str
+    carried_in: Decimal  # what the paired budget carried into the month (below zero: a carried overspend)
+
+
+def cap_budget(category: Any, currency: str, budgets: list[Any], rollovers: list[BudgetTerms] | None) -> Any | None:
+    """The one budget that stands for a Guardian cap's month: an active monthly spending budget in the cap's currency
+    whose only category is the cap's (no subcategory narrowing it) and that has rollover terms. None when there is no
+    such budget or more than one (two budgets cannot both decide what one cap carries)."""
+    found = [b for b in budgets
+             if b.active and getattr(b.kind, "value", b.kind) == "spending" and getattr(b.period, "value", b.period) == "monthly"
+             and b.currency == currency and list(b.categories) == [category] and not b.subcategory_ids
+             and any(carries(t) for t in history_for(b.id, rollovers))]
+    return found[0] if len(found) == 1 else None
+
+
+def cap_carry(caps: list[Any], budgets: list[Any], rollovers: list[BudgetTerms] | None, spend: list[Transaction], *, on: date,
+              today: date) -> dict[tuple[Any, str], CapCarry]:
+    """For each Guardian cap (``category``, ``currency``) with a paired rollover budget (``cap_budget``): what that budget's
+    chain carried into the month holding ``on``. The cap's limit for the month is then the cap plus that, the same
+    ``available`` the budget shows. ``spend`` are the rows the shared spending rule keeps over ``cap_window``."""
+    out: dict[tuple[Any, str], CapCarry] = {}
+    for cap in caps:
+        budget = cap_budget(cap.category, cap.currency, budgets, rollovers)
+        if budget is None:
+            continue
+        periods = chain(budget, history_for(budget.id, rollovers), spend, on=on, today=today)
+        start = period_for(budget, on)[0]
+        if periods and periods[-1].start == start and periods[-1].currency == cap.currency:
+            out[(cap.category, cap.currency)] = CapCarry(budget.id, periods[-1].carried_in)
+    return out
+
+
+def cap_window(caps: list[Any], budgets: list[Any], rollovers: list[BudgetTerms] | None, on: date) -> tuple[date, date] | None:
+    """The dates whose rows ``cap_carry`` needs, None when no cap has a paired budget (nothing to read)."""
+    paired = [b for b in (cap_budget(c.category, c.currency, budgets, rollovers) for c in caps) if b is not None]
+    return window(paired, rollovers, on) if paired else None
+
+
 __all__ = [
     "CHAIN_SHOWN",
+    "CapCarry",
+    "cap_budget",
+    "cap_carry",
+    "cap_window",
     "MAX_TERMS_PER_BUDGET",
     "ChainPeriod",
     "carries",

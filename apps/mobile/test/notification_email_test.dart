@@ -191,13 +191,17 @@ void main() {
     expect(saved.body!['calendar_email_language'], 'ar');
     expect(saved.body!['calendar_email'], isTrue);
     expect(saved.body!['tyre_alerts'], isTrue);
-    // Turning calendar emails off saves it and disables the language.
+    // Turning calendar emails off saves it; the language stays open
+    // because financial alert emails use it too.
     await tester.ensureVisible(toggle);
     await tester.tap(toggle);
     await tester.pumpAndSettle();
     final off = transport.requests.lastWhere((r) =>
         r.method == 'PUT' && r.uri.path.endsWith('/notification-preferences'));
     expect(off.body!['calendar_email'], isFalse);
+    expect(tester.widget<DropdownButtonFormField<String>>(language).onChanged,
+        isNotNull);
+    expect(find.text('Language of reminder and alert emails'), findsOneWidget);
   });
 
   test('calendar email strings have the same keys in English and Arabic', () {

@@ -484,11 +484,11 @@ class _NotificationState extends State<_NotificationCard> {
                     value: code,
                     child: Text(s.t(code.isEmpty ? 'both' : code))),
             ],
-            onChanged: value.calendarEmail
-                ? (code) => update(code == null || code.isEmpty
-                    ? copy(clearLanguage: true)
-                    : copy(language: code))
-                : null),
+            // Financial alert emails use the same language, so it stays
+            // open while calendar reminder emails are off.
+            onChanged: (code) => update(code == null || code.isEmpty
+                ? copy(clearLanguage: true)
+                : copy(language: code))),
       ),
     ]);
   }

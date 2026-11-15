@@ -346,6 +346,8 @@ def debts(snap: SG.Snapshot, live: list[Any]) -> list[SG.Suggestion]:
         if not choice:
             continue
         debt = choice[0]
+        if snap.engine_holds(canonical, debt.id):
+            continue  # the matching engine decided this payment against this debt (card repayment, loan month): Matches shows it
         both = debt in named and debt.minimum_payment == amount
         out.append(_suggest(
             t, canonical, f"attribution:debt:{t.id}:{debt.id}", "debt", f"This payment may pay your debt {debt.name}.",
