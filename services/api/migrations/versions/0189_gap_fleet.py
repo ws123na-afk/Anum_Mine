@@ -67,7 +67,10 @@ def upgrade() -> None:
     )
     op.execute(
         "create policy vehicle_fleet_report_writer_update on vehicle_fleet_reports as restrictive for update "
-        "using (true) with check (updated_by = nullif(current_setting('anum.user_id', true), ''))"
+        # Any row of the workspace may be rewritten (by its new writer); the purger is named so the lifecycle purge is never
+        # hidden by a restrictive policy (test_postgres_tenant_lifecycle).
+        "using (updated_by is not null or current_user = 'anum_tenant_purger'::name) "
+        "with check (updated_by = nullif(current_setting('anum.user_id', true), ''))"
     )
     op.execute("grant select (tenant_id, ctid, workspace_id), delete on vehicle_fleet_reports to anum_tenant_purger")
     op.execute(
