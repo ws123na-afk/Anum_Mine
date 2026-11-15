@@ -31,6 +31,19 @@ def test_confirmation_and_repayment_reconstruct_schedule_without_bank_payment() 
     assert all(r.total_installments == 4 for r in rows)
 
 
+def test_a_uae_order_in_dirhams_keeps_its_currency() -> None:
+    """Tamara's UAE store writes AED: the schedule, the repayment and a refund keep it (they were dropped before)."""
+    confirmation = message("m1", "Split in 2 order confirmed at Example Store",
+                           "Paid today\n150 AED\nDue on 01.12.2026\n150 AED\nOrder Number\nexample-aed-1")
+    repayment = message("m2", "Repayment Confirmation", "We've received your payment of AED 150 for the second payment.\n"
+                        "Order Number\nexample-aed-1")
+    refund = message("m3", "Your order status has been updated - refund", "Refunded amount: AED 150\nOrder Number\nexample-aed-1")
+    rows, warnings = extract_tamara_statement([confirmation, repayment])
+    assert not warnings and [(r.currency, r.amount, r.source_status) for r in rows] == [("AED", Decimal("150"), "paid"), ("AED", Decimal("150"), "paid")]
+    notices = extract_tamara_refunds([refund])
+    assert notices[0].currency == "AED" and notices[0].amount == Decimal("150")
+
+
 def test_refund_with_an_amount_keeps_the_schedule_and_becomes_refund_evidence() -> None:
     """A refund email naming its amount is evidence for Finance > Refunds; the schedule stays as Tamara sent it."""
     confirmation = message("m1", "Split in 3 order confirmed at Amazon",

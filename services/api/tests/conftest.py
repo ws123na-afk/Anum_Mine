@@ -73,6 +73,8 @@ TABLES_IN_DELETE_ORDER = (
     "mail_identities",
     "mail_account_grants",
     "mail_accounts",
+    "finance_match_records",
+    "finance_backfill_runs",
     "finance_links",
     "finance_device_events",
     "business_ledger_allocations",

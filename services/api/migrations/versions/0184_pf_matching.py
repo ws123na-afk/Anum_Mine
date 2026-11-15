@@ -9,6 +9,8 @@ docs/finance-matching.md.
   rerun updates the decision instead of adding one.
 * ``finance_backfill_runs``: one historical reprocessing run (preview or apply) with its checkpoint (the last month
   finished), attempts, counts and error code. At most one running run per person (a partial unique index).
+* ``finance_notice_claims.kind`` also takes ``match_review``: the daily notice that matches wait for review claims its
+  day like the exception notices. The check is replaced by a wider one (every existing row still passes).
 
 Both have forced RLS like ``0157``: ``tenant_isolation_<table>``, a restrictive ``owner_only_<table>`` policy (also
 admitting the tenant purge role, which can only delete) and ``lifecycle_purge_<table>``. No grant to a maintenance role.
@@ -37,6 +39,12 @@ PREDICATE = (
     "and workspace_id = nullif(current_setting('anum.workspace_id', true), '')"
 )
 OWNER_PREDICATE = "owner_user_id = nullif(current_setting('anum.user_id', true), '')"
+OLD_NOTICE_KINDS = ("reconciliation_overdue", "statement_missing", "uncategorized_money", "business_unposted", "evidence_missing")
+NOTICE_KINDS = (*OLD_NOTICE_KINDS, "match_review")
+
+
+def _kinds(values: tuple[str, ...]) -> str:
+    return ", ".join(f"'{v}'" for v in values)
 
 
 def _owned() -> list[sa.Column]:
@@ -58,6 +66,10 @@ def _rls(table: str) -> None:
 
 
 def upgrade() -> None:
+    # A wider check (every existing row still passes): the daily "matches wait for review" notice claims its day too.
+    op.execute("alter table finance_notice_claims drop constraint ck_finance_notice_claims_kind")
+    op.execute(f"alter table finance_notice_claims add constraint ck_finance_notice_claims_kind check (kind in ({_kinds(NOTICE_KINDS)}))")
+
     op.create_table(
         MATCHES,
         *_owned(),
@@ -144,3 +156,6 @@ def downgrade() -> None:
     op.execute("drop policy if exists lifecycle_purge_finance_match_records on finance_match_records")
     op.drop_table(RUNS)
     op.drop_table(MATCHES)
+    op.execute("delete from finance_notice_claims where kind = 'match_review'")
+    op.execute("alter table finance_notice_claims drop constraint ck_finance_notice_claims_kind")
+    op.execute(f"alter table finance_notice_claims add constraint ck_finance_notice_claims_kind check (kind in ({_kinds(OLD_NOTICE_KINDS)}))")

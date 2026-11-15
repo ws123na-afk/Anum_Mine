@@ -40,6 +40,8 @@ class SuggestionJobResult:
     batches: int = 0
     notices: int = 0
     exception_notices: int = 0  # docs/finance.md#exception-notices
+    matched: int = 0  # links the record-linking policy made (docs/finance-matching.md)
+    backfill_months: int = 0  # months a running history run processed
     skipped: int = 0
     failed: int = 0
 
@@ -180,7 +182,55 @@ def run_person(tenant_id: str, workspace_id: str, user_id: str, *, now: datetime
     sent, failed = exception_notices.run(context, now=moment, dry_run=dry_run)
     result.exception_notices += sent
     result.failed += failed
+    try:
+        linked, months, noticed = _matching(context, now=moment, dry_run=dry_run)
+    except Exception as exc:  # noqa: BLE001 - counts only; the next run tries again
+        logger.warning("finance_matching_job_failed error_class=%s", type(exc).__name__)
+        result.failed += 1
+    else:
+        result.matched += linked
+        result.backfill_months += months
+        result.notices += noticed
     return result
+
+
+MATCH_NOTICE_KIND = "finance_exceptions"  # an exception notice: in-app only, opens Finance on the phone
+
+
+def _matching(context: TenantContext, *, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+    """The owner's record-linking policy (docs/finance-matching.md): match the recent weeks, carry on a running history run,
+    and, when asked, one in-app notice a day while matches wait for review. Returns (links made, months done, notices)."""
+    from . import backfill
+    from . import matching_service as MS
+    from .links_store import open_link_stores
+    from .personal_jobs import notify as send
+    from .rules_store import open_rule_stores
+    from .summary import settings_for, today_in
+
+    policy = MS.policy_for(context)
+    if not policy.match_transactions or policy.approved_at is None:
+        return 0, 0, 0
+    require_automatable("match_transactions")
+    linked = MS.run_recent(context, now=now, dry_run=dry_run).auto_linked
+    months = 0 if dry_run else backfill.continue_running(context, now=now)
+    if not policy.notify_exceptions:
+        return linked, months, 0
+    require_automatable("notify")
+    with open_link_stores(context) as (_finance, _sms, links):
+        waiting = links.list_matches(context, outcome="review", limit=1, offset=0)[1] + links.list_matches(context, outcome="stale", limit=1, offset=0)[1]
+    if not waiting or dry_run:
+        return linked, months, 0
+    # Claimed for the person's local day before the notice (finance_notice_claims, kind ``match_review``), released if it fails.
+    with open_rule_stores(context) as (finance, store):
+        day = today_in(settings_for(finance, context), now)
+        if not store.claim_item_notices(context, "match_review", ["waiting"], day, now):
+            return linked, months, 0
+    if not send(context, "Payments wait to be matched", f"{waiting} payment match(es) wait for you under Finance, Automatic matches. "
+                "ANUM links nothing ambiguous on its own.", kind=MATCH_NOTICE_KIND):
+        with open_rule_stores(context) as (_finance, store):
+            store.release_item_notices(context, "match_review", ["waiting"], day)
+        raise RuntimeError("notice failed")
+    return linked, months, 1
 
 
 def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]:
@@ -194,7 +244,7 @@ def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]
             logger.warning("finance_suggestions_person_failed error_class=%s", type(exc).__name__)
             total.failed += 1
             continue
-        for name in ("people", "applied", "batches", "notices", "exception_notices", "skipped", "failed"):
+        for name in ("people", "applied", "batches", "notices", "exception_notices", "matched", "backfill_months", "skipped", "failed"):
             setattr(total, name, getattr(total, name) + getattr(part, name))
     return asdict(total)
 

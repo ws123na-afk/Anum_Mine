@@ -262,3 +262,28 @@ def test_capture_health_reports_the_capture_without_tokens_or_bodies() -> None:
     text = response.text
     assert s["token"] not in text and "TAMARA" not in text
     assert client.get(f"{API}/capture-health", headers=OTHER).json()["devices"] == []
+
+
+def test_the_daily_job_links_the_recent_weeks_and_notices_waiting_matches_once_a_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.finance import personal_jobs
+    from anum_api.finance import suggestion_jobs as J
+    from anum_api.schemas import TenantContext, utc_now
+
+    sent: list[str] = []
+
+    def fake(context: Any, title: str, body: str, *, kind: str) -> bool:
+        sent.append(kind)
+        return True
+
+    monkeypatch.setattr(personal_jobs, "notify", fake)
+    context = TenantContext(tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], user_id=OWNER["x-user-id"])
+    s = setup()
+    tamara_order("ORD10001")
+    tamara_order("ORD20002")
+    send(s["token"], "SYNTHETIC. Purchase of SAR 125.00 at TAMARA with card **5678")
+    assert J._matching(context, now=utc_now(), dry_run=False) == (0, 0, 0)  # policy off: nothing at all
+    approve(s["bank"]["id"], notify_exceptions=True)
+    linked, months, notices = J._matching(context, now=utc_now(), dry_run=False)
+    assert (linked, months, notices) == (0, 0, 1) and sent == ["finance_exceptions"]
+    assert J._matching(context, now=utc_now(), dry_run=False)[2] == 0  # once a day
+    assert len(records(outcome="review")) == 2
