@@ -73,6 +73,7 @@ enum PushDestinationKind {
   automation,
   financeReport,
   financeAdvice,
+  financeAlert,
   teamCalls,
   calendar,
 }
@@ -116,6 +117,9 @@ class PushDestination {
         PushDestinationKind.automation,
       'finance_report' => PushDestinationKind.financeReport,
       'finance_advice' => PushDestinationKind.financeAdvice,
+      // A personal financial alert (docs/finance.md#alert-channels): fixed
+      // words only; the details are read in Finance, behind the app lock.
+      'finance_alert' => PushDestinationKind.financeAlert,
       'calendar_reminder' => PushDestinationKind.calendar,
       _ => null,
     };
@@ -150,6 +154,7 @@ class PushDestination {
         PushDestinationKind.automation => '/automations',
         PushDestinationKind.financeReport => '/finance/intel',
         PushDestinationKind.financeAdvice => '/finance/advisor',
+        PushDestinationKind.financeAlert => '/finance',
         PushDestinationKind.teamCalls => '/team-calls',
         PushDestinationKind.calendar => '/calendar',
       };

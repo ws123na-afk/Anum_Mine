@@ -9,6 +9,8 @@ import type {
   FinanceMatchingPolicy, FinanceMatchingPolicyView,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
+import { formatAmount, isolate } from './lib/finance';
+import { plainRate, rateKey } from './lib/financeFx';
 import * as fm from './lib/financeMatching';
 import * as fma from './lib/financeMatchingApi';
 import { describeError } from './lib/errors';
@@ -181,6 +183,7 @@ function RecordItem({ record, busy, onAct }: { record: FinanceMatchRecord; busy:
     <h3 dir="auto">{label}{record.due_on && <small className="muted"> {t('fmatch.review.due', { date: day(record.due_on) })}</small>}</h3>
     <p className="fmatchWhy">{t('fmatch.review.amount', { posted: day(record.posted_on) })}<Money value={record.amount} currency={record.currency} /></p>
     <p className="muted fmatchWhy">{t(fm.reasonKey(record.reason_code) as MessageKey)}{record.competitors > 0 && <> · {t('fmatch.review.others', { count: record.competitors })}</>}</p>
+    <FxEvidenceBlock record={record} />
     {record.flags.length > 0 && <ul className="fmatchFlags">{record.flags.map((f) => <li key={f}>{t(`fmatch.flag.${f}` as MessageKey)}</li>)}</ul>}
     {record.evidence.length > 0 && <details className="fmatchEvidence"><summary>{t('fmatch.review.evidence')}</summary>
       <ul>{record.evidence.map((e, i) => <li key={`${e.code}-${i}`}>{t(`fmatch.evidence.${e.code}` as MessageKey)}{e.value && <span className="muted" dir="auto"> ({e.value})</span>}</li>)}</ul>
@@ -192,6 +195,29 @@ function RecordItem({ record, busy, onAct }: { record: FinanceMatchRecord; busy:
         <button type="button" className="secondary" disabled={busy} aria-label={t('fmatch.review.undoLabel', { label })} onClick={() => onAct('undo')}><Undo2 aria-hidden="true" />{t('fmatch.review.undo')}</button>}
     </div>
   </li>;
+}
+
+/** The bank's conversion figures behind a match across currencies (docs/finance-matching.md#across-currencies). Never a rate the web works out. */
+function FxEvidenceBlock({ record }: { record: FinanceMatchRecord }) {
+  const fx = record.fx;
+  const basis = fm.fxBasis(fx);
+  if (!fx || !basis) return null;
+  const money = (amount: string | null | undefined, currency: string | null | undefined) => (amount && currency ? isolate(formatAmount(amount, currency)) : '-');
+  return <div className="fmatchFx" role="group" aria-label={t('fmatch.fx.title')}>
+    {basis === 'bank' && <>
+      <p>{t('fmatch.fx.pays', { settled: money(record.amount, record.currency), bank: money(fx.bank_amount, fx.bank_currency) })}</p>
+      <dl className="fmatchFxFacts">
+        <div><dt>{t('fmatch.fxe.original')}</dt><dd dir="ltr">{money(fx.original_amount, fx.original_currency ?? record.currency)}</dd></div>
+        {fx.billed_amount && <div><dt>{t('fmatch.fx.billed')}</dt><dd dir="ltr">{money(fx.billed_amount, fx.bank_currency)}</dd></div>}
+        <div><dt>{t('fmatch.fxe.rate')}</dt><dd>{fx.rate && <bdi dir="ltr">{plainRate(fx.rate)} </bdi>}<small className="muted">{t(rateKey({ rate: fx.rate, rate_kind: fx.rate_kind }) as MessageKey)}</small></dd></div>
+        {fx.fee_amount && <div><dt>{t('fmatch.fxe.fee')}</dt><dd><bdi dir="ltr">{money(fx.fee_amount, fx.fee_currency ?? fx.bank_currency)}</bdi>
+          {fx.fee_source && <small className="muted"> {t(`ffx.feeSource.${fx.fee_source}` as MessageKey)}</small>}</dd></div>}
+      </dl>
+    </>}
+    {basis === 'missing' && <p className="fmatchFxWarn">{t('fmatch.fx.missing', { settled: money(record.amount, record.currency),
+      bank: money(fx.bank_amount, fx.bank_currency) })}</p>}
+    {basis === 'confirmed' && <p className="muted">{t('fmatch.fx.confirmed')}</p>}
+  </div>;
 }
 
 // -- installments -------------------------------------------------------------------------------------------------------

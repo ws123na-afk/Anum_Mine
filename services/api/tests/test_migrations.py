@@ -1704,3 +1704,25 @@ def test_pf_debts_migration_is_expand_only_with_nullable_columns_an_owner_only_a
     assert "force row level security" in upgrade and "owner_only_finance_alert_settings" in upgrade and "as restrictive" in upgrade
     assert "create policy lifecycle_purge_finance_alert_settings" in upgrade and "with check (false)" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
+
+
+def test_pf_budget_rollover_migration_adds_one_defaulted_column_and_nothing_else() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0187_pf_budget_rollover.py").read_text(encoding="utf-8")
+    assert 'revision = "0187_pf_budget_rollover"' in revision_text and len("0187_pf_budget_rollover") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one not-null jsonb column with a default on the forced-RLS finance_plans row; no policy change.
+    assert upgrade.count("op.add_column(") == 1 and '"finance_plans"' in upgrade and '"budget_rollovers"' in upgrade
+    assert "server_default=sa.text(\"'[]'::jsonb\")" in upgrade
+    assert "drop" not in upgrade and "alter_column" not in upgrade and "policy" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+def test_pf_fx_matching_migration_is_expand_only_with_nullable_columns_and_checks() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0188_pf_fx_matching.py").read_text(encoding="utf-8")
+    assert 'revision = "0188_pf_fx_matching"' in revision_text and len("0188_pf_fx_matching") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: nullable columns on two tables that already have forced RLS, and checks on the new columns only.
+    assert "op.drop_column" not in upgrade and "op.drop_table" not in upgrade and "alter_column" not in upgrade and "create_table" not in upgrade
+    assert upgrade.count("op.add_column(") == 4 and upgrade.count("nullable=true") == 4
+    assert "ck_finance_links_settled_pair" in upgrade and "settled_currency <> currency" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "policy" not in upgrade

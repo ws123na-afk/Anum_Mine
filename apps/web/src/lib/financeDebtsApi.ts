@@ -3,7 +3,7 @@
 // worked out from the person's own records; the page only shows it. Nothing here moves money.
 import { apiRequest, apiRequestVoid } from './api';
 import { query } from './financeApi';
-import type { AdvisorAnswer, AlertKind, AlertPreviewItem, AnswerParams, CardView, DebtOverview, DebtProfileInput, PromiseView, Question } from './financeDebts';
+import type { AdvisorAnswer, AlertPreviewItem, AlertSettingsView, AnswerParams, CardView, DebtOverview, DebtProfileInput, PromiseView, Question } from './financeDebts';
 
 export * from './financeDebts';
 
@@ -22,8 +22,10 @@ export const addPromise = (loanId: string, body: { amount: string; due_by: strin
 export const removePromise = (loanId: string, promiseId: string) => apiRequestVoid(`${BASE}/people-loans/${id(loanId)}/promises/${id(promiseId)}`, { method: 'DELETE' });
 export const saveAgreedBalance = (loanId: string, balance: string | null, on: string | null) =>
   send<{ verified_balance: string | null; verified_on: string | null }>('PUT', `/people-loans/${id(loanId)}/agreed-balance`, { balance, on });
-export const alertSettings = () => get<{ kinds: AlertKind[]; note: string }>('/alerts/settings');
-export const saveAlertSettings = (kinds: Record<string, boolean>) => send<{ kinds: AlertKind[] }>('PUT', '/alerts/settings', { kinds });
+export const alertSettings = () => get<AlertSettingsView>('/alerts/settings');
+/** `body` is `alertSettingsBody(kinds)`: every kind's channels and the in-app switch. */
+export const saveAlertSettings = (body: { kinds: Record<string, boolean>; channels?: Record<string, Record<string, boolean>> }) =>
+  send<AlertSettingsView>('PUT', '/alerts/settings', body);
 export const alertPreview = () => get<{ today: string; items: AlertPreviewItem[] }>('/alerts/preview');
 export const advisorAnswer = (question: Question, params: AnswerParams = {}) =>
   get<AdvisorAnswer>(`/advisor/answer${query({ question, ...params })}`);

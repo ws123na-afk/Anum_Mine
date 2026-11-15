@@ -154,6 +154,50 @@ class ComingBill {
       amount: decOr(r, 'amount'));
 }
 
+/// One period of a budget's rollover chain, with the terms that period used
+/// (docs/finance.md#budget-rollover).
+class ChainPeriod {
+  const ChainPeriod({
+    required this.start,
+    required this.end,
+    required this.currency,
+    required this.amount,
+    required this.carriedIn,
+    required this.available,
+    required this.spent,
+    required this.rollover,
+    required this.overspend,
+    this.carriedOut,
+    this.cap,
+    this.restarted = false,
+  });
+  final String start, end, currency, amount, carriedIn, available, spent;
+  final String rollover, overspend;
+
+  /// Null: the period has not ended yet.
+  final String? carriedOut, cap;
+
+  /// The currency changed: nothing was carried in (never converted).
+  final bool restarted;
+  factory ChainPeriod.fromJson(JsonReader r) => ChainPeriod(
+        start: r.string('start'),
+        end: r.string('end'),
+        currency: r.string('currency'),
+        amount: decOr(r, 'amount'),
+        carriedIn: decOr(r, 'carried_in'),
+        available: decOr(r, 'available'),
+        spent: decOr(r, 'spent'),
+        carriedOut: dec(r, 'carried_out'),
+        rollover: r.optString('rollover') ?? 'none',
+        cap: dec(r, 'cap'),
+        overspend: r.optString('overspend') ?? 'absorb',
+        restarted: r.optBool('restarted') ?? false,
+      );
+}
+
+const rolloverModes = ['none', 'surplus', 'capped'];
+const overspendModes = ['absorb', 'carry'];
+
 class PlanBudget {
   const PlanBudget({
     required this.id,
@@ -186,6 +230,15 @@ class PlanBudget {
     this.rows = 0,
     this.goalSaved,
     this.goalTarget,
+    this.rollover = 'none',
+    this.rolloverCap,
+    this.overspend = 'absorb',
+    this.carriedIn = '0',
+    this.available,
+    this.chain = const [],
+    this.chainPeriods = 0,
+    this.startsOn,
+    this.endsOn,
   });
   final String id, name, kind, period, currency, amount, periodStart, periodEnd;
   final List<String> categories, subcategoryIds, debtIds;
@@ -201,6 +254,21 @@ class PlanBudget {
       goalSaved,
       goalTarget;
   final List<ComingBill> comingItems;
+
+  /// Rollover (docs/finance.md#budget-rollover): the terms this period used,
+  /// what came in from the period before (negative: a carried overspend),
+  /// the amount plus that, and the chain's latest periods, oldest first.
+  final String rollover, overspend, carriedIn;
+  final String? rolloverCap, available, startsOn, endsOn;
+  final List<ChainPeriod> chain;
+  final int chainPeriods;
+
+  /// Whether the budget has rollover to show.
+  bool get showsRollover =>
+      rollover != 'none' ||
+      overspend != 'absorb' ||
+      (double.tryParse(carriedIn) ?? 0) != 0 ||
+      chainPeriods > 0;
 
   factory PlanBudget.fromJson(JsonReader r) => PlanBudget(
         id: r.string('id'),
@@ -233,6 +301,15 @@ class PlanBudget {
         rows: r.optInt('rows') ?? 0,
         goalSaved: dec(r, 'goal_saved'),
         goalTarget: dec(r, 'goal_target'),
+        rollover: r.optString('rollover') ?? 'none',
+        rolloverCap: dec(r, 'rollover_cap'),
+        overspend: r.optString('overspend') ?? 'absorb',
+        carriedIn: decOr(r, 'carried_in'),
+        available: dec(r, 'available'),
+        chain: r.optObjects('chain', ChainPeriod.fromJson),
+        chainPeriods: r.optInt('chain_periods') ?? 0,
+        startsOn: r.optString('starts_on'),
+        endsOn: r.optString('ends_on'),
       );
 
   /// The whole budget as the form sends it back (PATCH takes all of it).
@@ -244,8 +321,10 @@ class PlanBudget {
         'amount': amount,
         'categories': categories,
         'subcategory_ids': subcategoryIds,
-        'starts_on': period == 'monthly' ? null : periodStart,
-        'ends_on': period == 'custom' ? periodEnd : null,
+        // The budget's own dates: a custom budget that carries money repeats,
+        // so the period shown is not its first window.
+        'starts_on': period == 'monthly' ? null : (startsOn ?? periodStart),
+        'ends_on': period == 'custom' ? (endsOn ?? periodEnd) : null,
         'fixed': fixed,
         'essential': essential,
         'allocation': allocation,
@@ -255,6 +334,11 @@ class PlanBudget {
         'reserve_in_safe_to_spend': reserve,
         'active': active ?? this.active,
         'notes': notes,
+        if (kind == 'spending') ...{
+          'rollover': rollover,
+          'rollover_cap': rollover == 'capped' ? rolloverCap : null,
+          'overspend': overspend,
+        },
       };
 }
 

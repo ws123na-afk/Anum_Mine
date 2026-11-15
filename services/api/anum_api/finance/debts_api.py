@@ -10,8 +10,9 @@
   amount leaves.
 * ``POST /people-loans/{id}/promises``, ``DELETE /people-loans/{id}/promises/{promise_id}``: what a person promised to pay
   and by when; ``PUT /people-loans/{id}/agreed-balance``: the balance both sides last agreed (empty clears it).
-* ``GET /alerts/settings``, ``PUT /alerts/settings``: which financial alerts the person wants; ``GET /alerts/preview``: what
-  would be told today.
+* ``GET /alerts/settings``, ``PUT /alerts/settings``: which financial alerts the person wants and through which channels (in
+  the app, phone push, email; ``channels`` says which can be reached and why not); ``GET /alerts/preview``: what would be
+  told today.
 * ``GET /advisor/answer``: one Money Advisor question answered from the records, with the records and the calculation.
 
 Reading needs ``finance:read``; changing needs ``finance:manage``. Everything is the caller's own: another person's record
@@ -243,10 +244,31 @@ def put_agreed_balance(loan_id: str, body: AgreedBalanceInput, context: TenantCo
 # -- alerts -------------------------------------------------------------------------------------------------
 
 
+class AlertChannelsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    in_app: bool | None = None
+    push: bool | None = None
+    email: bool | None = None
+
+
 class AlertSettingsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kinds: dict[str, bool] = Field(max_length=40)
+    kinds: dict[str, bool] = Field(default_factory=dict, max_length=40)  # the in-app switch, as older clients send it
+    channels: dict[str, AlertChannelsInput] = Field(default_factory=dict, max_length=40)
+
+
+ALERT_NOTE = ("Each item is told once per channel; standing ones at most once a week. Never 'paid' without a matched payment. A phone push or an "
+              "email says only which kind of alert it is and links into ANUM: never an amount, a name or an account number.")
+
+
+def _alert_view(context: TenantContext, chosen: dict[str, dict[str, bool]]) -> dict[str, Any]:
+    from . import alert_channels as C
+    from . import alerts as A
+
+    return {"kinds": [{"kind": k, "on": chosen[k]["in_app"], "title": A.TITLES[k], **chosen[k]} for k in A.KINDS],
+            "channels": C.channel_view(C.reach(context)), "note": ALERT_NOTE}
 
 
 @router.get("/alerts/settings")
@@ -254,9 +276,7 @@ def get_alert_settings(context: TenantContext = Depends(tenant_context)) -> Any:
     from . import alerts as A
 
     _read(context)
-    chosen = A.settings(context)
-    return {"kinds": [{"kind": k, "on": chosen[k], "title": A.TITLES[k]} for k in A.KINDS],
-            "note": "In-app only. Each item is told once; standing ones at most once a week. Never 'paid' without a matched payment."}
+    return _alert_view(context, A.channel_settings(context))
 
 
 @router.put("/alerts/settings")
@@ -265,12 +285,14 @@ def put_alert_settings(body: AlertSettingsInput, context: TenantContext = Depend
     from . import alerts as A
 
     _manage(context)
-    unknown = sorted(set(body.kinds) - set(A.KINDS))
+    unknown = sorted((set(body.kinds) | set(body.channels)) - set(A.KINDS))
     if unknown:
         raise _invalid("Unknown alert kind: " + ", ".join(unknown[:5]) + ".")
-    chosen = A.save_settings(context, body.kinds)
-    _audit(repository, context, "finance.alerts.settings", context.user_id, {"off": sum(1 for v in chosen.values() if not v)})
-    return {"kinds": [{"kind": k, "on": chosen[k], "title": A.TITLES[k]} for k in A.KINDS]}
+    channels = {k: v.model_dump(exclude_none=True) for k, v in body.channels.items()}
+    chosen = A.save_settings(context, body.kinds, channels)
+    _audit(repository, context, "finance.alerts.settings", context.user_id,
+           {c: sum(1 for v in chosen.values() if v[c]) for c in ("in_app", "push", "email")})
+    return _alert_view(context, chosen)
 
 
 @router.get("/alerts/preview")

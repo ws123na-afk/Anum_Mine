@@ -18,6 +18,8 @@ Migration `0169_contacts_directory` (expand only, chained after `0168_files_fold
 
 Nothing from a source record is copied except its names, numbers, addresses and organisation: no notes, call logs or message text. The directory build also never stores anything about Email Center contacts (see [Privacy](#privacy)).
 
+**Used by Finance.** Money lent or borrowed can name a person from the directory ([People from Contacts](finance.md#people-from-contacts)): the loan form searches and adds people through this API with the caller's own permissions, and the loan keeps only the person's id and the name typed on it. Deleting or merging a person never changes a loan; the loan then shows its typed name.
+
 Rollback: `alembic downgrade 0168_files_folders_tags` drops the five tables and the maintenance grants; the four lists are untouched because the directory never wrote to them.
 
 ## Sources

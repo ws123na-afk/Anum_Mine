@@ -96,3 +96,32 @@ def test_budgets_mappings_and_recurring_settings_are_the_owners_only(client: Tes
     assert client.patch(f"{API}/recurring/bills/{bill.json()['id']}", headers=COLLEAGUE, json={"auto_link": False}).status_code in (403, 404)
     assert client.delete(f"{API}/budgets/plans/{made.json()['id']}", headers=COLLEAGUE).status_code in (403, 404)
     assert client.get(f"{API}/budgets/plans", headers=ME).json()["budgets"][0]["name"] == "Eating out"
+
+
+def test_budget_rollover_terms_live_on_the_owners_row_only(client: TestClient, database_engine: Engine) -> None:
+    """Migration ``0187_pf_budget_rollover``: ``finance_plans.budget_rollovers`` (not null, default ``[]``) holds each budget's
+    terms period by period on the owner's forced-RLS row (docs/finance.md#budget-rollover)."""
+    with database_engine.connect() as connection:
+        nullable, default = connection.execute(text(
+            "select is_nullable, column_default from information_schema.columns "
+            "where table_name = 'finance_plans' and column_name = 'budget_rollovers'")).one()
+        assert nullable == "NO" and "'[]'::jsonb" in default
+    made = client.post(f"{API}/budgets/plans", headers=ME, json={"name": "Food", "currency": "AED", "amount": "900", "categories": ["groceries"],
+                                                                 "rollover": "capped", "rollover_cap": "100", "overspend": "carry"})
+    assert made.status_code == 201, made.text
+    line = made.json()
+    assert (line["rollover"], line["rollover_cap"], line["overspend"], line["available"]) == ("capped", "100.00", "carry", "900.00")
+    changed = client.patch(f"{API}/budgets/plans/{line['id']}", headers=ME, json={"name": "Food", "currency": "AED", "amount": "950",
+                                                                                  "categories": ["groceries"], "rollover": "surplus"})
+    assert changed.status_code == 200 and changed.json()["rollover"] == "surplus" and changed.json()["rollover_cap"] is None
+    with database_engine.connect() as connection:
+        stored = connection.execute(text("select budget_rollovers from finance_plans where owner_user_id = 'user_test'")).scalar_one()
+        assert len(stored) == 1 and stored[0]["rollover"] == "surplus" and stored[0]["amount"] == "950.00"
+        assert stored[0]["effective_from"] == line["period_start"]
+    # The colleague never reads or changes the owner's terms.
+    assert client.patch(f"{API}/budgets/plans/{line['id']}", headers=COLLEAGUE,
+                        json={"name": "Food", "currency": "AED", "amount": "1", "categories": ["groceries"], "rollover": "none"}).status_code in (403, 404)
+    assert client.get(f"{API}/budgets/plans", headers=ME).json()["budgets"][0]["rollover"] == "surplus"
+    assert client.delete(f"{API}/budgets/plans/{line['id']}", headers=ME).status_code == 204
+    with database_engine.connect() as connection:
+        assert connection.execute(text("select budget_rollovers from finance_plans where owner_user_id = 'user_test'")).scalar_one() == []

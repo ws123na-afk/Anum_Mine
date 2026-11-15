@@ -50,16 +50,35 @@ const TREE = {
   ],
 };
 
+// Rollover (docs/finance.md#budget-rollover): a carrying budget brought 300.00 left from last month, capped by its cap.
+function rollover(b: Record<string, unknown>, amount: number) {
+  const mode = String(b.rollover ?? 'none'), overspend = String(b.overspend ?? 'absorb');
+  const cap = mode === 'capped' ? Number(b.rollover_cap) : null;
+  const carries = mode !== 'none' || overspend !== 'absorb';
+  const carried = mode === 'none' ? 0 : Math.min(300, cap ?? 300);
+  const money = (n: number) => n.toFixed(2);
+  const previous = { start: '2026-10-01', end: '2026-10-31', currency: 'AED', amount: money(amount), carried_in: '0.00', available: money(amount), spent: money(amount - 300),
+    rows: 4, left: '300.00', carried_out: money(carried), rollover: mode, cap: cap === null ? null : money(cap), overspend, restarted: false };
+  const current = { ...previous, start: monthStart(), end: monthEnd(), carried_in: money(carried), available: money(amount + carried), spent: '420.00',
+    left: money(amount + carried - 420), carried_out: null };
+  return { rollover: mode, rollover_cap: cap === null ? null : money(cap), overspend, carried_in: money(carries ? carried : 0),
+    available: money(amount + (carries ? carried : 0)), chain: carries ? [previous, current] : [], chain_periods: carries ? 2 : 0,
+    starts_on: b.starts_on ?? null, ends_on: b.ends_on ?? null };
+}
+
 function line(b: Record<string, unknown>): Record<string, unknown> {
   const amount = Number(b.amount);
   const spent = (b.categories as string[]).includes('housing') ? 6500 : 420;
-  const percent = Math.floor((spent * 100) / amount);
-  const risk = spent > amount ? 'over' : spent * 100 >= amount * Number(b.alert_percent) ? 'watch' : 'ok';
+  const roll = rollover(b, amount);
+  const available = Number(roll.available);
+  const percent = Math.floor((spent * 100) / available);
+  const risk = spent > available ? 'over' : spent * 100 >= available * Number(b.alert_percent) ? 'watch' : 'ok';
   return {
     ...b, period_start: b.period === 'custom' ? b.starts_on : monthStart(), period_end: b.period === 'custom' ? b.ends_on : monthEnd(), days_left: 10,
     allocation: b.allocation ?? ((b.categories as string[]).includes('housing') ? 'housing' : 'food'), essential: b.essential ?? true,
-    spent: spent.toFixed(2), remaining: Math.max(amount - spent, 0).toFixed(2), over: Math.max(spent - amount, 0).toFixed(2), percent,
+    spent: spent.toFixed(2), remaining: Math.max(available - spent, 0).toFixed(2), over: Math.max(spent - available, 0).toFixed(2), percent,
     coming: '0.00', coming_items: [], forecast: (spent * 1.4).toFixed(2), risk, rows: 3, basis: 'spending', goal_saved: null, goal_target: null,
+    ...roll,
   };
 }
 
@@ -87,7 +106,7 @@ export function budgetsReply(owner: Owner, method: string, sub: string, url: URL
     const lines = s.budgets.map(line);
     const monthly = lines.filter((l) => l.period === 'monthly');
     const sum = (key: string) => monthly.reduce((a, l) => a + Number(l[key]), 0).toFixed(2);
-    return ok({ on: day(0), today: day(0), budgets: lines, totals: monthly.length ? [{ currency: 'AED', budget: sum('amount'), spent: sum('spent'), remaining: sum('remaining'), coming: '0.00', forecast: sum('forecast') }] : [] });
+    return ok({ on: day(0), today: day(0), budgets: lines, totals: monthly.length ? [{ currency: 'AED', budget: sum('amount'), carried_in: sum('carried_in'), available: sum('available'), spent: sum('spent'), remaining: sum('remaining'), coming: '0.00', forecast: sum('forecast') }] : [] });
   }
   if (sub === '/budgets/plans' && method === 'POST') {
     const made = { ...(body as object), id: `fin_bud_${s.next++}`, created_at: stamp, updated_at: stamp } as Record<string, unknown>;

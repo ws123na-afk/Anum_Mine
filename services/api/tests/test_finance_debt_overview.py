@@ -145,9 +145,13 @@ def test_an_extra_and_a_partial_repayment_follow_the_schedule() -> None:
 
 def test_a_repayment_from_a_person_is_linked_on_accept_and_shown_with_its_history_and_promise() -> None:
     bank = account(balance="5000")
+    # A real person in the owner's Contacts: an unknown contact id is refused (docs/finance.md#people-from-contacts).
+    neighbour = client.post("/api/v1/contacts", headers=OWNER, json={"name": "Synthetic Neighbour"})
+    assert neighbour.status_code == 201, neighbour.text
+    contact_id = neighbour.json()["person"]["id"]
     made = client.post(f"{API}/people-loans", headers=OWNER, json={
         "direction": "lent", "person": "Synthetic Neighbour", "amount": "800", "currency": "AED", "lent_on": (today() - timedelta(days=30)).isoformat(),
-        "due_on": (today() + timedelta(days=20)).isoformat(), "contact_id": "contact_example"}).json()
+        "due_on": (today() + timedelta(days=20)).isoformat(), "contact_id": contact_id}).json()
     promise = client.post(f"{API}/people-loans/{made['id']}/promises", headers=OWNER, json={
         "amount": "300", "due_by": (today() + timedelta(days=1)).isoformat(), "made_on": (today() - timedelta(days=3)).isoformat()})
     assert promise.status_code == 201, promise.text
@@ -157,7 +161,7 @@ def test_a_repayment_from_a_person_is_linked_on_accept_and_shown_with_its_histor
     assert len(found) == 1 and found[0]["action"]["kind"] == "link"
     assert client.post(f"{API}/suggestions/accept", headers=OWNER, json={"key": found[0]["key"], "payload_hash": found[0]["payload_hash"]}).status_code == 200
     detail = client.get(f"{API}/people-loans/{made['id']}", headers=OWNER).json()
-    assert detail["contact_id"] == "contact_example" and detail["promise_states"][0]["status"] == "kept"
+    assert detail["contact_id"] == contact_id and detail["contact_name"] == "Synthetic Neighbour" and detail["promise_states"][0]["status"] == "kept"
     mine = item(overview(), made["id"])
     assert mine["direction"] == "owed_to_me" and D(mine["remaining"]) == D(500) and mine["history"][0]["evidence"] == "verified"
     assert mine["promises"][0]["status"] == "kept" and D(mine["promises"][0]["paid"]) == D(300)

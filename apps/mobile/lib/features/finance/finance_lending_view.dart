@@ -8,6 +8,7 @@ import '../records_kit/payment_picker.dart';
 import '../records_kit/records_form.dart';
 import '../records_kit/records_widgets.dart';
 import 'finance_lending_strings.dart';
+import 'finance_loan_contacts.dart';
 import 'finance_personal_controller.dart';
 import 'finance_more_strings.dart';
 import 'finance_personal_models.dart';
@@ -50,6 +51,11 @@ Future<bool> openLoanForm(BuildContext context, FinancePersonalController c,
   final s = FinancePersonalStrings.of(context);
   final l = FinanceLendingStrings.of(context);
   final editing = loan != null;
+  // The person from Contacts (docs/finance.md#people-from-contacts): the name
+  // field doubles as the search; the picked person goes with the body.
+  final people = c.people;
+  final personText = TextEditingController(text: loan?.person ?? '');
+  final picked = ValueNotifier(PickedContact.of(loan));
   final saved = await openRecordsForm(
     context,
     RecordsForm(
@@ -59,6 +65,13 @@ Future<bool> openLoanForm(BuildContext context, FinancePersonalController c,
           : s.t('people.addTitle'),
       intro: editing ? l.t('loan.currencyLocked') : s.t('people.addIntro'),
       submitLabel: s.t('people.save'),
+      controllers: people == null ? const {} : {'person': personText},
+      below: people == null
+          ? const {}
+          : {
+              'person': LoanContactPicker(
+                  source: people, person: personText, picked: picked),
+            },
       fields: [
         RecordsInput.choice('direction', s.t('people.direction'),
             options: {
@@ -98,7 +111,8 @@ Future<bool> openLoanForm(BuildContext context, FinancePersonalController c,
             maxLength: 1000, initial: loan?.notes),
       ],
       onSubmit: (v) async {
-        final input = loanInputFrom(v, s, l, editing: editing);
+        final input = loanInputFrom(v, s, l,
+            editing: editing, contact: people == null ? null : picked.value);
         if (editing) {
           await c.updateLoan(loan.id, input);
         } else {
@@ -107,6 +121,8 @@ Future<bool> openLoanForm(BuildContext context, FinancePersonalController c,
       },
     ),
   );
+  personText.dispose();
+  picked.dispose();
   if (saved && context.mounted) {
     recordsToast(
         context,
@@ -121,7 +137,7 @@ Future<bool> openLoanForm(BuildContext context, FinancePersonalController c,
 /// problem is thrown as a [FormatException] the form shows.
 PersonLoanInput loanInputFrom(
     Map<String, Object?> v, FinancePersonalStrings s, FinanceLendingStrings l,
-    {required bool editing}) {
+    {required bool editing, PickedContact? contact}) {
   final amount = v['amount'] as String?;
   if (amount == null || (double.tryParse(amount) ?? 0) <= 0) {
     throw FormatException(s.t('people.badAmount'));
@@ -177,6 +193,9 @@ PersonLoanInput loanInputFrom(
     interestRate: rate,
     installments: installments,
     firstDueOn: firstDue,
+    // Sent only when the form had the picker; null then clears the link.
+    contactId: contact?.id,
+    sendContact: contact != null,
   );
 }
 

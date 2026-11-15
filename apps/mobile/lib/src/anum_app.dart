@@ -49,6 +49,7 @@ import '../features/finance/finance_more_data.dart';
 import '../features/finance/finance_controller.dart';
 import '../features/finance/finance_depth_models.dart';
 import '../features/finance/finance_intel_models.dart';
+import '../features/finance/finance_loan_contacts.dart';
 import '../features/finance/finance_personal_repository.dart';
 import '../features/finance/finance_repository.dart';
 import '../features/finance/finance_screen.dart';
@@ -452,6 +453,7 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         personalRepository: ApiFinancePersonalRepository(api),
         depthRepository: ApiFinanceDepthRepository(api),
         more: FinanceMoreRepository(api, pdf: fileTransfer),
+        loanPeople: ApiLoanPeopleSource(api),
         planner: ChatMoneyPlanner(ChatRepository(api, events)));
     // The post-close trading report notice opens Finance, Trading
     // intelligence, where the daily reports are listed.

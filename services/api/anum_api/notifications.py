@@ -222,6 +222,8 @@ class MailOutcome:
     status: str
     attempts: int = 0
     error: str | None = None
+    # ``failed`` only: the last try failed for a reason that may pass (unreachable, 4xx), so a later run may try again.
+    transient: bool = False
 
 
 def send_with_retries(
@@ -253,11 +255,11 @@ def send_with_retries(
         except EmailRefused as exc:
             error = str(exc)[:300]
             if not exc.transient or attempt >= attempts:
-                return MailOutcome("failed", attempt, error)
+                return MailOutcome("failed", attempt, error, transient=exc.transient)
         except OSError as exc:
             error = _unreachable(exc).args[0]
             if attempt >= attempts:
-                return MailOutcome("failed", attempt, error)
+                return MailOutcome("failed", attempt, error, transient=True)
         else:
             return MailOutcome("sent", attempt, None)
         sleep(delay * (2 ** (attempt - 1)))

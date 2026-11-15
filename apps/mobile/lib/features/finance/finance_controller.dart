@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import 'finance_depth_controller.dart';
+import 'finance_loan_contacts.dart';
 import 'finance_depth_models.dart';
 import 'finance_more_data.dart';
 import 'finance_intel_controller.dart';
@@ -47,6 +48,7 @@ class FinanceController extends ChangeNotifier {
       FinancePersonalRepository? personalRepository,
       FinanceDepthRepository? depthRepository,
       this.more,
+      LoanPeopleSource? loanPeople,
       MoneyPlanner? planner})
       : depth = depthRepository == null
             ? null
@@ -58,6 +60,7 @@ class FinanceController extends ChangeNotifier {
             ? null
             : FinancePersonalController(personalRepository, planner: planner) {
     personal?.more = more;
+    personal?.people = loanPeople;
   }
 
   /// The parity pages' routes (docs/finance.md: reconciliation, bank loans,

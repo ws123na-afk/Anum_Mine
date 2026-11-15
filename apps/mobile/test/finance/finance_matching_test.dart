@@ -281,6 +281,59 @@ void main() {
   });
 
   testWidgets(
+      'a match across currencies shows the bank figures, and a missing '
+      'original amount says so (English and Arabic)', (tester) async {
+    Map<String, Object?> usd(String id, String outcome, String reason,
+            Map<String, Object?> fx) =>
+        {
+          ...record(id, outcome),
+          'amount': '100.00',
+          'currency': 'USD',
+          'reason_code': reason,
+          'competitors': 0,
+          'fx': fx,
+        };
+    final fake = MatchingFake();
+    fake.records
+      ..clear()
+      ..add(usd('f', 'review', 'fx_evidence_missing', {
+        'basis': 'missing',
+        'bank_amount': '375.00',
+        'bank_currency': 'SAR',
+        'original_amount': null,
+        'original_currency': null,
+        'rate': null,
+        'rate_kind': 'not_stated',
+      }))
+      ..add(usd('g', 'auto_linked', 'fx_original_amount', {
+        'original_amount': '100.00',
+        'original_currency': 'USD',
+        'billed_amount': '384.38',
+        'purchase_amount': '375.00',
+        'bank_amount': '375.00',
+        'bank_currency': 'SAR',
+        'rate': '3.75',
+        'rate_kind': 'implied',
+        'fee_amount': '9.38',
+        'fee_currency': 'SAR',
+        'fee_source': 'markup_stated',
+      }));
+    await pumpModule(tester, MatchReviewScreen(repository: fake.repo()));
+    expect(find.textContaining('the bank gave no original amount'),
+        findsOneWidget);
+    await tapVisible(tester, find.text('Linked'));
+    expect(find.textContaining('Original amount:'), findsOneWidget);
+    expect(
+        find.textContaining('worked out from the two amounts'), findsOneWidget);
+    expect(find.textContaining('Bank FX fee, kept apart'), findsOneWidget);
+    expectClean(tester);
+    await pumpModule(tester, MatchReviewScreen(repository: fake.repo()),
+        locale: const Locale('ar'));
+    expect(find.textContaining('لم يذكر البنك المبلغ الأصلي'), findsWidgets);
+    expectClean(tester);
+  });
+
+  testWidgets(
       'the owner approves the policy and applies history, then undoes it',
       (tester) async {
     final fake = MatchingFake();

@@ -211,7 +211,22 @@ class FinanceDebtsStrings extends ModuleStrings {
     'cards.state.no_statement': 'No statement entered',
     'alerts.title': 'Financial alerts',
     'alerts.intro':
-        'In-app only. Each item is told once; standing ones at most once a week. A payment is called paid only when a bank payment is matched to it.',
+        'Choose where each alert goes: in the app, phone push or email. Each item is told once per channel; standing ones at most once a week. A push or an email says only which kind of alert it is, never an amount, a name or an account number. A payment is called paid only when a bank payment is matched to it.',
+    'alerts.channel.in_app': 'In app',
+    'alerts.channel.push': 'Phone push',
+    'alerts.channel.email': 'Email',
+    'alerts.why.push.not_configured':
+        'Phone push is not set up on this ANUM server, so alerts cannot reach a phone. Ask the owner to add the push key.',
+    'alerts.why.push.push_off':
+        'Phone push is off in Settings, Notifications. Turn it on to get alerts on this phone.',
+    'alerts.why.push.no_device':
+        'This phone is not registered for push yet. Allow notifications in Settings, Notifications.',
+    'alerts.why.email.not_configured':
+        'Email is not set up on this ANUM server (no mail server), so alerts cannot be emailed. Ask the owner to set up email.',
+    'alerts.why.email.email_off':
+        'Email notifications are off in Settings, Notifications. Turn them on to get alerts by email.',
+    'alerts.why.email.no_address':
+        'ANUM has no email address for you. Add one to your team profile.',
     'alerts.save': 'Save alerts',
     'alerts.saved': 'Financial alerts saved.',
     'alerts.preview': 'What today would tell',
@@ -220,6 +235,7 @@ class FinanceDebtsStrings extends ModuleStrings {
     'alert.installment_paid': 'Installment paid and matched',
     'alert.unverified_payment': 'A payment needs your check',
     'alert.card_payment_due': 'Card payment due',
+    'alert.loan_due_soon': 'Loan payment due soon',
     'alert.loan_installment_missed': 'Loan payment missed',
     'alert.loan_payment_linked': 'Loan payment linked automatically',
     'alert.source_stopped': 'An account stopped reporting',
@@ -459,7 +475,22 @@ class FinanceDebtsStrings extends ModuleStrings {
     'cards.state.no_statement': 'لا يوجد كشف مُدخل',
     'alerts.title': 'التنبيهات المالية',
     'alerts.intro':
-        'داخل التطبيق فقط. يُبلّغ عن كل عنصر مرة واحدة، وعن الحالات المستمرة مرة في الأسبوع على الأكثر. لا تُسمى الدفعة مدفوعة إلا إذا طوبقت معها دفعة بنكية.',
+        'اختر أين يصل كل تنبيه: داخل التطبيق أو إشعار الهاتف أو البريد الإلكتروني. يُبلّغ عن كل عنصر مرة واحدة في كل قناة، وعن الحالات المستمرة مرة في الأسبوع على الأكثر. الإشعار والبريد يذكران نوع التنبيه فقط، دون أي مبلغ أو اسم أو رقم حساب. لا تُسمى الدفعة مدفوعة إلا إذا طوبقت معها دفعة بنكية.',
+    'alerts.channel.in_app': 'داخل التطبيق',
+    'alerts.channel.push': 'إشعار الهاتف',
+    'alerts.channel.email': 'البريد الإلكتروني',
+    'alerts.why.push.not_configured':
+        'إشعارات الهاتف غير مُعدّة على خادم ANUM هذا، فلا تصل التنبيهات إلى الهاتف. اطلب من المالك إضافة مفتاح الإشعارات.',
+    'alerts.why.push.push_off':
+        'إشعارات الهاتف متوقفة في الإعدادات، الإشعارات. شغّلها لتصلك التنبيهات على هذا الهاتف.',
+    'alerts.why.push.no_device':
+        'هذا الهاتف غير مسجّل للإشعارات بعد. اسمح بالإشعارات في الإعدادات، الإشعارات.',
+    'alerts.why.email.not_configured':
+        'البريد الإلكتروني غير مُعدّ على خادم ANUM هذا (لا يوجد خادم بريد)، فلا تُرسل التنبيهات بالبريد. اطلب من المالك إعداد البريد.',
+    'alerts.why.email.email_off':
+        'إشعارات البريد متوقفة في الإعدادات، الإشعارات. شغّلها لتصلك التنبيهات بالبريد.',
+    'alerts.why.email.no_address':
+        'لا يعرف ANUM عنوان بريد لك. أضف عنوانا إلى ملفك في الفريق.',
     'alerts.save': 'احفظ التنبيهات',
     'alerts.saved': 'حُفظت التنبيهات المالية.',
     'alerts.preview': 'ما الذي سيُبلّغ عنه اليوم',
@@ -468,6 +499,7 @@ class FinanceDebtsStrings extends ModuleStrings {
     'alert.installment_paid': 'قسط مدفوع ومطابق',
     'alert.unverified_payment': 'دفعة تحتاج مراجعتك',
     'alert.card_payment_due': 'دفعة بطاقة مستحقة',
+    'alert.loan_due_soon': 'دفعة قرض تستحق قريبا',
     'alert.loan_installment_missed': 'دفعة قرض فائتة',
     'alert.loan_payment_linked': 'دفعة قرض رُبطت تلقائيا',
     'alert.source_stopped': 'حساب توقف عن الإبلاغ',

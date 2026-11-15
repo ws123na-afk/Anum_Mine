@@ -728,23 +728,24 @@ class FinancialAlertsScreen extends StatefulWidget {
 }
 
 class _FinancialAlertsScreenState extends State<FinancialAlertsScreen>
-    with _Loader<FinancialAlertsScreen, List<AlertKindSetting>> {
+    with _Loader<FinancialAlertsScreen, AlertSettingsView> {
   List<AlertPreviewItem>? _preview;
   bool _saving = false;
 
   @override
-  Future<List<AlertKindSetting>> fetch() => widget.repository.alertSettings();
+  Future<AlertSettingsView> fetch() => widget.repository.alertSettings();
 
   Future<void> _save() async {
     final s = FinanceDebtsStrings.of(context);
-    final kinds = value;
-    if (kinds == null) return;
+    final view = value;
+    if (view == null) return;
     setState(() => _saving = true);
     try {
-      final saved = await widget.repository
-          .saveAlertSettings({for (final k in kinds) k.kind: k.on});
+      final saved = await widget.repository.saveAlertSettings(view.kinds);
       if (!mounted) return;
-      setState(() => value = saved);
+      setState(() => value = saved.channels.isEmpty
+          ? AlertSettingsView(kinds: saved.kinds, channels: view.channels)
+          : saved);
       recordsToast(context, s.t('alerts.saved'));
     } on Object catch (error) {
       if (mounted) recordsToast(context, RecordsFailure.from(error).message);
@@ -762,35 +763,80 @@ class _FinancialAlertsScreenState extends State<FinancialAlertsScreen>
     }
   }
 
+  void _set(
+      AlertSettingsView view, AlertKindSetting kind, String channel, bool on) {
+    setState(() => value = view.withKinds([
+          for (final x in view.kinds)
+            x.kind == kind.kind ? x.withChannel(channel, on) : x
+        ]));
+  }
+
+  Widget _kindRow(BuildContext context, FinanceDebtsStrings s,
+      AlertSettingsView view, AlertKindSetting k) {
+    final name = s.label('alert', k.kind);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AnumSpacing.md, vertical: AnumSpacing.xs),
+      child: Semantics(
+        container: true,
+        label: name,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(name, style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: AnumSpacing.xs),
+            Wrap(
+              spacing: AnumSpacing.xs,
+              runSpacing: AnumSpacing.xs,
+              children: [
+                for (final c in alertChannels)
+                  FilterChip(
+                    key: Key('alert-${k.kind}-$c'),
+                    label: Text(s.t('alerts.channel.$c')),
+                    tooltip: '${s.t('alerts.channel.$c')}: $name',
+                    selected: k.channel(c),
+                    onSelected: _saving || (!view.usable(c) && !k.channel(c))
+                        ? null
+                        : (on) => _set(view, k, c, on),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = FinanceDebtsStrings.of(context);
-    final kinds = value;
+    final view = value;
+    final why = [
+      if (view != null)
+        for (final c in alertChannels)
+          if (view.reasonKey(c) case final key?) key
+    ];
     return Scaffold(
       appBar: AppBar(title: Text(s.t('alerts.title'))),
       body: AnumPage(onRefresh: load, children: [
         Text(s.t('alerts.intro'),
             style: TextStyle(color: context.palette.muted)),
-        if (phase != RecordsPhase.ready || kinds == null)
+        if (phase != RecordsPhase.ready || view == null)
           states(s)
         else ...[
+          for (final key in why)
+            AnumRow(
+              key: Key('alerts-why-${key.split('.')[2]}'),
+              icon: Icons.info_outline,
+              title: s.t(key),
+            ),
           AnumSurface(
             padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
             child: Column(children: [
-              for (final k in kinds)
-                SwitchListTile(
-                  key: Key('alert-${k.kind}'),
-                  title: Text(s.label('alert', k.kind)),
-                  value: k.on,
-                  onChanged: _saving
-                      ? null
-                      : (on) => setState(() => value = [
-                            for (final x in kinds)
-                              x.kind == k.kind
-                                  ? AlertKindSetting(kind: x.kind, on: on)
-                                  : x
-                          ]),
-                ),
+              for (final (i, k) in view.kinds.indexed) ...[
+                if (i > 0) const Divider(height: 1),
+                _kindRow(context, s, view, k),
+              ],
             ]),
           ),
           Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [

@@ -528,6 +528,40 @@ class Budget(BaseModel):
     updated_at: datetime
 
 
+class RolloverMode(StrEnum):
+    """What a spending budget carries into its next period when money is left (docs/finance.md#budget-rollover)."""
+
+    NONE = "none"  # nothing: every period starts from its amount
+    SURPLUS = "surplus"  # all that is left
+    CAPPED = "capped"  # what is left, at most the cap
+
+
+class OverspendMode(StrEnum):
+    """What a spending budget does with an overspend at the end of a period."""
+
+    ABSORB = "absorb"  # the next period starts from its full amount
+    CARRY = "carry"  # the next period starts lower by the overspend
+
+
+class BudgetTerms(BaseModel):
+    """The terms one budget used from the period starting ``effective_from`` until the next entry (migration
+    ``0187_pf_budget_rollover``). Written only for the current period when the owner saves the budget; an entry for an
+    earlier period is never changed, so every closed period keeps the amount, categories and rollover it had."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    budget_id: str = Field(max_length=80)
+    effective_from: date  # the first day of the period it was saved in
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    amount: Decimal = Field(gt=0)
+    categories: list[Category] = Field(default_factory=list, max_length=30)
+    subcategory_ids: list[str] = Field(default_factory=list, max_length=60)
+    rollover: RolloverMode = RolloverMode.NONE
+    cap: Decimal | None = Field(default=None, gt=0)
+    overspend: OverspendMode = OverspendMode.ABSORB
+    set_at: datetime
+
+
 class Planning(BaseModel):
     debt_plans: list[DebtPlan] = Field(default_factory=list, max_length=20)
     budget_alerts: list[BudgetAlert] = Field(default_factory=list, max_length=100)
@@ -537,6 +571,8 @@ class Planning(BaseModel):
     # Migration 0185_pf_budgets: the owner's budgets and learned merchant mappings.
     budgets: list[Budget] = Field(default_factory=list, max_length=200)
     category_mappings: list[CategoryMapping] = Field(default_factory=list, max_length=2000)
+    # Migration 0187_pf_budget_rollover: each budget's terms period by period (docs/finance.md#budget-rollover).
+    budget_rollovers: list[BudgetTerms] = Field(default_factory=list, max_length=20000)
 
 
 # -- Stage 5: FX rates ------------------------------------------------------------------------

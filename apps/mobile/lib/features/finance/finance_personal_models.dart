@@ -70,9 +70,33 @@ class PersonLoan {
     this.nextDueAmount = '0',
     this.overdueAmount = '0',
     this.handed = '0',
+    this.contactId,
+    this.contactName,
+    this.contactState,
   });
 
   final String id, person, amount, currency, lentOn, repaid, outstanding;
+
+  /// The person in Contacts (docs/finance.md#people-from-contacts): their id,
+  /// and, read live for the caller, their current name and `linked`,
+  /// `deleted` (removed or merged away) or `hidden` (Contacts not readable).
+  /// [person] stays the name typed on the loan.
+  final String? contactId, contactName, contactState;
+
+  /// The current Contacts name when it can be read, else the typed name.
+  String get displayName =>
+      contactState == 'linked' && (contactName ?? '').isNotEmpty
+          ? contactName!
+          : person;
+
+  /// The typed name kept as history when Contacts calls the person
+  /// something else (case and spacing ignored), else null.
+  String? get typedAs {
+    if (contactState != 'linked' || (contactName ?? '').isEmpty) return null;
+    String fold(String v) =>
+        v.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+    return fold(contactName!) == fold(person) ? null : person;
+  }
 
   /// What the linked transactions show was handed over.
   final String handed;
@@ -119,6 +143,9 @@ class PersonLoan {
         nextDueAmount: _optDecimal(r, 'next_due_amount') ?? '0',
         overdueAmount: _optDecimal(r, 'overdue_amount') ?? '0',
         handed: _optDecimal(r, 'handed') ?? '0',
+        contactId: r.optString('contact_id'),
+        contactName: r.optString('contact_name'),
+        contactState: r.optString('contact_state'),
       );
 }
 
@@ -261,9 +288,16 @@ class PersonLoanInput {
     this.interestRate,
     this.installments,
     this.firstDueOn,
+    this.contactId,
+    this.sendContact = false,
   });
   final LoanDirection direction;
   final String person, amount, lentOn;
+
+  /// The person in Contacts. Sent only with [sendContact] (null then clears
+  /// the link); left out, the API keeps the loan's link as it is.
+  final String? contactId;
+  final bool sendContact;
   final String? currency, dueOn, notes, interestRate, firstDueOn;
   final bool? remind, closed;
   final int? remindDaysBefore, installments;
@@ -288,6 +322,7 @@ class PersonLoanInput {
       if (scheduled) 'installments': installments,
       if (scheduled && firstDueOn != null && firstDueOn!.isNotEmpty)
         'first_due_on': firstDueOn,
+      if (sendContact) 'contact_id': contactId,
     };
   }
 }

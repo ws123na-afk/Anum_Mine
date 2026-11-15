@@ -53,7 +53,13 @@ test('the owner approves the matching policy, links a waiting match, undoes an a
   await matches.getByRole('button', { name: 'Link it: Example Shop 2/4' }).click();
   await expect(matches).toContainText('Linked.');
   expect(sent.some((s) => s.path.endsWith('/matching/records/a/accept'))).toBe(true);
+  const foreign = matches.getByRole('listitem').filter({ hasText: 'Sample Outlet 2/4' });
+  await expect(foreign).toContainText('Paid in another currency, and the bank gave no original amount');
+  await expect(foreign.getByRole('group', { name: 'Across currencies' })).toContainText('ANUM does not know how much');
   await matches.getByRole('button', { name: 'Linked automatically' }).click();
+  const converted = matches.getByRole('listitem').filter({ hasText: 'Sample Outlet 1/4' }).getByRole('group', { name: 'Across currencies' });
+  await expect(converted).toContainText('worked out from the two amounts');
+  await expect(converted).toContainText('Bank FX fee, kept apart');
   await matches.getByRole('button', { name: 'Undo: Demo Market 3/4' }).click();
   await expect(matches).toContainText('Link removed. The payment stays in your ledger.');
 

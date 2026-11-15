@@ -1815,6 +1815,37 @@ export interface FinancePlanBudgetInput {
   reserve_in_safe_to_spend: boolean;
   active: boolean;
   notes?: string | null;
+  /** Spending budgets only (docs/finance.md#budget-rollover). Left out: kept as it is. Applies from the current period on. */
+  rollover?: FinanceBudgetRollover | null;
+  /** With ``capped``: the most that carries into the next period. */
+  rollover_cap?: string | null;
+  overspend?: FinanceBudgetOverspend | null;
+}
+
+/** What a spending budget carries when money is left: nothing, all of it, or at most the cap. */
+export type FinanceBudgetRollover = 'none' | 'surplus' | 'capped';
+/** What it does with an overspend: start the next period from the full amount, or lower by the overspend. */
+export type FinanceBudgetOverspend = 'absorb' | 'carry';
+
+/** One period of a budget's rollover chain, with the terms that period used. */
+export interface FinanceBudgetChainPeriod {
+  start: string;
+  end: string;
+  currency: string;
+  amount: FinanceMoney;
+  carried_in: FinanceMoney;
+  available: FinanceMoney;
+  spent: FinanceMoney;
+  rows: number;
+  /** available less spent; below zero is an overspend. */
+  left: FinanceMoney;
+  /** null: the period has not ended yet. */
+  carried_out: FinanceMoney | null;
+  rollover: FinanceBudgetRollover;
+  cap: FinanceMoney | null;
+  overspend: FinanceBudgetOverspend;
+  /** The currency changed: nothing carried in (never converted). */
+  restarted: boolean;
 }
 
 export interface FinancePlanComingItem { bill_id: string; name: string; due_on: string; amount: FinanceMoney; overdue: boolean }
@@ -1853,9 +1884,23 @@ export interface FinancePlanBudgetLine {
   basis: 'spending' | 'goal_account' | 'goal' | 'remittances' | 'family_support' | 'debt_payments';
   goal_saved: FinanceMoney | null;
   goal_target: FinanceMoney | null;
+  /** The terms this period used (docs/finance.md#budget-rollover). */
+  rollover: FinanceBudgetRollover;
+  rollover_cap: FinanceMoney | null;
+  overspend: FinanceBudgetOverspend;
+  /** From the period before: negative is a carried overspend. */
+  carried_in: FinanceMoney;
+  /** amount + carried_in: remaining, over, percent and risk are measured against it. */
+  available: FinanceMoney | null;
+  /** The chain's latest periods (at most 12), oldest first; empty when nothing ever carried. */
+  chain: FinanceBudgetChainPeriod[];
+  chain_periods: number;
+  /** The budget's own first and last day (a weekly anchor, the first custom window); sent back unchanged on an edit. */
+  starts_on: string | null;
+  ends_on: string | null;
 }
 
-export interface FinancePlanTotals { currency: string; budget: FinanceMoney; spent: FinanceMoney; remaining: FinanceMoney; coming: FinanceMoney; forecast: FinanceMoney }
+export interface FinancePlanTotals { currency: string; budget: FinanceMoney; carried_in: FinanceMoney; available: FinanceMoney; spent: FinanceMoney; remaining: FinanceMoney; coming: FinanceMoney; forecast: FinanceMoney }
 export interface FinancePlanReport { on: string; today: string; budgets: FinancePlanBudgetLine[]; totals: FinancePlanTotals[] }
 
 export interface FinanceAllocationLine { budget_id: string; name: string; bucket: FinanceAllocationBucket; monthly: FinanceMoney }

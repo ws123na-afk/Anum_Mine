@@ -6,6 +6,11 @@ the owner's lock: idempotency, the payment's currency, never more than the payme
 decision (``finance_match_records``). Nothing here posts money, writes the journal or calls a model; a link is a view
 of a posting and ``links.void`` removes it without touching the transaction.
 
+Across currencies (docs/finance-matching.md#across-currencies) the loader reads each foreign purchase's figures with
+``card_fx.details`` (the original amount and currency the bank printed, the billed amount, the rate and its kind, an FX
+fee): an automatic link keeps the bank side (the purchase, fee left out) in the account's currency and settles the
+obligation in its own currency; nothing is converted at a rate ANUM chose.
+
 The same ``run`` serves the daily job (the recent weeks), a payment that just arrived (``match_payment``), the
 owner's "Run now" and the historical backfill (``backfill.py``), one month at a time. Reruns are idempotent: a pair
 has one record; a pair the owner decided (accepted, rejected, undone) is never touched again; an automatic link is
@@ -90,11 +95,12 @@ def load(context: TenantContext, start: date, end: date, *, now: datetime | None
                                          status=None, limit=50_000, offset=0)
         stored, _ = links.list_matches(context, limit=50_000, offset=0)
     live = [l for l in (*bill_links, *debt_links) if l.status != LinkStatus.VOID]
-    used: dict[tuple[str, str, str], Decimal] = {}  # (canonical, dimension, currency)
-    by_target: dict[str, Decimal] = {}
+    used: dict[tuple[str, str, str], Decimal] = {}  # (canonical, dimension, currency): the bank side
+    by_target: dict[tuple[str, str], Decimal] = {}  # (target, currency): what is paid of it, in its own currency
     for l in live:
         used[(l.canonical_id, l.dimension, l.currency or "")] = used.get((l.canonical_id, l.dimension, l.currency or ""), Decimal(0)) + (l.amount or 0)
-        by_target[l.target_id] = by_target.get(l.target_id, Decimal(0)) + (l.amount or 0)
+        ccy = K.settled_currency(l) or ""
+        by_target[(l.target_id, ccy)] = by_target.get((l.target_id, ccy), Decimal(0)) + K.settled(l, ccy)
     linked_ids = {l.canonical_id for l in live}
 
     payments: list[E.Payment] = []
@@ -126,6 +132,7 @@ def load(context: TenantContext, start: date, end: date, *, now: datetime | None
             sources=frozenset(r.sources), reference=r.reference, kind=kind, txn_type=txn_type, counter_account_id=counter, own_transfer=own,
             original_currency=r.original_currency, original_amount=r.original_amount,
             left={dim: cap - used.get((r.canonical_id, dim, r.currency), Decimal(0)) for dim in ("bill", "debt")},
+            fx=_fx_evidence(txn, entry, txns, r.currency) if r.amount < 0 and (r.original_currency or txn is not None) else None,
         )
         texts[r.canonical_id] = payment.text
         if account is not None and getattr(account.kind, "value", account.kind) in ("loan",) and payment.direction == "out":
@@ -157,7 +164,7 @@ def load(context: TenantContext, start: date, end: date, *, now: datetime | None
             continue
         for due in occurrences(bill, first, last):
             target = bill_target_id(bill.id, due)
-            left = bill.amount - by_target.get(target, Decimal(0))
+            left = bill.amount - by_target.get((target, bill.currency), Decimal(0))
             if left <= 0:
                 continue
             obligations.append(E.Obligation(
@@ -193,6 +200,46 @@ def load(context: TenantContext, start: date, end: date, *, now: datetime | None
             month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
     return Snapshot(today=today, payments=payments, obligations=obligations, credits=credits, linked=linked,
                     records={(m.canonical_id, m.target_id): m for m in stored}, live_links={l.id: l for l in live}, missing_source=missing)
+
+
+def _fx_evidence(txn: Any, entry: Any, txns: dict[str, Any], currency: str) -> E.FxEvidence | None:
+    """The bank's own conversion figures for a purchase in another currency (``card_fx.details``), or None for a purchase in the
+    account's own currency. Never a rate ANUM chose: without the original amount the evidence says so (``original_amount`` None)."""
+    from . import card_fx as C
+
+    if txn is None:
+        if entry is None or not entry.original_currency or entry.original_currency == currency:
+            return None
+        return E.FxEvidence(original_currency=entry.original_currency, original_amount=entry.original_amount,
+                            billed_amount=Decimal(0), purchase_amount=Decimal(0))
+    neighbours = [C.row_for(n, None) for n in txns.values() if n.account_id == txn.account_id and n.id != txn.id
+                  and abs((n.posted_on - txn.posted_on).days) <= C.FEE_ROW_DAYS]
+    try:
+        found = C.details(C.row_for(txn, entry), neighbours)
+    except (ArithmeticError, ValueError):
+        return None
+    if not found.foreign or not found.original_currency:
+        return None
+    fee = found.fee
+    # A fee row of its own is a separate transaction: the purchase is the whole billed amount. A fee the bank included in the
+    # billed amount (a stated markup or fee) is left out of what the obligation was paid with.
+    return E.FxEvidence(
+        original_currency=found.original_currency, original_amount=found.original_amount, billed_amount=found.billed_amount or Decimal(0),
+        purchase_amount=found.purchase_amount or Decimal(0), rate=found.rate if found.original_amount else None,
+        rate_kind=found.rate_kind if found.original_amount else "not_stated", rate_source=found.rate_source, rate_date=found.rate_date,
+        fee_amount=fee.amount if fee else None, fee_source=fee.source if fee else None, fee_transaction_id=fee.transaction_id if fee else None)
+
+
+def _fx_record(c: E.Candidate) -> dict[str, str | None] | None:
+    """The conversion evidence kept with a decision (and with its link): the bank side and the bank's figures."""
+    p = c.payment
+    if c.fx is not None:
+        return c.fx.as_dict(p.currency, c.bank_amount)
+    if c.fx_missing:
+        known = p.fx
+        return {"basis": "missing", "bank_amount": str(p.left.get(c.obligation.dimension, p.amount)), "bank_currency": p.currency,
+                "original_currency": known.original_currency if known else None, "original_amount": None, "rate": None, "rate_kind": "not_stated"}
+    return None
 
 
 def _posted_near(canonical_id: str, texts: dict[str, str], rows: list[Any], due: date) -> bool:
@@ -238,7 +285,7 @@ def _record(context: TenantContext, d: E.Decision, c: E.Candidate, *, outcome: s
         currency=o.currency, outcome=outcome,  # type: ignore[arg-type]
         evidence_state=d.state if outcome == "auto_linked" else "pending", reason_code=(reason or d.reason)[:40], confidence=d.confidence if c in d.parts else c.score,
         evidence=c.evidence[:30], flags=d.flags, competitors=d.competitors, policy_version=policy.version, run_id=run_id, link_id=link_id,
-        fingerprint=E.fingerprint(d.payment.fingerprint, o.fingerprint), created_at=now, updated_at=now,
+        fingerprint=E.fingerprint(d.payment.fingerprint, o.fingerprint), fx=_fx_record(c), created_at=now, updated_at=now,
     )
 
 
@@ -322,11 +369,9 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
                 setattr(counts, d.state, getattr(counts, d.state) + 1)
                 continue
             try:
-                made = K.create(context, K.LinkRequest(
-                    canonical_id=d.payment.canonical_id, dimension=c.obligation.dimension, role="payment", target_type=c.obligation.target_type,
-                    target_id=c.obligation.target_id, amount=c.amount, currency=c.obligation.currency,
-                    idempotency_key=f"pfm:{d.payment.canonical_id}:{c.obligation.target_id}"), now=now,
-                    review=d.state != "verified", review_reason=PROVISIONAL)
+                made = K.create(context, _link_request(d.payment.canonical_id, c.obligation.dimension, c.obligation.target_type, c.obligation.target_id,
+                                                       c.amount, c.obligation.currency, _fx_record(c)), now=now,
+                                review=d.state != "verified", review_reason=PROVISIONAL)
             except K.LinkError as exc:
                 counts.differences += 1
                 stored = _store_record(context, _record(context, d, c, outcome="review", policy=policy, run_id=run_id, now=now,
@@ -351,6 +396,20 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
     if not dry_run:
         counts.corrected += _mark_stale(context, snap, now)
     return counts
+
+
+def _link_request(canonical_id: str, dimension: str, target_type: str, target_id: str, amount: Decimal, currency: str,
+                  fx: dict[str, Any] | None) -> K.LinkRequest:
+    """One payment link. Across currencies the link's own amount is the bank side (the account's currency, an FX fee left out)
+    and ``settled_*`` is what it pays of the obligation in its currency; the evidence goes with it."""
+    request = K.LinkRequest(canonical_id=canonical_id, dimension=dimension, role="payment", target_type=target_type, target_id=target_id,
+                            amount=amount, currency=currency, idempotency_key=f"pfm:{canonical_id}:{target_id}")
+    if fx and fx.get("bank_currency") and fx["bank_currency"] != currency:
+        if not fx.get("bank_amount"):
+            raise K.LinkError(422, "The bank's amount for this payment is not known. Link it by hand from the transaction.", "fx_evidence_missing")
+        request.amount, request.currency = Decimal(str(fx["bank_amount"])), str(fx["bank_currency"])
+        request.settled_amount, request.settled_currency, request.fx = amount, currency, fx
+    return request
 
 
 def _mark_stale(context: TenantContext, snap: Snapshot, now: datetime) -> int:
@@ -429,9 +488,12 @@ def accept(context: TenantContext, record_id: str, *, version: int | None, now: 
     _check_version(record, version)
     if record.outcome not in ("review", "stale"):
         raise K.LinkError(409, "Only a match waiting for review can be accepted.", "not_in_review")
-    made = K.create(context, K.LinkRequest(canonical_id=record.canonical_id, dimension=record.dimension, role="payment",
-                                           target_type=record.target_type, target_id=record.target_id, amount=record.amount, currency=record.currency,
-                                           idempotency_key=f"pfm:{record.canonical_id}:{record.target_id}"), now=moment)
+    fx = record.fx
+    if fx and fx.get("basis") == "missing":
+        # The owner confirms that this payment paid the obligation: the whole debit is the bank side, no rate is recorded.
+        fx = {**fx, "basis": "owner_confirmed"}
+    made = K.create(context, _link_request(record.canonical_id, record.dimension, record.target_type, record.target_id, record.amount,
+                                           record.currency, fx), now=moment)
     return _save_existing(context, record, outcome="accepted", link_id=made.link.id, evidence_state="verified", decided_by=context.user_id,
                           decided_at=moment, updated_at=moment)
 

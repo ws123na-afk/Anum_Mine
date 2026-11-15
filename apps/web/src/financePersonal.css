@@ -76,3 +76,15 @@
 .fpmSplitLines { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .fpmSplitLines .field { margin: 0; }
 .fpmSplitTotal { margin: var(--d-s2) 0 0; font-variant-numeric: tabular-nums; }
+
+/* A loan's person from Contacts (docs/finance.md#people-from-contacts). */
+.fpmPersonField { display: grid; gap: var(--d-s2); grid-column: 1 / -1; min-width: 0; }
+.fpmContactPick { display: grid; gap: var(--d-s2); justify-items: start; min-width: 0; }
+.fpmContactHelp { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.fpmContactHelp svg, .fpmContactChosen svg, .fpmContactList svg { flex: none; height: 1em; width: 1em; }
+.fpmContactList { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fpmContactList button { align-items: center; display: inline-flex; gap: var(--d-s1); max-width: 100%; }
+.fpmContactList button span { overflow-wrap: anywhere; }
+.fpmContactChosen { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.fpmContactChosen span { overflow-wrap: anywhere; }
+.fpmViewSwitch { display: flex; flex-wrap: wrap; gap: var(--d-s2); }

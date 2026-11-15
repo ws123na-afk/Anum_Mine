@@ -22,6 +22,7 @@ from ..dependencies import repository_context, tenant_context
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import links as K
+from . import loan_contacts as LC
 from . import personal as P
 from . import planner as PL
 from . import planning_service as S
@@ -181,7 +182,8 @@ class LoanInput(BaseModel):
     interest_rate: Amount | None = None
     installments: int | None = Field(default=None, ge=1, le=360)
     first_due_on: date | None = None
-    # The person in Contacts (migration 0186_pf_debts). Left out: kept as it is; null clears it.
+    # The person in Contacts (migration 0186_pf_debts). Left out: kept as it is; null clears it. A new or changed id must be a
+    # person the caller can read in this workspace (docs/finance.md#people-from-contacts); ``person`` stays the typed name.
     contact_id: str | None = Field(default=None, max_length=80)
 
 
@@ -228,6 +230,11 @@ class LoanView(BaseModel):
     verified_balance: Decimal | None = None
     verified_on: date | None = None
     balance_difference: Decimal | None = None  # the agreed balance less what is left by the linked repayments
+    # The linked person as Contacts has them now, read live for the caller (never stored in finance): ``linked`` with their
+    # current name, ``deleted`` (the person was removed or merged away: the typed ``person`` stands) or ``hidden`` (the caller
+    # cannot read Contacts). Null: no contact linked.
+    contact_name: str | None = None
+    contact_state: LC.ContactState | None = None
 
 
 class PromiseState(BaseModel):
@@ -262,13 +269,29 @@ class LoanPage(BaseModel):
     note: str = "Money lent or borrowed with a person is not spending or income: its linked transactions count as transfers."
 
 
-def _loan_view(loan: P.PersonLoan, links: list, today: date) -> LoanView:
+def _owed(views: list[LoanView]) -> list[Owed]:
+    """What the open loans still owe, per currency and side (never added across currencies)."""
+    owed: dict[str, list[Decimal]] = {}
+    for v in views:
+        if v.status in ("repaid", "closed"):
+            continue
+        pair = owed.setdefault(v.currency, [Decimal(0), Decimal(0), Decimal(0), Decimal(0)])
+        side = 0 if v.direction == P.LoanDirection.LENT else 1
+        pair[side] += v.outstanding
+        pair[side + 2] += v.overdue_amount
+    return [Owed(currency=c, they_owe_me=quantize(a, c), i_owe=quantize(b, c), they_owe_me_overdue=quantize(ao, c), i_owe_overdue=quantize(bo, c))
+            for c, (a, b, ao, bo) in sorted(owed.items())]
+
+
+def _loan_view(loan: P.PersonLoan, links: list, today: date, contacts: dict[str, LC.Resolved] | None = None) -> LoanView:
     f = P.loan_figures(loan, links, today)
+    found = (contacts or {}).get(loan.contact_id or "")
     return LoanView(**loan.model_dump(exclude={"tenant_id", "workspace_id", "owner_user_id", "reminded_for", "reminded_overdue_for"}),
                     repaid=f.repaid, outstanding=f.outstanding, handed=f.handed, status=f.status, days_until_due=f.days_until_due,
                     interest=f.interest, total_due=f.total_due, next_due_on=f.next_due_on, next_due_amount=f.next_due_amount,
                     overdue_amount=f.overdue_amount, links=sum(1 for l in links if l.target_id == loan.id),
-                    balance_difference=(loan.verified_balance - f.outstanding) if loan.verified_balance is not None else None)
+                    balance_difference=(loan.verified_balance - f.outstanding) if loan.verified_balance is not None else None,
+                    contact_name=found.name if found else None, contact_state=found.state if found else None)
 
 
 def schedule_view(loan: P.PersonLoan, links: list, today: date) -> list[InstallmentView]:
@@ -316,6 +339,9 @@ def _build_loan(context: TenantContext, body: LoanInput, existing: P.PersonLoan 
         raise _invalid("The due date is before the date the money changed hands.")
     if rate is not None and due_on is None:
         raise _invalid("Interest needs a due date or a repayment schedule to be worked out.")
+    contact_id = LC.clean_id(body.contact_id) if "contact_id" in body.model_fields_set or existing is None else existing.contact_id
+    if contact_id is not None and (existing is None or contact_id != existing.contact_id):
+        LC.check_contact(context, contact_id)  # a link kept as it was is not re-checked: a deleted person never blocks an edit
     now = utc_now()
     closed_on = (existing.closed_on if existing and existing.closed_on else today) if body.closed else None
     changed_due = existing is not None and (existing.due_on != due_on or existing.first_due_on != body.first_due_on
@@ -329,7 +355,7 @@ def _build_loan(context: TenantContext, body: LoanInput, existing: P.PersonLoan 
         reminded_overdue_for=None if changed_due or existing is None else existing.reminded_overdue_for,
         closed_on=closed_on, interest_rate=rate, installments=body.installments, first_due_on=body.first_due_on,
         created_at=existing.created_at if existing else now, updated_at=now,
-        contact_id=body.contact_id if "contact_id" in body.model_fields_set or existing is None else existing.contact_id,
+        contact_id=contact_id,
         promises=existing.promises if existing else [], verified_balance=existing.verified_balance if existing else None,
         verified_on=existing.verified_on if existing else None,
     )
@@ -348,23 +374,14 @@ def list_people_loans(
     with open_personal_store(context) as store:
         loans = store.list(context, "person_loan")
     links, _ = _links(context, P.PERSON_LOAN_DIMENSION)
-    views = [_loan_view(l, links, today) for l in loans]
-    owed: dict[str, list[Decimal]] = {}
-    for v in views:
-        if v.status in ("repaid", "closed"):
-            continue
-        pair = owed.setdefault(v.currency, [Decimal(0), Decimal(0), Decimal(0), Decimal(0)])
-        side = 0 if v.direction == P.LoanDirection.LENT else 1
-        pair[side] += v.outstanding
-        pair[side + 2] += v.overdue_amount
+    contacts = LC.resolve(context, (l.contact_id for l in loans))
+    views = [_loan_view(l, links, today, contacts) for l in loans]
     needle = (q or "").casefold().strip()
-    shown = [v for v in views if (not needle or needle in f"{v.person} {v.notes or ''}".casefold())
+    shown = [v for v in views if (not needle or needle in f"{v.person} {v.contact_name or ''} {v.notes or ''}".casefold())
              and (direction is None or v.direction == direction)
              and (state == "all" or (state == "open" and v.status in ("open", "due_soon", "overdue")) or (state == "overdue" and v.status == "overdue")
                   or (state == "settled" and v.status in ("repaid", "closed")))]
-    return LoanPage(items=_page(shown, limit, offset), total=len(shown), limit=limit, offset=offset,
-                    owed=[Owed(currency=c, they_owe_me=quantize(a, c), i_owe=quantize(b, c), they_owe_me_overdue=quantize(ao, c), i_owe_overdue=quantize(bo, c))
-                          for c, (a, b, ao, bo) in sorted(owed.items())],
+    return LoanPage(items=_page(shown, limit, offset), total=len(shown), limit=limit, offset=offset, owed=_owed(views),
                     overdue=sum(1 for v in views if v.status == "overdue"))
 
 
@@ -375,8 +392,94 @@ def create_people_loan(body: LoanInput, context: TenantContext = Depends(tenant_
     base, today = _settings(context)
     loan = _build_loan(context, body, None, base, today)
     _save(context, "person_loan", loan, new=True)
-    _audit(repository, context, "finance.person_loan.create", loan.id)
-    return _loan_view(loan, [], today)
+    _audit(repository, context, "finance.person_loan.create", loan.id, {"contact": bool(loan.contact_id)})
+    return _loan_view(loan, [], today, LC.resolve(context, [loan.contact_id]))
+
+
+class PersonGroup(BaseModel):
+    """One person's loans together: the person in Contacts when the loans are linked to one, else the typed name."""
+
+    key: str  # "contact:<id>" or "name:<the typed name, case and spacing ignored>"
+    contact_id: str | None
+    contact_state: LC.ContactState | None
+    name: str  # the contact's current name when the caller can read it, else the newest typed name
+    names: list[str]  # every name typed on these loans, newest first (history: a rename in Contacts never changes them)
+    loans: int
+    open_loans: int
+    overdue: int
+    owed: list[Owed]
+    last_on: date  # the newest date money changed hands
+
+
+class PersonGroupPage(BaseModel):
+    items: list[PersonGroup]
+    total: int
+    limit: int
+    offset: int
+
+
+class PersonHistoryItem(BaseModel):
+    """One linked transaction of one of the person's loans."""
+
+    loan_id: str
+    direction: P.LoanDirection
+    currency: str
+    movement: Movement
+
+
+class PersonGroupDetail(PersonGroup):
+    items: list[LoanView]  # newest first
+    history: list[PersonHistoryItem]  # every linked transaction of these loans (money handed over and repaid), newest first
+
+
+def _grouped(context: TenantContext) -> tuple[dict[str, list[LoanView]], list, dict[str, Any], dict[str, LC.Resolved]]:
+    _base, today = _settings(context)
+    with open_personal_store(context) as store:
+        loans = store.list(context, "person_loan")
+    links, entries = _links(context, P.PERSON_LOAN_DIMENSION)
+    contacts = LC.resolve(context, (l.contact_id for l in loans))
+    groups: dict[str, list[LoanView]] = {}
+    for loan in sorted(loans, key=lambda l: (l.lent_on, l.created_at), reverse=True):
+        groups.setdefault(LC.person_key(loan.contact_id, loan.person), []).append(_loan_view(loan, links, today, contacts))
+    return groups, links, entries, contacts
+
+
+def _group(key: str, views: list[LoanView], contacts: dict[str, LC.Resolved]) -> PersonGroup:
+    contact_id = views[0].contact_id if key.startswith("contact:") else None
+    found = contacts.get(contact_id or "")
+    names = list(dict.fromkeys(v.person for v in views))
+    return PersonGroup(key=key, contact_id=contact_id, contact_state=found.state if found else None,
+                       name=found.name if found and found.name else names[0], names=names, loans=len(views),
+                       open_loans=sum(1 for v in views if v.status in ("open", "due_soon", "overdue")),
+                       overdue=sum(1 for v in views if v.status == "overdue"), owed=_owed(views), last_on=max(v.lent_on for v in views))
+
+
+@router.get("/people-loans/people", response_model=PersonGroupPage)
+def list_loan_people(q: str | None = Query(default=None, max_length=80), limit: int = Query(default=25, ge=1, le=MAX_PAGE),
+                     offset: int = Query(default=0, ge=0, le=100_000), context: TenantContext = Depends(tenant_context)) -> PersonGroupPage:
+    """Lent and borrowed by person: each person's loans together (by Contacts person, else by typed name), newest first."""
+    _read(context)
+    groups, _, _, contacts = _grouped(context)
+    items = [_group(key, views, contacts) for key, views in groups.items()]
+    needle = (q or "").casefold().strip()
+    if needle:
+        items = [g for g in items if needle in " ".join([g.name, *g.names]).casefold()]
+    items.sort(key=lambda g: (g.open_loans == 0, -g.last_on.toordinal(), g.name.casefold()))
+    return PersonGroupPage(items=_page(items, limit, offset), total=len(items), limit=limit, offset=offset)
+
+
+@router.get("/people-loans/people/detail", response_model=PersonGroupDetail)
+def get_loan_person(key: str = Query(min_length=6, max_length=200), context: TenantContext = Depends(tenant_context)) -> PersonGroupDetail:
+    """One person's loans and every linked transaction of them, newest first."""
+    _read(context)
+    groups, links, entries, contacts = _grouped(context)
+    views = groups.get(key)
+    if not views:
+        raise _not_found("Person")
+    history = [PersonHistoryItem(loan_id=v.id, direction=v.direction, currency=v.currency, movement=m)
+               for v in views for m in _movements(links, entries, v.id)]
+    history.sort(key=lambda h: (h.movement.posted_on or date.min, h.movement.link.id), reverse=True)
+    return PersonGroupDetail(**_group(key, views, contacts).model_dump(), items=views, history=history)
 
 
 @router.get("/people-loans/{loan_id}", response_model=LoanDetail)
@@ -392,7 +495,7 @@ def get_people_loan(loan_id: str, context: TenantContext = Depends(tenant_contex
     for promise in loan.promises:
         state, paid = P.promise_status(promise, repaid, today)
         states.append(PromiseState(id=promise.id, status=state, paid=paid))
-    return LoanDetail(**_loan_view(loan, links, today).model_dump(), movements=movements, schedule=schedule_view(loan, links, today),
+    return LoanDetail(**_loan_view(loan, links, today, LC.resolve(context, [loan.contact_id])).model_dump(), movements=movements, schedule=schedule_view(loan, links, today),
                       promise_states=states)
 
 
@@ -408,8 +511,10 @@ def update_people_loan(loan_id: str, body: LoanInput, context: TenantContext = D
     if links and (loan.currency != existing.currency or loan.direction != existing.direction):
         raise _invalid("Remove the linked transactions before changing the currency or who owes whom.")
     _save(context, "person_loan", loan, new=False)
-    _audit(repository, context, "finance.person_loan.update", loan_id)
-    return _loan_view(loan, links, today)
+    _audit(repository, context, "finance.person_loan.update", loan_id,
+           {"contact": "linked" if loan.contact_id and loan.contact_id != existing.contact_id else
+                       "unlinked" if existing.contact_id and not loan.contact_id else "unchanged"})
+    return _loan_view(loan, links, today, LC.resolve(context, [loan.contact_id]))
 
 
 @router.delete("/people-loans/{loan_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)

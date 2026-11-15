@@ -67,6 +67,9 @@ class CanonicalEventName(StrEnum):
     COMMERCE_ALERT_RAISED = "commerce.alert.raised"
     # Tyre planning: new critical or warning alerts after a sync (docs/tyre-planning.md#alerts).
     TYRE_ALERTS_RAISED = "tyre_alerts.raised"
+    # A financial alert the person wants on the phone (docs/finance.md#alert-channels): private to that person, the
+    # alert kind and a count only, never an amount or a name. The phone push trigger; never published.
+    FINANCE_ALERT_RAISED = "finance.alert.raised"
     # Office builder (docs/ANUM_MINE_OFFICE_REGISTRY_BACKEND.md): ids and revisions only.
     OFFICE_LAYOUT_CHANGED = "office.layout_changed"
     # A confirmed office role was built (docs/ANUM_MINE_AGENT_PROVISIONING.md): ids only.

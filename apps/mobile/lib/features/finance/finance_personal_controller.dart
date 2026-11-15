@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
 import '../../data/sse.dart' show EventStreamTimeoutException;
+import 'finance_loan_contacts.dart';
 import 'finance_personal_models.dart';
 import 'finance_more_data.dart';
 import 'finance_personal_repository.dart';
@@ -36,6 +37,11 @@ class FinancePersonalController extends ChangeNotifier {
   /// The routes of the parity pages (one payment split across loans); set
   /// by `FinanceController`, null in builds without them.
   FinanceMoreRepository? more;
+
+  /// Contacts search and the loans by person
+  /// (docs/finance.md#people-from-contacts); set by `FinanceController`, null
+  /// in builds without them (the loan form then keeps a typed name only).
+  LoanPeopleSource? people;
   static const pageSize = 25;
 
   // -- lent and borrowed -----------------------------------------------------

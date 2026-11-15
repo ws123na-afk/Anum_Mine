@@ -82,6 +82,10 @@ class LinkView(BaseModel):
     target_workspace_id: str | None
     amount: Decimal | None
     currency: str | None
+    # Across currencies: what the link paid of a bill or debt in its own currency, and the bank's figures it rests on.
+    settled_amount: Decimal | None = None
+    settled_currency: str | None = None
+    fx: dict[str, Any] | None = None
     status: LinkStatus
     status_reason: str | None
     source_event_ids: list[str]

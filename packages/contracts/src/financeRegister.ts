@@ -213,6 +213,24 @@ export interface FinanceTransactionFx {
   plan_hash: string;
   can_correct: boolean;
   transfer: FinanceTransferFx | null;
+  /** Bills or debts this payment paid in another currency (docs/finance-matching.md#across-currencies). */
+  settles?: FinanceFxSettlement[];
+}
+
+export interface FinanceFxSettlement {
+  link_id: string;
+  dimension: 'bill' | 'debt';
+  target_id: string;
+  label: string | null;
+  /** In the obligation's own currency, as the bank printed it. */
+  settled_amount: string;
+  settled_currency: string;
+  /** The part of this payment it used, in the account's currency (an FX fee left out). */
+  bank_amount: string | null;
+  bank_currency: string | null;
+  status: 'active' | 'needs_review';
+  /** ``owner_confirmed``: the bank gave no original amount and the owner linked it; no rate is recorded. */
+  basis: 'bank_figures' | 'owner_confirmed';
 }
 
 export interface FinanceFxSeparateResult { purchase: FinanceTransactionFx; fee_transaction_id: string; mode: 'split' | 'link' }

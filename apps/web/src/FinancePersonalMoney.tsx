@@ -18,6 +18,8 @@ import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { LoanSplitDialog } from './FinanceLoanSplit';
 import { LoanPromises } from './FinanceLoanPromises';
+import { ContactNote, ContactPicker, LoanPeople, type PickedContact } from './FinanceLoanContacts';
+import { loanName } from './lib/financeLoanContacts';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import './financePages.css';
@@ -150,8 +152,9 @@ function PeopleTab({ base }: { base: string }) {
   const [open, setOpen] = useState<FinancePersonLoan | null>(null);
   const [removing, setRemoving] = useState<FinancePersonLoan | null>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const [view, setView] = useState<'loans' | 'people'>('loans'), [round, setRound] = useState(0);
   const searchId = useId();
-  const done = (text: string | null) => { setEditing(null); if (text) { setNotice({ text }); reload(); } };
+  const done = (text: string | null) => { setEditing(null); if (text) { setNotice({ text }); reload(); setRound((n) => n + 1); } };
   const remove = async () => {
     if (!removing) return;
     try { await pm.deleteLoan(removing.id); setNotice({ text: t('fpm.deleted', { name: removing.person }) }); reload(); }
@@ -167,7 +170,11 @@ function PeopleTab({ base }: { base: string }) {
         hint={overdueHint(data.owed)} />
     </KpiRow>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-    <FinCard title={t('fpm.people.listTitle')} icon={<HandCoins />} actions={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('fpm.people.add')}</button>}>
+    <div className="fpmViewSwitch" role="group" aria-label={t('fpm.byPerson.switch')}>
+      <button type="button" className={view === 'loans' ? '' : 'secondary'} aria-pressed={view === 'loans'} onClick={() => setView('loans')}>{t('fpm.byPerson.loansView')}</button>
+      <button type="button" className={view === 'people' ? '' : 'secondary'} aria-pressed={view === 'people'} onClick={() => setView('people')}>{t('fpm.byPerson.peopleView')}</button>
+    </div>
+    {view === 'people' ? <LoanPeople key={round} onAdd={() => setEditing('new')} /> : <FinCard title={t('fpm.people.listTitle')} icon={<HandCoins />} actions={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('fpm.people.add')}</button>}>
       <div className="fpmFilters">
         <label className="field" htmlFor={searchId}><span><Search aria-hidden="true" />{t('fpm.search')}</span>
           <input id={searchId} value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} dir="auto" /></label>
@@ -185,7 +192,7 @@ function PeopleTab({ base }: { base: string }) {
               <th scope="col" className="num">{t('fpm.people.repaid')}</th><th scope="col" className="num">{t('fpm.people.left')}</th><th scope="col">{t('fpm.people.due')}</th>
               <th scope="col">{t('fpm.status')}</th><th scope="col"><span className="visuallyHidden">{t('fpm.actions')}</span></th></tr></thead>
             <tbody>{value.items.map((l) => <tr key={l.id}>
-              <th scope="row" dir="auto">{l.person}</th>
+              <th scope="row"><span dir="auto">{loanName(l)}</span><ContactNote loan={l} /></th>
               <td>{t(l.direction === 'lent' ? 'fpm.people.lentShort' : 'fpm.people.borrowedShort')}</td>
               <td className="num"><Money value={l.amount} currency={l.currency} /></td>
               <td className="num"><Money value={l.repaid} currency={l.currency} /></td>
@@ -194,12 +201,12 @@ function PeopleTab({ base }: { base: string }) {
                 {l.installments ? <small className="muted fpmBlock">{t('fdepth.loan.installmentsShort', { count: l.installments })}</small> : null}
                 {Number(l.overdue_amount) > 0 && <small className="fpmBlock fpmOverdue">{t('fdepth.loan.overdueAmount', { amount: amount(l.overdue_amount, l.currency) })}</small>}</td>
               <td><StatusChip tone={loanTone(l.status)}>{t(`fpm.people.status.${l.status}` as MessageKey)}</StatusChip></td>
-              <td><RowActions name={l.person} onOpen={() => setOpen(l)} onEdit={() => setEditing(l)} onDelete={() => setRemoving(l)} /></td>
+              <td><RowActions name={loanName(l)} onOpen={() => setOpen(l)} onEdit={() => setEditing(l)} onDelete={() => setRemoving(l)} /></td>
             </tr>)}</tbody>
           </table></div>
           <Pager total={value.total} offset={offset} onOffset={setOffset} />
         </>}</States>
-    </FinCard>
+    </FinCard>}
     {editing && <Modal title={editing === 'new' ? t('fpm.people.add') : t('fpm.people.edit')} onClose={() => setEditing(null)}>
       <LoanForm loan={editing === 'new' ? null : editing} base={base} onDone={done} /></Modal>}
     {open && <LoanDetail loan={open} onClose={() => { setOpen(null); reload(); }} />}
@@ -217,13 +224,14 @@ function LoanForm({ loan, base, onDone }: { loan: FinancePersonLoan | null; base
   const [rate, setRate] = useState(loan?.interest_rate ? String(Number(loan.interest_rate)) : '');
   const [installments, setInstallments] = useState(loan?.installments ? String(loan.installments) : '');
   const [firstDue, setFirstDue] = useState(loan?.first_due_on ?? '');
+  const [contact, setContact] = useState<PickedContact>({ id: loan?.contact_id ?? null, name: loan?.contact_name ?? null, state: loan?.contact_state ?? null });
   const scheduled = installments.trim() !== '';
   const errorId = useId();
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError(null);
     const body = { direction, person: person.trim(), amount: value.trim(), currency, lent_on: lentOn, due_on: scheduled ? null : (dueOn || null), notes: notes.trim() || null,
       remind, remind_days_before: daysBefore, closed, interest_rate: rate.trim() || null, installments: scheduled ? Number(installments) : null,
-      first_due_on: scheduled ? (firstDue || null) : null };
+      first_due_on: scheduled ? (firstDue || null) : null, contact_id: contact.id };
     try { if (loan) await pm.updateLoan(loan.id, body); else await pm.createLoan(body); onDone(t('fpm.saved', { name: body.person })); }
     catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   };
@@ -233,7 +241,10 @@ function LoanForm({ loan, base, onDone }: { loan: FinancePersonLoan | null; base
       <label><input type="radio" name="direction" checked={direction === 'borrowed'} onChange={() => setDirection('borrowed')} />{t('fpm.people.borrowed')}</label>
     </fieldset>
     <div className="cmFormGrid">
-      <label className="field"><span>{t('fpm.people.person')}</span><input value={person} onChange={(e) => setPerson(e.target.value)} maxLength={120} required dir="auto" /></label>
+      <div className="fpmPersonField">
+        <label className="field"><span>{t('fpm.people.person')}</span><input value={person} onChange={(e) => setPerson(e.target.value)} maxLength={120} required dir="auto" /></label>
+        <ContactPicker person={person} picked={contact} onPick={(next) => { setContact(next); if (next.name && !person.trim()) setPerson(next.name); }} />
+      </div>
       <label className="field"><span>{t('fpm.amount')}</span><input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
       <label className="field"><span>{t('fpm.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" required /></label>
       <label className="field"><span>{t('fpm.people.lentOn')}</span><input type="date" value={lentOn} onChange={(e) => setLentOn(e.target.value)} required /></label>
@@ -270,7 +281,7 @@ function LoanDetail({ loan, onClose }: { loan: FinancePersonLoan; onClose: () =>
   const [splitting, setSplitting] = useState(false);
   const [error, setError] = useState<string | null>(null), [done, setDone] = useState<string | null>(null);
   const directionOf = (kind: 'handed' | 'repayment'): 'in' | 'out' => (loan.direction === 'lent') === (kind === 'handed') ? 'out' : 'in';
-  return <Modal title={t('fpm.people.detail', { name: loan.person })} onClose={onClose} className="fpmDialog">
+  return <Modal title={t('fpm.people.detail', { name: loanName(loan) })} onClose={onClose} className="fpmDialog">
     <States state={state} retry={reload}>{(l) => <>
       <dl className="finStatement">
         <div><dt>{t('fpm.amount')}</dt><dd><Money value={l.amount} currency={l.currency} /></dd></div>

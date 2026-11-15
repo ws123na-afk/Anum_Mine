@@ -296,6 +296,35 @@ class FxTransfer {
       );
 }
 
+/// A bill or debt a payment paid in another currency (`FinanceFxSettlement`,
+/// docs/finance-matching.md#across-currencies): the obligation's side in its
+/// own currency and the part of the payment it used, in the account's.
+class FxSettlement {
+  const FxSettlement({
+    required this.linkId,
+    required this.settledAmount,
+    required this.settledCurrency,
+    required this.status,
+    required this.basis,
+    this.label,
+    this.bankAmount,
+    this.bankCurrency,
+  });
+  final String linkId, settledAmount, settledCurrency, status, basis;
+  final String? label, bankAmount, bankCurrency;
+
+  factory FxSettlement.fromJson(JsonReader r) => FxSettlement(
+        linkId: r.string('link_id'),
+        settledAmount: _dec(r, 'settled_amount') ?? '0',
+        settledCurrency: r.string('settled_currency'),
+        status: r.optString('status') ?? 'active',
+        basis: r.optString('basis') ?? 'bank_figures',
+        label: r.optString('label'),
+        bankAmount: _dec(r, 'bank_amount'),
+        bankCurrency: r.optString('bank_currency'),
+      );
+}
+
 /// `GET /transactions/{id}/fx` (`FinanceTransactionFx`).
 class FxDetails {
   const FxDetails({
@@ -316,6 +345,7 @@ class FxDetails {
     this.fee,
     this.notes = const [],
     this.transfer,
+    this.settles = const [],
   });
   final String transactionId, rateKind, split, planHash;
   final bool foreign, canCorrect;
@@ -324,10 +354,13 @@ class FxDetails {
   final FxFee? fee;
   final List<String> notes;
   final FxTransfer? transfer;
+  final List<FxSettlement> settles;
 
   /// Whether there is anything to show: a foreign purchase, a fee to read
-  /// with it, or an own transfer in two currencies.
-  bool get shows => foreign || fee != null || transfer != null;
+  /// with it, an own transfer in two currencies, or a bill or debt it paid in
+  /// another currency.
+  bool get shows =>
+      foreign || fee != null || transfer != null || settles.isNotEmpty;
 
   /// The rate is not on the row: only the billed amount exists. Never
   /// guessed.
@@ -364,6 +397,7 @@ class FxDetails {
       planHash: r.optString('plan_hash') ?? '',
       canCorrect: r.optBool('can_correct') ?? false,
       transfer: transfer == null ? null : FxTransfer.fromJson(transfer),
+      settles: r.optObjects('settles', FxSettlement.fromJson),
     );
   }
 }

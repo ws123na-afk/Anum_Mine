@@ -166,6 +166,7 @@ def compute(
     budgets: list | None = None,
     month_rows: list | None = None,
     lending: frozenset[str] | None = None,
+    rollovers: list | None = None,
 ) -> SafeToSpend:
     """The pure calculation: the same inputs always give the same figure.
 
@@ -273,7 +274,7 @@ def compute(
                                   note="buffer", detail="The buffer you keep back."))
 
     planned, left_out = planned_lines(today, month_end, bills, installments or [], remittances or [], budgets or [], month_rows or [],
-                                      bill_links or [], lending)
+                                      bill_links or [], lending, rollovers)
     lines += planned
     excluded += left_out
 
@@ -343,7 +344,7 @@ def compute(
 
 
 def planned_lines(today: date, month_end: date, bills: list[Bill], installments: list, remittances: list, budgets: list, month_rows: list,
-                  bill_links: list, lending: frozenset[str] | None) -> tuple[list[SafeLine], list[SafeLine]]:
+                  bill_links: list, lending: frozenset[str] | None, rollovers: list | None = None) -> tuple[list[SafeLine], list[SafeLine]]:
     """The planned commitments: unpaid installments and regular remittances to the month's end, and budgets kept back."""
     lines: list[SafeLine] = []
     excluded: list[SafeLine] = []
@@ -393,14 +394,16 @@ def planned_lines(today: date, month_end: date, bills: list[Bill], installments:
     if kept:
         from .commitments import plan_budget_report
 
-        report = plan_budget_report(kept, month_rows, on=today, today=today, bills=bills, bill_links=bill_links, lending=lending)
+        report = plan_budget_report(kept, month_rows, on=today, today=today, bills=bills, bill_links=bill_links, lending=lending,
+                                    rollovers=rollovers)
         for line in report.budgets:
-            # What is left of the budget, less its bills still to pay: those are taken off above already.
+            # What is left of the budget (with what its rollover carried in), less its bills still to pay: those are taken
+            # off above already.
             reserve = max((line.remaining or Decimal(0)) - line.coming, Decimal(0))
             if reserve > 0:
                 lines.append(SafeLine(kind="budget", label=line.name, ref_id=line.id, currency=line.currency, amount=-quantize(reserve, line.currency),
                                       note="budget_reserve", params={"spent": fmt(line.spent or Decimal(0), line.currency),
-                                                                      "amount": fmt(line.amount, line.currency)},
+                                                                      "amount": fmt(line.available if line.available is not None else line.amount, line.currency)},
                                       detail="What is left of this budget, kept back (its bills are counted above)."))
             else:
                 excluded.append(SafeLine(kind="budget", label=line.name, ref_id=line.id, currency=line.currency, amount=Decimal(0),
@@ -410,7 +413,7 @@ def planned_lines(today: date, month_end: date, bills: list[Bill], installments:
 
 def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: datetime | None = None, links: O.Links | None = None) -> SafeToSpend:
     """``links`` come from ``obligations.load``, read in its own short unit of work before this one."""
-    from .commitments import budget_period
+    from . import budget_rollover as RO
 
     settings = settings_for(store, context)
     today = today_in(settings, now)
@@ -419,8 +422,8 @@ def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: dat
     balances = store.account_sums(context)
     planning = store.get_planning(context)
     kept = [b for b in planning.budgets if b.reserve_in_safe_to_spend and b.active]
-    periods = [budget_period(b, today) for b in kept]
-    month_rows = store.transactions_between(context, min(p[0] for p in periods), max(p[1] for p in periods)) if periods else []
+    span = RO.window(kept, planning.budget_rollovers, today)  # the period and every rollover chain back to its start
+    month_rows = store.transactions_between(context, span[0], span[1]) if span else []
     # Regular remittances come in with ``links`` (``obligations.load`` reads the personal store in its own unit).
     remittances = list(getattr(links, "remittances", []) or [])
     return compute(
@@ -434,5 +437,5 @@ def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: dat
         debt_payments=links.debt_payments if links is not None else None,
         salary_profile=links.salary_profile if links is not None else None, payslips=links.payslips if links is not None else None,
         installments=list(planning.installment_entries), remittances=remittances, budgets=kept, month_rows=month_rows,
-        lending=links.lending_ids if links is not None else None,
+        lending=links.lending_ids if links is not None else None, rollovers=planning.budget_rollovers,
     )

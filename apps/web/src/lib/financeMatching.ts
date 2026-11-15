@@ -2,7 +2,7 @@
 // without a browser (the requests are in financeMatchingApi.ts). The server decides everything; these only shape the request
 // and the words.
 import type {
-  FinanceBackfillRun, FinanceInstallmentStatus, FinanceMatchOutcome, FinanceMatchingPolicy, FinanceMatchingPolicyInput, FinanceMatchingPolicyView,
+  FinanceBackfillRun, FinanceFxEvidence, FinanceInstallmentStatus, FinanceMatchOutcome, FinanceMatchingPolicy, FinanceMatchingPolicyInput, FinanceMatchingPolicyView,
 } from '@anum/contracts';
 
 export const SWITCHES = ['match_transactions', 'reconcile_installments', 'link_recurring_bills', 'link_card_repayments', 'link_bank_loan_repayments',
@@ -73,4 +73,15 @@ export function runProgress(run: Pick<FinanceBackfillRun, 'start_on' | 'end_on' 
 /** The counts worth showing (non-zero), in the fixed order. */
 export function shownCounts(counts: Record<string, number>): { key: typeof COUNT_KEYS[number]; value: number }[] {
   return COUNT_KEYS.filter((k) => (counts[k] ?? 0) > 0).map((k) => ({ key: k, value: counts[k] }));
+}
+
+/**
+ * How a match across currencies reads (docs/finance-matching.md#across-currencies): on the bank's printed figures, waiting
+ * because the bank gave no original amount, or linked by the owner without one. ``null`` for a match in one currency.
+ */
+export function fxBasis(fx: FinanceFxEvidence | null | undefined): 'bank' | 'missing' | 'confirmed' | null {
+  if (!fx) return null;
+  if (fx.basis === 'owner_confirmed') return 'confirmed';
+  if (fx.basis === 'missing' || !fx.original_amount) return 'missing';
+  return 'bank';
 }

@@ -39,7 +39,36 @@ export interface FinancePersonLoan {
   links: number;
   created_at: string;
   updated_at: string;
+  /** The person in Contacts (migration 0186_pf_debts); `person` stays the name typed on the loan (history). */
+  contact_id?: string | null;
+  /** Read live for the caller, never stored in finance: `linked` with the current name, `deleted` (removed or merged away,
+   * the typed `person` stands) or `hidden` (the caller cannot read Contacts). Null when no contact is linked. */
+  contact_name?: string | null;
+  contact_state?: FinanceLoanContactState | null;
 }
+
+export type FinanceLoanContactState = 'linked' | 'deleted' | 'hidden';
+
+/** One person's loans together: by the Contacts person when linked, else by the typed name (docs/finance.md#people-from-contacts). */
+export interface FinanceLoanPerson {
+  key: string;
+  contact_id: string | null;
+  contact_state: FinanceLoanContactState | null;
+  name: string;
+  /** Every name typed on these loans, newest first. */
+  names: string[];
+  loans: number;
+  open_loans: number;
+  overdue: number;
+  owed: FinanceOwed[];
+  last_on: string;
+}
+
+export interface FinanceLoanPersonPage { items: FinanceLoanPerson[]; total: number; limit: number; offset: number }
+
+export interface FinanceLoanPersonHistoryItem { loan_id: string; direction: FinanceLoanDirection; currency: string; movement: FinanceMovement }
+
+export interface FinanceLoanPersonDetail extends FinanceLoanPerson { items: FinancePersonLoan[]; history: FinanceLoanPersonHistoryItem[] }
 
 export type FinanceInstallmentState = 'repaid' | 'part_repaid' | 'overdue' | 'due';
 
@@ -61,6 +90,8 @@ export interface FinancePersonLoanInput {
   interest_rate?: string | null;
   installments?: number | null;
   first_due_on?: string | null;
+  /** A person the caller can read in Contacts; null clears the link, left out keeps it. */
+  contact_id?: string | null;
 }
 
 export interface FinanceOwed { currency: string; they_owe_me: string; i_owe: string; they_owe_me_overdue: string; i_owe_overdue: string }

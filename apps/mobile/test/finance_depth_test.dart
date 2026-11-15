@@ -421,6 +421,33 @@ void main() {
       expect(find.byKey(const Key('fx-link')), findsOneWidget);
     });
 
+    testWidgets('a bill paid in another currency is shown with both sides',
+        (tester) async {
+      final d = DepthApi()
+        ..fx = {
+          ...fxJson(),
+          'settles': [
+            {
+              'link_id': 'fin_link_9',
+              'dimension': 'bill',
+              'target_id': 'fin_bill_9:2026-11-15',
+              'label': 'Example shop 2/4',
+              'settled_amount': '100.00',
+              'settled_currency': 'USD',
+              'bank_amount': '375.00',
+              'bank_currency': 'SAR',
+              'status': 'active',
+              'basis': 'bank_figures',
+            }
+          ],
+        };
+      await openFx(tester, d);
+      await tester.scrollUntilVisible(find.byKey(const Key('fx-settles')), 200,
+          scrollable: find.byType(Scrollable).last);
+      expect(find.byKey(const Key('fx-settles')), findsOneWidget);
+      expect(find.textContaining('of Example shop 2/4, using'), findsOneWidget);
+    });
+
     testWidgets('only a billed amount says rate not stated', (tester) async {
       final d = DepthApi()..fx = fxJson(rate: false);
       await openFx(tester, d);

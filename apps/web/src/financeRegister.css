@@ -216,3 +216,9 @@
 .ffxDiff.gain bdi { color: var(--d-ok); }
 .ffxDiff.loss bdi { color: var(--d-error-text); }
 .ffxPanel > button { justify-self: start; }
+
+/* Bills or debts a payment paid in another currency (docs/finance-matching.md#across-currencies). */
+.ffxSettles { display: grid; gap: var(--d-s1); }
+.ffxSettles h4 { font-size: var(--text-sm); margin: 0; }
+.ffxSettles ul { display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.ffxSettles li { overflow-wrap: anywhere; }

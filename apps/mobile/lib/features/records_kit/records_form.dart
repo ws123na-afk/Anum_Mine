@@ -81,12 +81,21 @@ class RecordsForm extends StatefulWidget {
     required this.onSubmit,
     this.intro,
     this.onError,
+    this.controllers = const {},
+    this.below = const {},
     super.key,
   });
 
   final String title;
   final String? intro;
   final List<RecordsInput> fields;
+
+  /// Text controllers the caller owns for some fields (by name), so a helper
+  /// shown under a field can read and fill it; the form never disposes them.
+  final Map<String, TextEditingController> controllers;
+
+  /// A widget shown right under the named field (the loan's Contacts picker).
+  final Map<String, Widget> below;
   final String submitLabel;
   final Future<void> Function(RecordsValues values) onSubmit;
   final Widget? Function(Object error, RecordsValues values)? onError;
@@ -101,7 +110,8 @@ class _RecordsFormState extends State<RecordsForm> {
     for (final field in widget.fields)
       if (field.kind != RecordsInputKind.toggle &&
           field.kind != RecordsInputKind.choice)
-        field.name: TextEditingController(text: field.initial ?? ''),
+        field.name: widget.controllers[field.name] ??
+            TextEditingController(text: field.initial ?? ''),
   };
   late final Map<String, String?> _choice = {
     for (final field in widget.fields)
@@ -118,8 +128,8 @@ class _RecordsFormState extends State<RecordsForm> {
 
   @override
   void dispose() {
-    for (final controller in _text.values) {
-      controller.dispose();
+    for (final entry in _text.entries) {
+      if (!widget.controllers.containsKey(entry.key)) entry.value.dispose();
     }
     super.dispose();
   }
@@ -279,6 +289,10 @@ class _RecordsFormState extends State<RecordsForm> {
           for (final field in widget.fields) ...[
             const SizedBox(height: AnumSpacing.sm),
             _field(field, k),
+            if (widget.below[field.name] case final Widget extra) ...[
+              const SizedBox(height: AnumSpacing.xs),
+              extra,
+            ],
           ],
           if (error != null) ...[
             const SizedBox(height: AnumSpacing.sm),
