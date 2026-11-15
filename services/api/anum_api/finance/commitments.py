@@ -31,6 +31,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from ..schemas import TenantContext
+from .budget_rollover import ChainPeriod
 from .flows import spend_rows
 from .guardian import GuardianRules
 from .links_store import FinanceLink, LinkStatus
@@ -292,11 +293,24 @@ class PlanBudgetLine(BaseModel):
     basis: str  # what spent is read from: ``spending``, ``goal_account``, ``goal``, ``remittances``, ``family_support``, ``debt_payments``
     goal_saved: Decimal | None = None
     goal_target: Decimal | None = None
+    # Rollover (docs/finance.md#budget-rollover): the terms this period used, what came in from the period before, the
+    # amount plus that, and the chain's latest periods (oldest first). Without rollover: ``none``, ``absorb``, 0, the amount.
+    rollover: str = "none"
+    rollover_cap: Decimal | None = None
+    overspend: str = "absorb"
+    carried_in: Decimal = Decimal(0)
+    available: Decimal | None = None
+    chain: list[ChainPeriod] = []
+    chain_periods: int = 0
+    starts_on: date | None = None  # the budget's own first day (a weekly anchor or the first custom window)
+    ends_on: date | None = None
 
 
 class PlanTotals(BaseModel):
     currency: str
     budget: Decimal
+    carried_in: Decimal
+    available: Decimal
     spent: Decimal
     remaining: Decimal
     coming: Decimal
@@ -380,8 +394,11 @@ def _pace_risk(amount: Decimal, saved: Decimal, start: date, end: date, today: d
 
 def plan_budget_report(budgets: list[Any], rows: list[Transaction], *, on: date, today: date, bills: list[Bill], bill_links: list,
                        lending: frozenset[str] | None = None, goals: list[Any] | None = None, remittances: list[Any] | None = None,
-                       debt_payments: list[Any] | None = None, include_inactive: bool = False) -> PlanReport:
-    """Each budget's figures for the period holding ``on``. ``rows`` must cover every budget's period."""
+                       debt_payments: list[Any] | None = None, include_inactive: bool = False,
+                       rollovers: list[Any] | None = None) -> PlanReport:
+    """Each budget's figures for the period holding ``on``. ``rows`` must cover every budget's period and, with
+    ``rollovers`` (each budget's terms period by period), every chain back to its start (``budget_rollover.window``)."""
+    from . import budget_rollover as RO
     from .obligations import unpaid
 
     spend = spend_rows(rows, None, lending)
@@ -390,9 +407,14 @@ def plan_budget_report(budgets: list[Any], rows: list[Transaction], *, on: date,
     for budget in budgets:
         if not budget.active and not include_inactive:
             continue
-        start, end = budget_period(budget, on)
+        history = RO.history_for(budget.id, rollovers)
+        start, end = RO.period_for(budget, on, RO.repeats(budget, history))
         kind = getattr(budget.kind, "value", budget.kind)
         currency = budget.currency
+        amount = quantize(budget.amount, currency)
+        periods: list[RO.ChainPeriod] = []
+        carried_in = Decimal(0)
+        shown = RO.terms_on(history, start) if kind == "spending" else None
         current = start <= today <= end
         days_left = (end - today).days + 1 if current else (0 if today > end else (end - start).days + 1)
         coming_items: list[ComingItem] = []
@@ -403,6 +425,10 @@ def plan_budget_report(budgets: list[Any], rows: list[Transaction], *, on: date,
             count = sum(1 for t in mine if t.amount < 0)
             spent: Decimal | None = quantize(max(-sum((t.amount for t in mine), Decimal(0)), Decimal(0)), currency)
             basis = "spending"
+            periods = RO.chain(budget, history, spend, on=on, today=today)
+            if periods and periods[-1].start == start and periods[-1].currency == currency:
+                # This period by the terms it used, counted the same way, plus what came in from the period before.
+                amount, spent, count, carried_in = periods[-1].amount, periods[-1].spent, periods[-1].rows, periods[-1].carried_in
             if today <= end:
                 # The current period also carries this month's passed due dates with no matched payment (still to pay).
                 for due in unpaid(bills, bill_links, today if current else start, end):
@@ -442,7 +468,7 @@ def plan_budget_report(budgets: list[Any], rows: list[Transaction], *, on: date,
             spent = quantize(sum((p.amount for p in paid), Decimal(0)), currency)
             basis = "debt_payments"
         coming = quantize(sum((c.amount for c in coming_items), Decimal(0)), currency)
-        amount = quantize(budget.amount, currency)
+        available = quantize(amount + carried_in, currency)
         if spent is None:
             forecast, risk = None, "unknown"
         elif kind == "spending":
@@ -454,20 +480,31 @@ def plan_budget_report(budgets: list[Any], rows: list[Transaction], *, on: date,
                 variable = max(spent - paid_bills, Decimal(0))
                 forecast += variable * (days_left - 1) / elapsed if elapsed > 0 else Decimal(0)
             forecast = quantize(forecast, currency)
-            risk = _risk(amount, spent, forecast, budget.alert_percent)
+            risk = _risk(available, spent, forecast, budget.alert_percent)
         else:
             forecast = spent
             risk = _pace_risk(amount, spent, start, end, today)
-        over = quantize(max((spent or Decimal(0)) - amount, Decimal(0)), currency) if kind == "spending" else quantize(Decimal(0), currency)
+        over = quantize(max((spent or Decimal(0)) - available, Decimal(0)), currency) if kind == "spending" else quantize(Decimal(0), currency)
+        if spent is None:
+            percent = None
+        elif available > 0:
+            percent = int(spent * 100 / available)
+        else:  # a carried deficit used the whole amount up
+            percent = 100
         lines.append(PlanBudgetLine(
             id=budget.id, name=budget.name, kind=kind, period=getattr(budget.period, "value", budget.period), currency=currency, amount=amount,
             period_start=start, period_end=end, days_left=days_left, categories=list(budget.categories), subcategory_ids=list(budget.subcategory_ids),
             fixed=budget.fixed, essential=budget.essential, allocation=default_allocation(budget), alert_percent=budget.alert_percent,
             reserve_in_safe_to_spend=budget.reserve_in_safe_to_spend, active=budget.active, notes=budget.notes, goal_id=budget.goal_id,
             debt_ids=list(budget.debt_ids), spent=spent,
-            remaining=quantize(max(amount - spent, Decimal(0)), currency) if spent is not None else None, over=over,
-            percent=int(spent * 100 / amount) if spent is not None and amount > 0 else None, coming=coming, coming_items=coming_items,
+            remaining=quantize(max(available - spent, Decimal(0)), currency) if spent is not None else None, over=over,
+            percent=percent, coming=coming, coming_items=coming_items,
             forecast=forecast, risk=risk, rows=count, basis=basis, goal_saved=goal_saved, goal_target=goal_target,
+            rollover=shown.rollover.value if shown else "none",
+            rollover_cap=quantize(shown.cap, currency) if shown and shown.cap is not None else None,
+            overspend=shown.overspend.value if shown else "absorb", carried_in=quantize(carried_in, currency), available=available,
+            chain=periods[-RO.CHAIN_SHOWN:], chain_periods=len(periods),
+            starts_on=budget.starts_on, ends_on=budget.ends_on,
         ))
     lines.sort(key=lambda l: (l.currency, {"over": 0, "high": 1, "behind": 2, "watch": 3, "unknown": 4, "ok": 5}[l.risk], l.name.casefold()))
     totals: list[PlanTotals] = []
@@ -475,7 +512,9 @@ def plan_budget_report(budgets: list[Any], rows: list[Transaction], *, on: date,
         mine = [l for l in lines if l.currency == currency and l.kind == "spending" and l.period == "monthly"]
         budget_total = sum((l.amount for l in mine), Decimal(0))
         spent_total = sum((l.spent or Decimal(0) for l in mine), Decimal(0))
-        totals.append(PlanTotals(currency=currency, budget=quantize(budget_total, currency), spent=quantize(spent_total, currency),
+        carried_total = sum((l.carried_in for l in mine), Decimal(0))
+        totals.append(PlanTotals(currency=currency, budget=quantize(budget_total, currency), carried_in=quantize(carried_total, currency),
+                                 available=quantize(budget_total + carried_total, currency), spent=quantize(spent_total, currency),
                                  remaining=quantize(sum((l.remaining or Decimal(0) for l in mine), Decimal(0)), currency),
                                  coming=quantize(sum((l.coming for l in mine), Decimal(0)), currency),
                                  forecast=quantize(sum((l.forecast or Decimal(0) for l in mine), Decimal(0)), currency)))

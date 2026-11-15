@@ -21,6 +21,22 @@
 .fbudCheck input[type="checkbox"] { flex: 0 0 auto; height: 18px; margin: 0; min-height: 0; width: 18px; }
 .fbudChips { display: flex; flex-wrap: wrap; gap: var(--d-s1); margin-top: var(--d-s1); }
 .fbudDialog { max-width: min(720px, 100%); width: 100%; }
+/* Rollover (docs/finance.md#budget-rollover): carried in, available, and the chain of earlier periods. */
+.fbudItem { grid-template-columns: minmax(0, 1fr); }
+.fbudRoll { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); grid-template-columns: minmax(0, 1fr); min-width: 0; padding-top: var(--d-s2); }
+.fbudChain { min-width: 0; }
+/* The rollover fields sit in a fieldset: label above the control, like the form's other rows. */
+.fbudPick .fbudRow > .field { align-items: stretch; display: grid; gap: var(--d-s1); min-width: 0; }
+.fbudPick .fbudRow > .field > select, .fbudPick .fbudRow > .field > input { max-width: 100%; min-width: 0; width: 100%; }
+.fbudRollFigures { display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1) var(--d-s3); margin: 0; }
+.fbudChain > summary { cursor: pointer; font-size: var(--text-sm); }
+.fbudChainList { display: grid; font-size: var(--text-sm); gap: var(--d-s2); list-style: none; margin: var(--d-s2) 0 0; padding: 0; }
+.fbudChainList > li { border-inline-start: 2px solid var(--d-line); display: grid; gap: var(--d-s1); min-width: 0; padding-inline-start: var(--d-s2); }
+.fbudChainHead { display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); align-items: baseline; }
+.fbudChainFigures { display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); margin: 0; }
+.fbudChainFigures > div { display: grid; min-width: 0; }
+.fbudChainFigures dt { color: var(--d-muted); }
+.fbudChainFigures dd { margin: 0; }
 .fcatGroups { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
 .fcatGroup { border: 1px solid var(--d-line); border-radius: var(--d-radius); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
 .fcatGroup h3 { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; letter-spacing: .02em; margin: 0; text-transform: uppercase; }

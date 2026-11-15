@@ -255,6 +255,8 @@ class FinancePlanRecord(Base):
     # Migration 0185_pf_budgets.
     budgets: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     category_mappings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    # Migration 0189_pf_budget_rollover.
+    budget_rollovers: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
@@ -886,7 +888,8 @@ class SqlAlchemyFinanceStore:
         return Planning.model_validate({"debt_plans": found.debt_plans or [], "budget_alerts": found.budget_alerts or [], "installment_entries": found.installment_entries or [],
                                        "installment_refund_notices": found.installment_refund_notices or [],
                                        "installment_refunds": found.installment_refunds or [], "budgets": found.budgets or [],
-                                       "category_mappings": found.category_mappings or []})
+                                       "category_mappings": found.category_mappings or [],
+                                       "budget_rollovers": found.budget_rollovers or []})
 
     def save_planning(self, context: TenantContext, planning: Planning) -> Planning:
         require_workspace(self.session, context.tenant_id, context.workspace_id)
@@ -898,6 +901,7 @@ class SqlAlchemyFinanceStore:
             "installment_refunds": [a.model_dump(mode="json") for a in planning.installment_refunds],
             "budgets": [a.model_dump(mode="json") for a in planning.budgets],
             "category_mappings": [a.model_dump(mode="json") for a in planning.category_mappings],
+            "budget_rollovers": [a.model_dump(mode="json") for a in planning.budget_rollovers],
         }
         # A new row keeps the safe-to-spend defaults (no buffer, no combined total, rates up to 7 days old).
         statement = insert(FinancePlanRecord).values(

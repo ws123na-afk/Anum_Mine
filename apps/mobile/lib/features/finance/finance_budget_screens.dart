@@ -290,7 +290,7 @@ class _BudgetsScreenState extends State<BudgetsScreen>
           const SizedBox(height: AnumSpacing.sm),
           Text(m.t('budgets.spentOf', {
             'spent': formatAmount(b.spent!, b.currency),
-            'amount': formatAmount(b.amount, b.currency)
+            'amount': formatAmount(b.available ?? b.amount, b.currency)
           })),
           if ((double.tryParse(b.over) ?? 0) > 0)
             Text(
@@ -313,6 +313,7 @@ class _BudgetsScreenState extends State<BudgetsScreen>
           for (final c in b.comingItems)
             RecordsField(
                 '${c.name} · ${c.dueOn}', formatAmount(c.amount, b.currency)),
+          if (b.kind == 'spending' && b.showsRollover) _rollover(context, b),
         ] else
           Text(
               m.t('budgets.noRecord', {
@@ -322,6 +323,81 @@ class _BudgetsScreenState extends State<BudgetsScreen>
               style: muted),
       ]),
     );
+  }
+
+  /// Rollover (docs/finance.md#budget-rollover): what came in, what is
+  /// available, the setting, and the chain of periods with the setting each
+  /// one used.
+  Widget _rollover(BuildContext context, PlanBudget b) {
+    final m = FinanceBudgetStrings.of(context);
+    final muted = TextStyle(color: context.palette.muted);
+    final carried = double.tryParse(b.carriedIn) ?? 0;
+    return Column(
+        key: Key('budget-rollover-${b.id}'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Divider(),
+          Text(carried < 0
+              ? m.t('roll.deficitIn', {
+                  'amount': formatAmount(
+                      b.carriedIn.replaceFirst('-', ''), b.currency)
+                })
+              : m.t('roll.carriedIn',
+                  {'amount': formatAmount(b.carriedIn, b.currency)})),
+          Text(m.t('roll.available', {
+            'amount': formatAmount(b.available ?? b.amount, b.currency),
+            'base': formatAmount(b.amount, b.currency)
+          })),
+          Text(
+              rolloverWords(
+                  m, b.rollover, b.rolloverCap, b.overspend, b.currency),
+              style: muted),
+          if (b.chain.isNotEmpty)
+            ExpansionTile(
+              key: Key('budget-chain-${b.id}'),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: Text(m.t('roll.chain', {'count': b.chainPeriods})),
+              children: [
+                for (final p in b.chain.reversed)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AnumSpacing.sm),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                              m.t('budgets.period',
+                                  {'from': p.start, 'to': p.end}),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600)),
+                          Text(
+                              [
+                                rolloverShort(m, p.rollover, p.cap, p.overspend,
+                                    p.currency),
+                                if (p.restarted) m.t('roll.restarted'),
+                              ].join(' · '),
+                              style: muted),
+                          RecordsField(m.t('roll.in'),
+                              formatAmount(p.carriedIn, p.currency)),
+                          RecordsField(m.t('roll.availableCol'),
+                              formatAmount(p.available, p.currency)),
+                          RecordsField(m.t('roll.spent'),
+                              formatAmount(p.spent, p.currency)),
+                          RecordsField(
+                              m.t('roll.out'),
+                              p.carriedOut == null
+                                  ? m.t('roll.open')
+                                  : formatAmount(p.carriedOut!, p.currency)),
+                        ]),
+                  ),
+                if (b.chainPeriods > b.chain.length)
+                  Text(
+                      m.t('roll.older',
+                          {'count': b.chainPeriods - b.chain.length}),
+                      style: muted),
+              ],
+            ),
+        ]);
   }
 
   Widget _allocation(BuildContext context, AllocationView a) {
@@ -360,6 +436,27 @@ class _BudgetsScreenState extends State<BudgetsScreen>
   }
 }
 
+/// The words for a rollover setting ("What is left carries over, at most
+/// AED 150.00; an overspend is not carried").
+String rolloverWords(FinanceBudgetStrings m, String rollover, String? cap,
+    String overspend, String currency) {
+  final surplus = rollover == 'capped' && cap != null
+      ? m.t('roll.cappedAt', {'amount': formatAmount(cap, currency)})
+      : m.t('roll.mode.$rollover');
+  return '$surplus${m.t('roll.join')}${m.t('roll.over.$overspend')}';
+}
+
+/// The short words for one period's setting in the history.
+String rolloverShort(FinanceBudgetStrings m, String rollover, String? cap,
+    String overspend, String currency) {
+  final surplus = rollover == 'capped' && cap != null
+      ? m.t('roll.short.capped', {'amount': formatAmount(cap, currency)})
+      : m.t('roll.short.${rollover == 'capped' ? 'surplus' : rollover}');
+  return overspend == 'carry'
+      ? '$surplus · ${m.t('roll.short.deficit')}'
+      : surplus;
+}
+
 /// What is missing before a budget can be sent (null: ready). The API checks again.
 String? budgetFormProblem(FinanceBudgetStrings m,
     {required String name,
@@ -370,7 +467,9 @@ String? budgetFormProblem(FinanceBudgetStrings m,
     required Set<String> categories,
     String? goalId,
     String startsOn = '',
-    String endsOn = ''}) {
+    String endsOn = '',
+    String rollover = 'none',
+    String rolloverCap = ''}) {
   if (name.trim().isEmpty) return m.t('form.needName');
   final value = double.tryParse(amount.trim());
   if (value == null || value <= 0) return m.t('form.needAmount');
@@ -380,6 +479,10 @@ String? budgetFormProblem(FinanceBudgetStrings m,
   if (kind == 'spending' && categories.isEmpty) return m.t('form.needCategory');
   if (savingKinds.contains(kind) && (goalId == null || goalId.isEmpty)) {
     return m.t('form.needGoal');
+  }
+  if (kind == 'spending' && rollover == 'capped') {
+    final cap = double.tryParse(rolloverCap.trim());
+    if (cap == null || cap <= 0) return m.t('form.needCap');
   }
   if (period == 'custom') {
     final start = DateTime.tryParse(startsOn.trim());
@@ -412,12 +515,20 @@ class _BudgetFormScreenState extends State<BudgetFormScreen> {
   late final _amount = TextEditingController(text: widget.budget?.amount ?? '');
   late final _currency =
       TextEditingController(text: widget.budget?.currency ?? widget.base);
+  // The budget's own dates: a custom budget that carries money repeats, so
+  // the period shown is not its first window.
   late final _start = TextEditingController(
       text: widget.budget != null && widget.budget!.period != 'monthly'
-          ? widget.budget!.periodStart
+          ? (widget.budget!.startsOn ?? widget.budget!.periodStart)
           : '');
   late final _end = TextEditingController(
-      text: widget.budget?.period == 'custom' ? widget.budget!.periodEnd : '');
+      text: widget.budget?.period == 'custom'
+          ? (widget.budget!.endsOn ?? widget.budget!.periodEnd)
+          : '');
+  late String _rollover = widget.budget?.rollover ?? 'none';
+  late String _overspend = widget.budget?.overspend ?? 'absorb';
+  late final _cap =
+      TextEditingController(text: widget.budget?.rolloverCap ?? '');
   late String _kind = widget.budget?.kind ?? 'spending';
   late String _period = widget.budget?.period ?? 'monthly';
   late final Set<String> _categories = {...?widget.budget?.categories};
@@ -441,7 +552,7 @@ class _BudgetFormScreenState extends State<BudgetFormScreen> {
 
   @override
   void dispose() {
-    for (final c in [_name, _amount, _currency, _start, _end]) {
+    for (final c in [_name, _amount, _currency, _start, _end, _cap]) {
       c.dispose();
     }
     super.dispose();
@@ -458,7 +569,9 @@ class _BudgetFormScreenState extends State<BudgetFormScreen> {
         categories: _categories,
         goalId: _goal,
         startsOn: _start.text,
-        endsOn: _end.text);
+        endsOn: _end.text,
+        rollover: _rollover,
+        rolloverCap: _cap.text);
     if (problem != null) {
       setState(() => _error = problem);
       return;
@@ -488,6 +601,11 @@ class _BudgetFormScreenState extends State<BudgetFormScreen> {
       'reserve_in_safe_to_spend': _kind == 'spending' && _reserve,
       'active': _active,
       'notes': widget.budget?.notes,
+      if (_kind == 'spending') ...{
+        'rollover': _rollover,
+        'rollover_cap': _rollover == 'capped' ? _cap.text.trim() : null,
+        'overspend': _overspend,
+      },
     };
     try {
       await widget.repository.saveBudget(body, id: widget.budget?.id);
@@ -588,6 +706,39 @@ class _BudgetFormScreenState extends State<BudgetFormScreen> {
               value: _reserve,
               onChanged: (v) => setState(() => _reserve = v ?? false),
               title: Text(m.t('form.reserve')))),
+          AnumHeader(title: m.t('form.rollover')),
+          DropdownButtonFormField<String>(
+            isExpanded: true,
+            key: const Key('budget-rollover'),
+            initialValue: _rollover,
+            decoration: InputDecoration(labelText: m.t('form.rolloverLeft')),
+            items: [
+              for (final r in rolloverModes)
+                DropdownMenuItem(value: r, child: Text(m.t('roll.mode.$r')))
+            ],
+            onChanged: (v) => setState(() => _rollover = v ?? _rollover),
+          ),
+          if (_rollover == 'capped')
+            TextField(
+                key: const Key('budget-rollover-cap'),
+                controller: _cap,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration:
+                    InputDecoration(labelText: m.t('form.rolloverCap'))),
+          DropdownButtonFormField<String>(
+            isExpanded: true,
+            key: const Key('budget-overspend'),
+            initialValue: _overspend,
+            decoration: InputDecoration(labelText: m.t('form.overspend')),
+            items: [
+              for (final o in overspendModes)
+                DropdownMenuItem(value: o, child: Text(m.t('roll.overOpt.$o')))
+            ],
+            onChanged: (v) => setState(() => _overspend = v ?? _overspend),
+          ),
+          Text(m.t('form.rolloverHelp'),
+              style: TextStyle(color: context.palette.muted)),
         ],
         if (savingKinds.contains(_kind))
           _goals.isEmpty

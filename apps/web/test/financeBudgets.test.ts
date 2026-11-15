@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { FinanceCategoryTree, FinancePlanBudgetLine } from '@anum/contracts';
-import { budgetFormError, budgetInput, emptyBudget, filterTree, meterValue, nodeName, priceChangeText, riskTone } from '../src/lib/financeBudgets.ts';
+import { budgetFormError, budgetInput, emptyBudget, filterTree, meterValue, nodeName, priceChangeText, riskTone, rolloverText, showsRollover } from '../src/lib/financeBudgets.ts';
 import { setLocale } from '../src/lib/i18n.ts';
 import { safeNote } from '../src/lib/finance.ts';
 
@@ -10,7 +10,8 @@ const line = (over: Partial<FinancePlanBudgetLine>): FinancePlanBudgetLine => ({
   id: 'b1', name: 'Food', kind: 'spending', period: 'monthly', currency: 'AED', amount: '1000.00', period_start: '2026-11-01', period_end: '2026-11-30',
   days_left: 16, categories: ['groceries'], subcategory_ids: [], fixed: false, essential: true, allocation: 'food', alert_percent: 80,
   reserve_in_safe_to_spend: false, active: true, notes: null, goal_id: null, debt_ids: [], spent: '250.00', remaining: '750.00', over: '0.00',
-  percent: 25, coming: '0.00', coming_items: [], forecast: '480.00', risk: 'ok', rows: 4, basis: 'spending', goal_saved: null, goal_target: null, ...over,
+  percent: 25, coming: '0.00', coming_items: [], forecast: '480.00', risk: 'ok', rows: 4, basis: 'spending', goal_saved: null, goal_target: null,
+  rollover: 'none', rollover_cap: null, overspend: 'absorb', carried_in: '0.00', available: '1000.00', chain: [], chain_periods: 0, starts_on: null, ends_on: null, ...over,
 });
 
 describe('budget form', () => {
@@ -80,5 +81,33 @@ describe('recurring and safe to spend', () => {
     assert.match(text, /Installment/);
     assert.match(text, /2026-11-20/);
     assert.match(safeNote({ note: 'budget_reserve', params: { spent: '100', amount: '2000' }, currency: 'AED' }), /kept back/);
+  });
+});
+
+describe('budget rollover', () => {
+  test('a capped rollover needs its cap and an edit sends the setting and the budget\'s own dates back', () => {
+    setLocale('en');
+    const form = { ...emptyBudget('AED'), name: 'Food', amount: '500', categories: ['groceries' as const] };
+    assert.equal(form.rollover, 'none');
+    assert.equal(budgetFormError({ ...form, rollover: 'capped', rollover_cap: '' }), 'Enter the most that may carry into the next period.');
+    assert.equal(budgetFormError({ ...form, rollover: 'capped', rollover_cap: '150' }), null);
+    const edit = budgetInput(line({ rollover: 'capped', rollover_cap: '150.00', overspend: 'carry' }));
+    assert.deepEqual([edit.rollover, edit.rollover_cap, edit.overspend], ['capped', '150.00', 'carry']);
+    // A custom budget that carries repeats: the shown window is not its first one, so its own dates go back.
+    const custom = budgetInput(line({ period: 'custom', period_start: '2026-11-10', period_end: '2026-11-19', starts_on: '2026-10-01', ends_on: '2026-10-10' }));
+    assert.deepEqual([custom.starts_on, custom.ends_on], ['2026-10-01', '2026-10-10']);
+    assert.equal(budgetInput(line({ kind: 'remittance' })).rollover, undefined);
+  });
+
+  test('rollover shows only when it does something, in words in both languages', () => {
+    assert.equal(showsRollover(line({})), false);
+    assert.equal(showsRollover(line({ overspend: 'carry' })), true);
+    assert.equal(showsRollover(line({ carried_in: '-50.00' })), true);
+    setLocale('en');
+    assert.match(rolloverText({ rollover: 'capped', cap: '150.00', overspend: 'carry' }, 'AED'), /at most/);
+    assert.match(rolloverText({ rollover: 'surplus', cap: null, overspend: 'absorb' }, 'AED'), /^What is left carries over; an overspend is not carried$/);
+    setLocale('ar');
+    assert.match(rolloverText({ rollover: 'none', cap: null, overspend: 'carry' }, 'AED'), /^لا يُرحَّل شيء؛ تُخصم/);
+    setLocale('en');
   });
 });

@@ -61,6 +61,37 @@ test('a budget is planned from categories, shows spent and risk, and the salary 
   }
 });
 
+test('a budget carries what is left into the next period, at most its cap, and shows the chain', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-budgets');
+  const budgets = page.getByRole('region', { name: /^Your budgets/ });
+  await budgets.getByRole('button', { name: 'New budget' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New budget' });
+  await dialog.getByLabel('Name').fill('Groceries plan');
+  await dialog.getByLabel('Limit or target').fill('1000');
+  await dialog.getByRole('checkbox', { name: 'Groceries' }).check();
+  await dialog.getByLabel('Money left at the end').selectOption('capped');
+  await dialog.getByRole('button', { name: 'Save budget' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText(/most that may carry/);
+  await dialog.getByLabel('Carry at most').fill('150');
+  await dialog.getByLabel('Overspend').selectOption('carry');
+  await dialog.getByRole('button', { name: 'Save budget' }).click();
+  await expect(page.getByText('Groceries plan was saved.')).toBeVisible();
+  const saved = sent.find((r) => r.method === 'POST' && r.path === '/api/v1/finance/budgets/plans');
+  expect(saved?.body).toMatchObject({ rollover: 'capped', rollover_cap: '150', overspend: 'carry' });
+  const row = budgets.getByRole('listitem').filter({ hasText: 'Groceries plan' });
+  await expect(row.getByText(/^Carried in /)).toContainText('150.00');
+  await expect(row.getByText(/^Available /)).toContainText('1,150.00');
+  await row.getByText(/Rollover history \(2 periods\)/).click();
+  const chain = row.getByRole('list', { name: /Rollover history of Groceries plan/ });
+  await expect(chain.getByRole('listitem')).toHaveCount(2);
+  await expect(chain.getByText('Still open')).toBeVisible();
+  for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const) {
+    await page.setViewportSize({ width, height });
+    await noSidewaysScroll(page);
+  }
+});
+
 test('recurring: a found payment is dismissed, a kept one turns on self-linking and says it is rarely used', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-bills');

@@ -5,8 +5,8 @@
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { Layers, Pencil, PiggyBank, Plus } from 'lucide-react';
 import type {
-  FinanceAllocationReport, FinanceBudgetKind, FinanceBudgetPeriod, FinanceCategory, FinanceCategoryTree, FinanceDebt, FinanceGoal, FinancePlanBudgetInput,
-  FinancePlanBudgetLine, FinancePlanReport,
+  FinanceAllocationReport, FinanceBudgetKind, FinanceBudgetOverspend, FinanceBudgetPeriod, FinanceBudgetRollover, FinanceCategory, FinanceCategoryTree,
+  FinanceDebt, FinanceGoal, FinancePlanBudgetInput, FinancePlanBudgetLine, FinancePlanReport,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import * as b from './lib/financeBudgetsApi';
@@ -17,7 +17,7 @@ import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinCard, StatusChip } from './FinanceShell';
 import { Progress, RowMenu } from './FinancePlanningParts';
-import { budgetFormError, budgetInput, emptyBudget, meterValue, nodeName, riskTone } from './lib/financeBudgets';
+import { budgetFormError, budgetInput, emptyBudget, meterValue, nodeName, riskTone, rolloverText, shortRollover, showsRollover } from './lib/financeBudgets';
 import './financeBudgets.css';
 
 const KINDS: readonly FinanceBudgetKind[] = ['spending', 'savings', 'emergency', 'sinking_fund', 'remittance', 'debt'];
@@ -25,6 +25,8 @@ const PERIODS: readonly FinanceBudgetPeriod[] = ['monthly', 'weekly', 'custom'];
 const BUCKETS = ['housing', 'food', 'transport', 'family', 'debts', 'cards', 'savings', 'remittances', 'other'] as const;
 const ALERTS = [50, 60, 70, 75, 80, 85, 90, 95, 99];
 const SAVING: readonly FinanceBudgetKind[] = ['savings', 'emergency', 'sinking_fund'];
+const ROLLOVERS: readonly FinanceBudgetRollover[] = ['none', 'surplus', 'capped'];
+const OVERSPENDS: readonly FinanceBudgetOverspend[] = ['absorb', 'carry'];
 const shortDate = (day: string) => formatDateTime(`${day}T12:00:00Z`, { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 export function PlanBudgetsSection({ base }: { base: string }) {
@@ -59,7 +61,7 @@ export function PlanBudgetsSection({ base }: { base: string }) {
         ? <Empty icon={<Layers aria-hidden="true" />} title={t('fbud.empty')} text={t('fbud.emptyText')} action={add} />
         : <>
           {report.value.totals.map((row) => <p key={row.currency} className="muted fbudTotals">{t('fbud.totals', { currency: row.currency,
-            spent: isolate(formatAmount(row.spent, row.currency)), budget: isolate(formatAmount(row.budget, row.currency)), coming: isolate(formatAmount(row.coming, row.currency)) })}</p>)}
+            spent: isolate(formatAmount(row.spent, row.currency)), budget: isolate(formatAmount(row.available ?? row.budget, row.currency)), coming: isolate(formatAmount(row.coming, row.currency)) })}</p>)}
           <ul className="fbudList">{report.value.budgets.map((line) => <BudgetRow key={line.id} line={line} onEdit={() => setEditing(line)}
             onToggle={() => void toggle(line)} onRemove={() => setRemoving(line)} />)}</ul>
         </>)}
@@ -94,7 +96,7 @@ function BudgetRow({ line, onEdit, onToggle, onRemove }: { line: FinancePlanBudg
     {line.spent !== null ? <>
       <Progress percent={meterValue(line)} tone={meterTone} label={t('fbud.meter', { name: line.name, percent: line.percent ?? 0 })} />
       <div className="fbudFigures">
-        <span>{t('fbud.spentOf', { spent: isolate(formatAmount(line.spent, line.currency)), amount: isolate(formatAmount(line.amount, line.currency)) })}</span>
+        <span>{t('fbud.spentOf', { spent: isolate(formatAmount(line.spent, line.currency)), amount: isolate(formatAmount(line.available ?? line.amount, line.currency)) })}</span>
         {Number(line.over) > 0 ? <span className="bad">{t('fbud.over', { amount: isolate(formatAmount(line.over, line.currency)) })}</span>
           : line.remaining !== null && <span>{t('fbud.left', { amount: isolate(formatAmount(line.remaining, line.currency)) })}</span>}
         {Number(line.coming) > 0 && <span>{t('fbud.coming', { amount: isolate(formatAmount(line.coming, line.currency)) })}</span>}
@@ -102,10 +104,37 @@ function BudgetRow({ line, onEdit, onToggle, onRemove }: { line: FinancePlanBudg
           && <span>{t('fbud.forecast', { date: isolate(shortDate(line.period_end)), amount: isolate(formatAmount(line.forecast, line.currency)) })}</span>}
         <span className="muted">{t('fbud.rows', { count: line.rows })}</span>
       </div>
+      {line.kind === 'spending' && showsRollover(line) && <Rollover line={line} />}
       {line.coming_items.length > 0 && <ul className="fbudComing">{line.coming_items.map((c) => <li key={`${c.bill_id}-${c.due_on}`}>
         <span dir="auto">{c.name}</span><small>{isolate(shortDate(c.due_on))}</small><Money value={c.amount} currency={line.currency} /></li>)}</ul>}
     </> : <p className="muted">{t('fbud.noRecord', { saved: isolate(formatAmount(line.goal_saved ?? '0', line.currency)), target: isolate(formatAmount(line.goal_target ?? '0', line.currency)) })}</p>}
   </li>;
+}
+
+function Rollover({ line }: { line: FinancePlanBudgetLine }) {
+  const money = (value: string) => isolate(formatAmount(value, line.currency));
+  const carried = Number(line.carried_in);
+  return <div className="fbudRoll">
+    <p className="fbudRollFigures">
+      <span>{carried < 0 ? t('fbud.roll.deficitIn', { amount: money(String(-carried)) }) : t('fbud.roll.carriedIn', { amount: money(line.carried_in) })}</span>
+      <span>{t('fbud.roll.available', { amount: money(line.available ?? line.amount), base: money(line.amount) })}</span>
+    </p>
+    <small className="muted">{rolloverText({ rollover: line.rollover, cap: line.rollover_cap, overspend: line.overspend }, line.currency)}</small>
+    {line.chain.length > 0 && <details className="fbudChain">
+      <summary>{t('fbud.roll.chain', { count: line.chain_periods })}</summary>
+      <ol className="fbudChainList" aria-label={t('fbud.roll.chainCaption', { name: line.name })}>{[...line.chain].reverse().map((p) => <li key={p.start}>
+        <div className="fbudChainHead"><strong>{t('fbud.period', { from: isolate(shortDate(p.start)), to: isolate(shortDate(p.end)) })}</strong>
+          <small className="muted">{shortRollover({ rollover: p.rollover, cap: p.cap, overspend: p.overspend }, p.currency)}{p.restarted && <> · {t('fbud.roll.restarted')}</>}</small></div>
+        <dl className="fbudChainFigures">
+          <div><dt>{t('fbud.roll.col.in')}</dt><dd><Money value={p.carried_in} currency={p.currency} /></dd></div>
+          <div><dt>{t('fbud.roll.col.available')}</dt><dd><Money value={p.available} currency={p.currency} /></dd></div>
+          <div><dt>{t('fbud.roll.col.spent')}</dt><dd><Money value={p.spent} currency={p.currency} /></dd></div>
+          <div><dt>{t('fbud.roll.col.out')}</dt><dd>{p.carried_out === null ? t('fbud.roll.open') : <Money value={p.carried_out} currency={p.currency} />}</dd></div>
+        </dl>
+      </li>)}</ol>
+      {line.chain_periods > line.chain.length && <small className="muted">{t('fbud.roll.older', { count: line.chain_periods - line.chain.length })}</small>}
+    </details>}
+  </div>;
 }
 
 function AllocationCard({ alloc, retry }: { alloc: Load<FinanceAllocationReport>; retry: () => void }) {
@@ -136,7 +165,8 @@ function BudgetDialog({ base, line, onClose }: { base: string; line: FinancePlan
   const [tree, setTree] = useState<FinanceCategoryTree | null>(null);
   const [goals, setGoals] = useState<FinanceGoal[]>([]), [debts, setDebts] = useState<FinanceDebt[]>([]);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const ids = { name: useId(), kind: useId(), period: useId(), currency: useId(), amount: useId(), start: useId(), end: useId(), goal: useId(), alloc: useId(), alert: useId(), notes: useId() };
+  const ids = { name: useId(), kind: useId(), period: useId(), currency: useId(), amount: useId(), start: useId(), end: useId(), goal: useId(), alloc: useId(), alert: useId(), notes: useId(),
+    rollover: useId(), cap: useId(), overspend: useId(), rollHelp: useId() };
   useEffect(() => {
     void b.categoryTree().then(setTree).catch(() => setTree(null));
     void api.listGoals().then(setGoals).catch(() => setGoals([]));
@@ -153,7 +183,9 @@ function BudgetDialog({ base, line, onClose }: { base: string; line: FinancePlan
     if (problem) { setError(problem); return; }
     setBusy(true); setError(null);
     try {
-      const body: FinancePlanBudgetInput = { ...form, name: form.name.trim(), amount: form.amount.trim(), currency: form.currency.trim().toUpperCase() };
+      const body: FinancePlanBudgetInput = { ...form, name: form.name.trim(), amount: form.amount.trim(), currency: form.currency.trim().toUpperCase(),
+        ...(form.kind === 'spending' ? { rollover_cap: form.rollover === 'capped' ? (form.rollover_cap ?? '').trim() : null }
+          : { rollover: null, rollover_cap: null, overspend: null }) };
       const saved = line ? await b.updatePlanBudget(line.id, body) : await b.createPlanBudget(body);
       onClose(saved.name);
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
@@ -192,6 +224,19 @@ function BudgetDialog({ base, line, onClose }: { base: string; line: FinancePlan
         <label className="fbudCheck"><input type="checkbox" checked={form.fixed} onChange={(e) => set({ fixed: e.target.checked })} />{t('fbud.form.fixed')}</label>
         <label className="fbudCheck"><input type="checkbox" checked={form.essential ?? true} onChange={(e) => set({ essential: e.target.checked })} />{t('fbud.form.essential')}</label>
         <label className="fbudCheck"><input type="checkbox" checked={form.reserve_in_safe_to_spend} onChange={(e) => set({ reserve_in_safe_to_spend: e.target.checked })} />{t('fbud.form.reserve')}</label>
+      </fieldset>}
+      {form.kind === 'spending' && <fieldset className="fbudPick" aria-describedby={ids.rollHelp}><legend>{t('fbud.form.rollover')}</legend>
+        <div className="fbudRow">
+          <label className="field" htmlFor={ids.rollover}><span>{t('fbud.form.rolloverLeft')}</span>
+            <select id={ids.rollover} value={form.rollover ?? 'none'} onChange={(e) => set({ rollover: e.target.value as FinanceBudgetRollover })}>
+              {ROLLOVERS.map((r) => <option key={r} value={r}>{t(`fbud.roll.mode.${r}` as MessageKey)}</option>)}</select></label>
+          {form.rollover === 'capped' && <label className="field" htmlFor={ids.cap}><span>{t('fbud.form.rolloverCap')}</span>
+            <input id={ids.cap} inputMode="decimal" value={form.rollover_cap ?? ''} onChange={(e) => set({ rollover_cap: e.target.value || null })} dir="ltr" /></label>}
+          <label className="field" htmlFor={ids.overspend}><span>{t('fbud.form.overspend')}</span>
+            <select id={ids.overspend} value={form.overspend ?? 'absorb'} onChange={(e) => set({ overspend: e.target.value as FinanceBudgetOverspend })}>
+              {OVERSPENDS.map((o) => <option key={o} value={o}>{t(`fbud.roll.overOpt.${o}` as MessageKey)}</option>)}</select></label>
+        </div>
+        <small id={ids.rollHelp} className="muted">{t('fbud.form.rolloverHelp')}</small>
       </fieldset>}
       {saving && (goals.length === 0 ? <Notice>{t('fbud.form.noGoals')}</Notice>
         : <label className="field" htmlFor={ids.goal}><span>{t('fbud.form.goal')}</span>

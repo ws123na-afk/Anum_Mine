@@ -1704,3 +1704,15 @@ def test_pf_debts_migration_is_expand_only_with_nullable_columns_an_owner_only_a
     assert "force row level security" in upgrade and "owner_only_finance_alert_settings" in upgrade and "as restrictive" in upgrade
     assert "create policy lifecycle_purge_finance_alert_settings" in upgrade and "with check (false)" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
+
+
+def test_pf_budget_rollover_migration_adds_one_defaulted_column_and_nothing_else() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0189_pf_budget_rollover.py").read_text(encoding="utf-8")
+    assert 'revision = "0189_pf_budget_rollover"' in revision_text and len("0189_pf_budget_rollover") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one not-null jsonb column with a default on the forced-RLS finance_plans row; no policy change.
+    assert upgrade.count("op.add_column(") == 1 and '"finance_plans"' in upgrade and '"budget_rollovers"' in upgrade
+    assert "server_default=sa.text(\"'[]'::jsonb\")" in upgrade
+    assert "drop" not in upgrade and "alter_column" not in upgrade and "policy" not in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade

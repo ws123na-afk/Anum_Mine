@@ -58,13 +58,16 @@ from .models import (
     BudgetAlert,
     BudgetKind,
     BudgetPeriod,
+    BudgetTerms,
     Category,
     Debt,
     DebtPlan,
     DebtStrategy,
     InstallmentRefundNotice,
     InstallmentStatementEntry,
+    OverspendMode,
     Planning,
+    RolloverMode,
 )
 from .policy import current_rules
 from .store import open_finance_store
@@ -651,6 +654,11 @@ class PlanBudgetInput(BaseModel):
     reserve_in_safe_to_spend: bool = False
     active: bool = True
     notes: str | None = Field(default=None, max_length=500)
+    # Rollover (docs/finance.md#budget-rollover), spending budgets only. Left out: kept as it is (none and absorb at first).
+    # A change applies from the current period on; earlier periods keep the terms they had.
+    rollover: RolloverMode | None = None
+    rollover_cap: Any = None  # with ``capped``: the most that carries, in the budget's currency
+    overspend: OverspendMode | None = None
 
 
 MAX_PLAN_BUDGETS = 200
@@ -709,10 +717,58 @@ def _check_plan(store: Any, context: TenantContext, body: PlanBudgetInput, owned
     return amount, currency, bool(essential)
 
 
+def _period_key(budget: Any) -> tuple[Any, ...]:
+    """What decides a budget's period boundaries: fixed once money carries between its periods."""
+    period = getattr(budget.period, "value", budget.period)
+    if period == "weekly":
+        return (period, budget.starts_on.weekday() if budget.starts_on is not None else 0)
+    if period == "custom":
+        return (period, budget.starts_on, budget.ends_on)
+    return (period,)
+
+
+def _record_terms(planning: Planning, item: Budget, existing: Budget | None, body: PlanBudgetInput, today: date, now: Any) -> None:
+    """Keep the budget's terms for the current period when it has rollover history or now carries money. An entry for an
+    earlier period is never changed: a change applies from the current period on (docs/finance.md#budget-rollover)."""
+    from . import budget_rollover as RO
+
+    history = RO.history_for(item.id, planning.budget_rollovers)
+    latest = history[-1] if history else None
+    spending = item.kind == BudgetKind.SPENDING
+    if not spending and ((body.rollover not in (None, RolloverMode.NONE)) or body.overspend == OverspendMode.CARRY):
+        raise _invalid("Only a spending budget carries money between periods.")
+    mode = body.rollover or (latest.rollover if latest else RolloverMode.NONE)
+    overspend = body.overspend or (latest.overspend if latest else OverspendMode.ABSORB)
+    if not spending:
+        mode, overspend = RolloverMode.NONE, OverspendMode.ABSORB
+    cap = None
+    if mode == RolloverMode.CAPPED:
+        if body.rollover_cap not in (None, ""):
+            cap = _money(body.rollover_cap, item.currency, field="Carry at most", positive=True, allow_zero=False)
+        elif latest is not None and latest.cap is not None and latest.currency == item.currency:
+            cap = latest.cap
+        else:
+            raise _invalid("Enter the most that may carry into the next period.")
+    if latest is None and mode == RolloverMode.NONE and overspend == OverspendMode.ABSORB:
+        return  # never carried and still does not: nothing to keep
+    if history and existing is not None and _period_key(existing) != _period_key(item):
+        raise _invalid("This budget carries money between periods, so its period cannot change. Make a new budget for the new period.")
+    start = RO.period_for(item, today, item.period == BudgetPeriod.CUSTOM)[0]
+    terms = BudgetTerms(budget_id=item.id, effective_from=start, currency=item.currency, amount=item.amount, categories=list(item.categories),
+                        subcategory_ids=list(item.subcategory_ids), rollover=mode, cap=cap, overspend=overspend, set_at=now)
+    if latest is not None and latest.model_dump(exclude={"effective_from", "set_at"}) == terms.model_dump(exclude={"effective_from", "set_at"}):
+        return  # nothing changed
+    kept = [t for t in planning.budget_rollovers if not (t.budget_id == item.id and t.effective_from >= start)]
+    if sum(1 for t in kept if t.budget_id == item.id) >= RO.MAX_TERMS_PER_BUDGET:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This budget has changed too many times. Make a new budget.")
+    planning.budget_rollovers = [*kept, terms]
+
+
 def _save_plan(context: TenantContext, body: PlanBudgetInput, budget_id: str | None) -> Budget:
     owned = _owned_sub_ids(context)
     now = utc_now()
     with open_finance_store(context) as store:
+        today = today_in(settings_for(store, context))
         planning: Planning = store.get_planning(context)
         existing = next((b for b in planning.budgets if b.id == budget_id), None) if budget_id else None
         if budget_id and existing is None:
@@ -729,32 +785,33 @@ def _save_plan(context: TenantContext, body: PlanBudgetInput, budget_id: str | N
             reserve_in_safe_to_spend=body.reserve_in_safe_to_spend and body.kind == BudgetKind.SPENDING, active=body.active,
             notes=" ".join((body.notes or "").split()) or None, created_at=existing.created_at if existing else now, updated_at=now,
         )
+        _record_terms(planning, item, existing, body, today, now)
         planning.budgets = [item if b.id == item.id else b for b in planning.budgets] if existing else [*planning.budgets, item]
         store.save_planning(context, planning)
     return item
 
 
 def _plan_inputs(context: TenantContext, on: date | None) -> tuple[list[Budget], dict[str, Any]]:
+    from . import budget_rollover as RO
     from . import obligations
-    from .commitments import budget_period
     from .personal_store import open_personal_store
 
     links = obligations.load(context)  # its own short unit of work first
     with open_finance_store(context) as store:
         today = today_in(settings_for(store, context))
         day = on or today
-        budgets = store.get_planning(context).budgets
+        planning = store.get_planning(context)
+        budgets, rollovers = planning.budgets, planning.budget_rollovers
         accounts = store.list_accounts(context)
         balances = store.account_sums(context)
-        periods = [budget_period(b, day) for b in budgets] or [(day, day)]
-        start, end = min(p[0] for p in periods), max(p[1] for p in periods)
+        start, end = RO.window(budgets, rollovers, day) or (day, day)  # each period and every rollover chain back to its start
         rows = store.transactions_between(context, start, end) if budgets else []
         bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
         goals = obligations.current_goals([g for g in store.list_items(context, "goal")], accounts, balances)
     with open_personal_store(context) as personal:
         remittances = personal.list(context, "remittance") if any(b.kind == BudgetKind.REMITTANCE for b in budgets) else []
     return budgets, {"rows": rows, "on": day, "today": today, "bills": bills, "bill_links": links.bill_links, "lending": links.lending_ids,
-                     "goals": goals, "remittances": remittances, "debt_payments": links.debt_payments}
+                     "goals": goals, "remittances": remittances, "debt_payments": links.debt_payments, "rollovers": rollovers}
 
 
 @router.get("/budgets/plans", response_model=PlanReport)
@@ -795,6 +852,7 @@ def delete_plan_budget(budget_id: str, context: TenantContext = Depends(tenant_c
         if not any(b.id == budget_id for b in planning.budgets):
             raise _not_found("Budget")
         planning.budgets = [b for b in planning.budgets if b.id != budget_id]
+        planning.budget_rollovers = [t for t in planning.budget_rollovers if t.budget_id != budget_id]
         store.save_planning(context, planning)
     _audit(repository, context, "finance.budget.delete", budget_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

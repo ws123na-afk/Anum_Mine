@@ -85,7 +85,14 @@ The safety net is in place ([Invariant tests](finance.md#how-figures-are-counted
 - Migration `0185_pf_budgets` is chained after `0184_pf_matching` (a parallel branch); renumber at merge if that one lands under another number. Referenced in `services/api/migrations/versions/0185_pf_budgets.py`, `services/api/tests/test_postgres_finance_pf_budgets.py`, `services/api/anum_api/db/finance_repository.py`, `services/api/anum_api/finance/models.py` and `docs/finance.md`.
 - Rollback caveat: rows filed under the five new categories cannot be read by the previous release's category list; roll back only before such rows exist or refile them first.
 - The automatic recurring-bill link records its policy, reason, confidence and evidence in the audit record; when the matching work adds evidence fields to links themselves, move them there.
-- Not built: usage of a subscription is what the owner marks (often, sometimes, rarely); ANUM has no usage data of its own. Budgets have no rollover of an unspent amount to the next period. The advisor's essential categories are unchanged (family and charity are not in its runway yet).
+- Not built: usage of a subscription is what the owner marks (often, sometimes, rarely); ANUM has no usage data of its own. The advisor's essential categories are unchanged (family and charity are not in its runway yet).
+
+## Personal finance: budget rollover (pf2/rollover, November 2026)
+
+- Migration `0189_pf_budget_rollover` was written on a branch whose newest revision was `0186_pf_debts`, so its `down_revision` is `0186_pf_debts`; at merge set it to `0188_pf_fx_matching` (or the newest head). Referenced in `services/api/migrations/versions/0189_pf_budget_rollover.py`, `services/api/tests/test_migrations.py`, `services/api/tests/test_postgres_finance_pf_budgets.py`, `services/api/anum_api/db/finance_repository.py`, `services/api/anum_api/finance/models.py` and `docs/finance.md`.
+- Rollover is for spending budgets only; savings, money home and debt budgets are targets, not caps, and do not carry.
+- Budget alerts (Guardian caps and the alert job) still measure against the amount, not `available`.
+- No owner step.
 
 ## Owner steps (only the owner can do these)
 
