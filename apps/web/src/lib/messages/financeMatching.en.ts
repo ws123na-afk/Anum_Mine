@@ -112,6 +112,7 @@ export const financeMatchingEn = {
   'fmatch.flag.duplicate_event': 'May be a second report of another payment',
   'fmatch.flag.source_changed': 'The payment changed after it was linked',
   'fmatch.flag.link_removed': 'The link was removed on another page',
+  'fmatch.flag.card_overpaid': 'Paid more than the statement balance: the card is left in credit',
   'fmatch.evidence.provider': 'Names the provider',
   'fmatch.evidence.provider_missing': 'Does not name the provider',
   'fmatch.evidence.order_reference': 'Quotes the order number',
@@ -127,6 +128,10 @@ export const financeMatchingEn = {
   'fmatch.evidence.amount_partial': 'Part of the amount',
   'fmatch.evidence.date_close': 'On the due date',
   'fmatch.evidence.date_window': 'Near the due date',
+  'fmatch.evidence.card_statement_full': 'Pays the card statement in full',
+  'fmatch.evidence.card_statement_minimum': 'Pays the statement minimum',
+  'fmatch.evidence.card_statement_partial': 'Pays part of the card statement',
+  'fmatch.evidence.card_statement_over': 'More than the card statement balance',
 
   'fmatch.history.title': 'Reprocess your history',
   'fmatch.history.subtitle': 'Runs the same matching over all your past payments, oldest month first, and can stop and carry on. Preview changes nothing; apply links only what your policy allows, and running it again adds nothing.',

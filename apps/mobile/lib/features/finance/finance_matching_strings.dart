@@ -139,6 +139,8 @@ class FinanceMatchingStrings extends ModuleStrings {
     'flag.duplicate_event': 'May be a second report of another payment',
     'flag.source_changed': 'The payment changed after it was linked',
     'flag.link_removed': 'The link was removed elsewhere',
+    'flag.card_overpaid':
+        'Paid more than the statement balance: the card is left in credit',
     'evidence': 'Evidence',
     'evidence.provider': 'Names the provider',
     'evidence.provider_missing': 'Does not name the provider',
@@ -155,6 +157,10 @@ class FinanceMatchingStrings extends ModuleStrings {
     'evidence.amount_partial': 'Part of the amount',
     'evidence.date_close': 'On the due date',
     'evidence.date_window': 'Near the due date',
+    'evidence.card_statement_full': 'Pays the card statement in full',
+    'evidence.card_statement_minimum': 'Pays the statement minimum',
+    'evidence.card_statement_partial': 'Pays part of the card statement',
+    'evidence.card_statement_over': 'More than the card statement balance',
     'history.intro':
         'Runs over all past payments, oldest month first, and can stop and carry on. Preview changes nothing; apply links only what your policy allows, and running it again adds nothing.',
     'history.preview': 'Preview',
@@ -367,6 +373,7 @@ class FinanceMatchingStrings extends ModuleStrings {
     'flag.duplicate_event': 'قد تكون بلاغًا ثانيًا عن دفعة أخرى',
     'flag.source_changed': 'تغيّرت الدفعة بعد ربطها',
     'flag.link_removed': 'أُزيل الربط من مكان آخر',
+    'flag.card_overpaid': 'دُفع أكثر من رصيد الكشف: بقي للبطاقة رصيد دائن',
     'evidence': 'الأدلة',
     'evidence.provider': 'تذكر مقدم الخدمة',
     'evidence.provider_missing': 'لا تذكر مقدم الخدمة',
@@ -383,6 +390,10 @@ class FinanceMatchingStrings extends ModuleStrings {
     'evidence.amount_partial': 'جزء من المبلغ',
     'evidence.date_close': 'في تاريخ الاستحقاق',
     'evidence.date_window': 'قرب تاريخ الاستحقاق',
+    'evidence.card_statement_full': 'يسدد كشف البطاقة كاملًا',
+    'evidence.card_statement_minimum': 'يسدد الحد الأدنى للكشف',
+    'evidence.card_statement_partial': 'يسدد جزءًا من كشف البطاقة',
+    'evidence.card_statement_over': 'أكثر من رصيد كشف البطاقة',
     'history.intro':
         'تُشغّل على كل الدفعات السابقة من أقدم شهر، ويمكنها التوقف والمتابعة. المعاينة لا تغيّر شيئًا، والتطبيق يربط فقط ما تسمح به سياستك، وتشغيله مرة أخرى لا يضيف شيئًا.',
     'history.preview': 'معاينة',

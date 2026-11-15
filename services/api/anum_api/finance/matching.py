@@ -185,10 +185,44 @@ class Obligation:
     group: str | None = None  # the provider order: one installment of a group is paid at a time, the oldest first
     liability_account_id: str | None = None  # the card or loan account
     history_words: frozenset[str] = frozenset()  # merchant words of payments the owner linked to this bill before
+    # A card's last statement (the debt's ``card_statement_*``): what a repayment after it is checked against, and the
+    # repayments already linked to the card after that statement, as (posted on, canonical id, amount) (``card_coverage``).
+    statement_on: date | None = None
+    statement_balance: Decimal | None = None
+    statement_minimum: Decimal | None = None
+    statement_payments: tuple[tuple[date, str, Decimal], ...] = ()
 
     @property
     def fingerprint(self) -> str:
         return fingerprint(self.target_id, self.due_on.isoformat(), str(self.expected), self.currency)
+
+
+CARD_COVERAGE = ("full", "minimum", "partial", "over")
+
+
+def card_coverage(o: Obligation, posted_on: date, canonical_id: str, amount: Decimal,
+                  linked: Iterable[tuple[date, str, Decimal]] = ()) -> tuple[str, str] | None:
+    """How a repayment to a card compares with the card's last statement: ``full`` (the repayments after the statement up to this
+    one, this one included, are exactly the statement balance), ``minimum`` (exactly the minimum payment), ``partial`` (less than the
+    balance) or ``over`` (more than the balance: an over-payment that leaves the card in credit). The earlier repayments are the
+    ones linked to the card (``o.statement_payments`` and ``linked``, made in the same run) posted after the statement and before
+    this one. None when no statement is stored, or the repayment was made on or before the statement date (it paid an earlier
+    cycle). Answers the kind and the figures in words."""
+    if o.kind != "card_repayment" or o.statement_balance is None or o.statement_on is None or posted_on <= o.statement_on:
+        return None
+    statement_on = o.statement_on
+    # Repayments linked before this one (the same day included: they were linked first) and after the statement.
+    earlier = {c: a for d, c, a in (*o.statement_payments, *linked) if statement_on < d <= posted_on and c != canonical_id}
+    total = sum(earlier.values(), Decimal(0)) + amount
+    balance = o.statement_balance
+    figures = f"{o.currency} {total} of {balance}" + (f", minimum {o.statement_minimum}" if o.statement_minimum is not None else "")
+    if total > balance:
+        return "over", figures
+    if total == balance:
+        return "full", figures
+    if o.statement_minimum is not None and total == o.statement_minimum:
+        return "minimum", figures
+    return "partial", figures
 
 
 def fingerprint(*parts: str) -> str:
@@ -216,6 +250,11 @@ WEIGHTS: dict[str, Decimal] = {
     "fx_original": Decimal(0),  # the bank's conversion (a fact shown with the match, not a weight: the amount carries it)
     "fx_fee": Decimal(0),  # an FX fee kept apart from what the obligation was paid
     "fx_evidence_missing": Decimal(0),
+    # A card repayment against the card's last statement (``card_coverage``): recorded with the match, never a weight.
+    "card_statement_full": Decimal(0),
+    "card_statement_minimum": Decimal(0),
+    "card_statement_partial": Decimal(0),
+    "card_statement_over": Decimal(0),
 }
 MAX_SCORE = Decimal("0.99")
 PARTIAL_MIN = Decimal("0.1")  # a part below a tenth of what is due is not a part payment of it
@@ -398,6 +437,8 @@ def refund_signals(payments: Iterable[Payment], credits: Iterable[Payment]) -> d
     out: dict[str, str] = {}
     for p in payments:
         for c in ins:
+            if c.canonical_id == p.canonical_id:
+                continue  # the other leg of the same movement (a card repayment's credit on the card) gives nothing back
             if not 0 <= (c.posted_on - p.posted_on).days <= REFUND_DAYS or c.currency != p.currency or c.amount != p.amount:
                 continue
             same = merchants_agree(p.text, c.text) or (provider_in(p.text) is not None and provider_in(p.text) == provider_in(c.text))
@@ -582,6 +623,7 @@ def _review_reason(p: Payment, c: Candidate, policy: MatchingPolicy) -> str:
 
 
 __all__ = [
+    "CARD_COVERAGE",
     "Candidate",
     "Decision",
     "FxEvidence",
@@ -591,6 +633,7 @@ __all__ = [
     "Result",
     "WEIGHTS",
     "WINDOWS",
+    "card_coverage",
     "decide",
     "evidence_state",
     "fingerprint",

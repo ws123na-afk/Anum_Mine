@@ -31,7 +31,7 @@ from ..schemas import TenantContext, new_id, utc_now
 from . import links as K
 from . import matching as E
 from .match_policy import MatchingPolicy
-from .match_store import OWNER_OUTCOMES, MatchRecord
+from .match_store import OWNER_OUTCOMES, EvidenceItem, MatchRecord
 from .merchant_match import merchant_words
 
 logger = logging.getLogger("anum_api.finance.matching")
@@ -40,6 +40,7 @@ RECENT_DAYS = 45  # what the daily job and "Run now" look at
 OBLIGATION_MARGIN = 60  # obligations due this many days around the payments' period
 UNDATED_CARD = date(9999, 12, 31)
 PROVISIONAL = "provisional_match"
+CARD_OVERPAID = "card_overpaid"  # a card repayment beyond the last statement balance (the card is left in credit)
 
 
 def policy_for(context: TenantContext) -> MatchingPolicy:
@@ -94,6 +95,15 @@ def load(context: TenantContext, start: date, end: date, *, now: datetime | None
         debt_links, _ = links.list_links(context, canonical_id=None, dimension=DEBT_DIMENSION, target_type=DEBT_TARGET, target_id=None,
                                          status=None, limit=50_000, offset=0)
         stored, _ = links.list_matches(context, limit=50_000, offset=0)
+        # A card's repayments since its last statement are checked against the statement balance (``card_coverage``): the
+        # posting days of repayments linked before this period are read too, from the day after the oldest stored statement.
+        posted = {r.canonical_id: r.posted_on for r in rows if r.canonical_id}
+        statements = [d.card_statement_on for d in debts if getattr(d.kind, "value", d.kind) == DebtKind.CARD.value
+                      and d.card_statement_on is not None and d.card_statement_balance is not None]
+        if statements and min(statements) + timedelta(days=1) < start:
+            for r in records(finance, sms, context, min(statements) + timedelta(days=1), start - timedelta(days=1), paired=paired):
+                if r.canonical_id:
+                    posted.setdefault(r.canonical_id, r.posted_on)
     live = [l for l in (*bill_links, *debt_links) if l.status != LinkStatus.VOID]
     used: dict[tuple[str, str, str], Decimal] = {}  # (canonical, dimension, currency): the bank side
     by_target: dict[tuple[str, str], Decimal] = {}  # (target, currency): what is paid of it, in its own currency
@@ -179,9 +189,15 @@ def load(context: TenantContext, start: date, end: date, *, now: datetime | None
         kind = getattr(debt.kind, "value", debt.kind)
         if kind == DebtKind.CARD.value:
             if debt.account_id or debt.name:
+                statement_on = debt.card_statement_on if debt.card_statement_balance is not None else None
+                repaid = tuple(sorted((posted[l.canonical_id], l.canonical_id, l.amount or Decimal(0)) for l in live
+                                      if l.dimension == "debt" and l.target_id == debt.id and l.currency == debt.currency
+                                      and statement_on is not None and posted.get(l.canonical_id, date.min) > statement_on))
                 obligations.append(E.Obligation(
                     kind="card_repayment", dimension="debt", target_type=DEBT_TARGET, target_id=debt.id, label=debt.name[:160],
-                    due_on=UNDATED_CARD, expected=Decimal("1e12"), currency=debt.currency, liability_account_id=debt.account_id))
+                    due_on=UNDATED_CARD, expected=Decimal("1e12"), currency=debt.currency, liability_account_id=debt.account_id,
+                    statement_on=statement_on, statement_balance=debt.card_statement_balance if statement_on else None,
+                    statement_minimum=debt.card_statement_minimum if statement_on else None, statement_payments=repaid))
             continue
         if kind not in (DebtKind.LOAN.value, DebtKind.MORTGAGE.value) or not debt.due_day:
             continue
@@ -276,15 +292,21 @@ class Counts:
 
 
 def _record(context: TenantContext, d: E.Decision, c: E.Candidate, *, outcome: str, policy: MatchingPolicy, run_id: str | None, now: datetime,
-            link_id: str | None = None, reason: str | None = None) -> MatchRecord:
+            link_id: str | None = None, reason: str | None = None, coverage: tuple[str, str] | None = None) -> MatchRecord:
     o = c.obligation
+    evidence, flags = list(c.evidence), list(d.flags)
+    if coverage is not None:
+        # A card repayment against the card's last statement: full, minimum, partial or over (an over-payment is flagged).
+        evidence.append(EvidenceItem(code=f"card_statement_{coverage[0]}", value=coverage[1][:120]))
+        if coverage[0] == "over":
+            flags.append(CARD_OVERPAID)
     return MatchRecord(
         id=new_id("fin_match"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
         canonical_id=d.payment.canonical_id, kind=o.kind, dimension=o.dimension, target_type=o.target_type, target_id=o.target_id,
         label=o.label, due_on=None if o.due_on == UNDATED_CARD else o.due_on, posted_on=d.payment.posted_on, amount=c.amount,
         currency=o.currency, outcome=outcome,  # type: ignore[arg-type]
         evidence_state=d.state if outcome == "auto_linked" else "pending", reason_code=(reason or d.reason)[:40], confidence=d.confidence if c in d.parts else c.score,
-        evidence=c.evidence[:30], flags=d.flags, competitors=d.competitors, policy_version=policy.version, run_id=run_id, link_id=link_id,
+        evidence=evidence[:30], flags=flags[:10], competitors=d.competitors, policy_version=policy.version, run_id=run_id, link_id=link_id,
         fingerprint=E.fingerprint(d.payment.fingerprint, o.fingerprint), fx=_fx_record(c), created_at=now, updated_at=now,
     )
 
@@ -339,7 +361,9 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
     """Make the automatic links and record every decision. ``dry_run`` only counts."""
     counts = Counts(transactions=len(snap.payments), missing_source=snap.missing_source, duplicates=len(result.duplicates))
     seen_targets: set[tuple[str, str]] = set()
-    for d in result.decisions:
+    card_linked: dict[str, list[tuple[date, str, Decimal]]] = {}  # card repayments linked in this run, per card
+    # Oldest first, so a card's repayments are checked against its statement in the order they were made.
+    for d in sorted(result.decisions, key=lambda d: (d.payment.posted_on, d.payment.canonical_id)):
         counts.matched += 1
         if d.reason.startswith("ambiguous") or d.reason == "combined_needs_review":
             counts.ambiguous += 1
@@ -348,6 +372,8 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
             if pair in seen_targets:
                 continue
             seen_targets.add(pair)
+            coverage = E.card_coverage(c.obligation, d.payment.posted_on, d.payment.canonical_id, c.amount,
+                                       card_linked.get(c.obligation.target_id, ()))
             existing = snap.records.get(pair)
             if existing is not None and existing.outcome in OWNER_OUTCOMES:
                 counts.kept_owner_choice += 1
@@ -361,7 +387,8 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
             if d.outcome != "auto":
                 counts.review += 1
                 if not dry_run:
-                    stored = _store_record(context, _record(context, d, c, outcome="review", policy=policy, run_id=run_id, now=now), existing)
+                    stored = _store_record(context, _record(context, d, c, outcome="review", policy=policy, run_id=run_id, now=now,
+                                                            coverage=coverage), existing)
                     counts.record_ids.append(stored.id)
                 continue
             if dry_run:
@@ -375,7 +402,7 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
             except K.LinkError as exc:
                 counts.differences += 1
                 stored = _store_record(context, _record(context, d, c, outcome="review", policy=policy, run_id=run_id, now=now,
-                                                        reason=f"link_refused_{exc.code}"), existing)
+                                                        reason=f"link_refused_{exc.code}", coverage=coverage), existing)
                 counts.record_ids.append(stored.id)
                 continue
             except Exception as exc:  # noqa: BLE001 - one failing link never stops the run; it is counted and retried next time
@@ -385,8 +412,10 @@ def apply(context: TenantContext, snap: Snapshot, result: E.Result, policy: Matc
             counts.auto_linked += 1
             setattr(counts, d.state, getattr(counts, d.state) + 1)
             stored = _store_record(context, _record(context, d, c, outcome="auto_linked", policy=policy, run_id=run_id, now=now,
-                                                    link_id=made.link.id), existing)
+                                                    link_id=made.link.id, coverage=coverage), existing)
             counts.record_ids.append(stored.id)
+            if c.obligation.kind == "card_repayment":
+                card_linked.setdefault(c.obligation.target_id, []).append((d.payment.posted_on, d.payment.canonical_id, c.amount))
             if audit:
                 from .suggestion_jobs import _audit
 
