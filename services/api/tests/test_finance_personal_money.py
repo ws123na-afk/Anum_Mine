@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from finance_clock import owner_today
 
 from anum_api import main
 from anum_api.agent_planning import choose_tool_call
@@ -407,7 +408,7 @@ def test_research_cites_every_figure_with_its_source_and_date(web_search: FakeSe
     assert found["status"] == "ok" and web_search.queries == ["car personal loan interest rate UAE"]
     assert found["items"][0]["url"] == "https://bank.example/rates" and found["items"][0]["figures"][0] == {"kind": "percent", "value": "4.5", "currency": None}
     assert found["items"][1]["figures"] == [{"kind": "amount", "value": "85000", "currency": "AED"}]
-    assert found["items"][0]["read_on"] == datetime.now(UTC).date().isoformat()
+    assert found["items"][0]["read_on"] == owner_today().isoformat()  # the owner's local day, like every finance date
 
 
 def test_research_without_web_search_says_live_prices_are_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:

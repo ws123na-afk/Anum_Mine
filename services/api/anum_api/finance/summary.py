@@ -33,11 +33,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field
 
-from ..schemas import TenantContext
+from ..schemas import TenantContext, utc_now
 from . import commitment_math as M
 from . import obligations as O
 from .flows import EXCLUDED_KINDS, NOT_SPEND, Flow, figures, flow_of, kinds_of
 from .models import (
+    DEFAULT_TIMEZONE,
     AccountKind,
     Bill,
     BillSource,
@@ -51,7 +52,7 @@ from .models import (
     TransactionType,
 )
 from .money import quantize, totals
-from .store import FinanceStore, TransactionFilter
+from .store import FinanceStore, TransactionFilter, open_finance_store
 
 UPCOMING_DAYS = 30
 MONTH = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
@@ -289,12 +290,30 @@ def zone(name: str) -> ZoneInfo:
     try:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):
-        return ZoneInfo("Asia/Dubai")
+        return ZoneInfo(DEFAULT_TIMEZONE)
 
 
 def today_in(settings: FinanceSettings, now: datetime | None = None) -> date:
-    moment = now or datetime.now(tz=ZoneInfo("UTC"))
+    """The one rule for "today" in Personal Finance: the owner's Finance time zone at ``now`` (the API clock,
+    ``utc_now``, when left out). A due date, a statement day, a budget month or a match window is a local business
+    day, so it is never the UTC date: late in the UTC evening Dubai is already on the next day."""
+    moment = now or utc_now()
     return moment.astimezone(zone(settings.timezone)).date()
+
+
+def local_day(moment: datetime | date, timezone: str) -> date:
+    """The owner's local day of a stored moment (a naive moment is UTC; a date stays as it is), the same rule as ``today_in``:
+    a record saved, or an email received, at 21:30 UTC is already the next day in Dubai."""
+    if not isinstance(moment, datetime):
+        return moment
+    aware = moment if moment.tzinfo else moment.replace(tzinfo=ZoneInfo("UTC"))
+    return aware.astimezone(zone(timezone)).date()
+
+
+def owner_today(context: TenantContext, now: datetime | None = None) -> date:
+    """``today_in`` for the caller's own Finance settings, for code that holds a context but no open finance store."""
+    with open_finance_store(context) as store:
+        return today_in(settings_for(store, context), now)
 
 
 def month_range(month: str | None, today: date) -> tuple[str, date, date]:
@@ -701,7 +720,7 @@ def _details(store: FinanceStore, context: TenantContext, label: str, today: dat
         "income_breakdown": [IncomeLine(kind=k, currency=c, amount=quantize(v[0], c), count=v[1])  # type: ignore[arg-type]
                              for (k, c), v in sorted(lines.items(), key=lambda kv: (kv[0][1], INCOME_ORDER[kv[0][0]]))],
         "salary": salary_view, "review": review,
-        "freshness": freshness(accounts, facts, last_activity, imports, now or datetime.now(tz=ZoneInfo("UTC"))),
+        "freshness": freshness(accounts, facts, last_activity, imports, now or utc_now()),
     }
 
 

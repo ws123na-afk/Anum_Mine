@@ -474,8 +474,10 @@ def run(context: TenantContext, start: date, end: date, *, now: datetime | None 
 
 
 def run_recent(context: TenantContext, *, now: datetime | None = None, dry_run: bool = False) -> Counts:
+    from .summary import owner_today
+
     moment = now or utc_now()
-    today = moment.date()
+    today = owner_today(context, moment)  # the owner's local day: a payment posted "today" in Dubai is inside the window
     return run(context, today - timedelta(days=RECENT_DAYS), today + timedelta(days=1), now=moment, dry_run=dry_run)
 
 
@@ -516,13 +518,14 @@ def card_check(context: TenantContext, debt_id: str, canonical_id: str, amount: 
     card has no stored statement or the repayment was made on or before it."""
     from .models import Debt, DebtKind
     from .store import open_finance_store
+    from .summary import settings_for, today_in
 
     with open_finance_store(context) as finance:
         debt = finance.get_item(context, "debt", debt_id)
+        today = today_in(settings_for(finance, context))  # the owner's local day
     if not isinstance(debt, Debt) or getattr(debt.kind, "value", debt.kind) != DebtKind.CARD.value or debt.card_statement_on is None \
             or debt.card_statement_balance is None:
         return None
-    today = utc_now().date()
     snap = load(context, debt.card_statement_on + timedelta(days=1), today + timedelta(days=1), only={canonical_id})
     card = next((o for o in snap.obligations if o.kind == "card_repayment" and o.target_id == debt.id), None)
     payment = next((p for p in (*snap.payments, *snap.linked) if p.canonical_id == canonical_id), None)

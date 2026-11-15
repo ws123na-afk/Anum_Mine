@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from finance_clock import owner_today
 from test_finance import API, OWNER, account, client
 from test_finance import clean as _clean_finance  # noqa: F401  (autouse: resets the finance store)
 
@@ -21,6 +22,7 @@ from anum_api.finance import tamara_email_api as T
 from anum_api.finance.models import InstallmentStatementEntry
 from anum_api.finance.rules_store import rules_memory_store
 from anum_api.finance.store import finance_store
+from anum_api.finance.summary import local_day
 from anum_api.schemas import TenantContext, utc_now
 
 ME = TenantContext(tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], user_id=OWNER["x-user-id"], roles=["owner"])
@@ -35,7 +37,8 @@ def _claims() -> Iterator[None]:
 
 
 def _today() -> date:
-    return utc_now().date()
+    """Today the way the code reads it: the owner's Finance time zone, never the UTC date."""
+    return owner_today()
 
 
 def _data(**parts: Any) -> A.AlertData:
@@ -132,14 +135,15 @@ def test_an_unreadable_tamara_email_is_noted_by_the_preview_and_told_once(monkey
     preview = client.get(f"{API}/installment-email/preview", headers=OWNER, params={"account_id": "acct_gap_tamara"})
     assert preview.status_code == 200, preview.text
     assert any("no identifiable Tamara order reference" in w for w in preview.json()["warnings"])
-    # Only the recent email is noted, by its id and day: no body, subject or amount.
+    # Only the recent email is noted, by its id and the owner's local day it arrived: no body, subject or amount.
+    received = local_day(now - timedelta(days=1), "Asia/Dubai")
     noted = [(k[3], k[4], k[5]) for k in rules_memory_store.notice_claims]
-    assert noted == [(T.UNREAD_CLAIM, "acct_gap_tamara_m1", (now - timedelta(days=1)).date())]
+    assert noted == [(T.UNREAD_CLAIM, "acct_gap_tamara_m1", received)]
     # A second read notes nothing new.
     client.get(f"{API}/installment-email/preview", headers=OWNER, params={"account_id": "acct_gap_tamara"})
     assert len(rules_memory_store.notice_claims) == 1
     mailboxes, unread = A._tamara_mail(ME, _today())
-    assert mailboxes == [] and unread == [("acct_gap_tamara_m1", (now - timedelta(days=1)).date())]
+    assert mailboxes == [] and unread == [("acct_gap_tamara_m1", received)]
     (alert,) = _capture(_data(unread_mail=unread))
     assert alert.key == "tamara:acct_gap_tamara_m1" and "Tamara email" in alert.body and "125" not in alert.body
     # Told once: the alert's own claim stops a second run.

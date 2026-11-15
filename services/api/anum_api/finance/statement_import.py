@@ -267,10 +267,11 @@ class TransferResult(BaseModel):
     failed: list[str]
 
 
-def _window(start: date | None, end: date | None) -> tuple[date, date]:
+def _window(context: TenantContext, start: date | None, end: date | None) -> tuple[date, date]:
     from ..finance.api import _invalid
+    from .summary import owner_today
 
-    end = end or utc_now().date()
+    end = end or owner_today(context)  # the owner's local day
     start = start or end - timedelta(days=90)
     if start > end or (end - start).days > MAX_TRANSFER_DAYS:
         raise _invalid(f"Pick a date range of at most {MAX_TRANSFER_DAYS} days.")
@@ -299,7 +300,7 @@ def transfer_candidates(
     from .api import _manage
 
     _manage(context)
-    start, end = _window(start, end)
+    start, end = _window(context, start, end)
     pairs, accounts = _pairs(context, start, end)
     views = [TransferPairView(out=record_view(p.out), into=record_view(p.into), strength=p.strength, reasons=list(p.reasons), lag_days=p.lag_days,  # type: ignore[arg-type]
                               out_account_name=accounts[p.out.account_id].name, into_account_name=accounts[p.into.account_id].name,
@@ -318,7 +319,7 @@ def pair_transfers(body: TransferInput, context: TenantContext = Depends(tenant_
     from .sms_service import owner_lock
 
     _manage(context)
-    start, end = _window(body.start, body.end)
+    start, end = _window(context, body.start, body.end)
     wanted = {(c.out_record_id, c.into_record_id) for c in body.pairs}
     jobs: list[SL.LinkJob] = []
     failed: list[str] = []

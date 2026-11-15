@@ -9,6 +9,7 @@ import asyncio
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal as D
 
+from finance_clock import owner_today
 from test_finance_personal_money import ME, OTHER, OWNER, VIEWER, account, clean, client, record  # noqa: F401  (``clean`` resets the stores)
 
 from anum_api.agent_tools import ToolCall, ToolRegistry
@@ -28,7 +29,8 @@ STAMP = datetime(2026, 11, 1, tzinfo=UTC)
 
 
 def today() -> date:
-    return utc_now().date()
+    """Today the way the code reads it: the owner's Finance time zone (Asia/Dubai by default), never the UTC date."""
+    return owner_today()
 
 
 def months_ago(months: int, day: int = 15) -> date:

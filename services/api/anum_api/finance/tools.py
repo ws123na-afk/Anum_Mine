@@ -26,14 +26,13 @@ on groceries in September", "bills due this week", "رصيد حسابي".
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from ..authorization import Permission
 from ..schemas import RiskLevel, TenantContext
-from .models import Category
+from .models import Category, FinanceSettings
 from .money import describe
 from .store import TransactionFilter, open_finance_store
 from .summary import build_summary, settings_for, today_in, upcoming_bills
@@ -1017,7 +1016,9 @@ def plan_call(prompt: str, today: date | None = None) -> ToolCall | None:
         return ToolCall(name="finance.safe_to_spend", arguments={})
     if _RULES.search(text):
         return ToolCall(name="finance.guardian.rules", arguments={})
-    today = today or datetime.now(ZoneInfo("Asia/Dubai")).date()
+    # The planner reads the words only and holds no tenant: "last month" is read in the default Finance time zone, the same
+    # rule and clock as everywhere else (``today_in``), never a second hard-coded one. The tool itself answers in the owner's zone.
+    today = today or today_in(FinanceSettings())
     category = next((c for word, c in _CATEGORY_WORDS.items() if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", text, re.IGNORECASE)), None)
     if _BILLS.search(text) and not _SPEND.search(text):
         return ToolCall(name="finance.bills.upcoming", arguments={"days": 7 if _WEEK.search(text) else 30})

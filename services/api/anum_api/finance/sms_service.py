@@ -59,7 +59,7 @@ from .ledger import (
     transaction_category,
     unusual,
 )
-from .models import Account, AccountKind, Category, CategorySource, Transaction, TransactionType, TypeSource
+from .models import DEFAULT_TIMEZONE, Account, AccountKind, Category, CategorySource, Transaction, TransactionType, TypeSource
 from .money import MoneyError, normalize_currency, quantize
 from .sms_store import (
     DeviceStatus,
@@ -627,7 +627,7 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
     """Read, check and (when confident) post one stored message. The caller commits."""
     settings = settings_for(store, context)
     fsettings = finance.get_settings(context)
-    tz_name = fsettings.timezone if fsettings else "Asia/Dubai"
+    tz_name = fsettings.timezone if fsettings else DEFAULT_TIMEZONE
     parsed = P.parse(message.sender, body, learned=learned_rules(store, context), extra_senders=extra_senders(settings),
                      verified_senders=set(settings.verified_senders))
     message.parsed = parsed.fields()
@@ -878,7 +878,7 @@ def process_wallet(finance: FinanceStore, store: SmsStore, context: TenantContex
     """Record an Apple Wallet payment, or attach it to the SMS that already recorded it."""
     settings = settings_for(store, context)
     fsettings = finance.get_settings(context)
-    tz_name = fsettings.timezone if fsettings else "Asia/Dubai"
+    tz_name = fsettings.timezone if fsettings else DEFAULT_TIMEZONE
     accounts = {a.id: a for a in finance.list_accounts(context) if not a.archived}
     merchant = P.normalize(event.merchant)[:60] or None
     parsed: dict[str, object] = {"merchant": merchant, "card": W.card_key(event.card) or None, "name": P.normalize(event.name)[:60] or None}

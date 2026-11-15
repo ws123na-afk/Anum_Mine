@@ -59,8 +59,10 @@ def start(context: TenantContext, mode: str, *, now: datetime | None = None) -> 
     if mode == "apply" and not (policy.approved_at is not None and policy.reprocess_history and policy.match_transactions):
         raise BackfillError(409, "Turn on matching and history reprocessing in your matching policy, and approve it, before applying.",
                             "policy_off")
+    from .summary import owner_today
+
     first, last = _span(context)
-    today = moment.date()
+    today = owner_today(context, moment)  # the owner's local day: the window ends on today's posted transactions
     run = BackfillRun(id=new_id("fin_backfill"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
                       mode=mode, status="running" if first is not None else "done",  # type: ignore[arg-type]
                       start_on=first, end_on=max(last or today, today) if first else None, counts={k: 0 for k in COUNT_KEYS},

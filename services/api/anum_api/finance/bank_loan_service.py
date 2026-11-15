@@ -171,15 +171,18 @@ def make_batch(context: TenantContext, item: SG.Suggestion, now: datetime) -> P.
     from . import links as K
     from .personal_store import open_personal_store
 
+    from .summary import owner_today
+
     action = item.action
     debt_id = action.debt_id or ""
     made: list[P.LoanBatchItem] = []
+    today = owner_today(context, now)  # a payment with no salary month is dated the owner's local day
     try:
         for proposal in action.links:
             created = K.create(context, K.LinkRequest(canonical_id=proposal.canonical_id, dimension="debt", role="payment", target_type=proposal.target_type,
                                                       target_id=proposal.target_id, amount=proposal.amount, currency=proposal.currency))
             month = next((m for m in item.months if m.canonical_id == proposal.canonical_id), None)
-            made.append(P.LoanBatchItem(due_on=month.due_on if month else now.date(), amount=proposal.amount, currency=proposal.currency,
+            made.append(P.LoanBatchItem(due_on=month.due_on if month else today, amount=proposal.amount, currency=proposal.currency,
                                         canonical_id=proposal.canonical_id, link_id=created.link.id, source="bank_debit"))
     except K.LinkError:
         for done in made:

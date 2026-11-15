@@ -55,7 +55,8 @@ from decimal import Decimal
 from typing import Any
 
 from ..schemas import TenantContext, new_id, utc_now
-from .models import Account, AccountKind, Transaction, TransactionType
+from .models import DEFAULT_TIMEZONE, Account, AccountKind, Transaction, TransactionType
+from .summary import local_day
 
 logger = logging.getLogger("anum_api.finance.alerts")
 NOTICE_KIND = "finance_alerts"
@@ -120,6 +121,7 @@ class AlertData:
     imports: list[Any] = field(default_factory=list)  # models.ImportRecord of the last days
     mailboxes: list[tuple[str, str]] = field(default_factory=list)  # (mailbox id, status): the person's Tamara Gmail in trouble
     unread_mail: list[tuple[str, date]] = field(default_factory=list)  # (ANUM email message id, received day): unread Tamara emails
+    timezone: str = DEFAULT_TIMEZONE  # the owner's Finance time zone: a stored moment is told as the owner's local day
 
 
 def _week(day: date) -> date:
@@ -181,7 +183,7 @@ def compose(data: AlertData) -> list[Alert]:
                          f"{_money(card.paid_since_statement, card.currency)}.{provisional}"))
     # Loan payments linked by anyone but the person.
     for link in data.recent_links:
-        made = link.created_at.date() if hasattr(link.created_at, "date") else link.created_at
+        made = local_day(link.created_at, data.timezone)
         if link.created_by == data.user_id or getattr(link.status, "value", link.status) != "active":
             continue
         name = data.names.get(link.target_id, "a loan")
@@ -202,7 +204,7 @@ def compose(data: AlertData) -> list[Alert]:
     # Failed data capture: a bank message not read or not processed, a statement import with unreadable rows.
     since = today - timedelta(days=RECENT_DAYS)
     for m in data.messages:
-        received = m.received_at.date() if hasattr(m.received_at, "date") else m.received_at
+        received = local_day(m.received_at, data.timezone)
         status = getattr(m.status, "value", m.status)
         if received < since or m.source not in CAPTURE_SOURCES:
             continue
@@ -219,7 +221,7 @@ def compose(data: AlertData) -> list[Alert]:
     from .api import refused_import
 
     for record in data.imports:
-        made = record.created_at.date() if hasattr(record.created_at, "date") else record.created_at
+        made = local_day(record.created_at, data.timezone)
         if made < since or record.error_count <= 0:
             continue
         if refused_import(record):
@@ -365,7 +367,8 @@ def gather(context: TenantContext, now: datetime) -> AlertData:
     from .summary import settings_for, today_in
 
     with open_finance_store(context) as store:
-        today = today_in(settings_for(store, context), now)
+        settings = settings_for(store, context)
+        today = today_in(settings, now)
         accounts = store.list_accounts(context)
         rows = store.transactions_between(context, today - timedelta(days=70), today)
         imports = [i for i in store.list_imports(context, limit=50, offset=0)[0] if i.error_count > 0]
@@ -382,7 +385,7 @@ def gather(context: TenantContext, now: datetime) -> AlertData:
         for dimension in (DEBT_DIMENSION, PERSON_LOAN_DIMENSION):
             found, _ = links.list_links(context, canonical_id=None, dimension=dimension, target_type=None, target_id=None, status="active",
                                         limit=2_000, offset=0)
-            recent.extend(l for l in found if (l.created_at.date() if hasattr(l.created_at, "date") else l.created_at) >= today - timedelta(days=RECENT_DAYS))
+            recent.extend(l for l in found if local_day(l.created_at, settings.timezone) >= today - timedelta(days=RECENT_DAYS))
     budgets: list[Any] = []
     try:
         from .commitments_api import get_budgets
@@ -416,7 +419,7 @@ def gather(context: TenantContext, now: datetime) -> AlertData:
                                  payslip_credits=links_data.payslip_credits)
     return AlertData(today=today, overview=ov, cards=inputs.cards, accounts=accounts, rows=rows, recent_links=recent, budgets=budgets,
                      suggestions=suggestions, salary=salary, user_id=context.user_id, names=names, plans=plans, own_reminders=own_reminders,
-                     messages=messages, imports=imports, mailboxes=mailboxes, unread_mail=unread_mail)
+                     messages=messages, imports=imports, mailboxes=mailboxes, unread_mail=unread_mail, timezone=settings.timezone)
 
 
 def _tamara_mail(context: TenantContext, today: date) -> tuple[list[tuple[str, str]], list[tuple[str, date]]]:

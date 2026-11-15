@@ -76,6 +76,7 @@ def _classify(context: TenantContext, *, now: datetime, dry_run: bool = False) -
     from .sms_service import owner_lock
     from .sms_store import open_sms_stores
     from .store import TransactionFilter
+    from .summary import settings_for, today_in
 
     with open_rule_stores(context) as (_finance, store):
         settings = store.get_automation(context)
@@ -116,7 +117,7 @@ def _classify(context: TenantContext, *, now: datetime, dry_run: bool = False) -
                 sms.lock_owner(context)
                 rules = rules_store_for(finance)
                 active = replace(ActiveRule.of(version), book=AliasBook.of(rules.list_aliases(context)))
-                since = now.date() - timedelta(days=AUTO_DAYS)
+                since = today_in(settings_for(finance, context), now) - timedelta(days=AUTO_DAYS)  # the owner's local day
                 rows, _ = finance.list_transactions(context, TransactionFilter(start=since), limit=RS.SCAN_LIMIT, offset=0)
                 found = RS.preview(finance, sms, context, active, rows=rows)
                 if not found.rows:
