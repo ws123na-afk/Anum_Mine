@@ -185,6 +185,18 @@ class FinanceDebtRecord(Base, _Owned):
     loan_account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     loan_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
     loan_closed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # The debt overview and card terms (migration 0186_pf_debts), all nullable.
+    debt_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    verified_balance: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    verified_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    disputed_amount: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    dispute_note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    fees: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    card_limit: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    card_statement_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    card_statement_balance: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    card_statement_minimum: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    card_statement_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
 
 class FinanceGoalRecord(Base, _Owned):
@@ -584,6 +596,8 @@ def _fields(model: BaseModel) -> dict[str, Any]:
 MONEY_FIELDS = frozenset({
     "amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis", "monthly_contribution", "original_balance",
     "loan_amount", "loan_installment", "notional", "fee", "slippage",
+    # migration 0186_pf_debts
+    "verified_balance", "disputed_amount", "fees", "card_limit", "card_statement_balance", "card_statement_minimum",
 })
 
 

@@ -42,6 +42,7 @@ class SuggestionJobResult:
     exception_notices: int = 0  # docs/finance.md#exception-notices
     matched: int = 0  # links the record-linking policy made (docs/finance-matching.md)
     backfill_months: int = 0  # months a running history run processed
+    alerts: int = 0  # docs/finance.md#financial-alerts
     skipped: int = 0
     failed: int = 0
 
@@ -191,6 +192,15 @@ def run_person(tenant_id: str, workspace_id: str, user_id: str, *, now: datetime
         result.matched += linked
         result.backfill_months += months
         result.notices += noticed
+    from . import alerts  # docs/finance.md#financial-alerts: notices too, never an action
+
+    try:
+        sent, failed = alerts.run(context, now=moment, dry_run=dry_run)
+    except Exception as exc:  # noqa: BLE001 - counts only; the next run tries again
+        logger.warning("finance_alerts_person_failed error_class=%s", type(exc).__name__)
+        sent, failed = 0, 1
+    result.alerts += sent
+    result.failed += failed
     return result
 
 
@@ -244,7 +254,7 @@ def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]
             logger.warning("finance_suggestions_person_failed error_class=%s", type(exc).__name__)
             total.failed += 1
             continue
-        for name in ("people", "applied", "batches", "notices", "exception_notices", "matched", "backfill_months", "skipped", "failed"):
+        for name in ("people", "applied", "batches", "notices", "exception_notices", "matched", "backfill_months", "alerts", "skipped", "failed"):
             setattr(total, name, getattr(total, name) + getattr(part, name))
     return asdict(total)
 

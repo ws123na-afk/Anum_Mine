@@ -234,6 +234,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "business_book_receipt_dismissals": "0159_finance_last_gaps",
             "finance_personal_tags": "0160_finance_depth_2",
             "finance_loan_batches": "0161_finance_bank_loans",
+            "finance_alert_settings": "0186_pf_debts",
             **{name: "0169_contacts_directory" for name in (
                 "contacts", "contact_identifiers", "contact_links", "contact_do_not_contact", "contact_merge_proposals")},
             "model_usage_daily": "0170_model_usage_daily",

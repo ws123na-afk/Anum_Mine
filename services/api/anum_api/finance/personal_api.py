@@ -181,6 +181,8 @@ class LoanInput(BaseModel):
     interest_rate: Amount | None = None
     installments: int | None = Field(default=None, ge=1, le=360)
     first_due_on: date | None = None
+    # The person in Contacts (migration 0186_pf_debts). Left out: kept as it is; null clears it.
+    contact_id: str | None = Field(default=None, max_length=80)
 
 
 class InstallmentView(BaseModel):
@@ -220,11 +222,24 @@ class LoanView(BaseModel):
     links: int
     created_at: Any
     updated_at: Any
+    # Migration 0186_pf_debts: the person in Contacts, promises to pay and the balance both sides last agreed.
+    contact_id: str | None = None
+    promises: list[P.LoanPromise] = []
+    verified_balance: Decimal | None = None
+    verified_on: date | None = None
+    balance_difference: Decimal | None = None  # the agreed balance less what is left by the linked repayments
+
+
+class PromiseState(BaseModel):
+    id: str
+    status: P.PromiseStatus
+    paid: Decimal
 
 
 class LoanDetail(LoanView):
     movements: list[Movement]
     schedule: list[InstallmentView]
+    promise_states: list[PromiseState] = []
 
 
 class Owed(BaseModel):
@@ -252,7 +267,8 @@ def _loan_view(loan: P.PersonLoan, links: list, today: date) -> LoanView:
     return LoanView(**loan.model_dump(exclude={"tenant_id", "workspace_id", "owner_user_id", "reminded_for", "reminded_overdue_for"}),
                     repaid=f.repaid, outstanding=f.outstanding, handed=f.handed, status=f.status, days_until_due=f.days_until_due,
                     interest=f.interest, total_due=f.total_due, next_due_on=f.next_due_on, next_due_amount=f.next_due_amount,
-                    overdue_amount=f.overdue_amount, links=sum(1 for l in links if l.target_id == loan.id))
+                    overdue_amount=f.overdue_amount, links=sum(1 for l in links if l.target_id == loan.id),
+                    balance_difference=(loan.verified_balance - f.outstanding) if loan.verified_balance is not None else None)
 
 
 def schedule_view(loan: P.PersonLoan, links: list, today: date) -> list[InstallmentView]:
@@ -313,6 +329,9 @@ def _build_loan(context: TenantContext, body: LoanInput, existing: P.PersonLoan 
         reminded_overdue_for=None if changed_due or existing is None else existing.reminded_overdue_for,
         closed_on=closed_on, interest_rate=rate, installments=body.installments, first_due_on=body.first_due_on,
         created_at=existing.created_at if existing else now, updated_at=now,
+        contact_id=body.contact_id if "contact_id" in body.model_fields_set or existing is None else existing.contact_id,
+        promises=existing.promises if existing else [], verified_balance=existing.verified_balance if existing else None,
+        verified_on=existing.verified_on if existing else None,
     )
 
 
@@ -366,8 +385,15 @@ def get_people_loan(loan_id: str, context: TenantContext = Depends(tenant_contex
     _base, today = _settings(context)
     loan = _own(context, "person_loan", loan_id, "Loan")
     links, entries = _links(context, P.PERSON_LOAN_DIMENSION, loan_id)
-    return LoanDetail(**_loan_view(loan, links, today).model_dump(), movements=_movements(links, entries, loan_id),
-                      schedule=schedule_view(loan, links, today))
+    movements = _movements(links, entries, loan_id)
+    repaid = [(m.posted_on, m.link.amount or Decimal(0)) for m in movements
+              if m.posted_on is not None and m.link.role == P.repaid_role(loan.direction) and m.link.status == "active" and m.link.currency == loan.currency]
+    states = []
+    for promise in loan.promises:
+        state, paid = P.promise_status(promise, repaid, today)
+        states.append(PromiseState(id=promise.id, status=state, paid=paid))
+    return LoanDetail(**_loan_view(loan, links, today).model_dump(), movements=movements, schedule=schedule_view(loan, links, today),
+                      promise_states=states)
 
 
 @router.patch("/people-loans/{loan_id}", response_model=LoanView)

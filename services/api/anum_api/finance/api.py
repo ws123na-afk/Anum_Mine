@@ -1620,8 +1620,13 @@ LOAN_FIELDS = ("lender", "loan_start_on", "loan_amount", "loan_rate_type", "loan
                "loan_repayment", "loan_account_id", "loan_status", "loan_closed_on")
 
 
+# The debt overview's own fields (migration 0186_pf_debts), set with PUT /debts/{id}/profile; kept by an edit here like the loan terms.
+PROFILE_FIELDS = ("debt_type", "verified_balance", "verified_on", "disputed_amount", "dispute_note", "fees", "card_limit", "card_statement_day",
+                  "card_statement_balance", "card_statement_minimum", "card_statement_on")
+
+
 def _loan_terms(debt: Debt) -> dict[str, Any]:
-    return {name: getattr(debt, name) for name in LOAN_FIELDS}
+    return {name: getattr(debt, name) for name in LOAN_FIELDS + PROFILE_FIELDS}
 
 
 def _build_goal(store: FinanceStore, context: TenantContext, body: GoalInput, existing: Goal | None) -> Goal:

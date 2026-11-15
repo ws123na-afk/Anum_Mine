@@ -7,7 +7,8 @@ policy, and every query repeats the scope and the owner. The in-memory store ser
 the same rules. The salary profile (one per person, ``finance_salary_profiles``, migration ``0150_finance_salary_profile``)
 lives here too, next to the payslips, and so does expected one-off income (``finance_expected_income``, migration
 ``0158_finance_depth``), and so do personal trips and projects (``finance_personal_tags``, migration ``0160_finance_depth_2``) and the
-payments accepted at once for a bank loan (``finance_loan_batches``, migration ``0161_finance_bank_loans``). Counted, exported and deleted
+payments accepted at once for a bank loan (``finance_loan_batches``, migration ``0161_finance_bank_loans``), and so do the person's
+financial alert choices (``finance_alert_settings``, migration ``0186_pf_debts``). Counted, exported and deleted
 with the rest of Finance.
 """
 
@@ -21,11 +22,12 @@ from typing import Literal, Protocol, TypeVar
 
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
-from .personal import ExpectedIncome, LoanBatch, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
+from .personal import AlertSettings, ExpectedIncome, LoanBatch, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
 
-Kind = Literal["person_loan", "payslip", "remittance", "salary_profile", "expected_income", "tag", "loan_batch"]
+Kind = Literal["person_loan", "payslip", "remittance", "salary_profile", "expected_income", "tag", "loan_batch", "alert_settings"]
 MODELS: dict[str, type] = {"person_loan": PersonLoan, "payslip": Payslip, "remittance": Remittance, "salary_profile": SalaryProfile,
-                          "expected_income": ExpectedIncome, "tag": PersonalTag, "loan_batch": LoanBatch}
+                          "expected_income": ExpectedIncome, "tag": PersonalTag, "loan_batch": LoanBatch,
+                          "alert_settings": AlertSettings}
 MAX_ROWS = 2000  # per person and kind
 Item = TypeVar("Item", PersonLoan, Payslip, Remittance, SalaryProfile)
 
@@ -58,7 +60,7 @@ def sort_key(kind: Kind, item: object) -> tuple:
         return (item.expected_on, item.created_at)  # type: ignore[attr-defined]
     if kind == "tag":
         return (item.created_at, item.created_at)  # type: ignore[attr-defined]
-    if kind == "loan_batch":
+    if kind in ("loan_batch", "alert_settings"):
         return (item.created_at, item.id)  # type: ignore[attr-defined]
     return (item.sent_on, item.created_at)  # type: ignore[attr-defined]
 

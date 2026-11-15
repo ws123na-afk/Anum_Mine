@@ -272,6 +272,18 @@ class Debt(_Owned):
     loan_account_id: str | None = None  # the account a bank debit leaves
     loan_status: str | None = None  # "open", "paid_off" or "closed"
     loan_closed_on: date | None = None  # when it was paid off or closed
+    # The debt overview and card terms (migration 0186_pf_debts, docs/finance.md#debt-overview, #credit-cards), all optional.
+    debt_type: str | None = None  # personal_loan, vehicle_finance, mortgage, credit_card, employer_loan, salary_advance, bnpl, informal, other
+    verified_balance: Decimal | None = None  # what the lender's own statement or app said is owed
+    verified_on: date | None = None  # the day that figure was read
+    disputed_amount: Decimal | None = None  # an amount the person disputes with the lender
+    dispute_note: str | None = None
+    fees: Decimal | None = None  # fees paid on it so far (processing, late), when known
+    card_limit: Decimal | None = None  # a card's credit limit as printed by the bank
+    card_statement_day: int | None = Field(default=None, ge=1, le=31)  # the day the statement closes
+    card_statement_balance: Decimal | None = None  # the last statement's balance
+    card_statement_minimum: Decimal | None = None  # the last statement's minimum payment
+    card_statement_on: date | None = None  # the last statement's date
 
 
 class Goal(_Owned):
