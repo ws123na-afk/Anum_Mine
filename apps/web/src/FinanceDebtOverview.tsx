@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { AlertTriangle, CalendarDays, CreditCard, HandCoins, Layers, ListOrdered, Pencil, Plus, Scale } from 'lucide-react';
 import * as dx from './lib/financeDebtsApi';
 import { createDebt } from './lib/financeApi';
+import { formatAmount, isolate } from './lib/finance';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { Modal } from './Dialog';
@@ -16,6 +17,7 @@ import './financePlanning.css';
 import './financeDebts.css';
 
 const day = (value: string | null) => (value ? formatDateTime(`${value}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '-');
+const amt = (value: string | null, currency: string) => isolate(formatAmount(value ?? '0', currency));
 const typeLabel = (type: string) => t(`fdebt.type.${type}` as MessageKey);
 const evidenceLabel = (evidence: string | null) => (evidence ? t(`fdebt.evidence.${evidence}` as MessageKey) : '-');
 
@@ -51,7 +53,7 @@ export function DebtOverviewSection({ onAddDebt, onChanged }: { onAddDebt: () =>
     <KpiRow label={t('fdebt.kpis')}>
       {view.totals.map((total) => <KpiCard key={total.currency} icon={<Layers />} label={t('fdebt.kpi.owe', { currency: total.currency })}
         value={<Money value={total.owe} currency={total.currency} />} tone={Number(total.overdue) > 0 ? 'bad' : ''}
-        hint={Number(total.overdue) > 0 ? t('fdebt.kpi.overdue', { amount: `${total.currency} ${total.overdue}` })
+        hint={Number(total.overdue) > 0 ? t('fdebt.kpi.overdue', { amount: amt(total.overdue, total.currency) })
           : t('fdebt.kpi.due30', { amount: `${total.currency} ${total.due_30_days}` })} />)}
       {view.totals.filter((x) => Number(x.owed_to_me) > 0).map((total) => <KpiCard key={`in-${total.currency}`} icon={<HandCoins />}
         label={t('fdebt.kpi.owedToMe', { currency: total.currency })} value={<Money value={total.owed_to_me} currency={total.currency} />} />)}
@@ -86,7 +88,7 @@ function ObligationTable({ title, rows, onOpen, empty }: { title: string; rows: 
           {o.discrepancy && <><br /><StatusChip tone="warn">{t('fdebt.chip.differs')}</StatusChip></>}</td>
         <td>{o.next_due_on ? <>{day(o.next_due_on)}<br /><small><Money value={o.next_due_amount} currency={o.currency} /></small></> : '-'}</td>
         <td><StatusChip tone={dx.statusTone(o.status)}>{t(`fdebt.status.${o.status}` as MessageKey)}</StatusChip>
-          {Number(o.unverified_amount) > 0 && <><br /><StatusChip tone="warn">{t('fdebt.chip.unverified', { amount: `${o.currency} ${o.unverified_amount}` })}</StatusChip></>}</td>
+          {Number(o.unverified_amount) > 0 && <><br /><StatusChip tone="warn">{t('fdebt.chip.unverified', { amount: amt(o.unverified_amount, o.currency) })}</StatusChip></>}</td>
         <td><button type="button" className="secondary" onClick={() => onOpen(o)} aria-label={t('fdebt.open', { name: o.name })}>{t('fdebt.details')}</button></td>
       </tr>)}</tbody>
     </table></div>}
@@ -133,7 +135,7 @@ function ObligationDetail({ item, onClose, onEdit, onChanged }: { item: dx.Oblig
       {Number(item.overdue_amount) > 0 && <div><dt>{t('fdebt.status.overdue')}</dt><dd><Money value={item.overdue_amount} currency={c} /></dd></div>}
       <div><dt>{t('fdebt.f.payoff')}</dt><dd>{day(item.payoff_on)}</dd></div>
       {item.verified_balance && <div><dt>{t('fdebt.f.lender', { date: day(item.verified_on) })}</dt><dd><Money value={item.verified_balance} currency={c} />
-        {item.discrepancy && item.difference && <> <StatusChip tone="warn">{t('fdebt.f.difference', { amount: `${c} ${item.difference}` })}</StatusChip></>}</dd></div>}
+        {item.discrepancy && item.difference && <> <StatusChip tone="warn">{t('fdebt.f.difference', { amount: amt(item.difference, c) })}</StatusChip></>}</dd></div>}
       {item.disputed_amount && <div><dt>{t('fdebt.f.disputed')}</dt><dd><Money value={item.disputed_amount} currency={c} /></dd></div>}
       {Number(item.unverified_amount) > 0 && <div><dt>{t('fdebt.f.unverified')}</dt><dd><Money value={item.unverified_amount} currency={c} /></dd></div>}
     </dl>
@@ -237,24 +239,24 @@ function CardPanel({ card, onTerms }: { card: dx.CardView; onTerms: () => void }
     <KpiRow label={t('fdebt.cards.kpis', { name: card.name })}>
       <KpiCard icon={<CreditCard />} label={t('fdebt.cards.outstanding')} value={<Money value={card.outstanding} currency={c} />} hint={t('fdebt.cards.fromLedger')} />
       <KpiCard icon={<Layers />} label={t('fdebt.cards.available')} value={card.available ? <Money value={card.available} currency={c} /> : '-'}
-        hint={card.limit ? t('fdebt.cards.limit', { amount: `${c} ${card.limit}`, percent: card.utilization_percent ?? 0 }) : t('fdebt.cards.noLimit')} />
+        hint={card.limit ? t('fdebt.cards.limit', { amount: amt(card.limit, c), percent: card.utilization_percent ?? 0 }) : t('fdebt.cards.noLimit')} />
       <KpiCard icon={<CalendarDays />} label={t('fdebt.cards.due')} value={card.due_on ? day(card.due_on) : '-'} tone={card.payment_state === 'not_paid' ? 'bad' : ''}
         hint={t(`fdebt.cards.state.${card.payment_state}` as MessageKey)} />
     </KpiRow>
     {card.check.status === 'differs' && <FinBanner tone="warn" icon={<Scale />} title={t('fdebt.cards.differs.title')}>
-      {t('fdebt.cards.differs.text', { statement: `${c} ${card.check.statement_balance}`, ledger: `${c} ${card.check.ledger_balance}`, date: day(card.check.statement_on),
+      {t('fdebt.cards.differs.text', { statement: amt(card.check.statement_balance, c), ledger: amt(card.check.ledger_balance, c), date: day(card.check.statement_on),
         rows: card.check.unverified_rows })}</FinBanner>}
-    {Number(card.paid_provisional) > 0 && <FinBanner tone="info" title={t('fdebt.cards.provisional', { amount: `${c} ${card.paid_provisional}` })} />}
+    {Number(card.paid_provisional) > 0 && <FinBanner tone="info" title={t('fdebt.cards.provisional', { amount: amt(card.paid_provisional, c) })} />}
     <div className="fdebtTwo">
       <div>
         <h3 className="finAdvisorSub">{t('fdebt.cards.payTitle')}</h3>
         <dl className="finStatement">
           {full && <div><dt>{t('fdebt.cards.payFull')}</dt><dd>{full.amount ? <Money value={full.amount} currency={c} /> : '-'}</dd></div>}
           {minimum && <div><dt>{t('fdebt.cards.payMinimum')}</dt><dd>{minimum.amount ? <Money value={minimum.amount} currency={c} /> : '-'}
-            {minimum.leaves && <small className="muted"> {t('fdebt.cards.leaves', { amount: `${c} ${minimum.leaves}` })}</small>}</dd></div>}
+            {minimum.leaves && <small className="muted"> {t('fdebt.cards.leaves', { amount: amt(minimum.leaves, c) })}</small>}</dd></div>}
           {minimum?.interest_estimate && <div><dt>{t('fdebt.cards.interestNext')}</dt><dd><Money value={minimum.interest_estimate} currency={c} /></dd></div>}
           {minimum?.months_to_clear && <div><dt>{t('fdebt.cards.monthsToClear')}</dt><dd>{minimum.months_to_clear}{minimum.total_interest && <small className="muted">
-            {' '}{t('fdebt.cards.totalInterest', { amount: `${c} ${minimum.total_interest}` })}</small>}</dd></div>}
+            {' '}{t('fdebt.cards.totalInterest', { amount: amt(minimum.total_interest, c) })}</small>}</dd></div>}
           {minimum?.never_clears && <div><dt>{t('fdebt.cards.monthsToClear')}</dt><dd>{t('fdebt.cards.never')}</dd></div>}
         </dl>
         {!card.apr_percent && <p className="muted small">{t('fdebt.cards.noRate')}</p>}
