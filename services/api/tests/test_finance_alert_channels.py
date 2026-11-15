@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Iterator
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal as D
 
 import pytest
@@ -39,6 +39,12 @@ ADDRESS = "owner@example.com"
 
 def today() -> date:
     return utc_now().date()
+
+
+def _now() -> datetime:
+    """Today at 08:00 UTC: the same calendar day in UTC and in the Finance time zone (Asia/Dubai), whatever the hour the test
+    runs at (late in the UTC evening Dubai is already on the next day, which moved the due dates the fixtures use)."""
+    return datetime.combine(today(), time(8), tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -144,11 +150,13 @@ def test_each_item_is_told_once_per_channel_and_push_and_email_carry_no_details(
     _tamara()
     client.put(f"{API}/alerts/settings", headers=OWNER, json={"channels": {"installment_due_tomorrow": {"email": True},
                                                                            "unverified_payment": {"email": True}}})
-    sent, failed = A.run(ME, now=utc_now())
+    sent, failed = A.run(ME, now=_now())
     assert failed == 0 and sent == 6  # two kinds, three channels each
     events = _alert_events()
     assert {e.payload["alert_kind"] for e in events} == {"installment_due_tomorrow", "unverified_payment"}
-    assert all(e.private_to == ME.user_id and set(e.payload) == {"recipient", "alert_kind", "count"} for e in events)
+    assert all(e.private_to == ME.user_id and set(e.payload) == {"recipient", "alert_kind", "count", "claims"} for e in events)
+    # The claims are opaque references (a digest and a day), never the item keys, which can hold figures.
+    assert all(C.push_refs(e.payload["claims"]) == tuple(e.payload["claims"]) for e in events)
     assert len(mailbox) == 2 and all(to == ADDRESS for to, _s, _t in mailbox)
     asyncio.run(push_dispatcher.run_pending())
     assert [m.token for m in phone.messages] == [PHONE, PHONE]
@@ -162,7 +170,7 @@ def test_each_item_is_told_once_per_channel_and_push_and_email_carry_no_details(
     inbox = client.get("/api/v1/notifications", headers=OWNER).json()["items"]
     assert any("125" in n["body"] for n in inbox if n["kind"] == "finance_alerts")
     # A second run the same day tells nothing again, in any channel.
-    assert A.run(ME, now=utc_now()) == (0, 0)
+    assert A.run(ME, now=_now()) == (0, 0)
     assert len(_alert_events()) == 2 and len(mailbox) == 2
 
 
@@ -170,7 +178,7 @@ def test_a_channel_that_is_off_or_unreachable_claims_nothing(monkeypatch: pytest
     _tamara()
     monkeypatch.setattr(settings, "fcm_service_account_json", None)  # push cannot be used: nothing is claimed for it
     client.put(f"{API}/alerts/settings", headers=OWNER, json={"channels": {"unverified_payment": {"in_app": False, "email": False}}})
-    sent, failed = A.run(ME, now=utc_now())
+    sent, failed = A.run(ME, now=_now())
     assert failed == 0 and sent == 1 and _alert_events() == [] and mailbox == []  # only the due installment, in the app
     claims = {(k[3], k[4]) for k in rules_memory_store.notice_claims}
     assert not any(kind in (C.PUSH_CLAIM, C.EMAIL_CLAIM) for kind, _key in claims)
@@ -189,12 +197,12 @@ def test_a_transient_email_failure_is_retried_next_run_a_refusal_is_not_and_one_
         raise notifications.EmailRefused("The mail server could not be reached (OSError)", transient=True)
 
     monkeypatch.setattr(notifications, "send_email", unreachable)
-    sent, failed = A.run(ME, now=utc_now())
+    sent, failed = A.run(ME, now=_now())
     # Three bounded tries for the first email, then the person's other emails wait: no retry storm.
     assert (sent, failed) == (0, 1) and len(tries) == 3
     assert not any(k[3] == C.EMAIL_CLAIM for k in rules_memory_store.notice_claims)  # released for the next run
     monkeypatch.setattr(notifications, "send_email", lambda to, subject, text, *rest: mailbox.append((to, subject, text)))
-    assert A.run(ME, now=utc_now()) == (2, 0) and len(mailbox) == 2
+    assert A.run(ME, now=_now()) == (2, 0) and len(mailbox) == 2
     # A refusal (a bad address) is permanent: the claim stays and the next run does not try again.
     rules_memory_store.clear()
     refused: list[str] = []
@@ -204,17 +212,68 @@ def test_a_transient_email_failure_is_retried_next_run_a_refusal_is_not_and_one_
         raise notifications.EmailRefused("The mail server refused the recipient address")
 
     monkeypatch.setattr(notifications, "send_email", refuse)
-    assert A.run(ME, now=utc_now()) == (0, 1) and len(refused) == 1
-    assert A.run(ME, now=utc_now()) == (0, 1) and len(refused) == 2  # the second kind's turn; the first is never retried
-    assert A.run(ME, now=utc_now()) == (0, 0) and len(refused) == 2
+    assert A.run(ME, now=_now()) == (0, 1) and len(refused) == 1
+    assert A.run(ME, now=_now()) == (0, 1) and len(refused) == 2  # the second kind's turn; the first is never retried
+    assert A.run(ME, now=_now()) == (0, 0) and len(refused) == 2
 
 
 def test_a_failed_push_trigger_releases_its_claims(monkeypatch: pytest.MonkeyPatch, phone: FakeSender) -> None:
     _tamara()
-    monkeypatch.setattr(C, "send_push", lambda context, kind, count: False)
-    sent, failed = A.run(ME, now=utc_now())
+    monkeypatch.setattr(C, "send_push", lambda context, kind, count, refs=None: False)
+    sent, failed = A.run(ME, now=_now())
     assert failed == 2 and sent == 2  # in the app told, the push trigger failed
     assert not any(k[3] == C.PUSH_CLAIM for k in rules_memory_store.notice_claims)
+
+
+def test_a_push_fcm_never_took_is_retried_by_the_next_run_a_bounded_number_of_times(phone: FakeSender) -> None:
+    from anum_api.push_fcm import SendOutcome
+
+    _tamara()
+    client.put(f"{API}/alerts/settings", headers=OWNER, json={"channels": {"unverified_payment": {"push": False}}})
+    phone.outcomes[PHONE] = SendOutcome.RETRY_LATER  # FCM's own retries ran out: transient
+
+    def push_claims() -> int:
+        return sum(1 for k in rules_memory_store.notice_claims if k[3] == C.PUSH_CLAIM)
+
+    pushes = 0
+    for _attempt in range(C.MAX_PUSH_RETRIES):
+        A.run(ME, now=_now())
+        pushes += 1
+        assert push_claims() == 1
+        asyncio.run(push_dispatcher.run_pending())
+        assert len(phone.messages) == pushes
+        assert push_claims() == 0  # released: the next daily run tries once more
+    A.run(ME, now=_now())
+    asyncio.run(push_dispatcher.run_pending())
+    assert len(phone.messages) == C.MAX_PUSH_RETRIES + 1 and push_claims() == 1  # retried enough: it stays told
+    assert A.run(ME, now=_now()) == (0, 0)
+    asyncio.run(push_dispatcher.run_pending())
+    assert len(phone.messages) == C.MAX_PUSH_RETRIES + 1
+
+
+@pytest.mark.parametrize("outcome", ["sent", "failed", "unregistered"])
+def test_a_push_delivered_refused_or_to_a_removed_phone_keeps_its_claim(phone: FakeSender, outcome: str) -> None:
+    from anum_api.push_fcm import SendOutcome
+
+    _tamara()
+    client.put(f"{API}/alerts/settings", headers=OWNER, json={"channels": {"unverified_payment": {"push": False}}})
+    phone.outcomes[PHONE] = SendOutcome(outcome)
+    A.run(ME, now=_now())
+    asyncio.run(push_dispatcher.run_pending())
+    assert sum(1 for k in rules_memory_store.notice_claims if k[3] == C.PUSH_CLAIM) == 1
+    assert A.run(ME, now=_now()) == (0, 0)
+
+
+def test_the_dispatcher_report_releases_only_the_named_claims_of_that_person(phone: FakeSender) -> None:
+    other = TenantContext(tenant_id=ME.tenant_id, workspace_id=ME.workspace_id, user_id="other_pm", roles=["owner"])
+    day = today()
+    with __import__("anum_api.finance.rules_store", fromlist=["open_rule_stores"]).open_rule_stores(ME) as (_f, store):
+        store.claim_item_notices(ME, C.PUSH_CLAIM, ["refund_received:refund:a", "refund_received:refund:b"], day, utc_now())
+    refs = [C.push_ref("refund_received:refund:a", day), "not-a-ref", "refund_received:refund:b"]
+    assert C.push_undelivered(other, refs) == 0  # another person's report never touches the owner's claims
+    assert C.push_undelivered(ME, refs) == 1  # only the well-formed reference to a held claim
+    held = {k[4] for k in rules_memory_store.notice_claims if k[3] == C.PUSH_CLAIM}
+    assert held == {"refund_received:refund:b"}
 
 
 # -- content ------------------------------------------------------------------------------------------------------------
@@ -251,6 +310,6 @@ def test_another_persons_choices_and_alerts_are_their_own(phone: FakeSender) -> 
     assert A.channel_settings(other)["refund_received"]["email"] is False
     assert _setting(client.get(f"{API}/alerts/settings", headers=OTHER).json(), "refund_received")["email"] is False
     _tamara()
-    A.run(ME, now=utc_now())
-    assert A.run(other, now=utc_now()) == (0, 0)  # the owner's installments are not theirs
+    A.run(ME, now=_now())
+    assert A.run(other, now=_now()) == (0, 0)  # the owner's installments are not theirs
     assert _alert_events("other_pm") == []

@@ -25,9 +25,12 @@ notice releases its claims for the next run):
 * ``loan_installment_missed``: a bank loan instalment marked missed, or money borrowed from a person overdue.
 * ``loan_payment_linked``: a payment linked to a loan in the last 3 days by anyone but the person (automation, a policy).
 * ``source_stopped``: an account that had activity and has reported nothing for 10 days (told once a week).
-* ``capture_failed``: a bank message (iPhone SMS, Apple Pay) ANUM could not read or process, or a statement import with rows
-  the reader could not read, in the last 3 days: each message or import once. Read from the records capture already keeps
-  (the message's ``failed`` status or parse reason, the import's ``error_count``); nothing new is captured here.
+* ``capture_failed``: a bank message (iPhone SMS, Apple Pay) ANUM could not read or process, a statement import with rows
+  the reader could not read or refused because no row could be read (kept as a refused import), or a Tamara email that could
+  not be read when Gmail was read for installments, in the last 3 days: each message, import or email once. Also, told once a
+  week while it lasts, the person's own Gmail mailbox that Tamara emails come from when it needs a new sign in or its last
+  sync failed. Read from the records capture already keeps (the message's ``failed`` status or parse reason, the import's
+  ``error_count``, the mailbox's sync state, the unread email notes ``tamara_email_api`` keeps); nothing new is captured here.
 * ``budget_nearly_exhausted``: a budget at its alert line or over it this month: a Guardian cap, judged against the cap plus
   what its paired rollover budget carried in, and each other spending budget, judged against its ``available`` for the
   period (docs/finance.md#budget-rollover).
@@ -115,6 +118,8 @@ class AlertData:
     own_reminders: frozenset[str] = frozenset()  # obligation ids (``person_loan:<id>``) whose own reminder tells them
     messages: list[Any] = field(default_factory=list)  # sms_store.SmsMessage failed or held unread (no body is read here)
     imports: list[Any] = field(default_factory=list)  # models.ImportRecord of the last days
+    mailboxes: list[tuple[str, str]] = field(default_factory=list)  # (mailbox id, status): the person's Tamara Gmail in trouble
+    unread_mail: list[tuple[str, date]] = field(default_factory=list)  # (ANUM email message id, received day): unread Tamara emails
 
 
 def _week(day: date) -> date:
@@ -211,13 +216,31 @@ def compose(data: AlertData) -> list[Alert]:
         out.append(Alert("capture_failed", f"sms:{m.id}", received,
                          f"{where} received on {received.isoformat()} {what}, so it is not in your records. Open Finance, iPhone SMS, Review "
                          "to read it again or enter it by hand."))
+    from .api import refused_import
+
     for record in data.imports:
         made = record.created_at.date() if hasattr(record.created_at, "date") else record.created_at
         if made < since or record.error_count <= 0:
             continue
+        if refused_import(record):
+            out.append(Alert("capture_failed", f"import:{record.id}", made,
+                             f"No row of the statement you tried to import on {made.isoformat()} could be read, so nothing from it is in your "
+                             "records. Check the column mapping and the date format, then import it again."))
+            continue
         out.append(Alert("capture_failed", f"import:{record.id}", made,
                          f"{record.error_count} rows of the statement imported on {made.isoformat()} could not be read and are not in your "
                          "records. Check the column mapping and the date format, then import those rows again."))
+    for message_id, received in data.unread_mail:
+        if received < since:
+            continue
+        out.append(Alert("capture_failed", f"tamara:{message_id}", received,
+                         f"A Tamara email received on {received.isoformat()} could not be read, so its installments may not be in your records. "
+                         "Open Finance, Bills, Sync Gmail to check it, or enter the installments by hand."))
+    for mailbox_id, status in data.mailboxes:
+        what = "needs you to sign in again" if status == "reauth_required" else "could not be synced"
+        out.append(Alert("capture_failed", f"gmail:{mailbox_id}:{status}", _week(data.today),
+                         f"The Gmail mailbox your Tamara emails come from {what}, so new installment emails are not read. Open Email and "
+                         "reconnect it, then Finance, Bills, Sync Gmail."))
     # Budgets this month: the Guardian caps (against the cap plus what a paired rollover budget carried in) and every other
     # spending budget (against its available for the period).
     paired: set[str] = set()
@@ -346,6 +369,7 @@ def gather(context: TenantContext, now: datetime) -> AlertData:
         accounts = store.list_accounts(context)
         rows = store.transactions_between(context, today - timedelta(days=70), today)
         imports = [i for i in store.list_imports(context, limit=50, offset=0)[0] if i.error_count > 0]
+    mailboxes, unread_mail = _tamara_mail(context, today)
     inputs = D.gather(context, today)
     ov = D.build(inputs)
     names = {i.ref_id: i.name for i in ov.items}
@@ -392,7 +416,38 @@ def gather(context: TenantContext, now: datetime) -> AlertData:
                                  payslip_credits=links_data.payslip_credits)
     return AlertData(today=today, overview=ov, cards=inputs.cards, accounts=accounts, rows=rows, recent_links=recent, budgets=budgets,
                      suggestions=suggestions, salary=salary, user_id=context.user_id, names=names, plans=plans, own_reminders=own_reminders,
-                     messages=messages, imports=imports)
+                     messages=messages, imports=imports, mailboxes=mailboxes, unread_mail=unread_mail)
+
+
+def _tamara_mail(context: TenantContext, today: date) -> tuple[list[tuple[str, str]], list[tuple[str, date]]]:
+    """Tamara email capture in trouble (never fatal): the unread email notes kept when Gmail was read for installments, and, when
+    the person reads Tamara emails from Gmail at all, their own Gmail mailboxes that need a new sign in or failed their last sync."""
+    from .tamara_email_api import UNREAD_CLAIM
+
+    unread: list[tuple[str, date]] = []
+    uses_mail = False
+    try:
+        from .rules_store import open_rule_stores
+
+        with open_rule_stores(context) as (finance, store):
+            unread = [(key, day) for key, day in store.list_item_notices(context, UNREAD_CLAIM, today - timedelta(days=RECENT_DAYS))]
+            uses_mail = bool(unread) or any(e.source_email for e in finance.get_planning(context).installment_entries)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("finance_alerts_tamara_notes_unavailable error_class=%s", type(exc).__name__)
+    if not uses_mail:
+        return [], unread
+    try:
+        from ..email_inbox import AccountStatus, open_email_store
+        from ..email_providers import EmailProvider
+
+        with open_email_store(context) as mail:
+            accounts = [a for a in mail.list_accounts() if a.provider == EmailProvider.GMAIL and a.connected_by == context.user_id]
+        troubled = [(a.id, getattr(a.status, "value", a.status)) for a in accounts
+                    if a.status in (AccountStatus.REAUTH_REQUIRED, AccountStatus.ERROR) or a.last_sync_status == "error"]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("finance_alerts_mailboxes_unavailable error_class=%s", type(exc).__name__)
+        troubled = []
+    return [(i, s if s in ("reauth_required", "error") else "error") for i, s in troubled], unread
 
 
 def preview(context: TenantContext, now: datetime | None = None) -> tuple[date, list[Alert], dict[str, bool]]:
@@ -433,7 +488,7 @@ def run(context: TenantContext, *, now: datetime, dry_run: bool = False) -> tupl
             if channel == "in_app":
                 ok = _send(context, *_in_app_text(kind, claimed))
             elif channel == "push":
-                ok = C.send_push(context, kind, len(claimed))
+                ok = C.send_push(context, kind, len(claimed), [C.push_ref(keys[a.key], a.on) for a in claimed])
             else:
                 result = C.send_email(reach.email or "", kind, len(claimed), reach.email_language)
                 ok, keep = result == "sent", result == "permanent"

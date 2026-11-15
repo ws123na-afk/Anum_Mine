@@ -19,6 +19,7 @@ the payment); nothing here posts money or changes the journal.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -74,6 +75,7 @@ from .store import open_finance_store
 from .summary import month_range, settings_for, today_in
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
+logger = logging.getLogger("anum_api.finance.commitments")
 
 MAX_PAGE = 100
 
@@ -510,6 +512,13 @@ def match_debt_payment(
     ))
     if not made.replayed:
         _audit(repository, context, "finance.debt.payment_match", made.link.id, {"debt": debt.id})
+        # A card repayment linked by hand is compared with the card's statement like an engine link (docs/finance-matching.md).
+        from .matching_service import record_hand_link
+
+        try:
+            record_hand_link(context, debt.id, made.link)
+        except Exception as exc:  # noqa: BLE001 - the link stands; the comparison is shown the next time it is worked out
+            logger.warning("finance_card_hand_link_check_failed error_class=%s", type(exc).__name__)
     return LinkResult(link=_view(made.link), replayed=made.replayed)
 
 
@@ -518,7 +527,10 @@ def match_debt_payment(
 def unmatch_debt_payment(debt_id: str, link_id: str, context: TenantContext = Depends(tenant_context),
                          repository: AnumRepository = Depends(repository_context)) -> Any:
     _manage(context)
-    _void_own(context, link_id, DEBT_DIMENSION, lambda target: target == debt_id)
+    voided = _void_own(context, link_id, DEBT_DIMENSION, lambda target: target == debt_id)
+    from .matching_service import hand_link_removed
+
+    hand_link_removed(context, link_id, voided.canonical_id, debt_id)
     _audit(repository, context, "finance.debt.payment_unmatch", link_id, {"debt": debt_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

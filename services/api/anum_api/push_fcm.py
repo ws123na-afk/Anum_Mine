@@ -97,7 +97,9 @@ def service_account_problem(raw: str) -> str | None:
 class SendOutcome(StrEnum):
     SENT = "sent"
     UNREGISTERED = "unregistered"
-    FAILED = "failed"
+    FAILED = "failed"  # refused (a bad message, the wrong project, the sign-in): trying again changes nothing
+    # Every attempt failed transiently (unreachable, 429, 5xx): FCM may take it later.
+    RETRY_LATER = "retry_later"
 
 
 @dataclass(frozen=True)
@@ -243,7 +245,7 @@ class FcmSender:
                     return SendOutcome.FAILED
             if attempt < self.max_attempts:
                 await self._sleep(self.backoff_for(attempt, retry_after))
-        return SendOutcome.FAILED
+        return SendOutcome.RETRY_LATER  # transient up to the last attempt: a later run may try again
 
 
 class FcmAuthError(RuntimeError):

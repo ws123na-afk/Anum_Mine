@@ -527,6 +527,8 @@ class PushIntent:
     private_to: str | None = None
     # A financial alert's kind (docs/finance.md#alert-channels): picks its fixed words and the screen it opens.
     finance_alert_kind: str | None = None
+    # Its push claims (opaque digests and days, never content): released when FCM never took the push (``finance_alert_refs``).
+    finance_alert_refs: tuple[str, ...] = ()
 
     def data(self) -> dict[str, str]:
         """Deep-link ids only (FCM data values must be strings)."""
@@ -596,7 +598,9 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         alert = event.payload.get("alert_kind")
         if not isinstance(recipient, str) or not recipient or event.private_to != recipient or alert not in GENERIC:
             return None
-        return PushIntent(**common, recipient=recipient, finance_alert_kind=str(alert))
+        from .finance.alert_channels import push_refs
+
+        return PushIntent(**common, recipient=recipient, finance_alert_kind=str(alert), finance_alert_refs=push_refs(event.payload.get("claims")))
     if kind == PushKind.INCOMING_CALL:
         recipient = event.payload.get("recipient")
         call_id = event.payload.get("call_id")
@@ -742,6 +746,15 @@ def _settle(intent: PushIntent, user_id: str, sent: list[str], invalid: list[str
             store.mark_sent(context, sent, utc_now())
 
 
+def _finance_alert_undelivered(intent: PushIntent) -> None:
+    from .finance.alert_channels import push_undelivered
+
+    try:
+        push_undelivered(_system_context(intent, intent.recipient or SYSTEM_ACTOR), intent.finance_alert_refs)
+    except Exception as exc:  # noqa: BLE001 - the claims stay; the items age out as before
+        logger.warning("push_finance_alert_release_failed error_class=%s", type(exc).__name__)
+
+
 @dataclass
 class DeliveryReport:
     recipients: int = 0
@@ -868,6 +881,10 @@ class PushDispatcher:
                 report.failed += 1
         for user_id, (sent, invalid) in by_user.items():
             await asyncio.to_thread(_settle, intent, user_id, sent, invalid)
+        if intent.finance_alert_refs and intent.recipient and report.sent == 0 and SendOutcome.RETRY_LATER in outcomes:
+            # No phone took the financial alert and FCM gave up only for now: the alert's push claims are released so the next
+            # daily run tries again (bounded, docs/finance.md#alert-channels). A refusal or a removed phone keeps them.
+            await asyncio.to_thread(_finance_alert_undelivered, intent)
         logger.info(
             "push_delivered kind=%s recipients=%s sent=%s removed=%s failed=%s",
             intent.kind.value,

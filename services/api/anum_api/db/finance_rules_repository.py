@@ -358,6 +358,12 @@ class SqlAlchemyRulesStore:
             self.session.execute(delete(record).where(*_mine(record, context), record.kind == kind, record.day == day,
                                                       record.item_key.in_([k[:200] for k in keys])))
 
+    def list_item_notices(self, context: TenantContext, kind: str, since: date) -> list[tuple[str, date]]:
+        record = FinanceNoticeClaimRecord
+        rows = self.session.execute(select(record.item_key, record.day).where(*_mine(record, context), record.kind == kind, record.day >= since)
+                                    .order_by(record.item_key, record.day).limit(2_000))
+        return [(str(key), day) for key, day in rows]
+
     def prune_item_notices(self, context: TenantContext, before: date) -> int:
         record = FinanceNoticeClaimRecord
         return int(self.session.execute(delete(record).where(*_mine(record, context), record.day < before)).rowcount or 0)

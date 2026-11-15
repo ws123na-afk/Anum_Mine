@@ -97,6 +97,8 @@ export const financeMatchingAr = {
   'fmatch.reason.fx_original_amount': 'طبع البنك المبلغ الأصلي وهو المستحق',
   'fmatch.reason.fx_evidence_missing': 'دُفعت بعملة أخرى ولم يذكر البنك المبلغ الأصلي',
   'fmatch.evidence.fx_original': 'المبلغ الأصلي والمبلغ المحتسب من البنك',
+  'fmatch.reason.hand_link': 'ربطت هذه الدفعة بالبطاقة يدويًا',
+  'fmatch.evidence.hand_link': 'ربطتها أنت من الديون',
   'fmatch.evidence.fx_fee': 'رسوم صرف البنك محسوبة على حدة',
   'fmatch.evidence.fx_evidence_missing': 'لا مبلغ أصلي من البنك',
   'fmatch.fx.title': 'بعملتين',

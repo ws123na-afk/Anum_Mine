@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
@@ -81,6 +82,7 @@ from .summary import (
 )
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
+logger = logging.getLogger("anum_api.finance.api")
 
 READ_DENIED = (
     "Finance is for workspace owners and members. Ask a workspace owner to change your role from viewer to member."
@@ -1105,7 +1107,66 @@ def _disposition(line: int, row: Any, disposition: str, *, reason: str | None = 
             "message": (message or None) and message[:200], "record_id": record_id}
 
 
+UNREADABLE_FILE = "No row of this file could be read. Check the column mapping and the date format."
+
+
+class _NoReadableRow(Exception):
+    """A statement file of which no row could be read: refused, and recorded as a refused import (``record_refused_import``)."""
+
+    def __init__(self, account_id: str, parsed: csv_import.ParsedFile) -> None:
+        super().__init__(UNREADABLE_FILE)
+        self.account_id, self.parsed = account_id, parsed
+
+
+def refused_import(record: ImportRecord) -> bool:
+    """An import that stored nothing because no row could be read (every row the reader's, none in the ledger or held)."""
+    rows = getattr(record, "dispositions", None) or []
+    counts = ("imported_count", "attached_count", "held_count", "duplicate_count", "skipped_count")
+    return (not any(getattr(record, name, 0) for name in counts) and bool(rows)
+            and all(r.get("disposition") == "dropped_by_reader" for r in rows))
+
+
+def record_refused_import(context: TenantContext, account_id: str, filename: str, parsed: csv_import.ParsedFile) -> ImportRecord | None:
+    """Keep the attempt of a statement no row of which could be read (docs/finance.md#import-history): no row is stored, only
+    the file name, the reader's counts and its reasons, so the import history shows it and ``capture_failed`` can tell it.
+    Its own short unit of work, after the refused one rolled back. None when it could not be kept (the refusal still stands)."""
+    from .store import open_finance_store
+
+    reasons = [_disposition(e.line, None, "dropped_by_reader", reason="unreadable", message=e.message) for e in parsed.errors[:500]]
+    if not reasons:
+        reasons = [_disposition(0, None, "dropped_by_reader", reason="no_readable_row", message=UNREADABLE_FILE)]
+    try:
+        with open_finance_store(context) as store:
+            account = _own_account(store, context, account_id)
+            record = ImportRecord(
+                id=new_id("fin_imp"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+                account_id=account.id, filename=filename, preset=parsed.preset, date_format=parsed.date_format, row_count=parsed.row_count,
+                imported_count=0, duplicate_count=0, error_count=max(len(parsed.errors), 1), file_sha256=parsed.file_sha256, created_at=utc_now(),
+                dropped_count=len(reasons), dispositions=reasons,
+            )
+            store.save_import(record)
+        return record
+    except Exception as exc:  # noqa: BLE001 - the person sees the refusal at once either way
+        logger.warning("finance_refused_import_not_kept error_class=%s", type(exc).__name__)
+        return None
+
+
 def record_import(
+    context: TenantContext,
+    account_id: str,
+    filename: str,
+    build: Any,
+    **options: Any,
+) -> tuple[ImportRecord, int, int, ImportOutcome]:
+    """``_record_import``; a file of which no row could be read is refused (422) and kept as a refused import."""
+    try:
+        return _record_import(context, account_id, filename, build, **options)
+    except _NoReadableRow as refused:
+        record_refused_import(context, refused.account_id, filename, refused.parsed)
+        raise _invalid(UNREADABLE_FILE) from None
+
+
+def _record_import(
     context: TenantContext,
     account_id: str,
     filename: str,
@@ -1143,7 +1204,7 @@ def record_import(
         account = _own_account(store, context, account_id)
         parsed: csv_import.ParsedFile = build(store, account)
         if not parsed.rows:
-            raise _invalid("No row of this file could be read. Check the column mapping and the date format.")
+            raise _NoReadableRow(account.id, parsed)
         lines = statement_lines(parsed, references, times)
         left_out = {line.key for line in lines if getattr(decisions.get(line.key), "action", None) == "skip"}
         wanted = [line for line in lines if line.key not in left_out]

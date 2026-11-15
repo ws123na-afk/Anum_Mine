@@ -121,6 +121,8 @@ class FinanceMatchingStrings extends ModuleStrings {
     'evidence.fx_original': 'The bank\'s original amount and billed amount',
     'evidence.fx_fee': 'Bank FX fee kept apart',
     'evidence.fx_evidence_missing': 'No original amount from the bank',
+    'reason.hand_link': 'You linked this payment to the card by hand',
+    'evidence.hand_link': 'Linked by you from Debts',
     'fx.title': 'Across currencies',
     'fx.pays': 'Pays {settled} with {bank} from the account',
     'fx.missing':
@@ -356,6 +358,8 @@ class FinanceMatchingStrings extends ModuleStrings {
     'evidence.fx_original': 'المبلغ الأصلي والمبلغ المحتسب من البنك',
     'evidence.fx_fee': 'رسوم صرف البنك محسوبة على حدة',
     'evidence.fx_evidence_missing': 'لا مبلغ أصلي من البنك',
+    'reason.hand_link': 'ربطت هذه الدفعة بالبطاقة يدويًا',
+    'evidence.hand_link': 'ربطتها أنت من الديون',
     'fx.title': 'بعملتين',
     'fx.pays': 'تسدد {settled} بمبلغ {bank} من الحساب',
     'fx.missing':
