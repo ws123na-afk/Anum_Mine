@@ -129,3 +129,48 @@ def test_one_key_submitted_twice_at_once_hits_the_unique_key_and_answers_cleanly
     assert other.status_code == 409 and "different refund" in other.text
     assert _rows(app_session, "select idempotency_key, amount from business_refund_requests order by idempotency_key") == [
         ("pg-race-0001", 400), ("pg-race-0002", 100)]
+
+
+def test_stripe_refund_order_lost_answers_and_reversals_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:  # noqa: F811
+    """The audit of 15 Nov 2026 (docs/business.md#refunds-made-in-the-provider-dashboard): a refund delivered before its payment
+    is recorded and its review closed once the payment arrives; a request whose answer was lost is found by the id in the
+    refund's metadata; a refund that succeeded and then failed is reversed and its request marked failed."""
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from anum_api.business.invoice_models import Currency, RefundRequest, RefundRequestStatus
+    from anum_api.business.invoice_refunds import has_open_review
+    from anum_api.business.store import open_business_store
+    from anum_api.schemas import TenantContext
+
+    account = _account(client)
+    sent = _sent_invoice(client, account["id"])
+    metadata = {"anum_kind": "business_invoice", "anum_tenant_id": TENANT_A, "anum_workspace_id": WORKSPACE_A2, "anum_business_invoice_id": sent["id"]}
+    early = ProviderRefund("re_pg_early", 30000, "SAR", "succeeded")
+    assert apply_card_refunds("stripe", TENANT_A, metadata, "pi_pg_late", [early]) == "refund_needs_review"
+    assert has_open_review("stripe", TENANT_A, metadata, "pi_pg_late") is True
+    assert apply_card_payment("stripe", TENANT_A, metadata, "pi_pg_late", "paid", 100000, "SAR") == "paid"
+    assert apply_card_refunds("stripe", TENANT_A, metadata, "pi_pg_late", [early]) == "refund_recorded"
+    assert has_open_review("stripe", TENANT_A, metadata, "pi_pg_late") is False
+    assert _rows(app_session, "select status, checked_by from business_refund_reviews") == [("checked", "system:stripe")]
+    assert _rows(app_session, "select provider_refund_id, amount, status from business_invoice_refunds") == [("re_pg_early", 300, "recorded")]
+    # A request approved while Stripe's answer was lost: processing, with no provider refund id.
+    payment = _ok(client.get(f"{API}/invoices/{sent['id']}", headers=ME))["payments"][0]
+    now = datetime.now(timezone.utc)
+    context = TenantContext(tenant_id=TENANT_A, workspace_id=WORKSPACE_A2, user_id="colleague", roles=["member"])
+    with open_business_store(context) as store:
+        store.add("refund_requests", RefundRequest(
+            id="binrfq_pg_lost", tenant_id=TENANT_A, workspace_id=WORKSPACE_A2, invoice_id=sent["id"], payment_id=payment["id"], provider="stripe",
+            currency=Currency.SAR, amount=Decimal("200"), reason="Synthetic return", idempotency_key="pg-lost-0001", status=RefundRequestStatus.PROCESSING,
+            requested_by="colleague", created_at=now, updated_at=now))
+    lost = ProviderRefund("re_pg_lost", 20000, "SAR", "succeeded", "binrfq_pg_lost")
+    assert apply_card_refunds("stripe", TENANT_A, metadata, "pi_pg_late", [early, lost]) == "refund_recorded"
+    assert _rows(app_session, "select status, provider_refund_id, refund_id is not null from business_refund_requests") == [("succeeded", "re_pg_lost", True)]
+    # Stripe then reports it failed: reversed once, the request marked failed, the invoice paid again by that amount.
+    failed = ProviderRefund("re_pg_lost", 20000, "SAR", "failed", "binrfq_pg_lost")
+    assert apply_card_refunds("stripe", TENANT_A, metadata, "pi_pg_late", [early, failed]) == "refund_reversed"
+    assert apply_card_refunds("stripe", TENANT_A, metadata, "pi_pg_late", [early, failed]) == "unchanged"
+    assert _rows(app_session, "select status from business_refund_requests") == [("failed",)]
+    assert _rows(app_session, "select provider_refund_id, status from business_invoice_refunds order by provider_refund_id") == [
+        ("re_pg_early", "recorded"), ("re_pg_lost", "reversed")]
+    assert _ok(client.get(f"{API}/invoices/{sent['id']}", headers=ME))["amount_paid"] == 700
