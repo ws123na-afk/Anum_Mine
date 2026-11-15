@@ -41,7 +41,7 @@ forecasts[0] = forecast(1, { state: 'due', current_tread_mm: 2.8, confidence: 'h
 const alert = (id: string, kind: string, severity: string, label: string, message: string) => ({ id, key: `${kind}:${id}`, kind, severity, subject_type: 'tyre', subject_id: id, subject_label: label, message, value: {}, status: 'open', first_seen_at: now, last_seen_at: now, resolved_at: null, acknowledged_by: null, acknowledged_at: null });
 const summary = { as_of: today, currency: 'SAR', vehicles: 6, tyres_fitted: 24, tyres_in_stock: 2, tyres_removed_last_30_days: 2, tyres_with_readings: 23, average_tread_mm: 10.75, below_minimum: 1, in_warning_band: 1, pressure_checked: 23, pressure_compliant_pct: 91.3, under_inflated: 1, over_inflated: 1, overdue_inspections: 1, due_next_30_days: 2, due_next_90_days: 2, cost_per_1000_km: 33.58, cost_per_hour: null, min_tread_mm: 3 };
 
-export interface State { connected: boolean; saved?: Record<string, string>; mapped: boolean; synced: boolean; role: string; alerts: ReturnType<typeof alert>[]; reports: Record<string, unknown>[]; requests: string[]; operations?: typeof operations }
+export interface State { connected: boolean; saved?: Record<string, string>; mapped: boolean; synced: boolean; role: string; alerts: ReturnType<typeof alert>[]; reports: Record<string, unknown>[]; requests: string[]; operations?: typeof operations; channels?: string[] }
 
 export async function mockTyre(page: Page, initial: Partial<State> = {}) {
   const state: State = { connected: true, mapped: true, synced: true, role: 'owner', alerts: [
@@ -56,7 +56,7 @@ export async function mockTyre(page: Page, initial: Partial<State> = {}) {
     mapping: state.mapped ? preset : null, mapping_problems: [], assumptions,
     discovery: state.connected ? { tables, discovered_at: now, writable_tables: [] } : null,
     sync: state.synced ? sync : null, fields, presets: ['tyrepulse'],
-    can_manage: state.role === 'owner', can_operate: state.role !== 'viewer', delivery_channels: [],
+    can_manage: state.role === 'owner', can_operate: state.role !== 'viewer', delivery_channels: state.channels ?? [],
   });
   await page.route('http://localhost:8000/api/v1/tyre/**', async (route) => {
     const request = route.request();
@@ -90,6 +90,14 @@ export async function mockTyre(page: Page, initial: Partial<State> = {}) {
       return json({ ...report, content: { highlights: report.highlights, tables: [], notes: [], currency: 'SAR' } }, 201);
     }
     if (path === '/reports') return json({ items: state.reports, total: state.reports.length, limit: 10, offset: 0 });
+    const send = /^\/reports\/(\w+)\/deliver$/.exec(path);
+    if (send && method === 'POST') {
+      const body = request.postDataJSON() as { channel: string; to: string; format: string };
+      const found = state.reports.find((item) => item.id === send[1])!;
+      const entry = { ...body, status: 'waiting_approval', approval_id: 'approval_1', task_id: 'task_1', requested_at: now, requested_by: 'user_local' };
+      found.deliveries = [...(found.deliveries as unknown[]), entry];
+      return json({ status: 'waiting_approval', approval_id: 'approval_1', payload_hash: 'hash', task_id: 'task_1', message: 'Sending needs an approval: approve it in Approvals and it will be sent.', report: found });
+    }
     if (path === '/report-schedules') return json([]);
     return json({ error: { message: `unmocked ${path}` } }, 404);
   });

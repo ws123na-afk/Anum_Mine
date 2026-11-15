@@ -16,6 +16,7 @@ differs from the approved reference. See docs/tools-and-integrations.md#delivery
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -25,8 +26,13 @@ from .agent_tools import ToolCall, ToolRegistry, ToolResult
 from .schemas import TenantContext
 
 AttachmentResolver = Callable[[TenantContext, str, str], tuple[str, str, bytes] | None]
+# Whether a delivery tool can send for a workspace now: None when it can, else a sentence
+# saying what to connect (the email tool needs the server's mail settings, the WhatsApp tool
+# the workspace's own WhatsApp connection). A tool without a check is always available.
+AvailabilityCheck = Callable[[TenantContext], str | None]
 
 _resolvers: dict[str, AttachmentResolver] = {}
+_availability: dict[str, AvailabilityCheck] = {}
 _registry: ToolRegistry | None = None
 
 
@@ -44,17 +50,51 @@ def registry() -> ToolRegistry | None:
     return _registry
 
 
-def channels(tools: ToolRegistry | None = None) -> dict[str, str]:
-    """channel -> tool name, for every registered delivery tool."""
+def register_availability(tool_name: str, check: AvailabilityCheck) -> None:
+    """Say when ``tool_name`` can deliver for a workspace (see ``AvailabilityCheck``)."""
+    _availability[tool_name] = check
+
+
+def unavailable_reason(tool_name: str, context: TenantContext) -> str | None:
+    check = _availability.get(tool_name)
+    return check(context) if check is not None else None
+
+
+def channels(tools: ToolRegistry | None = None, context: TenantContext | None = None) -> dict[str, str]:
+    """channel -> tool name, for every registered delivery tool. With ``context``, only the
+    tools that can deliver for that workspace now (their availability check may read the
+    database: call it in a worker thread from async code)."""
     tools = tools or _registry
     if tools is None:
         return {}
     found: dict[str, str] = {}
     for name in sorted(tools.names):
         definition = tools.definition(name)
-        if definition is not None and definition.delivery_channel and definition.delivery_channel not in found:
-            found[definition.delivery_channel] = name
+        if definition is None or not definition.delivery_channel or definition.delivery_channel in found:
+            continue
+        if context is not None and unavailable_reason(name, context) is not None:
+            continue
+        found[definition.delivery_channel] = name
     return found
+
+
+def missing_reason(channel: str, context: TenantContext, tools: ToolRegistry | None = None) -> str:
+    """Why nothing can deliver on ``channel`` for this workspace: the first registered tool's
+    own reason, else that no integration is connected."""
+    tools = tools or _registry
+    generic = (
+        f"No {channel} integration is connected, so nothing can be sent. Connect one in Integrations; "
+        "until then, download the report and send it yourself."
+    )
+    if tools is None:
+        return generic
+    for name in sorted(tools.names):
+        definition = tools.definition(name)
+        if definition is not None and definition.delivery_channel == channel:
+            reason = unavailable_reason(name, context)
+            if reason:
+                return reason
+    return generic
 
 
 def register_attachment_resolver(kind: str, resolver: AttachmentResolver) -> None:
@@ -136,12 +176,9 @@ async def request_delivery(
     from .schemas import AgentRunStep, RunPhase, Task, TaskStatus, new_id, utc_now
 
     tools = _registry
-    tool_name = channels(tools).get(channel)
+    tool_name = (await asyncio.to_thread(channels, tools, context)).get(channel) if tools is not None else None
     if tools is None or tool_name is None:
-        raise DeliveryUnavailableError(
-            f"No {channel} integration is connected, so nothing can be sent. Connect one in Integrations; "
-            "until then, download the report and send it yourself."
-        )
+        raise DeliveryUnavailableError(await asyncio.to_thread(missing_reason, channel, context, tools))
     call = ToolCall(
         name=tool_name,
         arguments={"to": to, "subject": subject, "text": text, "attachments": attachments},

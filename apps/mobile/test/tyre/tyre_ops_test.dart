@@ -8,6 +8,8 @@ import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/tyre/tyre_controller.dart';
 import 'package:anum_mobile/features/tyre/tyre_ops.dart';
 import 'package:anum_mobile/features/tyre/tyre_screen.dart';
+import 'package:anum_mobile/features/tyre/tyre_ops_screen.dart'
+    show recipientProblem;
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
 import 'package:anum_mobile/src/theme/anum_theme.dart';
 import 'package:flutter/material.dart';
@@ -350,14 +352,47 @@ void main() {
       await tester.pumpAndSettle();
       await tap(tester, 'tyre-report-deliver');
       await tap(tester, 'tyre-deliver-send');
-      expect(
-          find.text('Enter an email address or phone number.'), findsOneWidget);
+      expect(find.text('Enter one email address, such as fleet@example.com.'),
+          findsOneWidget);
+      await enter(tester, 'tyre-deliver-to', '+971501234567');
+      await tap(tester, 'tyre-deliver-send');
+      expect(ops.calls.where((c) => c.startsWith('deliver')), isEmpty);
       await enter(tester, 'tyre-deliver-to', 'fleet@example.com');
       await tap(tester, 'tyre-deliver-send');
       expect(ops.calls, contains('deliver email fleet@example.com pdf'));
       expect(find.byKey(const Key('tyre-delivered')), findsOneWidget);
       await tester.tap(find.text('Open Approvals'));
       expect(approvals, 1);
+    });
+
+    testWidgets('WhatsApp takes a phone number and says when it delivers',
+        (tester) async {
+      await phone(tester);
+      final ops = FakeOps(channels: const ['email', 'whatsapp']);
+      await open(tester, ops, tab: 'Reports');
+      await tester.tap(find.byKey(const Key('tyre-report-trep_0')));
+      await tester.pumpAndSettle();
+      await tap(tester, 'tyre-report-deliver');
+      expect(find.text('Email'), findsOneWidget);
+      await tap(tester, 'tyre-deliver-channel');
+      await tester.tap(find.text('WhatsApp').last);
+      await tester.pumpAndSettle();
+      expect(
+          find.textContaining('wrote to your WhatsApp number'), findsOneWidget);
+      await enter(tester, 'tyre-deliver-to', 'fleet@example.com');
+      await tap(tester, 'tyre-deliver-send');
+      expect(find.textContaining('international format'), findsOneWidget);
+      await enter(tester, 'tyre-deliver-to', '+971501234567');
+      await tap(tester, 'tyre-deliver-send');
+      expect(ops.calls, contains('deliver whatsapp +971501234567 pdf'));
+    });
+
+    test('recipients are checked for the channel', () {
+      expect(recipientProblem('email', 'fleet@example.com'), isNull);
+      expect(recipientProblem('email', '+971501234567'), 'tyreOps.badEmail');
+      expect(recipientProblem('whatsapp', '+971 50 123 4567'), isNull);
+      expect(recipientProblem('whatsapp', 'a@b.co'), 'tyreOps.badPhone');
+      expect(recipientProblem(null, 'x'), 'tyreOps.recipientNeeded');
     });
 
     testWidgets('without a connected channel it says so', (tester) async {

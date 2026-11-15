@@ -157,6 +157,7 @@ class AttendanceReport {
     this.fileIds = const [],
     this.siteVisits = const [],
     this.draftedWithAi = false,
+    this.submittedAt,
   });
   factory AttendanceReport.fromJson(JsonReader j) => AttendanceReport(
         day: j.string('day'),
@@ -175,10 +176,15 @@ class AttendanceReport {
             if (visit is Map) jsonObject(visit, 'site_visits[]'),
         ],
         draftedWithAi: j.optBool('drafted_with_ai') ?? false,
+        submittedAt: j.optString('submitted_at'),
       );
   final String day, priority;
   final int version;
   final String? project, issues, followUpOn, notes;
+
+  /// When it was submitted; null while it is a draft. A submitted report
+  /// stays submitted after later edits.
+  final String? submittedAt;
   final int? timeSpentMinutes;
   final List<String> tasksDone, tasksPending, fileIds;
 
@@ -201,6 +207,20 @@ abstract interface class AttendanceRepository {
   Future<AttendanceReport?> report(String day);
   Future<AttendanceReport> saveReport(String day, Map<String, Object?> body);
   Future<void> deleteReport(String day);
+
+  /// The person's own entries between two days (inclusive), oldest first.
+  Future<List<AttendanceEvent>> events(String from, String to);
+
+  /// A draft summary of the day's or the week's own reports, written by the
+  /// workspace's AI model (`period`: day or week).
+  Future<String> draftSummary(String period, String day, String language);
+}
+
+/// Attaching files to a daily report: picks a file on the phone and
+/// uploads it to the workspace's Files; answers its id and name, or null
+/// when nothing was picked.
+abstract interface class AttendanceFiles {
+  Future<({String id, String name})?> pickAndUpload();
 }
 
 class ApiAttendanceRepository implements AttendanceRepository {
@@ -293,4 +313,18 @@ class ApiAttendanceRepository implements AttendanceRepository {
   @override
   Future<void> deleteReport(String day) =>
       api.request('DELETE', '$_base/daily-reports/${Uri.encodeComponent(day)}');
+
+  @override
+  Future<List<AttendanceEvent>> events(String from, String to) async =>
+      recordsListBody(
+          await api.request(
+              'GET', '$_base/events${recordsQuery({'from': from, 'to': to})}'),
+          AttendanceEvent.fromJson);
+
+  @override
+  Future<String> draftSummary(
+          String period, String day, String language) async =>
+      JsonReader(await api.request('POST', '$_base/daily-reports/draft',
+              body: {'period': period, 'date': day, 'language': language}))
+          .string('text');
 }

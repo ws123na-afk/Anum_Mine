@@ -449,6 +449,10 @@ services:
       # The last backup's outcome for the Ready to sell checklist (docs/selling-readiness.md#backups):
       # backup.sh writes times and ok only into <backup dir>/status, mounted read-only below.
       ANUM_BACKUP_STATUS_DIR: /var/lib/anum/backup-status
+      # System health notices (docs/system-health.md#notices): the owner's organisation and workspace ids,
+      # shown on the platform console's System health page. Empty = no notices.
+      ANUM_SYSTEM_HEALTH_TENANT_ID: ${ANUM_SYSTEM_HEALTH_TENANT_ID:-}
+      ANUM_SYSTEM_HEALTH_WORKSPACE_ID: ${ANUM_SYSTEM_HEALTH_WORKSPACE_ID:-}
     volumes:
       - ${ANUM_BACKUP_DIR:-/var/lib/anum/backups}/status:/var/lib/anum/backup-status:ro
     healthcheck:

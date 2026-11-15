@@ -290,6 +290,8 @@ $SUDO systemctl enable --now anum-retention.timer anum-backup.timer >/dev/null
 # Restarts containers Docker reports as unhealthy, every 2 minutes (heal.sh writes its
 # own units, so update.sh can add them on a VM installed before they existed).
 $SUDO bash "$ORACLE_DIR/heal.sh" install
+# The monthly restore drill; its outcome shows on System health (docs/system-health.md#restore-drill).
+$SUDO bash "$ORACLE_DIR/backup.sh" drill-timer
 if [ "$(env_value ANUM_AUTO_UPDATE)" = "true" ]; then
   $SUDO systemctl enable --now anum-update.timer >/dev/null
 else

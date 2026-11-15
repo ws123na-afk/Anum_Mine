@@ -6,7 +6,7 @@ import type {
 import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 
-export const VEHICLE_TABS = ['overview', 'list', 'settings'] as const;
+export const VEHICLE_TABS = ['overview', 'list', 'costs', 'import', 'settings'] as const;
 export type VehicleTab = (typeof VEHICLE_TABS)[number];
 export const VEHICLE_DETAIL_TABS = ['fuel', 'trips', 'service', 'odometer', 'report', 'details'] as const;
 export type VehicleDetailTab = (typeof VEHICLE_DETAIL_TABS)[number];

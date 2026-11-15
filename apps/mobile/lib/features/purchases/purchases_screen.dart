@@ -8,6 +8,7 @@ import '../records_kit/payment_picker.dart';
 import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
+import 'purchase_actions.dart';
 import 'purchases_controller.dart';
 import 'purchases_data.dart';
 import 'purchases_strings.dart';
@@ -53,7 +54,10 @@ String moneyLink(BuildContext context, PurchaseMoneyLink? link) {
 /// and linking its payment and refunds from Finance. From 840 px the list
 /// and the selected purchase sit side by side.
 class PurchasesScreen extends StatefulWidget {
-  const PurchasesScreen({required this.controller, super.key});
+  const PurchasesScreen({required this.controller, this.receipts, super.key});
+
+  /// Where receipts come from (the document vault); null hides attaching.
+  final PurchaseReceipts? receipts;
   final PurchasesController controller;
 
   @override
@@ -118,12 +122,17 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
       return;
     }
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => Scaffold(
+      builder: (page) => Scaffold(
         appBar: AppBar(title: Text(purchase.merchant)),
         body: PurchaseDetailHost(
             repository: c.repository,
             purchaseId: purchase.id,
-            onChanged: c.changed),
+            receipts: widget.receipts,
+            onChanged: c.changed,
+            onDeleted: () {
+              c.removed(purchase.id);
+              Navigator.of(page).pop();
+            }),
       ),
     ));
   }
@@ -164,7 +173,12 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                       key: ValueKey(selected),
                       repository: c.repository,
                       purchaseId: selected,
-                      onChanged: c.changed),
+                      receipts: widget.receipts,
+                      onChanged: c.changed,
+                      onDeleted: () {
+                        c.removed(selected);
+                        setState(() => _selected = null);
+                      }),
             ),
           ]);
         }),
@@ -281,11 +295,17 @@ class PurchaseDetailHost extends StatefulWidget {
     required this.repository,
     required this.purchaseId,
     this.onChanged,
+    this.onDeleted,
+    this.receipts,
     super.key,
   });
   final PurchasesRepository repository;
   final String purchaseId;
   final ValueChanged<Purchase>? onChanged;
+
+  /// The purchase was deleted on its page.
+  final VoidCallback? onDeleted;
+  final PurchaseReceipts? receipts;
 
   @override
   State<PurchaseDetailHost> createState() => _PurchaseDetailHostState();
@@ -298,7 +318,21 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
     ..load();
 
   @override
+  void initState() {
+    super.initState();
+    _c.addListener(_whenDeleted);
+  }
+
+  void _whenDeleted() {
+    if (_c.deleted) {
+      _c.removeListener(_whenDeleted);
+      widget.onDeleted?.call();
+    }
+  }
+
+  @override
   void dispose() {
+    _c.removeListener(_whenDeleted);
     _c.dispose();
     super.dispose();
   }
@@ -491,16 +525,89 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                       child: Text(s.t('readOnly'),
                           style: TextStyle(color: context.palette.muted)),
                     ),
-                  if (editable && p.canPay && p.payment == null) ...[
+                  RecordsField(
+                      s.t('receipt'),
+                      p.documentId == null
+                          ? null
+                          : s.t('receiptAttachedShort')),
+                  if (editable && p.canPay) ...[
                     const SizedBox(height: AnumSpacing.xs),
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: OutlinedButton.icon(
-                        key: const Key('purchase-link-payment'),
-                        onPressed: _link,
-                        icon: const Icon(Icons.link),
-                        label: Text(s.t('linkPayment')),
-                      ),
+                    Wrap(
+                      spacing: AnumSpacing.xs,
+                      runSpacing: AnumSpacing.xs,
+                      children: [
+                        if (p.payment == null) ...[
+                          OutlinedButton.icon(
+                            key: const Key('purchase-link-payment'),
+                            onPressed: _link,
+                            icon: const Icon(Icons.link),
+                            label: Text(s.t('linkPayment')),
+                          ),
+                          OutlinedButton.icon(
+                            key: const Key('purchase-cash-payment'),
+                            onPressed: () => recordCash(context, _c),
+                            icon: const Icon(Icons.payments_outlined),
+                            label: Text(s.t('cashPayment')),
+                          ),
+                        ] else
+                          TextButton.icon(
+                            key: const Key('purchase-unlink-payment'),
+                            onPressed: () => unlinkPayment(context, _c),
+                            icon: const Icon(Icons.link_off),
+                            label: Text(s.t('unlinkPayment')),
+                          ),
+                      ],
+                    ),
+                  ],
+                  if (p.canEdit) ...[
+                    const SizedBox(height: AnumSpacing.xs),
+                    Wrap(
+                      spacing: AnumSpacing.xs,
+                      runSpacing: AnumSpacing.xs,
+                      children: [
+                        if (editable)
+                          OutlinedButton.icon(
+                            key: const Key('purchase-edit'),
+                            onPressed: () => editPurchase(context, _c),
+                            icon: const Icon(Icons.edit_outlined),
+                            label: Text(s.t('edit')),
+                          ),
+                        if (editable && widget.receipts != null)
+                          OutlinedButton.icon(
+                            key: const Key('purchase-receipt'),
+                            onPressed: () =>
+                                chooseReceipt(context, _c, widget.receipts!),
+                            icon: const Icon(Icons.receipt_long_outlined),
+                            label: Text(s.t(p.documentId == null
+                                ? 'attachReceipt'
+                                : 'changeReceipt')),
+                          ),
+                        OutlinedButton.icon(
+                          key: const Key('purchase-note'),
+                          onPressed: () => addPurchaseNote(context, _c),
+                          icon: const Icon(Icons.note_add_outlined),
+                          label: Text(s.t('addNote')),
+                        ),
+                        TextButton.icon(
+                          key: const Key('purchase-archive'),
+                          onPressed: () => runPurchaseAction(
+                              context, () => _c.archive(p.archivedAt == null),
+                              done: s.t(p.archivedAt == null
+                                  ? 'archived'
+                                  : 'restored')),
+                          icon: Icon(p.archivedAt == null
+                              ? Icons.archive_outlined
+                              : Icons.unarchive_outlined),
+                          label: Text(s
+                              .t(p.archivedAt == null ? 'archive' : 'restore')),
+                        ),
+                        TextButton.icon(
+                          key: const Key('purchase-delete'),
+                          onPressed: () => deletePurchase(context, _c),
+                          icon: const Icon(Icons.delete_outline),
+                          label: Text(s.t('delete')),
+                        ),
+                      ],
                     ),
                   ],
                 ],
@@ -552,6 +659,9 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                     for (final sh in detail.shipments)
                       AnumRow(
                         key: Key('shipment-${sh.id}'),
+                        onTap: editable && sh.canEdit
+                            ? () => editShipment(context, _c, sh)
+                            : null,
                         icon: Icons.local_shipping_outlined,
                         tone: sh.status == 'failed'
                             ? AnumTone.stop
@@ -613,12 +723,17 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                           }),
                         ].join(' · '),
                         detail: r.reasonNote,
-                        trailing: r.canRefund
+                        onTap: editable && (r.canEdit || r.canRefund)
+                            ? () => returnActions(context, _c, r,
+                                onLinkRefund: () => _link(refundOf: r))
+                            : null,
+                        trailing: editable && (r.canEdit || r.canRefund)
                             ? IconButton(
-                                key: Key('return-refund-${r.id}'),
-                                tooltip: s.t('linkRefund'),
-                                onPressed: () => _link(refundOf: r),
-                                icon: const Icon(Icons.currency_exchange))
+                                key: Key('return-actions-${r.id}'),
+                                tooltip: s.t('returnActions'),
+                                onPressed: () => returnActions(context, _c, r,
+                                    onLinkRefund: () => _link(refundOf: r)),
+                                icon: const Icon(Icons.more_vert))
                             : null,
                       ),
                 ],

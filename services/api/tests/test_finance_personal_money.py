@@ -130,7 +130,7 @@ def test_compare_never_costs_an_unknown_rate_and_sorts_by_total() -> None:
 def test_lending_and_being_repaid_are_neither_spend_nor_income() -> None:
     bank = account(balance="5000")
     lent = client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Friend A", "amount": "1000",
-                                                                   "lent_on": "2026-11-02", "due_on": "2026-11-20"})
+                                                                   "lent_on": "2026-11-02", "due_on": "2027-11-20"})
     assert lent.status_code == 201, lent.text
     loan = lent.json()
     assert (loan["outstanding"], loan["status"], loan["currency"]) == ("1000.00", "open", "AED")

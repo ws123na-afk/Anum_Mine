@@ -78,6 +78,13 @@ MAX_SKIPPED_READS = 20
 MAX_SERIES_REREAD = 500
 # Events organised by someone else carry this source reference: they follow the provider.
 GUEST_REF = "attendee"
+# Copies of the events of the account's other chosen calendars (docs/calendar.md#choosing-calendars):
+# read from the provider each pass and never sent back.
+CALENDAR_COPY_REF = "calendar_copy"
+FOLLOWS_PROVIDER = frozenset({GUEST_REF, CALENDAR_COPY_REF})
+# Other calendars of one account that may sync besides the primary one, and the events kept per calendar.
+MAX_EXTRA_CALENDARS = 10
+MAX_COPIED_PER_CALENDAR = 1500
 
 
 class CalendarSettings(BaseSettings):
@@ -96,6 +103,9 @@ class CalendarSettings(BaseSettings):
     days_back: int = Field(default=30, ge=1, le=365)
     days_ahead: int = Field(default=365, ge=7, le=730)
     oauth_state_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    # Where a connection started on the phone returns after the provider's sign-in: the app's own
+    # scheme (docs/calendar.md#connecting-on-the-phone). Fixed on the server, never taken from a request.
+    app_return_url: str = Field(default="com.anum.app:/calendar-connected", pattern=r"^[a-z][a-z0-9.+-]*:/[A-Za-z0-9/_-]*$")
 
     model_config = SettingsConfigDict(env_prefix="ANUM_CALENDAR_", env_file=".env", extra="ignore", hide_input_in_errors=True)
 
@@ -184,6 +194,27 @@ class ConnectionStatus(StrEnum):
     REAUTH_REQUIRED = "reauth_required"
 
 
+class CalendarChoice(BaseModel):
+    """One calendar of the connected account and whether it syncs. The primary calendar always
+    syncs both ways; the others chosen are read only (their events are copies in ANUM)."""
+
+    id: str = Field(min_length=1, max_length=512)
+    name: str = Field(max_length=200)
+    primary: bool = False
+    selected: bool = False
+    can_edit: bool = False
+    color: str | None = Field(default=None, max_length=7)
+
+
+def calendar_key(calendar_id: str) -> str:
+    """A short stable key of a calendar id, the prefix of its copied events' provider ids."""
+    return hashlib.sha256(calendar_id.encode("utf-8")).hexdigest()[:12]
+
+
+def copy_prefix(calendar_id: str) -> str:
+    return f"{calendar_key(calendar_id)}~"
+
+
 class CalendarConnection(BaseModel):
     id: str
     tenant_id: str
@@ -203,8 +234,13 @@ class CalendarConnection(BaseModel):
     last_error: str | None = None
     last_summary: dict[str, Any] = Field(default_factory=dict)
     sync_lease_until: datetime | None = None
+    # The account's calendars as last listed, with the person's choice (empty: primary only).
+    calendars: list[CalendarChoice] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+    def extra_calendars(self) -> list[CalendarChoice]:
+        return [c for c in self.calendars if c.selected and not c.primary][:MAX_EXTRA_CALENDARS]
 
 
 class CalendarOAuthPending(BaseModel):
@@ -513,6 +549,9 @@ class SyncSummary(BaseModel):
     conflicts_remote_won: int = 0
     conflicts_local_won: int = 0
     full: bool = False
+    # Other chosen calendars read this pass, and those that could not be read ("name: reason").
+    calendars_read: int = 0
+    calendar_errors: list[str] = Field(default_factory=list)
 
 
 def apply_remote(store: Any, connection: CalendarConnection, remote: RemoteEvent, summary: SyncSummary, now: datetime) -> None:
@@ -1058,6 +1097,17 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
                 continue
             if await asyncio.to_thread(_keep_pushed, context, event, pushed) is pushed:
                 summary.pushed += 1
+        # The other calendars chosen for this account: read only, a snapshot of the window each pass.
+        for choice in connection.extra_calendars():
+            try:
+                remotes, complete = await client.window_events(token, choice.id, since=since, until=until)
+            except MailProviderError as exc:
+                if exc.reauth:
+                    raise
+                summary.calendar_errors.append(f"{choice.name}: {exc.message}"[:300])
+                continue
+            await asyncio.to_thread(apply_calendar_copy, context, connection, choice, remotes, complete, summary)
+            summary.calendars_read += 1
         error = failures[0] if failures else None
     except (CalendarSyncError, MailProviderError) as exc:
         message = exc.message
@@ -1153,6 +1203,65 @@ def _apply_delta(context: TenantContext, connection: CalendarConnection, delta: 
                 summary.deleted += 1
 
 
+def apply_calendar_copy(
+    context: TenantContext, connection: CalendarConnection, choice: CalendarChoice, remotes: list[RemoteEvent], complete: bool,
+    summary: SyncSummary,
+) -> None:
+    """Make ANUM's copies of one other calendar match the provider's window: new events added,
+    changed ones overwritten, and (when the whole window was read) the ones gone removed. The
+    copies follow the provider (``CALENDAR_COPY_REF``) and are never sent back."""
+    prefix = copy_prefix(choice.id)
+    if len(remotes) > MAX_COPIED_PER_CALENDAR:
+        remotes, complete = remotes[:MAX_COPIED_PER_CALENDAR], False
+    now = utc_now()
+    with open_calendar_store(context) as events:
+        existing = {e.external_id: e for e in events.by_external_prefix(connection.id, prefix) if e.external_id}
+        seen: set[str] = set()
+        for remote in remotes:
+            external_id = prefix + remote.external_id
+            if len(external_id) > 1024 or not _remote_times_ok(remote):
+                summary.skipped += 1
+                continue
+            seen.add(external_id)
+            local = existing.get(external_id)
+            if local is not None and not _remote_changed(local, remote):
+                continue
+            event = local or CalendarEvent(
+                id=new_id("event"), tenant_id=connection.tenant_id, workspace_id=connection.workspace_id, title=remote.title,
+                kind=EventKind.MEETING, starts_at=remote.starts_at, ends_at=remote.ends_at, attendees=[],
+                source=connection.provider.value, created_by=connection.connected_by, created_at=now, updated_at=now,
+                connection_id=connection.id, external_id=external_id,
+            )
+            copied = _copy_remote(event, remote, now)
+            copied.source_ref = CALENDAR_COPY_REF
+            copied = _rebuilt(copied)
+            if copied is None:
+                summary.skipped += 1
+                continue
+            if local is None:
+                events.add(copied)
+                summary.created += 1
+            else:
+                events.save(copied)
+                summary.updated += 1
+        if complete:
+            for external_id, local in existing.items():
+                if external_id not in seen:
+                    events.delete(local.id)
+                    summary.deleted += 1
+
+
+def remove_calendar_copies(context: TenantContext, connection_id: str, calendar_ids: list[str]) -> int:
+    """Delete ANUM's copies of calendars no longer chosen; returns how many went."""
+    removed = 0
+    with open_calendar_store(context) as events:
+        for calendar_id in calendar_ids:
+            for event in events.by_external_prefix(connection_id, copy_prefix(calendar_id)):
+                events.delete(event.id)
+                removed += 1
+    return removed
+
+
 def _series_to_reread(context: TenantContext, connection_id: str, delta: Any) -> list[str]:
     """The provider ids of the series held for this connection, when the delta removed something
     ANUM cannot name (an occurrence of a series); empty otherwise."""
@@ -1205,14 +1314,14 @@ async def attach_and_push(context: TenantContext, event_id: str, *, create: bool
             series = None
             if event.series_id is not None:
                 series = events.get(event.series_id)
-                if series is None or not series.connection_id or series.source_ref == GUEST_REF:
+                if series is None or not series.connection_id or series.source_ref in FOLLOWS_PROVIDER:
                     return event, None, None, False
                 event.connection_id = series.connection_id
             elif create:
                 if connection is None:
                     return event, None, None, False
                 event.connection_id = connection.id
-            elif event.connection_id is None or event.source_ref == GUEST_REF:
+            elif event.connection_id is None or event.source_ref in FOLLOWS_PROVIDER:
                 return event, None, None, False
             # A new change is a fresh attempt: the failure count starts again.
             event.sync_state = "pending_push"
@@ -1274,7 +1383,7 @@ async def retry_push(context: TenantContext, event_id: str) -> CalendarEvent | N
 async def remove_at_provider(context: TenantContext, event: CalendarEvent) -> None:
     """Before a local delete of a linked event: remove it at the provider too. Raises
     ``CalendarSyncError`` when the provider cannot be reached, so nothing is lost silently."""
-    if not event.connection_id or not event.external_id or event.source_ref == GUEST_REF:
+    if not event.connection_id or not event.external_id or event.source_ref in FOLLOWS_PROVIDER:
         return
     connection = await asyncio.to_thread(_connection, context, event.connection_id)
     if connection is None:

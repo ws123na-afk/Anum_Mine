@@ -115,7 +115,8 @@ class ApiCalendarRepository implements CalendarRepository {
     final value = JsonReader(await api.request('GET', '$_base/sync'));
     return CalendarSyncStatus(
         value.objects('connections', SyncConnection.fromJson),
-        canManage: value.optBool('can_manage') ?? false);
+        canManage: value.optBool('can_manage') ?? false,
+        providers: value.optObjects('providers', SyncProviderSetup.fromJson));
   }
 
   @override

@@ -226,6 +226,7 @@ class NotificationsScreen extends StatelessWidget {
   static String? routeFor(String kind) => switch (kind) {
         'calendar_reminder' => '/calendar',
         'approval_reminder' => '/approvals',
+        'system_health' || 'system_restart' => '/system-health',
         'document_expiry' => '/vault',
         'vehicle_reminder' => '/vehicles',
         'purchase_reminder' => '/purchases',

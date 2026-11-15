@@ -85,7 +85,12 @@ PROVIDER_NAMES = {
     CalendarProvider.MICROSOFT: "Microsoft 365 Calendar",
 }
 
-GOOGLE_SCOPES = ("openid", "email", "https://www.googleapis.com/auth/calendar.events")
+# ``calendar.calendarlist.readonly`` lets the person choose which of the account's calendars sync
+# (docs/calendar.md#choosing-calendars); events of every chosen calendar are read with ``calendar.events``.
+GOOGLE_SCOPES = (
+    "openid", "email", "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+)
 MICROSOFT_SCOPES = ("offline_access", "User.Read", "Calendars.ReadWrite")
 
 
@@ -143,6 +148,32 @@ class RemoteEvent:
     @property
     def is_master(self) -> bool:
         return bool(self.recurrence_lines) or self.series_master
+
+
+@dataclass(frozen=True)
+class RemoteCalendar:
+    """One calendar of the connected account, as the provider lists it."""
+
+    id: str
+    name: str
+    primary: bool = False
+    can_edit: bool = False
+    color: str | None = None
+
+
+# Calendar ids: Google's look like addresses (with ``#`` in shared holiday calendars), Graph's are
+# long URL-safe base64. Anything else is not used in a path.
+_CALENDAR_ID = re.compile(r"[A-Za-z0-9@._=+#/:-]{1,512}")
+_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+MAX_CALENDARS = 100
+
+
+def valid_calendar_id(value: object) -> bool:
+    return isinstance(value, str) and bool(_CALENDAR_ID.fullmatch(value))
+
+
+def _color(value: Any) -> str | None:
+    return value if isinstance(value, str) and _COLOR.fullmatch(value) else None
 
 
 @dataclass(frozen=True)
@@ -318,6 +349,15 @@ class CalendarProviderClient:
         """Add the series ``master_ids`` (their masters and instances) to ``delta``. Google's delta
         already carries its masters, so only the Microsoft client reads them."""
         return None
+
+    async def calendars(self, token: str) -> list[RemoteCalendar]:
+        """Every calendar of the account the person can read, the primary one first."""
+        raise NotImplementedError
+
+    async def window_events(self, token: str, calendar_id: str, *, since: datetime, until: datetime) -> tuple[list[RemoteEvent], bool]:
+        """Every occurrence of one other calendar inside the window, as single events (series
+        expanded), and whether the whole window was read (False when the page limit cut it)."""
+        raise NotImplementedError
 
     async def _token(self, url: str, form: dict[str, str], previous_refresh: str | None = None) -> TokenGrant:
         _, body = await self.http.request("POST", url, form=form)
@@ -631,6 +671,50 @@ class GoogleCalendarClient(CalendarProviderClient):
         delta.cursor = f"page:{params['pageToken']}|{window}|series"
         await self._flatten(token, delta, since=since, until=until)
         return delta
+
+    CALENDARS = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+
+    async def calendars(self, token: str) -> list[RemoteCalendar]:
+        found: list[RemoteCalendar] = []
+        params: dict[str, str] = {"maxResults": "250", "minAccessRole": "reader"}
+        for _ in range(4):
+            _, body = await self.http.request("GET", self.CALENDARS, token=token, params=params)
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("items") or []:
+                if not isinstance(item, dict) or not valid_calendar_id(item.get("id")) or item.get("deleted"):
+                    continue
+                name = _clean(item.get("summaryOverride") or item.get("summary"), 200) or str(item["id"])
+                found.append(RemoteCalendar(
+                    id=str(item["id"]), name=name, primary=bool(item.get("primary")),
+                    can_edit=item.get("accessRole") in ("writer", "owner"), color=_color(item.get("backgroundColor")),
+                ))
+            page = body.get("nextPageToken")
+            if not (isinstance(page, str) and _GOOGLE_TOKEN.fullmatch(page)) or len(found) >= MAX_CALENDARS:
+                break
+            params = {**params, "pageToken": page}
+        found.sort(key=lambda c: (not c.primary, c.name.casefold()))
+        return found[:MAX_CALENDARS]
+
+    async def window_events(self, token: str, calendar_id: str, *, since: datetime, until: datetime) -> tuple[list[RemoteEvent], bool]:
+        if not valid_calendar_id(calendar_id):
+            raise MailProviderError(422, "That is not a Google calendar id.")
+        url = f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events"
+        params: dict[str, str] = {"singleEvents": "true", "showDeleted": "false", "maxResults": "250",
+                                  "orderBy": "startTime", "timeMin": _iso(since), "timeMax": _iso(until)}
+        found: list[RemoteEvent] = []
+        for _ in range(MAX_PAGES):
+            _, body = await self.http.request("GET", url, token=token, params=params)
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("items") or []:
+                if isinstance(item, dict):
+                    event = google_event(item)
+                    if event is not None and not event.cancelled:
+                        found.append(event)
+            page = body.get("nextPageToken")
+            if not (isinstance(page, str) and _GOOGLE_TOKEN.fullmatch(page)):
+                return found, True
+            params = {**params, "pageToken": page}
+        return found, False
 
     async def _flatten(self, token: str, delta: CalendarDelta, *, since: datetime, until: datetime) -> None:
         """Masters whose rule ANUM cannot hold: read their instances as single events instead."""
@@ -1116,6 +1200,50 @@ class MicrosoftCalendarClient(CalendarProviderClient):
             result.cursor = self._cursor(f"{delta_url}?{url.split('?', 1)[1]}", window_end, waiting)
         await self._read_named_series(token, result, waiting, since=since, until=until)
         return result
+
+    async def calendars(self, token: str) -> list[RemoteCalendar]:
+        found: list[RemoteCalendar] = []
+        url: str | None = f"{self.API}/calendars"
+        params: dict[str, str] | None = {"$select": "id,name,isDefaultCalendar,canEdit,hexColor", "$top": "100"}
+        for _ in range(4):
+            if url is None:
+                break
+            _, body = await self.http.request("GET", url, token=token, params=params)
+            params = None
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("value") or []:
+                if not isinstance(item, dict) or not valid_calendar_id(item.get("id")):
+                    continue
+                found.append(RemoteCalendar(
+                    id=str(item["id"]), name=_clean(item.get("name"), 200) or "Calendar", primary=bool(item.get("isDefaultCalendar")),
+                    can_edit=bool(item.get("canEdit")), color=_color(item.get("hexColor")),
+                ))
+            next_link = body.get("@odata.nextLink")
+            url = str(next_link) if isinstance(next_link, str) and next_link.startswith(f"{self.API}/calendars?") else None
+        found.sort(key=lambda c: (not c.primary, c.name.casefold()))
+        return found[:MAX_CALENDARS]
+
+    async def window_events(self, token: str, calendar_id: str, *, since: datetime, until: datetime) -> tuple[list[RemoteEvent], bool]:
+        if not valid_calendar_id(calendar_id):
+            raise MailProviderError(422, "That is not a Microsoft calendar id.")
+        base = f"{self.API}/calendars/{quote(calendar_id, safe='')}/calendarView"
+        url: str | None = base
+        params: dict[str, str] | None = {"startDateTime": _iso(since), "endDateTime": _iso(until), "$top": "50"}
+        found: list[RemoteEvent] = []
+        for _ in range(MAX_PAGES * 4):
+            if url is None:
+                return found, True
+            _, body = await self.http.request("GET", url, token=token, params=params, headers=self.HEADERS)
+            params = None
+            body = body if isinstance(body, dict) else {}
+            for item in body.get("value") or []:
+                if isinstance(item, dict) and valid_event_id(item.get("id")):
+                    event = graph_event(item)
+                    if event is not None and not event.cancelled:
+                        found.append(event)
+            next_link = body.get("@odata.nextLink")
+            url = str(next_link) if isinstance(next_link, str) and next_link.startswith(f"{base}?") else None
+        return found, url is None
 
     @staticmethod
     def _cursor(link: str, window_end: datetime | None, waiting: list[str]) -> str:

@@ -7,7 +7,7 @@ import * as api from './lib/api';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
-  ALERT_KINDS, REPORT_KINDS, ago, alertKindLabel, hasOperations, confidenceTone, day, forecastTone, formatPrices, isRecipient, money, monthBars, monthLabel, newAlerts, num, pageRange, parsePrices, reportKindLabel, severityTone,
+  ALERT_KINDS, REPORT_KINDS, ago, alertKindLabel, hasOperations, confidenceTone, day, forecastTone, formatPrices, isRecipient, channelLabel, money, monthBars, monthLabel, newAlerts, num, pageRange, parsePrices, reportKindLabel, severityTone,
   type AlertPage, type Assumptions, type Dashboard, type OperationsSummary, type ForecastPage, type PurchasePlan, type ReportSchedule, type ReportSummary, type ScheduleDraft, type TyreAlert, type TyreForecast, type TyreSetup as Setup, type Page,
 } from './lib/tyre';
 import * as tyreApi from './lib/tyreApi';
@@ -493,7 +493,7 @@ function ReportCard({ report, setup, onChanged }: { report: ReportSummary; setup
   const exportAs = (fmt: 'pdf' | 'csv') => act(fmt, () => tyreApi.download(`/reports/${encodeURIComponent(report.id)}/export?format=${fmt}`, `tyre-report.${fmt}`));
   const remove = () => act('delete', async () => { if (!confirm(t('tyre.reports.confirmDelete', { title: report.title }))) return; await tyreApi.deleteReport(report.id); onChanged(); });
   const send = (event: FormEvent) => { event.preventDefault(); void act('send', async () => {
-    if (!isRecipient(to)) { setMessage({ text: t('tyre.reports.badRecipient'), error: true }); return; }
+    if (!isRecipient(to, channel)) { setMessage({ text: t(channel === 'whatsapp' ? 'tyre.reports.badPhone' : channel === 'email' ? 'tyre.reports.badEmail' : 'tyre.reports.badRecipient'), error: true }); return; }
     const result = await tyreApi.deliverReport(report.id, channel, to.trim(), format);
     setMessage({ text: result.status === 'waiting_approval' ? t('tyre.reports.waitingApproval') : result.message, error: result.status === 'blocked' || result.status === 'failed' });
     setSending(false); onChanged();
@@ -509,13 +509,13 @@ function ReportCard({ report, setup, onChanged }: { report: ReportSummary; setup
       </div>
     </div>
     {report.highlights.length > 0 && <dl className="tyreHighlights">{report.highlights.slice(0, 6).map((item) => <div key={item.label}><dt dir="auto">{item.label}</dt><dd dir="auto">{item.value === null ? '-' : String(item.value)}</dd></div>)}</dl>}
-    {report.deliveries.length > 0 && <ul className="tyreDeliveries">{report.deliveries.slice(-3).map((delivery, index) => <li key={index}><span className="statusBadge neutral">{t(`tyre.deliveryStatus.${['waiting_approval', 'sent', 'failed', 'blocked', 'unavailable'].includes(delivery.status) ? delivery.status : 'failed'}` as MessageKey)}</span><span dir="auto">{delivery.channel} → {delivery.to}</span>{delivery.message && <small>{delivery.message}</small>}</li>)}</ul>}
+    {report.deliveries.length > 0 && <ul className="tyreDeliveries">{report.deliveries.slice(-3).map((delivery, index) => <li key={index}><span className="statusBadge neutral">{t(`tyre.deliveryStatus.${['waiting_approval', 'sent', 'failed', 'blocked', 'unavailable'].includes(delivery.status) ? delivery.status : 'failed'}` as MessageKey)}</span><span dir="auto">{channelLabel(delivery.channel)} → <bdi dir="ltr">{delivery.to}</bdi></span>{delivery.message && <small>{delivery.message}</small>}</li>)}</ul>}
     {sending && (setup.delivery_channels.length ? <form className="tyreSend" onSubmit={send}>
-      <label className="field" htmlFor={ids.channel}><span>{t('tyre.reports.channel')}</span><select id={ids.channel} value={channel} onChange={(e) => setChannel(e.target.value)}>{setup.delivery_channels.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-      <label className="field" htmlFor={ids.to}><span>{t('tyre.reports.to')}</span><input id={ids.to} dir="ltr" value={to} placeholder="fleet@example.com / +9665..." onChange={(e) => setTo(e.target.value)} /></label>
+      <label className="field" htmlFor={ids.channel}><span>{t('tyre.reports.channel')}</span><select id={ids.channel} value={channel} onChange={(e) => setChannel(e.target.value)}>{setup.delivery_channels.map((value) => <option key={value} value={value}>{channelLabel(value)}</option>)}</select></label>
+      <label className="field" htmlFor={ids.to}><span>{t('tyre.reports.to')}</span><input id={ids.to} dir="ltr" type={channel === 'email' ? 'email' : 'tel'} value={to} placeholder={channel === 'whatsapp' ? '+9665...' : 'fleet@example.com'} onChange={(e) => setTo(e.target.value)} /></label>
       <label className="field" htmlFor={ids.format}><span>{t('tyre.reports.format')}</span><select id={ids.format} value={format} onChange={(e) => setFormat(e.target.value as 'pdf')}><option value="pdf">PDF</option><option value="csv">CSV</option></select></label>
       <div className="actions"><button type="submit" disabled={busy !== null}><Send aria-hidden="true" />{t('tyre.reports.requestSend')}</button></div>
-      <p className="muted tyreFull">{t('tyre.reports.approvalNote')}</p>
+      <p className="muted tyreFull">{t('tyre.reports.approvalNote')}{channel === 'whatsapp' ? ` ${t('tyre.reports.whatsappWindow')}` : ''}</p>
     </form> : <p className="notice" role="status"><Info aria-hidden="true" />{t('tyre.reports.noChannels')}</p>)}
     {message && <p className={`notice ${message.error ? 'errorNotice' : ''}`} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
   </li>;
@@ -531,7 +531,7 @@ function SchedulesCard({ setup }: { setup: Setup }) {
   const ids = { kind: useId(), cadence: useId(), weekday: useId(), time: useId(), zone: useId(), channel: useId(), to: useId() };
   async function create(event: FormEvent) {
     event.preventDefault();
-    if (draft.channel && !isRecipient(draft.to)) { setMessage({ text: t('tyre.reports.badRecipient'), error: true }); return; }
+    if (draft.channel && !isRecipient(draft.to, draft.channel)) { setMessage({ text: t(draft.channel === 'whatsapp' ? 'tyre.reports.badPhone' : draft.channel === 'email' ? 'tyre.reports.badEmail' : 'tyre.reports.badRecipient'), error: true }); return; }
     setBusy(true); setMessage(null);
     try { await tyreApi.createSchedule(draft); setTick((v) => v + 1); setMessage({ text: t('tyre.schedule.created'), error: false }); }
     catch (e) { setMessage({ text: describeError(e), error: true }); } finally { setBusy(false); }
@@ -544,7 +544,7 @@ function SchedulesCard({ setup }: { setup: Setup }) {
     <h2 id="tyre-schedules-title"><CalendarClock aria-hidden="true" />{t('tyre.schedule.title')}</h2>
     <p className="muted">{t('tyre.schedule.intro')}</p>
     <LoadState loading={loading} error={error} reload={reload}>{data && (data.length ? <ul className="tyreList">{data.map((schedule) => <li key={schedule.id}>
-      <div><strong>{reportKindLabel(schedule.kind)}</strong><small>{schedule.description} ({schedule.timezone}){schedule.next_run_at ? ` · ${t('tyre.schedule.next', { when: formatDateTime(schedule.next_run_at) })}` : ''}{schedule.delivery ? ` · ${schedule.delivery.channel} → ${schedule.delivery.to}` : ''}</small></div>
+      <div><strong>{reportKindLabel(schedule.kind)}</strong><small>{schedule.description} ({schedule.timezone}){schedule.next_run_at ? ` · ${t('tyre.schedule.next', { when: formatDateTime(schedule.next_run_at) })}` : ''}{schedule.delivery ? ` · ${channelLabel(schedule.delivery.channel)} → ${schedule.delivery.to}` : ''}</small></div>
       {setup.can_operate && <button type="button" className="danger iconOnly" aria-label={t('tyre.schedule.delete', { what: schedule.description })} onClick={() => void remove(schedule)}><Trash2 aria-hidden="true" /></button>}
     </li>)}</ul> : <p className="muted">{t('tyre.schedule.none')}</p>)}</LoadState>
     {setup.can_operate && <form className="tyreFilters tyreScheduleForm" onSubmit={(e) => void create(e)}>
@@ -554,7 +554,7 @@ function SchedulesCard({ setup }: { setup: Setup }) {
       <label className="field" htmlFor={ids.time}><span>{t('tyre.schedule.time')}</span><input id={ids.time} type="time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} /></label>
       <label className="field" htmlFor={ids.zone}><span>{t('tyre.schedule.timezone')}</span><input id={ids.zone} dir="ltr" value={draft.timezone} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })} /></label>
       {setup.delivery_channels.length > 0 && <>
-        <label className="field" htmlFor={ids.channel}><span>{t('tyre.schedule.sendBy')}</span><select id={ids.channel} value={draft.channel} onChange={(e) => setDraft({ ...draft, channel: e.target.value })}><option value="">{t('tyre.schedule.dontSend')}</option>{setup.delivery_channels.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label className="field" htmlFor={ids.channel}><span>{t('tyre.schedule.sendBy')}</span><select id={ids.channel} value={draft.channel} onChange={(e) => setDraft({ ...draft, channel: e.target.value })}><option value="">{t('tyre.schedule.dontSend')}</option>{setup.delivery_channels.map((value) => <option key={value} value={value}>{channelLabel(value)}</option>)}</select></label>
         {draft.channel && <label className="field" htmlFor={ids.to}><span>{t('tyre.reports.to')}</span><input id={ids.to} dir="ltr" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} /></label>}
       </>}
       <div className="actions"><button type="submit" disabled={busy}><CalendarClock aria-hidden="true" />{t('tyre.schedule.create')}</button></div>

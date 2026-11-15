@@ -12,6 +12,8 @@ import '../ibkr/ibkr_data.dart';
 import '../ibkr/ibkr_screen.dart';
 import '../selling/selling_data.dart';
 import '../selling/selling_screen.dart';
+import '../system_health/system_health_data.dart';
+import '../system_health/system_health_screen.dart';
 
 /// The owner desk screens on the phone (docs/mobile-features.md#owner-desk),
 /// each a named route opened from the Menu with a fresh controller that
@@ -19,6 +21,7 @@ import '../selling/selling_screen.dart';
 ///
 /// * `/executive`: the Executive desk (docs/ANUM_MINE_EXECUTIVE_PA.md#mobile)
 /// * `/ready-to-sell`: the platform owner's checklist (docs/selling-readiness.md#mobile)
+/// * `/system-health`: the platform owner's health summary (docs/system-health.md#on-the-phone)
 /// * `/finance/ibkr`: IBKR trading (docs/finance-live-trading.md#on-the-phone)
 /// * `/action-browser`: browser runs, their steps, approvals, the live
 ///   picture and "Needs you" input, and the saved logins and cards
@@ -37,9 +40,16 @@ class OwnerDeskRoutes {
 
   static const executive = '/executive';
   static const readyToSell = '/ready-to-sell';
+  static const systemHealth = '/system-health';
   static const ibkr = '/finance/ibkr';
   static const actionBrowser = '/action-browser';
-  static const all = [executive, readyToSell, ibkr, actionBrowser];
+  static const all = [
+    executive,
+    readyToSell,
+    systemHealth,
+    ibkr,
+    actionBrowser
+  ];
 
   /// The route for [settings], wrapped by [guard] (the signed-in check), or
   /// null when the name is not one of these.
@@ -59,6 +69,11 @@ class OwnerDeskRoutes {
       readyToSell => (_) => OwnedController<SellingController>(
             create: () => SellingController(ApiSellingRepository(api)),
             builder: (_, c) => SellingScreen(controller: c),
+          ),
+      systemHealth => (_) => OwnedController<SystemHealthController>(
+            create: () =>
+                SystemHealthController(ApiSystemHealthRepository(api)),
+            builder: (_, c) => SystemHealthScreen(controller: c),
           ),
       ibkr => (_) => OwnedController<IbkrController>(
             create: () => IbkrController(ApiIbkrRepository(api)),

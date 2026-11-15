@@ -78,6 +78,9 @@ def build_activities(
         )
     )))))))))))))
     if tools is None:
+        from .delivery_tools import register_delivery_tools
+
+        register_delivery_tools(registry)
         # The same browser research tool as the API (docs/browser-research.md).
         from .browser_research import BROWSER_INTEGRATION_ID
         from .browser_research.tool import register_browser_tools

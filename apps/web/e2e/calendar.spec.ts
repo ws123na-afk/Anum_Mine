@@ -1,13 +1,15 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
-import { createCalendarMock, pinCalendarClock, type CalendarMockOptions } from './support/calendarApi';
+import { createCalendarMock, pinCalendarClock, calendarToday, type CalendarMockOptions } from './support/calendarApi';
 
 // The web Calendar page (docs/calendar.md#web-page) against a stateful calendar API: the week
 // agenda and an event's detail, New event, edit, cancel, delete, recorded replies, the next steps,
 // and the refused, failed and empty states.
-async function openCalendar(page: Page, options: CalendarMockOptions = {}) {
+async function openCalendar(page: Page, options: CalendarMockOptions = {}, today?: Date) {
   await mockWorkspaceApi(page);
   await pinCalendarClock(page);
+  if (today) await page.clock.setFixedTime(today);
   const calendar = createCalendarMock(options);
   // Registered after the workspace mock, so this calendar answers first.
   await page.route('http://localhost:8000/api/v1/calendar/**', async (route) => { if (!(await calendar.handle(route))) await route.fallback(); });
@@ -167,6 +169,25 @@ test('a connected calendar shows its health, syncs on request and disconnects af
   await expect(page.getByRole('heading', { name: 'No calendar connected yet' })).toBeVisible();
 });
 
+test('an owner chooses which other calendars of the account sync, read only', async ({ page }) => {
+  const state = await openCalendar(page, { sync: 'connected' });
+  await syncTab(page).click();
+  const connections = page.getByRole('region', { name: 'Connected calendars' });
+  await connections.getByRole('button', { name: 'Choose calendars' }).click();
+  const choices = page.getByRole('region', { name: 'Calendars of owner@example.com' });
+  const primary = choices.getByRole('checkbox', { name: /Owner/ });
+  await expect(primary).toBeChecked();
+  await expect(primary).toBeDisabled();
+  await choices.getByRole('checkbox', { name: /Team/ }).check();
+  await choices.getByRole('button', { name: 'Save choice' }).click();
+  await expect(page.getByText('Saved. 1 other calendar(s) of owner@example.com sync now.')).toBeVisible();
+  expect(state.chosen).toEqual([['team@group.calendar.google.com']]);
+  await expect(connections.getByText('Also synced, read only: Team')).toBeVisible();
+  const scan = await new AxeBuilder({ page }).include('.calendarSync').analyze();
+  expect(scan.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
 test('a revoked grant says what to do and offers to connect again', async ({ page }) => {
   await openCalendar(page, { sync: 'reauth' });
   await expect(page.getByText(/Google Calendar sync needs attention/)).toBeVisible();
@@ -233,7 +254,7 @@ test('a double booking is flagged on the grid, in the rail and in the week strip
   await mockWorkspaceApi(page);
   await pinCalendarClock(page);
   const calendar = createCalendarMock();
-  const at = (hour: number, minute = 0) => { const d = new Date(); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
+  const at = (hour: number, minute = 0) => { const d = calendarToday(); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
   (calendar.state.events as Record<string, unknown>[]).push({ ...(calendar.state.events as Record<string, unknown>[])[1], id: 'evt_clash', title: 'Tyre audit', kind: 'review', starts_at: at(1, 30), ends_at: at(2, 15) });
   await page.route('http://localhost:8000/api/v1/calendar/**', async (route) => { if (!(await calendar.handle(route))) await route.fallback(); });
   await page.addInitScript(() => localStorage.setItem('anum.calendar.mode', 'week'));
@@ -251,7 +272,7 @@ test('the month view shows the month and opens a day; the small month picks a da
   await openCalendar(page);
   await page.getByRole('button', { name: 'Month', exact: true }).click();
   await expect(agenda(page).getByRole('button', { name: /Supplier call: Michelin order/ })).toBeVisible();
-  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const today = calendarToday(); today.setHours(12, 0, 0, 0);
   await agenda(page).getByRole('button', { name: /events?\. Show the day/ }).filter({ hasText: String(today.getDate()) }).first().click();
   await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Next day' }).click();
@@ -261,10 +282,14 @@ test('the month view shows the month and opens a day; the small month picks a da
 });
 
 // Repeating, all-day events and reminders (docs/calendar.md#recurrence).
+// Series tests run on the Wednesday of the run's week (the agenda's week starts on Monday), so a series that starts "today"
+// always has later days in the same week: on a Sunday run the week held one occurrence only.
+const midweek = () => { const d = calendarToday(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 2); return d; };
+const openMidweek = (page: Page, options: CalendarMockOptions) => openCalendar(page, options, midweek());
 const back = (page: Page) => page.getByRole('button', { name: 'Back to the list' }).click();
 
 test('a repeating all-day event with reminders is added through the form and shows on every day it repeats', async ({ page, isMobile }) => {
-  const state = await openCalendar(page, { empty: true });
+  const state = await openMidweek(page, { empty: true });
   await page.getByRole('button', { name: 'Week', exact: true }).click();
   await page.getByRole('button', { name: 'New event' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'New event' });
@@ -296,8 +321,8 @@ test('a repeating all-day event with reminders is added through the form and sho
 });
 
 test('editing, cancelling and deleting a repeating event asks which occurrences; one occurrence changes on its own', async ({ page, isMobile }) => {
-  const state = await openCalendar(page, { empty: true });
-  const start = new Date(); start.setHours(15, 0, 0, 0);
+  const state = await openMidweek(page, { empty: true });
+  const start = midweek(); start.setHours(15, 0, 0, 0);
   (state.events as Record<string, unknown>[]).push({
     tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', source: 'manual', created_by: 'user_local', created_at: start.toISOString(), updated_at: start.toISOString(),
     id: 'evt_series', title: 'Daily standup', kind: 'meeting', status: 'scheduled', starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 30 * 60_000).toISOString(),
@@ -386,8 +411,8 @@ test('a viewer sees why a send failed and who can send it again', async ({ page 
 });
 
 test('a reply on one occurrence of a series is for that occurrence; email reminders are chosen per reminder', async ({ page, isMobile }) => {
-  const state = await openCalendar(page, { empty: true, sync: 'connected' });
-  const start = new Date(); start.setHours(15, 0, 0, 0);
+  const state = await openMidweek(page, { empty: true, sync: 'connected' });
+  const start = midweek(); start.setHours(15, 0, 0, 0);
   (state.events as Record<string, unknown>[]).push({
     tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', source: 'manual', created_by: 'user_local', created_at: start.toISOString(), updated_at: start.toISOString(),
     id: 'evt_series', title: 'Daily standup', kind: 'meeting', status: 'scheduled', starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 30 * 60_000).toISOString(),

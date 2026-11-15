@@ -209,3 +209,10 @@
   .blRules li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
   .blRuleName { display: none; }
 }
+
+/* System health (docs/system-health.md): the env lines to paste and the uptime monitor address. */
+.hlEnv { white-space: pre-wrap; }
+.hlBadges { align-items: center; }
+.hlItem .hlEnv { margin-top: var(--d-s2); }
+.hlMonitor { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.hlMonitor .blRecord { flex: 1 1 260px; min-width: 0; }

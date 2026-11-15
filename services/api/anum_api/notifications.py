@@ -26,7 +26,7 @@ import smtplib
 import ssl
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Any, Literal
@@ -155,8 +155,9 @@ def _smtp_failure(exc: smtplib.SMTPException) -> EmailRefused:
     return EmailRefused(f"The mail server refused the message ({name})")
 
 
-def send_email(to: str, subject: str, text: str) -> None:
-    """Send one plain-text email through the configured SMTP server."""
+def send_email(to: str, subject: str, text: str, attachments: Sequence[tuple[str, str, bytes]] = ()) -> None:
+    """Send one plain-text email through the configured SMTP server, with optional
+    ``(filename, content_type, bytes)`` attachments (a delivered report)."""
     host, sender = settings.smtp_host, settings.smtp_from
     if not host or not sender:
         raise EmailRefused("SMTP is not configured")
@@ -165,6 +166,9 @@ def send_email(to: str, subject: str, text: str) -> None:
     message["To"] = to
     message["Subject"] = subject
     message.set_content(text)
+    for filename, content_type, content in attachments:
+        main_type, _, sub_type = content_type.partition("/")
+        message.add_attachment(content, maintype=main_type or "application", subtype=sub_type or "octet-stream", filename=filename)
     timeout = settings.smtp_timeout_seconds
     context = ssl.create_default_context()
     security = settings.smtp_security
@@ -228,6 +232,7 @@ def send_with_retries(
     attempts: int = MAX_EMAIL_ATTEMPTS,
     backoff_seconds: float | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    attachments: Sequence[tuple[str, str, bytes]] = (),
 ) -> MailOutcome:
     """Send one system email now, retrying transient failures with exponential backoff.
 
@@ -241,7 +246,10 @@ def send_with_retries(
     for attempt in range(1, max(1, attempts) + 1):
         try:
             # Looked up on the module so tests can replace ``send_email``.
-            sys.modules[__name__].send_email(to, subject, text)
+            if attachments:
+                sys.modules[__name__].send_email(to, subject, text, attachments)
+            else:
+                sys.modules[__name__].send_email(to, subject, text)
         except EmailRefused as exc:
             error = str(exc)[:300]
             if not exc.transient or attempt >= attempts:

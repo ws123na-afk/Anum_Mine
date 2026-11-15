@@ -4,6 +4,8 @@ import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import '../developer/developer_screen.dart' show LinkOpener, openInBrowser;
+import 'calendar_connections.dart';
+import 'calendar_connections_screen.dart';
 import 'calendar_controller.dart';
 import 'calendar_models.dart';
 import 'event_form.dart';
@@ -59,9 +61,16 @@ IconData kindIcon(String kind) => switch (kind) {
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen(
-      {required this.controller, this.openLink = openInBrowser, super.key});
+      {required this.controller,
+      this.openLink = openInBrowser,
+      this.connections,
+      super.key});
   final CalendarController controller;
   final LinkOpener openLink;
+
+  /// Builds the controller of the Connections screen (connect, choose,
+  /// disconnect; docs/calendar.md#connecting-on-the-phone); null hides it.
+  final CalendarConnectionsController Function()? connections;
 
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
@@ -107,6 +116,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
       c.selectDay(created.startsAt);
       await _openEvent(created);
     }
+  }
+
+  Future<void> _openConnections() async {
+    final controller = widget.connections!();
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => CalendarConnectionsScreen(controller: controller)));
+    controller.dispose();
+    await c.loadSync();
   }
 
   Future<void> _openEvent(CalendarEvent event) async {
@@ -209,7 +226,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
           subtitle: dateOf(context, c.selectedDay),
         ),
         _DayStrip(controller: c),
-        _SyncCard(controller: c),
+        _SyncCard(
+            controller: c,
+            onOpenConnections:
+                widget.connections == null ? null : _openConnections),
         LayoutBuilder(builder: (context, constraints) {
           if (constraints.maxWidth < AnumBreakpoints.expanded) {
             return Column(
@@ -567,8 +587,16 @@ class _Steps extends StatelessWidget {
 /// calendar and when, what to do when it needs attention, and Sync now for
 /// owners. Connecting happens on the web.
 class _SyncCard extends StatelessWidget {
-  const _SyncCard({required this.controller});
+  const _SyncCard({required this.controller, this.onOpenConnections});
   final CalendarController controller;
+  final VoidCallback? onOpenConnections;
+
+  Widget _connections(AnumLocalizations l) => TextButton.icon(
+        key: const Key('calsync-connections'),
+        onPressed: onOpenConnections,
+        icon: const Icon(Icons.settings_outlined, size: 18),
+        label: Text(l.t('calconn.open')),
+      );
 
   static String when(AnumLocalizations l, DateTime? at, DateTime now) {
     if (at == null) return l.t('calsync.when.never');
@@ -599,6 +627,7 @@ class _SyncCard extends StatelessWidget {
           Expanded(
               child: Text(l.t('calsync.none'),
                   style: TextStyle(color: p.muted, fontSize: AnumType.sm))),
+          if (onOpenConnections != null) _connections(l),
         ]),
       );
     }
@@ -636,11 +665,17 @@ class _SyncCard extends StatelessWidget {
                   {'provider': shown.providerName}),
               style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
         ],
-        if (status.canManage && !shown.needsReconnect) ...[
+        if (onOpenConnections != null &&
+            (!status.canManage || shown.needsReconnect)) ...[
           const SizedBox(height: AnumSpacing.xs),
           Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: TextButton.icon(
+              alignment: AlignmentDirectional.centerStart,
+              child: _connections(l)),
+        ],
+        if (status.canManage && !shown.needsReconnect) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          Wrap(spacing: AnumSpacing.xs, children: [
+            TextButton.icon(
               onPressed: c.busy == null
                   ? () async {
                       final messenger = ScaffoldMessenger.of(context);
@@ -656,7 +691,8 @@ class _SyncCard extends StatelessWidget {
               label:
                   Text(syncing ? l.t('calsync.syncing') : l.t('calsync.now')),
             ),
-          ),
+            if (onOpenConnections != null) _connections(l),
+          ]),
         ],
       ]),
     );

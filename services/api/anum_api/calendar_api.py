@@ -706,8 +706,9 @@ def _is_occurrence(event: CalendarEvent, occurrence_start: datetime) -> bool:
 
 def _pushable(event: CalendarEvent) -> bool:
     """Whether changes to ``event`` go to its connected calendar: linked, and organised in ANUM
-    (an event organised by someone else follows the provider; ``calendar_sync.GUEST_REF``)."""
-    return bool(event.connection_id) and event.source_ref != "attendee"
+    (an event organised by someone else, or a copy of another chosen calendar, follows the
+    provider; ``calendar_sync.FOLLOWS_PROVIDER``)."""
+    return bool(event.connection_id) and event.source_ref not in ("attendee", "calendar_copy")
 
 
 def _workspace_zone(context: TenantContext) -> str:

@@ -1655,3 +1655,22 @@ def test_the_ocr_service_is_isolated_and_off_until_its_profile() -> None:
     api = _env(compose["services"]["api"])
     assert api["ANUM_OCR_SERVICE_URL"] == "${ANUM_OCR_SERVICE_URL:-}" and api["ANUM_OCR_SERVICE_TOKEN"] == "${ANUM_OCR_TOKEN:-}"
     assert "ocr" in compose["services"]["api"]["networks"]
+
+
+def test_the_restore_drill_records_its_outcome_and_runs_monthly() -> None:
+    """System health (docs/system-health.md#restore-drill): the drill writes status/last-drill.json like
+    the backups, install.sh and update.sh install its monthly timer, and the API gets the notice scope."""
+    backup = _code("backup.sh")
+    drill = backup[backup.index("  drill)") : backup.index("  restore)")]
+    assert "record_status drill false; exit 1" in drill and "record_status drill true" in drill
+    timer = backup[backup.index("  drill-timer)") :]
+    assert "write_unit anum-drill.timer" in timer and "OnCalendar=*-*-01 05:13:00 UTC" in timer
+    assert "ExecStart=/bin/bash $ORACLE_DIR/backup.sh drill" in timer
+    assert '$SUDO bash "$ORACLE_DIR/backup.sh" drill-timer' in _code("install.sh")
+    update = _code("update.sh")
+    assert "systemctl is-enabled --quiet anum-drill.timer" in update and 'bash "$ORACLE_DIR/backup.sh" drill-timer' in update
+    env = _services()["api"]["environment"]
+    assert env["ANUM_SYSTEM_HEALTH_TENANT_ID"] == "${ANUM_SYSTEM_HEALTH_TENANT_ID:-}"
+    assert env["ANUM_SYSTEM_HEALTH_WORKSPACE_ID"] == "${ANUM_SYSTEM_HEALTH_WORKSPACE_ID:-}"
+    example = (ORACLE / ".env.example").read_text(encoding="utf-8")
+    assert "\nANUM_SYSTEM_HEALTH_TENANT_ID=\n" in example and "\nANUM_SYSTEM_HEALTH_WORKSPACE_ID=\n" in example

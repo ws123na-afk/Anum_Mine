@@ -80,6 +80,7 @@ import { portalAr } from './portal.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
 import { agentControlsAr } from './agentControls.ar.ts';
 import { billingAr } from './billing.ar.ts';
+import { systemHealthAr } from './systemHealth.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
 import { recordRetentionAr } from './recordRetention.ar.ts';
 import { attendanceAr } from './attendance.ar.ts';
@@ -189,6 +190,7 @@ export const ar: Record<MessageKey, Message> = {
   ...brevoAr,
   ...agentControlsAr,
   ...billingAr,
+  ...systemHealthAr,
   ...lifecycleAr,
   ...recordRetentionAr,
   ...attendanceAr,

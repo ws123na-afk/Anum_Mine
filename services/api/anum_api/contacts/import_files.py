@@ -59,16 +59,17 @@ def _unprocessable(detail: str) -> Exception:
 # ------------------------------------------------------------------------------------------------ Excel
 
 
-def decode_workbook(encoded: str) -> bytes:
-    """The workbook's bytes from the request's base64 text, size checked."""
+def decode_workbook(encoded: str, *, max_bytes: int = MAX_WORKBOOK_BYTES) -> bytes:
+    """The workbook's bytes from the request's base64 text, size checked (Vehicles' fleet import allows more)."""
     try:
         data = base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError):
         raise _unprocessable("The Excel file did not arrive whole. Choose it again.") from None
     if not data:
         raise _unprocessable("That file is empty.")
-    if len(data) > MAX_WORKBOOK_BYTES:
-        raise _error(status.HTTP_413_CONTENT_TOO_LARGE, "The Excel file is larger than 2 MB. Split it, or save it as CSV, and choose it again.")
+    if len(data) > max_bytes:
+        raise _error(status.HTTP_413_CONTENT_TOO_LARGE,
+                     f"The Excel file is larger than {max_bytes // 1_000_000} MB. Split it, or save it as CSV, and choose it again.")
     return data
 
 
@@ -92,14 +93,16 @@ def _plain_number(value: str) -> str:
     return value
 
 
-def read_workbook(data: bytes, *, max_rows: int, max_columns: int) -> Table:
-    """The first sheet of an .xlsx workbook as the import's table. Formulas are never evaluated."""
+def read_workbook(data: bytes, *, max_rows: int, max_columns: int, max_bytes: int = MAX_WORKBOOK_BYTES, noun: str = "people") -> Table:
+    """The first sheet of an .xlsx workbook as the import's table. Formulas are never evaluated.
+
+    ``max_bytes`` and ``noun`` let another import (Vehicles' fleet import) reuse the reader with its own limit and words."""
     from ..doc_extract import OLE_SIGNATURE, ExtractionError, ExtractionLimits, _Budget, _cell_value, _local, _Package, _relationship_id, _shared_strings
 
     if data.startswith(OLE_SIGNATURE):
         raise _unprocessable("This is an old Excel file (.xls) or a password-protected workbook. Open it in Excel and save it as .xlsx "
                              "(Excel Workbook) without a password, or as CSV, and choose it again.")
-    limits = ExtractionLimits(max_input_bytes=MAX_WORKBOOK_BYTES, max_seconds=10.0, max_zip_entries=500, max_part_bytes=16 * 1024 * 1024,
+    limits = ExtractionLimits(max_input_bytes=max_bytes, max_seconds=10.0, max_zip_entries=500, max_part_bytes=16 * 1024 * 1024,
                               max_uncompressed_bytes=48 * 1024 * 1024)
     try:
         package = _Package(data, limits)
@@ -152,7 +155,7 @@ def read_workbook(data: bytes, *, max_rows: int, max_columns: int) -> Table:
                 continue
             rows.append((number - header_number + 1, line))
             if len(rows) > max_rows:
-                raise _error(status.HTTP_413_CONTENT_TOO_LARGE, f"The sheet has more than {max_rows} people. Split it into files of at most {max_rows} rows.")
+                raise _error(status.HTTP_413_CONTENT_TOO_LARGE, f"The sheet has more than {max_rows} {noun}. Split it into files of at most {max_rows} rows.")
     except ExtractionError as exc:
         raise _unprocessable(f"The Excel file could not be read: {exc.message} Save it as .xlsx or CSV and choose it again.") from None
     if header is None:

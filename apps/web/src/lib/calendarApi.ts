@@ -2,7 +2,7 @@
 // own permission check: `calendar:read` lists, `calendar:write` adds, the creator or an owner changes.
 import { apiRequest, apiRequestVoid } from './api';
 import {
-  eventsQuery, type AttendeeResponse, type CalendarEventView, type EditScope, type ReplyScope, type EventPage, type InvitationRequest, type NextStep, type SyncConnection, type SyncProvider, type SyncSetup, type SyncSummary,
+  eventsQuery, type AttendeeResponse, type CalendarEventView, type EditScope, type ReplyScope, type EventPage, type InvitationRequest, type NextStep, type SyncConnection, type SyncProvider, type SyncSetup, type SyncSummary, type CalendarChoices,
 } from './calendar';
 
 const base = '/api/v1/calendar';
@@ -32,7 +32,11 @@ export const getNextSteps = () => apiRequest<{ items: NextStep[] }>(`${base}/nex
 // disconnecting need `calendar:manage` (owners); the status is readable by every role.
 const sync = `${base}/sync`;
 export const getSync = () => apiRequest<SyncSetup>(sync, { method: 'GET' });
-export const startConnect = (provider: SyncProvider) => apiRequest<{ authorization_url: string; expires_at: string }>(`${sync}/oauth/${provider}/start`, { method: 'POST' });
+export const startConnect = (provider: SyncProvider) => apiRequest<{ authorization_url: string; expires_at: string; request: string }>(`${sync}/oauth/${provider}/start`, { method: 'POST' });
+/** The account's calendars, fresh from the provider, and which sync (owners). */
+export const listCalendars = (id: string) => apiRequest<CalendarChoices>(`${sync}/connections/${encodeURIComponent(id)}/calendars`, { method: 'GET' });
+/** Chooses the calendars that sync besides the primary one (owners). */
+export const chooseCalendars = (id: string, selected: string[]) => apiRequest<CalendarChoices>(`${sync}/connections/${encodeURIComponent(id)}/calendars`, json('PUT', { selected }));
 export const completeConnect = (connection: string) => apiRequest<SyncConnection>(`${sync}/oauth/complete`, json('POST', { connection }));
 export const syncNow = (id: string) => apiRequest<{ connection: SyncConnection; summary: SyncSummary }>(`${sync}/connections/${encodeURIComponent(id)}/sync`, { method: 'POST' });
 export const disconnect = (id: string) => apiRequest<{ revoked_at_provider: boolean; events_kept: number; detail: string }>(`${sync}/connections/${encodeURIComponent(id)}`, { method: 'DELETE' });

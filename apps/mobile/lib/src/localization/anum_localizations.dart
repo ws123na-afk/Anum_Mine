@@ -25,6 +25,7 @@ import 'whatsapp_ops_strings.dart';
 import 'marketing_ops_strings.dart';
 import 'agent_skills_strings.dart';
 import 'owner_desk_strings.dart';
+import 'system_health_strings.dart';
 
 class AnumLocalizations {
   const AnumLocalizations(this.locale);
@@ -56,6 +57,7 @@ class AnumLocalizations {
       (isArabic ? appLockAr : appLockEn)[key] ??
       (isArabic ? adminDepthAr : adminDepthEn)[key] ??
       (isArabic ? ownerDeskAr : ownerDeskEn)[key] ??
+      (isArabic ? systemHealthAr : systemHealthEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -78,6 +80,7 @@ class AnumLocalizations {
       appLockEn[key] ??
       adminDepthEn[key] ??
       ownerDeskEn[key] ??
+      systemHealthEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

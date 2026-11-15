@@ -350,3 +350,129 @@ export interface VehicleDrivingEvent {
 }
 
 export interface VehicleRefusal { detail: string; code: string; [extra: string]: unknown }
+
+// ---- Running a client fleet (docs/vehicles.md#fleet) ------------------------------------------------------------
+
+export type FleetCategory = 'fuel' | 'service' | 'tyres' | 'other';
+export type FleetMoney = Record<FleetCategory, string> & { currency: string; total: string };
+
+/** One vehicle's month in GET /api/v1/vehicles/fleet/costs: kilometres, litres and its costs per currency. */
+export interface FleetVehicleRow {
+  vehicle_id: string;
+  registration: string;
+  nickname: string | null;
+  make: string | null;
+  model: string | null;
+  currency: string;
+  archived: boolean;
+  distance_km: string;
+  previous_distance_km: string;
+  fuel_litres: string;
+  litres_per_100km: string | null;
+  costs: (FleetMoney & { previous_total: string; cost_per_km: string | null })[];
+}
+
+/** A month of the fleet, per currency: costs by category, kilometres of the vehicles kept in that currency, cost per km. */
+export interface FleetMonth extends FleetMoney {
+  month: string;
+  distance_km: string;
+  cost_per_km: string | null;
+}
+
+export interface FleetTotal extends FleetMonth {
+  previous_total: string;
+  /** From linked payments and business allocations. */
+  linked: string;
+  /** From the figures on the records (pump and receipt totals), as an imported client fleet carries them. */
+  recorded: string;
+}
+
+export interface FleetWorst { vehicle_id: string; registration: string; nickname: string | null; currency: string; cost_per_km: string | null; total: string; distance_km: string }
+export interface FleetRenewal { vehicle_id: string; registration: string; nickname: string | null; kind: 'insurance' | 'registration' | 'inspection'; due_on: string; days_left: number }
+
+/** The Tyre planning snapshot beside the figures (read only, never added to them). */
+export interface FleetTyres {
+  status: 'ok' | 'denied' | 'not_connected' | 'not_synced';
+  matched: number;
+  currency?: string;
+  synced_at?: string | null;
+  tyre_cost?: string;
+  tyres_due?: number;
+  vehicles: { vehicle_id: string; registration: string; tyre_vehicle: string; tyre_cost: string; tyres_due: number; next_removal: string | null }[];
+}
+
+export interface FleetCosts {
+  month: string;
+  start: string;
+  end: string;
+  /** The twelve months to `month`, oldest first. */
+  months: string[];
+  vehicles: number;
+  distance_km: string;
+  fuel_litres: string;
+  totals: FleetTotal[];
+  trend: FleetMonth[];
+  rows: FleetVehicleRow[];
+  worst: FleetWorst[];
+  renewals: FleetRenewal[];
+  tyres: FleetTyres;
+  generated_at: string;
+}
+
+/** POST /api/v1/vehicles/fleet/report: a PDF or Excel file, made for the request and never stored or sent. */
+export interface FleetReportInput {
+  month: string;
+  language: 'en' | 'ar';
+  format: 'pdf' | 'xlsx';
+  company_name: string;
+  notes?: string;
+}
+
+export type FleetImportKind = 'vehicles' | 'fuel' | 'service' | 'odometer';
+export type FleetRowStatus = 'new' | 'exists' | 'duplicate_in_file' | 'imported' | 'invalid';
+export type FleetRowAction = 'create' | 'update' | 'skip';
+export type FleetIssueCode = 'required' | 'number' | 'date' | 'future' | 'range' | 'choice' | 'unknown_vehicle' | 'ambiguous_vehicle' | 'archived_vehicle'
+  | 'odometer' | 'registration' | 'vin' | 'currency' | 'other';
+
+export interface FleetImportFile {
+  kind: FleetImportKind;
+  format: 'csv' | 'xlsx';
+  csv?: string;
+  file_base64?: string;
+  file_name?: string;
+  /** Field to column; omitted: the server suggests one from the headers. */
+  mapping?: Record<string, string> | null;
+  country?: 'SA' | 'AE';
+  date_order?: 'dmy' | 'mdy';
+}
+
+export interface FleetImportRow {
+  row: number;
+  registration: string;
+  summary: Record<string, string | null>;
+  status: FleetRowStatus;
+  action: FleetRowAction;
+  actions: FleetRowAction[];
+  vehicle_id: string | null;
+  duplicate_of: number | null;
+  issues: { code: FleetIssueCode; field: string | null; value: string; text: string }[];
+}
+
+export interface FleetImportPreview {
+  kind: FleetImportKind;
+  columns: string[];
+  fields: { field: string; required: boolean }[];
+  mapping: Record<string, string>;
+  suggested: boolean;
+  rows: FleetImportRow[];
+  counts: { rows: number; new: number; exists: number; duplicate_in_file: number; imported: number; invalid: number };
+  fingerprint: string;
+}
+
+export interface FleetImportApply extends FleetImportFile {
+  mapping: Record<string, string>;
+  fingerprint: string;
+  decisions: { row: number; action: FleetRowAction }[];
+}
+
+export interface FleetImportResult { kind: FleetImportKind; rows: number; created: number; updated: number; skipped: number; readings: number }

@@ -100,6 +100,19 @@ class FakeCalendars:
         self.graph_instances: dict[str, list[dict[str, Any]]] = {}
         # Series masters by id (events/{id}); an id not here answers 404.
         self.graph_masters: dict[str, dict[str, Any]] = {}
+        # The account's calendars and the events of the other calendars (docs/calendar.md#choosing-calendars).
+        self.google_calendars: list[dict[str, Any]] = [
+            {"id": "owner@example.com", "summary": "Owner One", "primary": True, "accessRole": "owner", "backgroundColor": "#3366cc"},
+            {"id": "team@group.calendar.google.com", "summary": "Team", "accessRole": "writer", "backgroundColor": "#0b8043"},
+            {"id": "en.uae#holiday@group.v.calendar.google.com", "summary": "Holidays", "accessRole": "reader"},
+        ]
+        self.google_other: dict[str, list[dict[str, Any]]] = {"team@group.calendar.google.com": [google_item("t1", "Team offsite", 50)]}
+        self.calendar_list_status = 200
+        self.graph_calendars: list[dict[str, Any]] = [
+            {"id": "AAMkCal1=", "name": "Calendar", "isDefaultCalendar": True, "canEdit": True, "hexColor": "#0078d4"},
+            {"id": "AAMkCal2=", "name": "Fleet bookings", "isDefaultCalendar": False, "canEdit": False, "hexColor": ""},
+        ]
+        self.graph_other: dict[str, list[dict[str, Any]]] = {"AAMkCal2=": [graph_item("b1", "Truck 12 service", 9)]}
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         host, path = request.url.host, request.url.path
@@ -131,6 +144,16 @@ class FakeCalendars:
     def _google(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"].startswith("Bearer google-access-")
         params = dict(request.url.params)
+        if request.url.path == "/calendar/v3/users/me/calendarList":
+            if self.calendar_list_status != 200:
+                return httpx.Response(self.calendar_list_status, json={"error": {"message": "Request had insufficient authentication scopes."}})
+            return httpx.Response(200, json={"items": self.google_calendars})
+        if request.url.path.startswith("/calendar/v3/calendars/") and not request.url.path.startswith("/calendar/v3/calendars/primary/"):
+            calendar_id = request.url.path.split("/")[4]
+            from urllib.parse import unquote as _unquote
+            self.google_query.append({**params, "calendar": _unquote(calendar_id)})
+            assert params["singleEvents"] == "true"
+            return httpx.Response(200, json={"items": self.google_other.get(_unquote(calendar_id), [])})
         path = request.url.path.removeprefix("/calendar/v3/calendars/primary/events")
         if request.method == "GET" and path.endswith("/instances"):
             self.google_query.append({**params, "instances": path})
@@ -169,6 +192,13 @@ class FakeCalendars:
         self.graph_calls.append(f"{request.method} {path}")
         if path == "":
             return httpx.Response(200, json={"mail": "owner@contoso.example", "displayName": "Owner Two"})
+        if path == "/calendars":
+            return httpx.Response(200, json={"value": self.graph_calendars})
+        if path.startswith("/calendars/") and path.endswith("/calendarView"):
+            from urllib.parse import unquote as _unquote
+            calendar_id = _unquote(path.split("/")[2])
+            self.graph_params.append({**params, "calendar": calendar_id})
+            return httpx.Response(200, json={"value": self.graph_other.get(calendar_id, [])})
         if request.method == "GET" and path.endswith("/instances"):
             self.graph_params.append({**params, "instances": path})
             return httpx.Response(200, json={"value": self.graph_instances.get(path.split("/")[2], [])})
@@ -707,3 +737,102 @@ def test_a_graph_change_to_an_event_with_people_waits_for_approval(fake: FakeCal
     patch = [w for w in fake.graph_writes if w["method"] == "PATCH"][-1]
     assert patch["subject"] == "Teams stand-up (new time)" and patch["attendees"][0]["emailAddress"]["address"] == "vinay@contoso.example"
     assert by_title("Teams stand-up (new time)")["sync_state"] == "synced"
+
+
+# -- choosing calendars and connecting from the phone ------------------------------------------------
+
+
+def test_owners_choose_other_calendars_which_sync_read_only(fake: FakeCalendars) -> None:
+    connection = connect()
+    assert connection["calendars"] == []
+    url = f"/api/v1/calendar/sync/connections/{connection['id']}/calendars"
+    assert client.get(url, headers=MEMBER).status_code == 403
+    listed = client.get(url, headers=OWNER).json()
+    assert [(c["name"], c["primary"], c["selected"]) for c in listed["calendars"]] == [
+        ("Owner One", True, True), ("Holidays", False, False), ("Team", False, False)]
+    assert listed["max_extra"] == 10
+    assert client.put(url, headers=MEMBER, json={"selected": ["team@group.calendar.google.com"]}).status_code == 403
+    assert client.put(url, headers=OWNER, json={"selected": ["someone-else@example.com"]}).status_code == 422
+    chosen = client.put(url, headers=OWNER, json={"selected": ["team@group.calendar.google.com"]})
+    assert chosen.status_code == 200, chosen.text
+    assert [c["name"] for c in chosen.json()["calendars"] if c["selected"]] == ["Owner One", "Team"]
+    # Choosing a new calendar reads it at once; its events are copies that follow the provider.
+    offsite = by_title("Team offsite")
+    assert offsite["connection_id"] == connection["id"] and offsite["external_id"].endswith("~t1")
+    assert offsite["source_ref"] == "calendar_copy"
+    setup = client.get("/api/v1/calendar/sync", headers=VIEWER).json()["connections"][0]
+    assert [c["name"] for c in setup["calendars"] if c["selected"]] == ["Owner One", "Team"]
+    # A change at the provider is copied; nothing is ever written to that calendar.
+    fake.google_other["team@group.calendar.google.com"] = [google_item("t1", "Team offsite (moved)", 52, etag='"e2"', updated=stamp(-0.5))]
+    sync(connection["id"])
+    assert by_title("Team offsite (moved)")["id"] == offsite["id"]
+    assert not any(w.get("summary", "").startswith("Team offsite") for w in fake.google_writes)
+    # Gone at the provider: gone here.
+    fake.google_other["team@group.calendar.google.com"] = []
+    summary = sync(connection["id"])["summary"]
+    assert summary["deleted"] == 1 and summary["calendars_read"] == 1
+    assert not any(e["title"].startswith("Team offsite") for e in events())
+    # No longer chosen: its copies go.
+    fake.google_other["team@group.calendar.google.com"] = [google_item("t2", "Team lunch", 60)]
+    sync(connection["id"])
+    assert by_title("Team lunch")
+    client.put(url, headers=OWNER, json={"selected": []})
+    assert not any(e["title"] == "Team lunch" for e in events())
+    assert by_title("Fleet review")["external_id"] == "g1"  # the primary calendar is untouched
+    actions = [r.action for r in store.audit_records]
+    assert "calendar.connection.calendars_chosen" in actions
+
+
+def test_microsoft_other_calendars_and_a_missing_permission(fake: FakeCalendars) -> None:
+    connection = connect("microsoft")
+    url = f"/api/v1/calendar/sync/connections/{connection['id']}/calendars"
+    listed = client.get(url, headers=OWNER).json()["calendars"]
+    assert [(c["name"], c["primary"], c["can_edit"]) for c in listed] == [("Calendar", True, True), ("Fleet bookings", False, False)]
+    assert client.put(url, headers=OWNER, json={"selected": ["AAMkCal2="]}).status_code == 200
+    assert by_title("Truck 12 service")["source_ref"] == "calendar_copy"
+    assert any(p.get("calendar") == "AAMkCal2=" and "startDateTime" in p for p in fake.graph_params)
+    # A Google connection made before the calendar list permission says how to fix it.
+    google = connect()
+    fake.calendar_list_status = 403
+    refused = client.get(f"/api/v1/calendar/sync/connections/{google['id']}/calendars", headers=OWNER)
+    assert refused.status_code == 409 and "connect Google Calendar again" in refused.json()["error"]["message"]
+
+
+def test_a_copy_is_never_sent_back_even_after_a_local_edit(fake: FakeCalendars) -> None:
+    connection = connect()
+    client.put(f"/api/v1/calendar/sync/connections/{connection['id']}/calendars", headers=OWNER, json={"selected": ["team@group.calendar.google.com"]})
+    offsite = by_title("Team offsite")
+    changed = client.patch(f"/api/v1/calendar/events/{offsite['id']}", headers=OWNER, json={"title": "Team offsite (ours)"})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["sync_state"] != "pending_push"
+    sync(connection["id"])
+    assert not any(w.get("method") in ("POST", "PATCH") and "Team offsite" in str(w.get("summary")) for w in fake.google_writes)
+
+
+def test_connecting_from_the_phone_returns_to_the_app(fake: FakeCalendars) -> None:
+    started = client.post("/api/v1/calendar/sync/oauth/google/start", headers=OWNER, json={"client": "phone"})
+    assert started.status_code == 200, started.text
+    body = started.json()
+    assert body["request"].startswith("coc")
+    query = parse_qs(urlsplit(body["authorization_url"]).query)
+    assert query["code_challenge_method"] == ["S256"] and "client_secret" not in query
+    # Before the sign-in finishes, completing says to finish it.
+    waiting = client.post("/api/v1/calendar/sync/oauth/complete", headers=OWNER, json={"connection": body["request"]})
+    assert waiting.status_code == 409
+    back = client.get("/api/v1/calendar/sync/oauth/callback", params={"state": query["state"][0], "code": "example-code"}, follow_redirects=False)
+    assert back.status_code == 200 and back.headers["content-type"].startswith("text/html")
+    assert back.headers["cache-control"] == "no-store" and "default-src 'none'" in back.headers["content-security-policy"]
+    assert f"com.anum.app:/calendar-connected?calendar_connect={body['request']}" in back.text
+    assert "example-code" not in back.text
+    # Someone else cannot finish it; the person who started it can, once.
+    assert client.post("/api/v1/calendar/sync/oauth/complete", headers={**OWNER, "x-user-id": "owner_two"}, json={"connection": body["request"]}).status_code == 403
+    done = client.post("/api/v1/calendar/sync/oauth/complete", headers=OWNER, json={"connection": body["request"]})
+    assert done.status_code == 201 and done.json()["email"] == "owner@example.com"
+    assert client.post("/api/v1/calendar/sync/oauth/complete", headers=OWNER, json={"connection": body["request"]}).status_code == 404
+    # A declined sign-in also goes back to the app, which then shows the reason.
+    again = client.post("/api/v1/calendar/sync/oauth/microsoft/start", headers=OWNER, json={"client": "phone"}).json()
+    state = parse_qs(urlsplit(again["authorization_url"]).query)["state"][0]
+    declined = client.get("/api/v1/calendar/sync/oauth/callback", params={"state": state, "error": "access_denied"}, follow_redirects=False)
+    assert "com.anum.app:/calendar-connected?calendar_connect=" in declined.text
+    refused = client.post("/api/v1/calendar/sync/oauth/complete", headers=OWNER, json={"connection": again["request"]})
+    assert refused.status_code == 400 and "access_denied" in refused.json()["error"]["message"]

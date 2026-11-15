@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .. import delivery
 from ..audit import AuditRecord
@@ -177,7 +177,7 @@ def _setup(context: TenantContext) -> SetupView:
         presets=sorted(PRESETS),
         can_manage=has_permission(context, Permission.TYRE_MANAGE),
         can_operate=has_permission(context, Permission.TYRE_OPERATE),
-        delivery_channels=sorted(delivery.channels()),
+        delivery_channels=sorted(delivery.channels(context=context)),
     )
 
 
@@ -185,7 +185,8 @@ def _setup(context: TenantContext) -> SetupView:
 async def get_setup(context: TenantContext = Depends(tenant_context)) -> SetupView:
     """Connection, mapping, assumptions, last discovery and last sync of the workspace."""
     _read(context)
-    return _setup(context)
+    # The delivery channels read the workspace's WhatsApp connection: off the event loop.
+    return await asyncio.to_thread(_setup, context)
 
 
 class ConnectionInput(BaseModel):
@@ -793,6 +794,14 @@ class DeliveryInput(BaseModel):
             raise ValueError("Enter one email address or one phone number in international format.")
         return value
 
+    @model_validator(mode="after")
+    def _fits_channel(self) -> DeliveryInput:
+        if self.channel == "email" and "@" not in self.to:
+            raise ValueError("Email delivery needs one email address.")
+        if self.channel == "whatsapp" and "@" in self.to:
+            raise ValueError("WhatsApp delivery needs one phone number in international format, such as +971501234567.")
+        return self
+
 
 class DeliveryView(BaseModel):
     status: str
@@ -870,7 +879,7 @@ delivery.register_attachment_resolver(REPORT_ATTACHMENT_KIND, _resolve_report_at
 @router.get("/delivery-channels")
 async def delivery_channels(context: TenantContext = Depends(tenant_context)) -> dict[str, list[str]]:
     _read(context)
-    return {"channels": sorted(delivery.channels())}
+    return {"channels": sorted(await asyncio.to_thread(delivery.channels, None, context))}
 
 
 # --- report schedules (automation) -------------------------------------------------------------

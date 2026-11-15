@@ -337,6 +337,7 @@ _ORDER = (
     "tyre_alerts",
     "tyre_snapshots",
     "tyre_connections",
+    "command_step_continuations",
     "commands",
     "quick_commands",
     "whatsapp_messages",

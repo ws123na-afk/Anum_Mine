@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { setLocale } from '../src/lib/i18n.ts';
 import {
-  ago, connectionBody, connectionDraft, emptyMapping, forecastQuery, hasOperations, isRecipient, mappingProblems, monthBars, newAlerts, pageRange, parsePrices,
+  ago, connectionBody, connectionDraft, emptyMapping, forecastQuery, hasOperations, isRecipient, channelLabel, mappingProblems, monthBars, newAlerts, pageRange, parsePrices,
   scheduleBody, setEntityField, setEntitySource, wizardSteps,
   type ConnectionView, type FieldSpec, type OperationsSummary, type SourceTable, type TyreAlert, type TyreSetup,
 } from '../src/lib/tyre.ts';
@@ -98,6 +98,11 @@ describe('tyre helpers', () => {
     });
     assert.ok(isRecipient('fleet@example.com') && isRecipient('+966 500 000 000'));
     assert.ok(!isRecipient('a@b') && !isRecipient('one@example.com, two@example.com'));
+    assert.ok(isRecipient('fleet@example.com', 'email') && !isRecipient('+966 500 000 000', 'email'));
+    assert.ok(isRecipient('+966 500 000 000', 'whatsapp') && !isRecipient('fleet@example.com', 'whatsapp'));
+    assert.equal(channelLabel('email'), 'Email');
+    assert.equal(channelLabel('whatsapp'), 'WhatsApp');
+    assert.equal(channelLabel('fax'), 'fax');
     assert.deepEqual(scheduleBody({ kind: 'fleet_health', cadence: 'weekly', weekday: 0, time: '07:00', timezone: 'Asia/Riyadh', channel: '', to: '', format: 'pdf' }).delivery, null);
     assert.deepEqual(scheduleBody({ kind: 'fleet_health', cadence: 'daily', weekday: 0, time: '07:00', timezone: 'UTC', channel: 'email', to: ' x@example.com ', format: 'csv' }).delivery, { channel: 'email', to: 'x@example.com', format: 'csv' });
     assert.equal(forecastQuery({ q: ' sn ', month: '2026-10', confidence: '', state: 'due', limit: 25, offset: 50 }), 'limit=25&offset=50&q=sn&month=2026-10&state=due');

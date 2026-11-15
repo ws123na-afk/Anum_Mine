@@ -21,6 +21,8 @@ export interface VehiclesState {
   cashTransactions: Set<string>;
   /** This business's allocations the caller made (docs/vehicles.md#business-allocations). */
   allocations: Row[];
+  /** Fleet import (docs/vehicles.md#fleet-import): the files applied, as the server would count them. */
+  imports: Row[];
 }
 
 const vehicle = (id: string, registration: string, extra: Row = {}): Row => ({
@@ -69,6 +71,7 @@ export function vehiclesState({ empty = false, denied = false, failOverview = fa
     accounts: [{ id: 'fin_acc_cash', name: 'Wallet', kind: 'cash', currency: 'SAR' }],
     denied, failOverview, links: 1, cashTransactions: new Set(),
     allocations: vanFuel ? [{ allocation_id: 'alloc_1', posted_on: day(-1), amount: '150.00', currency: 'SAR', category: 'fuel', memo: 'Van diesel', source_ref: 'a1b2c3' }] : [],
+    imports: [],
   };
 }
 
@@ -91,6 +94,56 @@ function report(state: VehiclesState, vehicleId: string): Row {
 
 const refusal = (status: number, detail: string, code: string) => ({ status, body: { detail, code } });
 
+/** The month labels of the twelve months to `month` (YYYY-MM), oldest first. */
+function monthsTo(month: string): string[] {
+  const [year, number] = month.split('-').map(Number);
+  return Array.from({ length: 12 }, (_, i) => { const d = new Date(Date.UTC(year, number - 1 - (11 - i), 1)); return d.toISOString().slice(0, 7); });
+}
+
+/** GET /fleet/costs: the business vehicles with record figures, the worst vehicle, renewals and no Tyre planning. */
+export function fleetCosts(state: VehiclesState, month: string): Row {
+  const business = state.vehicles.filter((v) => v.ownership === 'business');
+  const zero = { fuel: '0.00', service: '0.00', tyres: '0.00', other: '0.00' };
+  const rows = business.map((v, i) => ({ vehicle_id: v.id, registration: v.registration, nickname: v.nickname ?? (i === 0 ? 'Van 1' : null), make: v.make, model: v.model, currency: 'AED',
+    archived: false, distance_km: i === 0 ? '1000.0' : '50.0', previous_distance_km: '800.0', fuel_litres: i === 0 ? '300.000' : '20.000', litres_per_100km: i === 0 ? '30.00' : null,
+    costs: [i === 0 ? { currency: 'AED', fuel: '900.00', service: '450.00', tyres: '2400.00', other: '50.00', total: '3800.00', previous_total: '600.00', cost_per_km: '3.800' }
+      : { currency: 'AED', ...zero, fuel: '150.00', total: '150.00', previous_total: '0.00', cost_per_km: '3.000' }] }));
+  const months = monthsTo(month);
+  const trend = rows.length ? months.map((m, i) => ({ month: m, currency: 'AED', ...zero, fuel: m === month ? '1050.00' : `${400 + i * 10}.00`, total: m === month ? '3950.00' : `${400 + i * 10}.00`,
+    distance_km: m === month ? '1050.0' : '800.0', cost_per_km: m === month ? '3.762' : '0.500' })) : [];
+  return {
+    month, start: `${month}-01`, end: `${month}-28`, months, vehicles: rows.length, distance_km: rows.length ? '1050.0' : '0.0', fuel_litres: rows.length ? '320.000' : '0.000',
+    totals: rows.length ? [{ month, currency: 'AED', fuel: '1050.00', service: '450.00', tyres: '2400.00', other: '50.00', total: '3950.00', distance_km: '1050.0', cost_per_km: '3.762',
+      previous_total: '600.00', linked: '0.00', recorded: '3950.00' }] : [],
+    trend, rows, worst: rows.length ? [{ vehicle_id: rows[0].vehicle_id, registration: rows[0].registration, nickname: rows[0].nickname, currency: 'AED', cost_per_km: '3.800', total: '3800.00', distance_km: '1000.0' }] : [],
+    renewals: business.map((v) => ({ vehicle_id: v.id, registration: v.registration, nickname: null, kind: 'insurance', due_on: day(12), days_left: 12 })),
+    tyres: { status: 'not_connected', matched: 0, vehicles: [] }, generated_at: stamp,
+  };
+}
+
+/** POST /fleet/import/preview and /apply: a fuel file with one new row, one repeated row and one with a problem. */
+function fleetImport(state: VehiclesState, sub: string, b: Row): { status: number; body: unknown } {
+  const text = String(b.csv ?? '');
+  const columns = (text.split(/\r?\n/)[0] ?? '').split(',').map((c) => c.trim()).filter(Boolean);
+  const mapping = (b.mapping as Record<string, string> | null) ?? Object.fromEntries([['registration', columns[0]], ['date', columns[1]], ['litres', columns[2]]].filter(([, c]) => c));
+  const fields = ['registration', 'date', 'litres', 'total', 'price_per_litre', 'odometer_km', 'station', 'fuel_type', 'full_tank', 'currency', 'notes']
+    .map((field) => ({ field, required: ['registration', 'date', 'litres'].includes(field) }));
+  const rows = [
+    { row: 2, registration: 'VAN 77', summary: { date: day(-3), litres: '60', total: '150', odometer_km: '20100', currency: 'AED' }, status: 'new', action: 'create', actions: ['create', 'skip'], vehicle_id: 'veh_van', duplicate_of: null, issues: [] },
+    { row: 3, registration: 'VAN 77', summary: { date: day(-3), litres: '60', total: '150', odometer_km: '20100', currency: 'AED' }, status: 'duplicate_in_file', action: 'skip', actions: ['skip', 'create'], vehicle_id: 'veh_van', duplicate_of: 2, issues: [] },
+    { row: 4, registration: 'ZZZ 9', summary: { date: day(-2), litres: 'ten', total: null, odometer_km: null, currency: null }, status: 'invalid', action: 'skip', actions: ['skip'], vehicle_id: null, duplicate_of: null,
+      issues: [{ code: 'number', field: 'litres', value: 'ten', text: "'ten' is not a number." }] },
+  ];
+  if (sub === '/fleet/import/preview') {
+    return { status: 200, body: { kind: b.kind, columns, fields, mapping, suggested: !b.mapping, rows, counts: { rows: 3, new: 1, exists: 0, duplicate_in_file: 1, imported: 0, invalid: 1 }, fingerprint: 'f'.repeat(64) } };
+  }
+  const decisions = (b.decisions as { row: number; action: string }[] | undefined) ?? [];
+  if (decisions.some((d) => d.row === 4 && d.action !== 'skip')) return refusal(409, "Nothing was imported. Row 4: 'ten' is not a number. Fix the file or skip those rows, then preview again.", 'rows_refused');
+  const created = 1 + decisions.filter((d) => d.row === 3 && d.action === 'create').length;
+  state.imports.push({ kind: b.kind, decisions });
+  return { status: 200, body: { kind: b.kind, rows: 3, created, updated: 0, skipped: 3 - created, readings: created } };
+}
+
 export function vehiclesReply(state: VehiclesState, method: string, url: URL, body: unknown): { status: number; body: unknown } | null {
   const path = url.pathname;
   if (path === '/api/v1/finance/accounts' && method === 'GET') return { status: 200, body: state.accounts };
@@ -98,6 +151,8 @@ export function vehiclesReply(state: VehiclesState, method: string, url: URL, bo
   if (state.denied) return { status: 403, body: { error: { code: 'forbidden', message: 'Vehicles are for workspace owners and members. Ask a workspace owner to change your role from viewer to member.', details: [] } } };
   const sub = path.slice('/api/v1/vehicles'.length);
   const b = (body ?? {}) as Row;
+  if (method === 'GET' && sub === '/fleet/costs') return { status: 200, body: fleetCosts(state, url.searchParams.get('month') ?? day(0).slice(0, 7)) };
+  if (method === 'POST' && sub.startsWith('/fleet/import/')) return fleetImport(state, sub, b);
   const page = (rows: Row[]) => {
     const q = (url.searchParams.get('q') ?? '').toLowerCase();
     const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 20);

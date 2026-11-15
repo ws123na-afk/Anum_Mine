@@ -2,10 +2,10 @@
 // the connected ones with their health and what to do when one needs attention, Sync now and
 // Disconnect. Connecting hands the browser to the provider; it comes back to `#calendar` and the
 // page finishes the connection (CalendarView). Owners connect; everyone sees the status.
-import { useId, useState } from 'react';
-import { CalendarCheck, Link2, RefreshCw, Unplug } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
+import { CalendarCheck, Link2, ListChecks, RefreshCw, Unplug } from 'lucide-react';
 import * as calendarApi from './lib/calendarApi';
-import { minutesSince, type SyncConnection, type SyncProviderSetup, type SyncSetup } from './lib/calendar';
+import { chosenIds, extraCalendars, minutesSince, type CalendarChoices, type SyncConnection, type SyncProviderSetup, type SyncSetup } from './lib/calendar';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog } from './Dialog';
@@ -23,10 +23,66 @@ export function agoText(value: string | null, now: Date = new Date()): string {
 
 const TONE = { connected: 'success', error: 'warning', reauth_required: 'dangerTone' } as const;
 
+type ChoiceLoad = { kind: 'loading' } | { kind: 'error'; text: string } | { kind: 'ready'; value: CalendarChoices };
+
+/** Which of the account's calendars sync (docs/calendar.md#choosing-calendars): the list comes fresh from
+ * the provider; the primary calendar always syncs both ways, the others chosen are read only. */
+export function CalendarChoicePanel({ connection, onSaved, onClose }: { connection: SyncConnection; onSaved: (note: string) => void; onClose: () => void }) {
+  const [load, setLoad] = useState<ChoiceLoad>({ kind: 'loading' });
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ids = { heading: useId(), error: useId() };
+  async function fetchList() {
+    setLoad({ kind: 'loading' }); setError(null);
+    try {
+      const value = await calendarApi.listCalendars(connection.id);
+      setLoad({ kind: 'ready', value }); setPicked(new Set(value.calendars.filter((c) => c.selected).map((c) => c.id)));
+    } catch (e) { setLoad({ kind: 'error', text: describeError(e) }); }
+  }
+  useEffect(() => { void fetchList(); }, [connection.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function save() {
+    if (load.kind !== 'ready') return;
+    const chosen = chosenIds(load.value.calendars, picked, load.value.max_extra);
+    if (!chosen.ok) { setError(t('calendar.choose.tooMany', { max: load.value.max_extra })); return; }
+    setSaving(true); setError(null);
+    try {
+      const saved = await calendarApi.chooseCalendars(connection.id, chosen.ids);
+      onSaved(t('calendar.choose.saved', { count: saved.calendars.filter((c) => c.selected && !c.primary).length, email: connection.email }));
+    } catch (e) { setError(describeError(e)); } finally { setSaving(false); }
+  }
+  const toggle = (id: string, on: boolean) => setPicked((now) => { const next = new Set(now); if (on) next.add(id); else next.delete(id); return next; });
+  return <section className="calendarChoices" aria-labelledby={ids.heading} aria-busy={load.kind === 'loading'}>
+    <h4 id={ids.heading}>{t('calendar.choose.title', { email: connection.email })}</h4>
+    <p className="muted">{t('calendar.choose.lead')}</p>
+    {load.kind === 'loading' && <p className="notice" role="status">{t('calendar.choose.loading', { provider: connection.provider_name })}</p>}
+    {load.kind === 'error' && <div className="notice errorNotice" role="alert"><p>{t('calendar.choose.loadFailed', { reason: load.text })}</p>
+      <div className="actions"><button type="button" className="secondary" onClick={() => void fetchList()}>{t('calendar.choose.retry')}</button></div></div>}
+    {load.kind === 'ready' && (load.value.calendars.length === 0
+      ? <p className="notice" role="status">{t('calendar.choose.empty', { provider: connection.provider_name })}</p>
+      : <fieldset className="calendarChoiceList" aria-describedby={error ? ids.error : undefined}>
+        <legend className="visuallyHidden">{t('calendar.choose.legend')}</legend>
+        {load.value.calendars.map((calendar) => <label key={calendar.id} className="calendarChoice">
+          <input type="checkbox" checked={calendar.primary || picked.has(calendar.id)} disabled={calendar.primary || saving}
+            onChange={(e) => toggle(calendar.id, e.target.checked)} />
+          <span className="calendarChoiceSwatch" aria-hidden="true" style={calendar.color ? { background: calendar.color } : undefined} />
+          <span className="calendarChoiceName"><bdi>{calendar.name}</bdi>
+            <small className="muted">{calendar.primary ? t('calendar.choose.primary') : t('calendar.choose.readOnly')}</small></span>
+        </label>)}
+      </fieldset>)}
+    {error && <p id={ids.error} className="notice errorNotice" role="alert">{error}</p>}
+    <div className="actions">
+      {load.kind === 'ready' && load.value.calendars.length > 0 && <button type="button" disabled={saving} onClick={() => void save()}>{saving ? t('calendar.choose.saving') : t('calendar.choose.save')}</button>}
+      <button type="button" className="secondary" disabled={saving} onClick={onClose}>{t('calendar.choose.close')}</button>
+    </div>
+  </section>;
+}
+
 export function SyncPanel({ setup, onChanged }: { setup: SyncSetup; onChanged: (note: string) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<SyncConnection | null>(null);
+  const [choosing, setChoosing] = useState<string | null>(null);
   const headingId = useId();
 
   async function connect(provider: SyncProviderSetup) {
@@ -82,6 +138,10 @@ export function SyncPanel({ setup, onChanged }: { setup: SyncSetup; onChanged: (
               {t('calendar.sync.pass', { created: summary.created ?? 0, updated: summary.updated ?? 0, deleted: summary.deleted ?? 0, pushed: summary.pushed ?? 0 })}
               {((summary.conflicts_remote_won ?? 0) + (summary.conflicts_local_won ?? 0)) > 0 && ` ${t('calendar.sync.conflicts', { remote: summary.conflicts_remote_won ?? 0, local: summary.conflicts_local_won ?? 0 })}`}
             </p>}
+            {extraCalendars(connection).length > 0 && <p className="muted calendarConnectionMeta">
+              {t('calendar.choose.also', { names: extraCalendars(connection).map((c) => c.name).join(', ') })}</p>}
+            {(summary?.calendar_errors?.length ?? 0) > 0 && <p className="notice" role="status">
+              {t('calendar.choose.readFailed', { reasons: (summary.calendar_errors ?? []).join('; ') })}</p>}
             {connection.status !== 'connected' && <div className="notice errorNotice" role="alert">
               {connection.last_error && <p>{t('calendar.sync.error', { reason: connection.last_error })}</p>}
               <p>{t(`calendar.sync.fix.${connection.status}` as MessageKey, { provider: connection.provider_name })}</p>
@@ -91,8 +151,12 @@ export function SyncPanel({ setup, onChanged }: { setup: SyncSetup; onChanged: (
                 && <button type="button" disabled={busy !== null} onClick={() => void connect(provider)}><Link2 aria-hidden="true" />{t('calendar.sync.reconnect', { provider: connection.provider_name })}</button>}
               <button type="button" className="secondary" disabled={busy !== null || connection.status === 'reauth_required'} onClick={() => void syncNow(connection)}>
                 <RefreshCw aria-hidden="true" />{busy === `sync:${connection.id}` ? t('calendar.sync.syncing') : t('calendar.sync.now')}</button>
+              {connection.status !== 'reauth_required' && <button type="button" className="secondary" disabled={busy !== null} aria-expanded={choosing === connection.id}
+                onClick={() => setChoosing(choosing === connection.id ? null : connection.id)}><ListChecks aria-hidden="true" />{t('calendar.choose.open')}</button>}
               <button type="button" className="secondary" disabled={busy !== null} onClick={() => setConfirm(connection)}><Unplug aria-hidden="true" />{t('calendar.sync.disconnect')}</button>
             </div>}
+            {setup.can_manage && choosing === connection.id && <CalendarChoicePanel connection={connection} onClose={() => setChoosing(null)}
+              onSaved={(note) => { setChoosing(null); onChanged(note); }} />}
           </li>;
         })}
       </ul>}

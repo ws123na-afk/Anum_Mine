@@ -440,3 +440,39 @@ def test_a_slow_tyre_lookup_for_voice_times_out_without_blocking_the_event_loop(
     assert grounding is not None and grounding.result.status == "failed"
     assert "timed out" in grounding.result.summary and grounding.result.audit_metadata["outcome"] == "timeout"
     assert ticks >= 5  # the event loop kept running while the lookup was computing
+
+
+def test_report_by_email_through_the_real_email_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The registered email delivery tool (docs/tools-and-integrations.md#delivery): a channel only
+    with a mail server, nothing sent before the approval, then the approved PDF attached."""
+    from anum_api import notifications
+    from anum_api.delivery_tools import EMAIL_TOOL
+    from anum_api.settings import settings
+
+    connect_and_sync()
+    report = client.post(f"{API}/reports", headers=MEMBER, json={"kind": "fleet_health"}).json()
+    monkeypatch.setattr(settings, "smtp_host", None)
+    assert "email" not in client.get(f"{API}/delivery-channels", headers=VIEWER).json()["channels"]
+    refused = client.post(f"{API}/reports/{report['id']}/deliver", headers=MEMBER, json={"channel": "email", "to": "fleet@example.com"})
+    assert refused.status_code == 409 and "ANUM_SMTP_HOST" in refused.json()["error"]["message"]
+
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_from", "reports@example.com")
+    monkeypatch.setattr(notifications, "send_email", lambda to, subject, text, attachments=(): sent.append(
+        {"to": to, "subject": subject, "attachments": list(attachments)}))
+    assert client.get(f"{API}/delivery-channels", headers=VIEWER).json()["channels"] == ["email"]
+    assert client.get(f"{API}/setup", headers=VIEWER).json()["delivery_channels"] == ["email"]
+    wrong = client.post(f"{API}/reports/{report['id']}/deliver", headers=MEMBER, json={"channel": "email", "to": "+971501234567"})
+    assert wrong.status_code == 422
+    requested = client.post(f"{API}/reports/{report['id']}/deliver", headers=MEMBER, json={"channel": "email", "to": "fleet@example.com"})
+    body = requested.json()
+    assert requested.status_code == 200 and body["status"] == "waiting_approval", requested.text
+    assert sent == []
+    approval = next(a for a in client.get("/api/v1/approvals", headers=OWNER).json() if a["id"] == body["approval_id"])
+    assert approval["action"] == EMAIL_TOOL
+    approved = client.post(f"/api/v1/approvals/{body['approval_id']}/approve", headers=OWNER, json={"payload_hash": body["payload_hash"]})
+    assert approved.status_code == 200, approved.text
+    assert len(sent) == 1 and sent[0]["to"] == "fleet@example.com" and sent[0]["subject"].startswith("Fleet tyre health")
+    filename, content_type, content = sent[0]["attachments"][0]
+    assert filename.endswith(".pdf") and content_type == "application/pdf" and content.startswith(b"%PDF")

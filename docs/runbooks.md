@@ -133,7 +133,7 @@ The drill backs up, restores into a new `anum_restore_drill_*` database, verifie
 - every table exists with exactly the manifest's row count, per-tenant counts, and RLS/FORCE RLS flags, and every table with `tenant_id` has RLS enabled and forced;
 - as a temporary role that is neither owner, superuser nor `BYPASSRLS` (granted `SELECT` on every table, dropped afterwards), every RLS table shows zero rows without a tenant context, zero rows of other tenants inside a tenant context, and the tenant's own rows are visible.
 
-Run it **monthly** and before every schema migration that rewrites data (**Proposal**), against a copy of production in an isolated environment, and record the JSON report with the release evidence. `services/api/tests/test_backup_restore.py` runs the drill and a tampered-restore negative test in the PostgreSQL CI job. That job runs PostgreSQL 17 with pgvector, the image the Oracle VM uses (`pgvector/pgvector:0.8.7-pg17-trixie`, `infra/oracle/compose.yaml`), and installs the PostgreSQL 17 client tools from the PostgreSQL apt repository (`ANUM_PG_BIN`), because `pg_dump` refuses a server newer than itself and the runner image ships version 16.
+On the Oracle VM `anum-drill.timer` runs it monthly through `backup.sh drill`, which records the outcome for [System health](system-health.md#restore-drill). Run it **monthly** and before every schema migration that rewrites data (**Proposal**), against a copy of production in an isolated environment, and record the JSON report with the release evidence. `services/api/tests/test_backup_restore.py` runs the drill and a tampered-restore negative test in the PostgreSQL CI job. That job runs PostgreSQL 17 with pgvector, the image the Oracle VM uses (`pgvector/pgvector:0.8.7-pg17-trixie`, `infra/oracle/compose.yaml`), and installs the PostgreSQL 17 client tools from the PostgreSQL apt repository (`ANUM_PG_BIN`), because `pg_dump` refuses a server newer than itself and the runner image ships version 16.
 
 Measured locally (PostgreSQL 16.15 with pgvector, synthetic data: 3 tenants, 60,010 rows in 13 tables, 1.1 MB dump): backup 0.39 s, restore 0.68 s, verification including the RLS probe 0.12 s. A restore of a cluster without the ANUM roles recreated `anum_outbox_relay` as `NOLOGIN` automatically, and the restored database passed verification there too.
 
@@ -202,6 +202,15 @@ The scheduler is described in [Automation](automation.md#scheduler).
   - A schedule's `next_run_at` (API or `automation_schedules`) shows when it will fire. It is null while the schedule is disabled.
 - **One schedule keeps failing:** `Automation schedule <id> could not be fired` is logged every pass and the schedule stays due. Fix the cause, or disable the schedule through the API.
 - **Two runs for one schedule** always have different `idempotency_key` values, that is, different fire times. Replicas racing cannot produce two runs for one fire time, because the key is unique per workspace.
+
+## System Health Notice
+
+A `system_health` notice lists the checks that are red; a `system_restart` notice says the API stopped without shutting down ([System health](system-health.md)). Open the platform console, System health, and follow the fix under each red check:
+
+- **Backup older than 26 hours:** `journalctl -u anum-backup -n 100`, then `sudo bash infra/oracle/backup.sh backup` (or `offsite`) and read the output; a failed off-site copy is usually the bucket key or the bucket name in `.env`.
+- **Unexpected restart:** `docker compose logs --since 24h api` for the last lines before it stopped and `sudo dmesg | grep -i oom` for the out-of-memory killer; `journalctl -u anum-heal --since today` shows whether `heal.sh` restarted a hung API. Repeated restarts need the cause fixed (memory limit, a stuck request), not more restarts.
+- **Scheduler red:** the reminder loop has not finished a pass; read the API log for `Team reminder pass failed`. Waiting command steps are then not continued either ([Command sweep](command.md#the-sweep)).
+- **Disk or memory red:** `df -h /`, `docker system df`, `docker stats --no-stream`.
 
 ## Rotating Keycloak Signing Keys (JWKS)
 

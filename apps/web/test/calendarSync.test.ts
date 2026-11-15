@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  eventSyncKind, invitees, minutesSince, readCalendarConnectReturn, syncTarget, type CalendarEventView, type SyncConnection,
+  chosenIds, eventSyncKind, extraCalendars, invitees, minutesSince, readCalendarConnectReturn, syncTarget, type CalendarEventView, type SyncConnection,
 } from '../src/lib/calendar.ts';
 import { calendarAr } from '../src/lib/messages/calendar.ar.ts';
 import { calendarEn } from '../src/lib/messages/calendar.en.ts';
@@ -75,5 +75,26 @@ describe('calendar sync strings', () => {
   });
   it('uses no long dashes', () => {
     assert.doesNotMatch(JSON.stringify([calendarEn, calendarAr]), /[–—]/);
+  });
+});
+
+describe('choosing calendars', () => {
+  const calendars = [
+    { id: 'primary', name: 'Owner', primary: true, selected: true, can_edit: true, color: null },
+    { id: 'team', name: 'Team', primary: false, selected: true, can_edit: true, color: '#0b8043' },
+    { id: 'holidays', name: 'Holidays', primary: false, selected: false, can_edit: false, color: null },
+  ];
+  it('lists the other calendars that sync and never the primary one', () => {
+    assert.deepEqual(extraCalendars(connection({ calendars })).map((c) => c.name), ['Team']);
+    assert.deepEqual(extraCalendars(connection({})), []);
+  });
+  it('sends only the chosen non-primary ids and refuses more than the limit', () => {
+    assert.deepEqual(chosenIds(calendars, new Set(['primary', 'holidays']), 10), { ok: true, ids: ['holidays'] });
+    assert.deepEqual(chosenIds(calendars, new Set(['team', 'holidays']), 1), { ok: false, count: 2 });
+  });
+  it('has every choice message in both languages', () => {
+    const keys = Object.keys(calendarEn).filter((k) => k.startsWith('calendar.choose.'));
+    assert.ok(keys.length >= 15);
+    for (const key of keys) assert.ok(key in calendarAr, key);
   });
 });

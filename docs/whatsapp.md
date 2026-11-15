@@ -113,6 +113,8 @@ After a delivery is stored, new inbound texts are offered to department assistan
 
   Anything else waits for approval like free-form text, and the approval says why. Before anything is queued the API checks that the template exists in that language, is approved and gets the right number of parameters; the tool checks again when it runs, and the runtime evaluates the policy again just before sending.
 
+- **A document ANUM produced** (a tyre report) is `deliver_by_whatsapp`, risk **high** and always asking, through the generic [delivery path](tools-and-integrations.md#delivery): the file is uploaded to Meta and sent as a `document` to a number that wrote in the last 24 hours, then recorded in that conversation. It is offered only while this workspace's number is connected and checked.
+
 A rejected or expired approval marks the message *not sent*. Sent messages then follow Meta's delivery statuses. Each request and send is audited (`whatsapp.send.requested`, `tool.call` with counts only, `whatsapp.account.saved`, `whatsapp.test.sent`, ...); message text is not copied into audit metadata.
 
 ## Agent tools

@@ -320,9 +320,18 @@ export function scheduleBody(draft: ScheduleDraft): Record<string, unknown> {
   };
 }
 
-export function isRecipient(value: string): boolean {
+export function isRecipient(value: string, channel?: string): boolean {
   const text = value.trim();
-  return /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(text) || /^\+?[0-9 ]{7,20}$/.test(text);
+  const email = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(text);
+  const phone = /^\+?[0-9 ]{7,20}$/.test(text);
+  if (channel === 'email') return email;
+  if (channel === 'whatsapp') return phone;
+  return email || phone;
+}
+
+/** The label of a delivery channel ("email", "whatsapp"); an unknown one is shown as it is. */
+export function channelLabel(channel: string): string {
+  return channel === 'email' ? t('tyre.channel.email') : channel === 'whatsapp' ? t('tyre.channel.whatsapp') : channel;
 }
 
 /** Query string for the forecasts list. */

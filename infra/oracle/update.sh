@@ -260,6 +260,15 @@ if ! systemctl is-enabled --quiet anum-heal.timer 2>/dev/null; then
     echo "NOTE: anum-heal.timer is not installed; run once: sudo bash $ORACLE_DIR/heal.sh install"
   fi
 fi
+# The monthly restore drill (docs/system-health.md#restore-drill), for VMs installed before it existed.
+if ! systemctl is-enabled --quiet anum-drill.timer 2>/dev/null; then
+  if [ "$(id -u)" -eq 0 ]; then
+    log "Installing the monthly restore drill timer (anum-drill.timer)"
+    bash "$ORACLE_DIR/backup.sh" drill-timer || echo "WARNING: could not install anum-drill.timer; run: sudo bash $ORACLE_DIR/backup.sh drill-timer" >&2
+  else
+    echo "NOTE: anum-drill.timer is not installed; run once: sudo bash $ORACLE_DIR/backup.sh drill-timer"
+  fi
+fi
 
 if [ "$SMOKE" = true ] && [ -f "$ORACLE_DIR/smoke.sh" ]; then
   # Keycloak takes a few minutes after a rebuild; the smoke test reads its OIDC discovery.

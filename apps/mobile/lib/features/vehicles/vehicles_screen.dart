@@ -7,6 +7,7 @@ import '../records_kit/payment_picker.dart';
 import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
+import 'fleet_costs.dart';
 import 'vehicles_controller.dart';
 import 'vehicles_data.dart';
 import 'vehicles_strings.dart';
@@ -107,7 +108,18 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
         final list = c.vehicles;
         final canAdd = list.phase != RecordsPhase.denied;
         return Scaffold(
-          appBar: AppBar(title: Text(s.t('title'))),
+          appBar: AppBar(title: Text(s.t('title')), actions: [
+            if (canAdd)
+              IconButton(
+                key: const Key('vehicles-fleet'),
+                tooltip: s.t('fleet.title'),
+                icon: const Icon(Icons.query_stats_outlined),
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) =>
+                            FleetCostsScreen(fleet: c.repository.fleet))),
+              ),
+          ]),
           floatingActionButton: canAdd
               ? FloatingActionButton.extended(
                   key: const Key('vehicles-add'),

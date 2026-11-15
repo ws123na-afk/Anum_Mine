@@ -533,7 +533,7 @@ Files are `0600` in `0700` directories owned by uid 10001. Workspace files are n
 
 **`.env` is in no backup.** It holds `ANUM_SECRETS_KEY` (without it the provider keys in a restored database cannot be read) and `ANUM_BACKUP_ENCRYPTION_PASSPHRASE` (without it the off-site copies cannot be decrypted), and it must not sit next to the dumps it protects. Keep a copy in your password manager. Every backup run ends with a `WARNING` while `.env` is newer than the marker file `/var/lib/anum/backups/status/env-copied` (or the marker does not exist): copy the file's contents (`sudo cat ~/anum/infra/oracle/.env`), then record it with `sudo touch /var/lib/anum/backups/status/env-copied`. `update.sh` adding a new variable, or you editing the file, makes it newer again and the warning returns. The warning never prints a value.
 
-After steps 1 and 2 and after step 4, `backup.sh` writes `status/last-local.json` and `status/last-offsite.json` under the backup directory (`ok`, `finished_at`, `last_success_at`, `keep_days`; no paths or secrets, world-readable). The API mounts that folder read-only (`ANUM_BACKUP_STATUS_DIR`) and the platform console's Ready to sell checklist shows the last result ([Ready to sell](selling-readiness.md#backups)).
+After steps 1 and 2 and after step 4, `backup.sh` writes `status/last-local.json` and `status/last-offsite.json` under the backup directory (`ok`, `finished_at`, `last_success_at`, `keep_days`; no paths or secrets, world-readable); `backup.sh drill` writes `status/last-drill.json`. The API mounts that folder read-only (`ANUM_BACKUP_STATUS_DIR`); the platform console's Ready to sell checklist and [System health](system-health.md) show the last results, and System health turns red (with a daily in-app notice to the owners) when the last good local or off-site backup is older than 26 hours.
 
 Commands (on the VM, from `~/anum/infra/oracle`):
 
@@ -541,7 +541,8 @@ Commands (on the VM, from `~/anum/infra/oracle`):
 |---|---|
 | `sudo ./backup.sh backup` | Run a backup now. Do this once after install and check the output. |
 | `sudo ./backup.sh list` | List the off-site copies. |
-| `sudo ./backup.sh drill` | **Restore drill**: backup → restore into a scratch `anum_restore_drill_*` database → verify revision, policies, row counts per tenant and that RLS still isolates tenants → drop. Needs at least one tenant with data (after onboarding). Run it monthly; keep the JSON report. |
+| `sudo ./backup.sh drill` | **Restore drill**: backup → restore into a scratch `anum_restore_drill_*` database → verify revision, policies, row counts per tenant and that RLS still isolates tenants → drop. Needs at least one tenant with data (after onboarding). `anum-drill.timer` runs it on the 1st of each month (05:13 UTC) and System health shows the last result; keep the JSON report. |
+| `sudo ./backup.sh drill-timer` | Install or refresh `anum-drill.timer` (`install.sh` and `update.sh` do it for you). |
 | `sudo ./backup.sh fetch anum-20261011` | Download off-site files whose names start with that prefix into `/var/lib/anum/backups/fetched` (decrypted). |
 | `sudo ./backup.sh restore <dump>` | Restore a dump (path under the backup directory, its `.manifest.json` next to it) into a new `anum_restore_<UTC>` database and verify it. Never touches the live database. |
 | `sudo ./backup.sh promote anum_restore_<UTC>` | Make a verified restore the live database (asks you to type its name): stops the API, renames `anum` to `anum_replaced_<UTC>` and the restore to `anum`, re-runs `db-init`, starts everything. Data written after that backup is lost (it stays in `anum_replaced_*`). |
@@ -604,6 +605,8 @@ Going back by hand to an older commit works the same way as before: check out th
 `ANUM_AUTO_UPDATE=true` in `.env` (then `install.sh` again) runs it daily at 04:05 UTC from `anum-update.timer`: convenient for staging; for production update by hand after staging has run the same commit. Check the last run with `journalctl -u anum-update --since today`.
 
 ## Monitoring Basics
+
+**Start with [System health](system-health.md)** (platform console, System health; Menu on the phone): last local and off-site backup and their age, last restore drill, whether the AI model is real, disk and memory headroom, email, background jobs, errors and unexpected restarts, each with what to do. To be told in the app when one turns red, add your organisation and workspace ids (the page shows both) to `.env` as `ANUM_SYSTEM_HEALTH_TENANT_ID` and `ANUM_SYSTEM_HEALTH_WORKSPACE_ID`, then run `sudo bash infra/oracle/update.sh`. For the case where the whole VM is down, add a free outside monitor ([Outside uptime check](system-health.md#outside-uptime-check)): UptimeRobot or Better Stack on `https://<API>/health` and `https://<WEB>/healthz`, every 5 minutes.
 
 [Monitoring the Oracle VM](monitoring-oracle.md) covers the full setup: Uptime Kuma off the VM (with the exact checks to add), and the optional on-VM Beszel and GlitchTip (`bash infra/oracle/monitoring.sh enable`), including their RAM budget and removal. Without any of it:
 

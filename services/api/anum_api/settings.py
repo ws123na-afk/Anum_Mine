@@ -421,6 +421,9 @@ class Settings(BaseSettings):
     # notification email retries run in the same background loop as the automation
     # scheduler (ANUM_AUTOMATION_SCHEDULER_ENABLED) and use the same anum_maintenance grant.
     team_reminder_poll_seconds: float = Field(default=60.0, gt=0)
+    # The command sweep (docs/command.md#the-sweep): with the scheduler on, continues waiting command
+    # steps whose earlier steps completed but whose completion never reached this process (no NATS).
+    command_sweep_seconds: float = Field(default=120.0, ge=10, le=3600)
     # Routing target health probes (docs/governance-and-scale.md#routing-targets): the
     # scheduler pass re-probes enabled, already probed targets older than the interval, at
     # most batch_size per pass; an answer slower than degraded_ms counts as degraded.
@@ -570,6 +573,12 @@ class Settings(BaseSettings):
     # Ready to sell (docs/selling-readiness.md): the read-only folder where infra/oracle/backup.sh
     # writes last-local.json and last-offsite.json (times and outcome only). Empty = not recorded.
     backup_status_dir: str = Field(default="", max_length=500)
+    # System health (docs/system-health.md): the owner's own organisation and workspace, whose active
+    # owners get the daily notice when a check is red and the notice of an unexpected restart. Both
+    # empty = no notices and no restart check (the platform console's page still works).
+    system_health_tenant_id: str = Field(default="", pattern=r"^(|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")
+    system_health_workspace_id: str = Field(default="", pattern=r"^(|[A-Za-z0-9][A-Za-z0-9_.:-]{0,159})$")
+    system_health_check_seconds: float = Field(default=3600.0, ge=60, le=86_400)
     # First-party skill signing keys (docs/skills.md#signing): "key-id=BASE64,key-id2=BASE64",
     # raw 32-byte Ed25519 public keys. Malformed entries are ignored with a warning.
     skill_platform_keys: str = Field(default="", max_length=4000)

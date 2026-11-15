@@ -107,6 +107,26 @@ void main() {
         contains('android.builtInKotlin=false'));
   });
 
+  test('a calendar sign-in returns to the app; links route nowhere else', () {
+    // docs/calendar.md#connecting-on-the-phone.
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    expect(
+        manifest,
+        contains(
+            '<data android:scheme="com.anum.app" android:path="/calendar-connected" />'));
+    expect(
+        manifest,
+        contains(
+            'android:name="flutter_deeplinking_enabled" android:value="false"'));
+    // AppAuth keeps its own path; the two never overlap.
+    expect(manifest, contains('android:path="/oauth2redirect"'));
+    final plist = File('ios/Runner/Info.plist').readAsStringSync();
+    expect(plist, contains('<key>FlutterDeepLinkingEnabled</key>\n\t<false/>'));
+    expect(configureIosInfoPlist(plist), plist);
+    expect(configureAndroidManifest(manifest), manifest);
+  });
+
   test('Android uses the shipping applicationId', () {
     final value = configureAndroidGradle(gradle);
     expect(value, contains('applicationId = "com.anum.app"'));

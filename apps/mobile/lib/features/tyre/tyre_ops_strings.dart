@@ -52,9 +52,16 @@ const tyreOpsEn = <String, String>{
   'tyreOps.tableCapped': 'Showing {shown} of {total} rows.',
   'tyreOps.exportsOnWeb':
       'CSV and PDF downloads are on the web; here you can send the report to a recipient.',
+  'tyreOps.channelEmail': 'Email',
+  'tyreOps.channelWhatsapp': 'WhatsApp',
+  'tyreOps.badEmail': 'Enter one email address, such as fleet@example.com.',
+  'tyreOps.badPhone':
+      'Enter one phone number in international format, such as +971501234567.',
+  'tyreOps.whatsappWindow':
+      'WhatsApp delivers a document only to someone who wrote to your WhatsApp number in the last 24 hours.',
   'tyreOps.recipientNeeded': 'Enter an email address or phone number.',
   'tyreOps.noChannels':
-      'No email or WhatsApp integration is connected. The report stays available here.',
+      'Reports cannot be sent from here yet: the server has no mail server set up and the workspace has no WhatsApp number connected. The report stays available here; an owner connects WhatsApp under WhatsApp, Settings.',
   'tyreOps.channel': 'Send through',
   'tyreOps.recipient': 'Recipient',
   'tyreOps.format': 'Format',
@@ -148,9 +155,16 @@ const tyreOpsAr = <String, String>{
   'tyreOps.tableCapped': 'عرض {shown} من {total} صفاً.',
   'tyreOps.exportsOnWeb':
       'تنزيل CSV وPDF على الويب؛ هنا يمكنك إرسال التقرير إلى مستلم.',
+  'tyreOps.channelEmail': 'البريد الإلكتروني',
+  'tyreOps.channelWhatsapp': 'واتساب',
+  'tyreOps.badEmail': 'أدخل عنوان بريد إلكتروني واحدًا، مثل fleet@example.com.',
+  'tyreOps.badPhone':
+      'أدخل رقم هاتف واحدًا بالصيغة الدولية، مثل +971501234567.',
+  'tyreOps.whatsappWindow':
+      'يرسل واتساب المستند فقط إلى من راسل رقم واتساب الخاص بك خلال آخر 24 ساعة.',
   'tyreOps.recipientNeeded': 'أدخل بريداً إلكترونياً أو رقم هاتف.',
   'tyreOps.noChannels':
-      'لا يوجد تكامل بريد أو واتساب مربوط. يبقى التقرير متاحاً هنا.',
+      'لا يمكن إرسال التقارير من هنا بعد: لم يُضبط خادم بريد على الخادم ولا يوجد رقم واتساب مرتبط بمساحة العمل. يبقى التقرير متاحًا هنا؛ ويربط المالك واتساب من واتساب، الإعدادات.',
   'tyreOps.channel': 'الإرسال عبر',
   'tyreOps.recipient': 'المستلم',
   'tyreOps.format': 'الصيغة',

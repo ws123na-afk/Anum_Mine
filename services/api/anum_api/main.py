@@ -162,6 +162,7 @@ from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
 from .privacy import router as privacy_router
 from .developer import register_developer_tools, router as developer_router
+from .delivery_tools import register_delivery_tools
 from .whatsapp import register_whatsapp_tools, router as whatsapp_router
 from .sales_api import router as sales_router
 from .sales_followup_scheduler import run_due_sales_followups
@@ -245,6 +246,8 @@ from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
 from .green_concrete_ops import register_green_concrete_tools
 from .command_continuation import command_continuer
+from .command_sweep import build_command_sweeper
+from .system_health import build_system_health_monitor, install_error_counter, router as system_health_router
 from .commands import prepare_step_run as prepare_command_step_run, router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
@@ -318,6 +321,7 @@ from .serving import prepare_for_serving, use_worker_threads
 from .attendance.api import router as attendance_router  # docs/attendance.md
 from .vehicles.api import router as vehicles_router  # docs/vehicles.md
 from .vehicles.devices import router as vehicles_device_router
+from .vehicles.fleet_api import router as vehicles_fleet_router  # docs/vehicles.md#fleet
 from .purchases.api import router as purchases_router  # docs/purchases.md
 from .purchases.devices import router as purchases_device_router
 from .purchases.mail_import import router as purchases_mail_router  # Save as purchase from the Email Center
@@ -343,8 +347,19 @@ async def lifespan(application: FastAPI):
     push_dispatcher.start()
     # Runs automation steps after their transaction commits and reacts to committed events.
     automation_dispatcher.start()
+    # Counts this process's error log records for System health (docs/system-health.md).
+    install_error_counter()
     # Starts a command's waiting steps when the steps they wait for complete (docs/command.md).
     command_continuer.start()
+    # Finds waiting steps whose completion never reached this process (no NATS, a restart) and
+    # continues each once (docs/command.md#the-sweep); with ANUM_AUTOMATION_SCHEDULER_ENABLED.
+    command_sweeper = build_command_sweeper(settings)
+    if command_sweeper is not None:
+        command_sweeper.start()
+    # Owner notices when a health check is red or the API restarted unexpectedly (docs/system-health.md).
+    health_monitor = build_system_health_monitor(settings)
+    if health_monitor is not None:
+        health_monitor.start()
     developer_watcher = build_developer_watcher()
     if developer_watcher is not None:
         developer_watcher.start()
@@ -424,7 +439,12 @@ async def lifespan(application: FastAPI):
             await scheduler.stop()
         if developer_watcher is not None:
             await developer_watcher.stop()
+        if command_sweeper is not None:
+            await command_sweeper.stop()
         await command_continuer.stop()
+        # Last of the loops: records the clean stop the next start's restart check looks for.
+        if health_monitor is not None:
+            await health_monitor.stop()
         await automation_dispatcher.stop()
         await push_dispatcher.stop()
         await asyncio.to_thread(notification_email.shutdown)
@@ -469,6 +489,8 @@ install_hardening(
         BodyLimitRule("POST", vault_router.prefix, settings.max_upload_body_bytes),
         # PDF bank statements (docs/finance-statements.md): the reader's own cap, checked again there.
         BodyLimitRule("POST", "/api/v1/finance/imports/pdf/read", PDF_STATEMENT_MAX_BYTES + 1024),
+        # A client's fleet from Excel or CSV (docs/vehicles.md#fleet-import): a 5 MB workbook in base64, checked again there.
+        BodyLimitRule("POST", "/api/v1/vehicles/fleet/import", 7_000_000),
     ),
 )
 app.add_middleware(
@@ -534,6 +556,7 @@ app.include_router(suppression_router)
 app.include_router(contact_consent_router)
 app.include_router(contacts_router)
 app.include_router(approval_reminders_router)
+app.include_router(system_health_router)
 app.include_router(automation_router)
 # Folders, tags and bulk actions first: their fixed paths must never be read as a file id.
 app.include_router(files_organize_router)
@@ -670,6 +693,7 @@ app.include_router(home_router)
 app.include_router(setup_plans_router)
 app.include_router(attendance_router)
 app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
+app.include_router(vehicles_fleet_router)  # /api/v1/vehicles/fleet/..., also before {vehicle_id}
 app.include_router(vehicles_router)
 app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
 app.include_router(purchases_mail_router)
@@ -694,7 +718,9 @@ register_browser_tools(tool_registry, settings, integration_registry.workspace_e
 register_action_tools(
     tool_registry, settings, integration_registry.workspace_enabled(ACTION_INTEGRATION_ID), default_planner_factory(model_gateway),
 )
-# Reports and other features send through whichever delivery tools are registered.
+# Reports and other features send through whichever delivery tools are registered:
+# email through the server's mail settings, WhatsApp through the workspace's own number.
+register_delivery_tools(tool_registry)
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
 configure_tool_catalog(tool_registry.definition)

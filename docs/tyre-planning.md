@@ -384,12 +384,23 @@ they are still an active member who may operate tyre planning), syncs, generates
 report once per run, and, when a channel and recipient were given, requests delivery.
 
 **Delivery.** Sending a report outside ANUM goes through the generic delivery path
-(`anum_api/delivery.py`, docs/tools-and-integrations.md#delivery): the connected email or
-WhatsApp integration's tool is planned as a task run and decided by tool policy. Sending
-externally is high risk, so it waits in **Approvals** for an approver, bound to the
-payload hash; the report is attached by reference with its SHA-256, so what is sent is
-exactly what was approved. Without such an integration the page says so and the report
-stays downloadable.
+(`anum_api/delivery.py`, docs/tools-and-integrations.md#delivery): the email or WhatsApp
+delivery tool is planned as a task run and decided by tool policy. Sending externally is
+high risk, so it waits in **Approvals** for an approver, bound to the payload hash; the
+report is attached by reference with its SHA-256, so what is sent is exactly what was
+approved.
+
+- **Email** is offered when the server has a mail server set up (`ANUM_SMTP_HOST` and
+  `ANUM_SMTP_FROM`): one email to one address, the PDF or CSV attached, from the server's
+  address.
+- **WhatsApp** is offered only when the workspace has its own WhatsApp number connected
+  and checked. The report goes as a document, and only to a number that wrote to the
+  workspace in the last 24 hours (WhatsApp's rule); otherwise the send fails with that
+  reason after the approval, and the page says so before it.
+
+The web and the phone list only the channels that can send for the workspace, check the
+recipient for the channel (an address for email, an international number for WhatsApp),
+and say plainly when neither is available; the report stays downloadable.
 
 ## Assistant
 
@@ -454,11 +465,10 @@ the alerts (reports stay until deleted). The fixture used by the tests
 
 ## Not done yet
 
-- Email and WhatsApp delivery depend on those integrations registering a delivery tool.
-  The inbox's reply sender and the WhatsApp template sender do not fit (no attachments,
-  bound to an existing draft or conversation; docs/tools-and-integrations.md#delivery), so
-  until a new-message email send and a WhatsApp document send exist, reports are
-  downloaded and sent by hand.
+- WhatsApp delivery cannot start a conversation: outside the 24-hour window it would need
+  a Meta-approved document template, which ANUM does not send. Email delivery uses the
+  server's address, not the workspace's own inbox. Both were tested against fakes (a fake
+  SMTP server, a fake Meta API), not a real provider.
 - Firestore sub-collections and collection-group queries are not read; windows and
   on-demand filters are applied after a capped read there.
 - Rear-axle positions of TyrePulse inspections (`R1Lo`, `R2Ri`...) are not matched to tyre

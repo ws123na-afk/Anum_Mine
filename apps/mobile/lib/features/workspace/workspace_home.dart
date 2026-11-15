@@ -1068,6 +1068,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                   Icons.sell_outlined,
                   l.t('selling.ready.title')
                 ),
+              if (_showDeveloper)
+                (
+                  OwnerDeskRoutes.systemHealth,
+                  Icons.monitor_heart_outlined,
+                  l.t('health.title')
+                ),
             ])
               AnumMenuEntry(
                 key: Key('menu-${route.substring(1).replaceAll('/', '-')}'),

@@ -72,6 +72,8 @@ export function viewFromHash(hash: string): View {
   if (id === 'policy' || id.startsWith('approvalSettings/')) return 'approvalSettings';
   // Settings > Billing and its sections (#billing-plans, #billing-contact, docs/billing.md).
   if (id === 'billing' || id.startsWith('billing-')) return 'settings';
+  // The platform console's System health tab (docs/system-health.md); owner notices link here.
+  if (id === 'platformBilling-health') return 'platformBilling';
   // Settings > Integrations > iPhone (docs/iphone-integrations.md).
   if (id === 'iphone') return 'settings';
   // Connection setup lives at the top of Integrations (docs/integrations-setup.md).

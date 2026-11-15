@@ -31,6 +31,13 @@ Vehicles keeps your cars and business vehicles: fuel, trips, service and fees, t
 
 The **Report** tab shows cost per km, consumption (only from one full fill to the next), fuel prices and anything unusual. **Details** has edit, archive, delete and **Export CSV**.
 
+## Run a client's fleet
+
+1. In the client's business workspace, open **Vehicles**, **Import** (workspace owners). Choose what the file holds (vehicles first, then fuel, service and fees, or odometer readings), the country and how dates are written, then choose the Excel or CSV file. **Download a template** gives the columns ANUM knows.
+2. Check the columns ANUM matched and the rows: each says **New**, **Already here**, **Repeated in the file**, **Imported before** or what is wrong. Change a row's action if needed, then click **Import**. Every row is saved, or none.
+3. Open **Fleet costs** for the month: cost per vehicle and per km by fuel, service, tyres and other, the highest cost per km, the last 12 months and the renewals due. Figures from the records count until a payment is linked; currencies are never added together.
+4. Under **Monthly client report**, type the company name and your notes, choose English or Arabic and click **Download PDF** or **Download Excel**. ANUM never sends it: attach it in Email, where sending waits for approval.
+
 ## Who can do this
 
 - Owners and members: add vehicles and log records. A business vehicle is changed by the person who added it or a workspace owner; a personal vehicle is only yours.
