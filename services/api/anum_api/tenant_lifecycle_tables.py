@@ -396,6 +396,7 @@ _ORDER = (
     "team_activity",
     "attendance_daily_reports", "attendance_day_totals", "attendance_corrections", "attendance_events", "attendance_sites", "attendance_profiles", "attendance_shares",
     "attendance_workspace_settings",
+    "vehicle_fleet_reports",
     "vehicle_reminders", "vehicle_service_records", "vehicle_trips", "vehicle_fuel_entries", "vehicle_odometer_readings", "vehicle_preferences",
     "vehicles",
     "purchase_reminders", "purchase_events", "purchase_returns", "purchase_shipments", "purchase_items", "purchase_preferences",

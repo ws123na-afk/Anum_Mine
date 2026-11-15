@@ -36,6 +36,9 @@ client = TestClient(main.app)
 
 @pytest.fixture(autouse=True)
 def clean() -> Iterator[None]:
+    from anum_api.vehicles.fleet_reports import fleet_report_memory_store
+
+    fleet_report_memory_store.clear()
     vehicle_memory_store.clear()
     memberships = dict(memory_repository.store.memberships)
     now = utc_now()
@@ -345,7 +348,7 @@ def test_the_monthly_report_as_pdf_and_excel_in_english_and_arabic() -> None:
         vehicles = archive.read("xl/worksheets/sheet2.xml").decode()
     assert "rightToLeft" not in vehicles and "A 1001" in vehicles and "<v>3800.00</v>" in vehicles
     audit = [r for r in memory_repository.store.audit_records if r.action == "vehicle.fleet_report"]
-    assert audit[-1].metadata == {"month": month_ago(1, 1).strftime("%Y-%m"), "format": "xlsx", "language": "en"}
+    assert audit[-1].metadata == {"month": month_ago(1, 1).strftime("%Y-%m"), "format": "xlsx", "language": "en", "ai_summary": False}
 
 
 def test_the_report_needs_a_company_and_a_valid_month_and_says_when_a_month_is_empty() -> None:

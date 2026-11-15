@@ -451,4 +451,75 @@ class SqlVehicleStore:
         return export_records(self._mine(context))
 
 
-__all__ = ["SqlVehicleStore"]
+# -- the monthly fleet report's saved draft (migration 0189_gap_fleet) ------------------------------------------------
+
+
+class VehicleFleetReportRecord(Base):
+    __tablename__ = "vehicle_fleet_reports"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(80))
+    workspace_id: Mapped[str] = mapped_column(String(80))
+    month: Mapped[date] = mapped_column(Date)
+    company_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str] = mapped_column(String)
+    summaries: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    deliveries: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(Integer)
+    updated_by: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+class SqlFleetReportStore:
+    """The session carries the tenant, workspace and user RLS context; the queries repeat the scope."""
+
+    def __init__(self, session: Session, context: TenantContext) -> None:
+        self.session = session
+        self.context = context
+
+    @staticmethod
+    def _scope(context: Any) -> Any:
+        table = VehicleFleetReportRecord
+        return and_(table.tenant_id == context.tenant_id, table.workspace_id == context.workspace_id)
+
+    @staticmethod
+    def _draft(row: Any) -> Any:
+        from anum_api.vehicles.fleet_reports import FleetReportDraft
+
+        return FleetReportDraft.model_validate(_row(row)) if row is not None else None
+
+    def get(self, context: TenantContext, month: date) -> Any:
+        table = VehicleFleetReportRecord
+        return self._draft(self.session.scalar(select(table).where(self._scope(context), table.month == month)))
+
+    def get_by_id(self, context: TenantContext, draft_id: str) -> Any:
+        table = VehicleFleetReportRecord
+        return self._draft(self.session.scalar(select(table).where(self._scope(context), table.id == draft_id)))
+
+    def latest_before(self, context: TenantContext, month: date) -> Any:
+        table = VehicleFleetReportRecord
+        return self._draft(self.session.scalar(select(table).where(self._scope(context), table.month < month, table.company_name.is_not(None))
+                                               .order_by(table.month.desc()).limit(1)))
+
+    def save(self, draft: Any, expected_version: int) -> bool:
+        values = draft.model_dump(mode="json")
+        values["month"] = draft.month
+        values["created_at"], values["updated_at"] = draft.created_at, draft.updated_at
+        values["version"] = expected_version + 1
+        table = VehicleFleetReportRecord
+        if expected_version == 0:
+            try:
+                with self.session.begin_nested():
+                    self.session.execute(table.__table__.insert().values(**values))
+            except IntegrityError:
+                return False
+            return True
+        for key in ("id", "created_at", "tenant_id", "workspace_id", "month"):
+            values.pop(key)
+        result = self.session.execute(update(table).where(self._scope(draft), table.month == draft.month, table.version == expected_version)
+                                      .values(**values))
+        return bool(result.rowcount)  # type: ignore[attr-defined]
+
+
+__all__ = ["SqlFleetReportStore", "SqlVehicleStore"]

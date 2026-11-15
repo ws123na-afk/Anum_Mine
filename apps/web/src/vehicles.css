@@ -106,3 +106,20 @@
 .vehReportForm { align-items: start; }
 .vehImportTable td:nth-child(2) { min-inline-size: 11rem; }
 .vehImportTable td:nth-child(3) { min-inline-size: 9rem; }
+/* The monthly report's AI summary and sending (docs/vehicles.md#monthly-fleet-report). */
+.vehReportPart { border-block-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-block-start: var(--d-s3); min-width: 0; padding-block-start: var(--d-s3); }
+.vehReportPart h3, .vehReportPart h4, .vehReportPart p { margin: 0; }
+.vehReportPart h3 { align-items: center; display: flex; font-size: var(--text-sm); gap: var(--d-s2); }
+.vehReportPart h4 { font-size: var(--text-sm); margin-block-start: var(--d-s2); }
+.vehReportPart h3 svg { flex: none; height: 16px; width: 16px; }
+.vehReportPart .actions button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 44px; }
+.vehReportPart .actions svg { flex: none; height: 16px; width: 16px; }
+.vehReportPart .cmList li { align-items: center; }
+.vehReportPart .cmList small { overflow-wrap: anywhere; }
+.vehAiSummary { border-inline-start: 3px solid rgb(var(--c-accent) / .6); display: grid; gap: var(--d-s1); margin: 0; padding: var(--d-s2) var(--d-s3); }
+.vehAiSummary small { color: var(--d-muted); font-size: var(--text-xs); }
+.vehAiSummary p { margin: 0; overflow-wrap: anywhere; }
+.vehAiSummary.stale { border-inline-start-color: var(--d-warn); opacity: .75; }
+.vehImportSheet { display: grid; gap: var(--d-s1); max-width: 28rem; }
+.vehImportSheet .field { margin: 0; min-width: 0; }
+.vehImportSheet select { max-width: 100%; width: 100%; }

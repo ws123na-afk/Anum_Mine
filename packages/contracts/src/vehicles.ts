@@ -419,16 +419,65 @@ export interface FleetCosts {
   generated_at: string;
 }
 
-/** POST /api/v1/vehicles/fleet/report: a PDF or Excel file, made for the request and never stored or sent. */
+/** POST /api/v1/vehicles/fleet/report: a PDF or Excel file made for the request (with the month's AI paragraph when it is current). */
 export interface FleetReportInput {
   month: string;
   language: 'en' | 'ar';
   format: 'pdf' | 'xlsx';
   company_name: string;
   notes?: string;
+  include_summary?: boolean;
 }
 
-export type FleetImportKind = 'vehicles' | 'fuel' | 'service' | 'odometer';
+/** An AI summary paragraph saved for one language; `current` is false once the figures changed (it is then left out of the report). */
+export interface FleetReportSummary { text: string; created_at: string; model: string | null; current: boolean }
+
+/** One sending of the report: it waits for an approval, then goes out exactly as approved. */
+export interface FleetReportDelivery {
+  id: string;
+  channel: string;
+  to: string;
+  format: 'pdf' | 'xlsx';
+  language: 'en' | 'ar';
+  status: 'preparing' | 'waiting_approval' | 'sent' | 'failed' | 'blocked' | 'unavailable';
+  approval_id: string | null;
+  task_id: string | null;
+  requested_at: string;
+  requested_by: string;
+}
+
+/** GET|PUT /api/v1/vehicles/fleet/report/draft: the month's report kept between visits. */
+export interface FleetReportDraft {
+  month: string;
+  company_name: string | null;
+  /** The month the company name was carried from when this month has none saved. */
+  company_from: string | null;
+  notes: string;
+  saved: boolean;
+  version: number;
+  updated_at: string | null;
+  updated_by: string | null;
+  summaries: Partial<Record<'en' | 'ar', FleetReportSummary>>;
+  ai: { available: boolean; reason: 'no_model' | null; empty_month: boolean; label: Record<'en' | 'ar', string> };
+  channels: string[];
+  deliveries: FleetReportDelivery[];
+  can_edit: boolean;
+}
+
+export interface FleetReportDraftInput { month: string; company_name: string; notes: string; version: number }
+
+export interface FleetReportSendInput { month: string; language: 'en' | 'ar'; format: 'pdf' | 'xlsx'; channel: string; to: string }
+
+export interface FleetReportSendResult {
+  status: 'waiting_approval' | 'sent' | 'failed' | 'blocked';
+  approval_id: string | null;
+  payload_hash: string | null;
+  task_id: string;
+  message: string;
+  draft: FleetReportDraft;
+}
+
+export type FleetImportKind = 'vehicles' | 'fuel' | 'service' | 'trips' | 'odometer';
 export type FleetRowStatus = 'new' | 'exists' | 'duplicate_in_file' | 'imported' | 'invalid';
 export type FleetRowAction = 'create' | 'update' | 'skip';
 export type FleetIssueCode = 'required' | 'number' | 'date' | 'future' | 'range' | 'choice' | 'unknown_vehicle' | 'ambiguous_vehicle' | 'archived_vehicle'
@@ -444,7 +493,11 @@ export interface FleetImportFile {
   mapping?: Record<string, string> | null;
   country?: 'SA' | 'AE';
   date_order?: 'dmy' | 'mdy';
+  /** The workbook sheet to read; omitted: the first sheet whose headers fit the kind. */
+  sheet?: string | null;
 }
+
+export interface FleetImportSheet { name: string; kind: FleetImportKind | null; columns: number }
 
 export interface FleetImportRow {
   row: number;
@@ -460,6 +513,8 @@ export interface FleetImportRow {
 
 export interface FleetImportPreview {
   kind: FleetImportKind;
+  sheet: string | null;
+  sheets: FleetImportSheet[];
   columns: string[];
   fields: { field: string; required: boolean }[];
   mapping: Record<string, string>;

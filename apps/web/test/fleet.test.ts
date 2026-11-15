@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { FleetImportRow, FleetTotal, FleetVehicleRow } from '@anum/contracts';
 import {
-  TEMPLATE_HEADERS, fleetRows, importDecisions, importFileProblem, importFormatOf, importRowsShown, importTotals, mainTotal, percentChange, recordedShare, rowIssues, templateCsv,
+  FLEET_KINDS, TEMPLATE_HEADERS, channelLabel, deliveryStatusLabel, deliveryTone, draftDirty, fleetRows, importDecisions, importFileProblem, importFormatOf, importRowsShown,
+  importTotals, mainTotal, percentChange, recordedShare, rowIssues, sendProblem, sheetLabel, templateCsv,
 } from '../src/lib/fleet.ts';
 import { hashForTab, tabFromHash, VEHICLE_TABS } from '../src/lib/vehicles.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -83,6 +84,46 @@ describe('fleet import', () => {
     assert.equal(templateCsv('odometer'), 'Registration,Date,Odometer\r\n');
     assert.ok(TEMPLATE_HEADERS.vehicles.includes('Insurance expiry'));
   });
+  test('trips are an import kind with a template the server recognises', () => {
+    assert.ok(FLEET_KINDS.includes('trips'));
+    assert.deepEqual(TEMPLATE_HEADERS.trips.slice(0, 5), ['Registration', 'Trip date', 'End date', 'Start km', 'End km']);
+  });
+
+  test('a workbook sheet is labelled with the kind its columns fit', () => {
+    setLocale('en');
+    assert.equal(sheetLabel({ name: 'Diesel', kind: 'fuel', columns: 4 }), 'Diesel (Fuel entries)');
+    assert.equal(sheetLabel({ name: 'Read me', kind: null, columns: 1 }), 'Read me (columns not recognised)');
+    setLocale('ar');
+    assert.equal(sheetLabel({ name: 'Trips', kind: 'trips', columns: 4 }).replace(/[⁦-⁩]/g, ''), 'Trips (تناسب: الرحلات)');
+    setLocale('en');
+  });
+
+  test('the report draft is dirty only when the typed company or notes differ from what is saved', () => {
+    const saved = { company_name: 'Gulf Mixers LLC', notes: 'Two trucks idle.', saved: true };
+    assert.equal(draftDirty(saved, 'Gulf  Mixers LLC ', 'Two trucks idle.'), false);
+    assert.equal(draftDirty(saved, 'Gulf Mixers LLC', 'Two trucks idle.\r\n'), true);
+    assert.equal(draftDirty(saved, 'Other', 'Two trucks idle.'), true);
+    // A company name carried from an earlier month is not saved for this month yet.
+    assert.equal(draftDirty({ company_name: 'Gulf Mixers LLC', notes: '', saved: false }, 'Gulf Mixers LLC', ''), true);
+    assert.equal(draftDirty({ company_name: null, notes: '', saved: false }, '', ''), false);
+  });
+
+  test('sending checks the recipient for the channel and labels each delivery', () => {
+    setLocale('en');
+    assert.equal(sendProblem('email', ' '), 'Type who the report goes to.');
+    assert.match(sendProblem('email', '+971501234567') ?? '', /email address/);
+    assert.equal(sendProblem('email', 'fleet@client.example'), null);
+    assert.match(sendProblem('whatsapp', 'fleet@client.example') ?? '', /international format/);
+    assert.equal(sendProblem('whatsapp', '+971 50 123 4567'), null);
+    assert.equal(channelLabel('email'), 'Email');
+    assert.equal(channelLabel('fax'), 'fax');
+    assert.equal(deliveryStatusLabel('waiting_approval'), 'Waiting for approval');
+    assert.equal(deliveryTone('sent'), 'ok');
+    assert.equal(deliveryTone('waiting_approval'), 'info');
+    assert.equal(deliveryTone('unavailable'), 'warn');
+    assert.equal(deliveryTone('failed'), 'bad');
+  });
+
   test('every fleet message has an Arabic text of its own', () => {
     const keys = Object.keys(vehiclesEn).filter((k) => k.startsWith('veh.fleet.') || k === 'veh.tab.costs' || k === 'veh.tab.import');
     assert.ok(keys.length > 150);

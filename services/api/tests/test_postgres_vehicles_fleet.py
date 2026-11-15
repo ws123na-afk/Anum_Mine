@@ -95,3 +95,34 @@ def test_a_row_the_database_refuses_rolls_the_whole_import_back(client: TestClie
                                                                       "fingerprint": shown["fingerprint"], "decisions": [{"row": 3, "action": "create"}]})
     assert refused.status_code == 409 and refused.json()["code"] == "odometer_decrease"
     assert (_count(database_engine, "vehicles"), _count(database_engine, "fuel"), _count(database_engine, "odometer")) == before
+
+
+def _as_app(connection, user_id: str, workspace_id: str = WORKSPACE_A) -> None:  # type: ignore[no-untyped-def]
+    connection.execute(text(f"set role {APP_ROLE}"))
+    for key, value in (("anum.tenant_id", TENANT_A), ("anum.workspace_id", workspace_id), ("anum.user_id", user_id)):
+        connection.execute(text("select set_config(:k, :v, false)"), {"k": key, "v": value})
+
+
+def test_the_report_draft_is_kept_per_workspace_and_month_under_rls(client: TestClient, database_engine: Engine) -> None:
+    """Migration 0189_gap_fleet: the colleague reads the owner's notes and saves their own over them, a stale version is
+    refused, a row is written only by the person it names, and another workspace sees nothing."""
+    month = (utc_now().date().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    saved = client.put(f"{FLEET}/report/draft", headers=ME, json={"month": month, "company_name": "Gulf Mixers LLC", "notes": "Two trucks idle.",
+                                                                   "version": 0})
+    assert saved.status_code == 200, saved.text
+    shown = client.get(f"{FLEET}/report/draft", headers=COLLEAGUE, params={"month": month}).json()
+    assert shown["notes"] == "Two trucks idle." and shown["version"] == 1 and shown["updated_by"] == "user_test"
+    stale = client.put(f"{FLEET}/report/draft", headers=COLLEAGUE, json={"month": month, "company_name": "Gulf Mixers LLC", "notes": "x", "version": 0})
+    assert stale.json()["code"] == "stale"
+    mine = client.put(f"{FLEET}/report/draft", headers=COLLEAGUE, json={"month": month, "company_name": "Gulf Mixers LLC", "notes": "Checked.",
+                                                                        "version": 1})
+    assert mine.status_code == 200 and mine.json()["updated_by"] == "colleague"
+    with database_engine.connect() as connection:
+        _as_app(connection, "colleague")
+        assert connection.execute(text("select notes from vehicle_fleet_reports")).scalar_one() == "Checked."
+        with pytest.raises(Exception, match="row-level security"):
+            connection.execute(text("update vehicle_fleet_reports set notes = 'forged', updated_by = 'user_test'"))
+        connection.rollback()
+        _as_app(connection, "colleague", "another_workspace")
+        assert connection.execute(text("select count(*) from vehicle_fleet_reports")).scalar_one() == 0
+        connection.rollback()
