@@ -396,7 +396,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     setBusy('direction'); setNotice(null);
     try {
       const updated = await api.updateTransaction(row.id, {
-        amount: '-' + row.amount.replace(/^\\+/, ''),
+        amount: '-' + row.amount.replace(/^\+/, ''),
         category,
       });
       setReversePending(false);
@@ -461,7 +461,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       action={<button type="button" className="cmLinkButton" onClick={() => onOpen(d.duplicate!.id)}>{t('freg.drawer.viewMatch')}</button>}>
       {t('freg.drawer.duplicateText', { amount: isolate(formatAmount(d.duplicate.amount, d.duplicate.currency)), date: d.duplicate.posted_on, description: d.duplicate.description })}
     </FinBanner>}
-    {Number(row.amount) > 0 && (/room\\s*rent|rent\\s*room|bed\\s*space|accommodation\\s*rent|إيجار\\s*غرفة|ايجار\\s*غرفة/i.test(row.description) || category === 'room_rent') &&
+    {Number(row.amount) > 0 && (/room\s*rent|rent\s*room|bed\s*space|accommodation\s*rent|إيجار\s*غرفة|ايجار\s*غرفة/i.test(row.description) || category === 'room_rent') &&
       <FinBanner tone="warn" icon={<AlertTriangle />} title={t('fcore.tx.directionTitle')}>{t('fcore.tx.directionText')}</FinBanner>}
     {row.transaction_type === 'uncategorized' && <FinBanner tone="warn" icon={<AlertTriangle />} title={t('freg.drawer.uncategorizedTitle')}>{t('freg.drawer.uncategorizedText')}</FinBanner>}
     {row.type_reason === 'refund_suggested' && <FinBanner icon={<ReceiptText />}>{t('freg.drawer.refundSuggested')}</FinBanner>}
