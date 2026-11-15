@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../records_kit/records_export.dart';
 import 'finance_advisor_screens.dart';
 import 'finance_controller.dart';
+import 'finance_debts_data.dart';
+import 'finance_debts_screens.dart';
+import 'finance_debts_strings.dart';
 import 'finance_income_screens.dart';
 import 'finance_keyword_rules.dart';
 import 'finance_loans_screens.dart';
@@ -37,6 +40,13 @@ enum FinanceMorePage {
   fx,
   keywords,
   matching,
+  // docs/finance.md#debt-overview: the debt overview, the payment calendar,
+  // credit cards, financial alerts and the advisor's answers.
+  debts,
+  calendar,
+  cards,
+  alerts,
+  ask,
 }
 
 class FinanceMoreMenu extends StatelessWidget {
@@ -62,7 +72,8 @@ class FinanceMoreMenu extends StatelessWidget {
             PopupMenuItem(
               key: Key('finance-more-${page.name}'),
               value: page,
-              child: Text(
+              child: Text(FinanceDebtsStrings.of(context)
+                      .maybe('menu.${page.name}') ??
                   FinanceToolsStrings.of(context).maybe('menu.${page.name}') ??
                       FinanceMatchingStrings.of(context)
                           .maybe('menu.${page.name}') ??
@@ -102,6 +113,16 @@ Future<void> openFinanceMore(
       FinanceMorePage.keywords => KeywordRulesScreen(controller: depth!),
       FinanceMorePage.matching =>
         MatchingHubScreen(repository: FinanceMatchingRepository(more.api)),
+      FinanceMorePage.debts =>
+        DebtOverviewScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.calendar =>
+        PaymentCalendarScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.cards =>
+        CreditCardsScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.alerts =>
+        FinancialAlertsScreen(repository: FinanceDebtsRepository(more.api)),
+      FinanceMorePage.ask =>
+        AdvisorAskScreen(repository: FinanceDebtsRepository(more.api)),
     },
   ));
   if (!context.mounted) return;
