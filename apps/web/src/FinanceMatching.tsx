@@ -95,7 +95,7 @@ function PolicyCard({ policy, accounts, retry, onSaved }: {
         <p className="muted">{t('fmatch.settled.sub')}</p>
         {fm.SOURCES.map((s) => <label key={s} className="fmatchCheck"><input type="checkbox" checked={form.settled_sources.includes(s)}
           onChange={(e) => set({ settled_sources: toggle(form.settled_sources, s, e.target.checked) as FinanceMatchingPolicy['settled_sources'] })} />
-          {t(`fmatch.source.${s}` as MessageKey)}</label>)}
+          {t(`fmatch.settling.${s}` as MessageKey)}</label>)}
       </fieldset>
       <fieldset className="fmatchFieldset"><legend>{t('fmatch.accounts.title')}</legend>
         <p className="muted">{t('fmatch.accounts.sub')}</p>

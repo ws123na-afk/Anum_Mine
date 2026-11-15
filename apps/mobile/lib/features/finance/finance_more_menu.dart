@@ -78,13 +78,13 @@ class FinanceMoreMenu extends StatelessWidget {
             PopupMenuItem(
               key: Key('finance-more-${page.name}'),
               value: page,
-              child: Text(FinanceBudgetStrings.of(context).maybe('menu.${page.name}') ??
-                  FinanceDebtsStrings.of(context)
+              child: Text(FinanceBudgetStrings.of(context)
                       .maybe('menu.${page.name}') ??
+                  FinanceDebtsStrings.of(context).maybe('menu.${page.name}') ??
                   FinanceToolsStrings.of(context).maybe('menu.${page.name}') ??
-                      FinanceMatchingStrings.of(context)
-                          .maybe('menu.${page.name}') ??
-                      m.t('menu.${page.name}')),
+                  FinanceMatchingStrings.of(context)
+                      .maybe('menu.${page.name}') ??
+                  m.t('menu.${page.name}')),
             ),
       ],
     );

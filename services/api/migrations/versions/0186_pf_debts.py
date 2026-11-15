@@ -18,7 +18,7 @@ docs/finance.md#debt-overview, #credit-cards, #financial-alerts.
   ``0161``: ``tenant_isolation_<table>``, a restrictive ``owner_only_<table>`` policy (also admitting the tenant purge
   role, which can only delete) and ``lifecycle_purge_<table>``. No grant to a maintenance role.
 
-Chained after ``0185_pf_budgets`` (written against ``0183_calendar_choices``; rechained at merge).
+Chained after ``0185_pf_budgets``.
 
 Expand only. The previous release ignores the new columns (the defaults fill them) and the new table. Rollback:
 ``alembic downgrade`` to the previous revision drops the table and the columns (only for an empty test workspace; production
@@ -30,7 +30,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0186_pf_debts"
-down_revision = "0184_pf_matching"  # rechained after 0185_pf_budgets once that lands
+down_revision = "0185_pf_budgets"
 branch_labels = None
 depends_on = None
 
@@ -69,7 +69,8 @@ DEBT_CHECKS = (
                                         "and (card_statement_balance is null or card_statement_balance >= 0)"),
     ("ck_finance_debts_card_minimum", "card_statement_minimum is null or card_statement_minimum >= 0"),
 )
-OLD_CLAIM_KINDS = "kind in ('reconciliation_overdue', 'statement_missing', 'uncategorized_money', 'business_unposted', 'evidence_missing')"
+# The kinds after 0184_pf_matching (which added match_review).
+OLD_CLAIM_KINDS = "kind in ('reconciliation_overdue', 'statement_missing', 'uncategorized_money', 'business_unposted', 'evidence_missing', 'match_review')"
 LOAN_COLUMNS = (
     ("contact_id", sa.String(80)),
     ("verified_balance", MONEY),
