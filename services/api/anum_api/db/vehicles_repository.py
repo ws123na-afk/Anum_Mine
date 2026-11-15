@@ -451,7 +451,7 @@ class SqlVehicleStore:
         return export_records(self._mine(context))
 
 
-# -- the monthly fleet report's saved draft (migration 0191_gap_fleet) ------------------------------------------------
+# -- the monthly fleet report's saved draft (migration 0189_gap_fleet) ------------------------------------------------
 
 
 class VehicleFleetReportRecord(Base):

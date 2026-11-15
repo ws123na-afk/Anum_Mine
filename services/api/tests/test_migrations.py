@@ -1730,8 +1730,8 @@ def test_pf_fx_matching_migration_is_expand_only_with_nullable_columns_and_check
 
 def test_gap_fleet_migration_adds_one_forced_rls_table_for_the_report_draft() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0191_gap_fleet.py").read_text(encoding="utf-8")
-    assert 'revision = "0191_gap_fleet"' in revision_text and len("0191_gap_fleet") <= 32
+    revision_text = (versions / "0189_gap_fleet.py").read_text(encoding="utf-8")
+    assert 'revision = "0189_gap_fleet"' in revision_text and len("0189_gap_fleet") <= 32
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     # Expand only: one new table with forced RLS, the writer policies and the purge policy; nothing else changes.
     assert upgrade.count("op.create_table(") == 1 and '"vehicle_fleet_reports"' in upgrade

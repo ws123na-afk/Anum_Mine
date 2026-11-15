@@ -1,7 +1,7 @@
 """The monthly fleet report's saved draft per fleet and month (docs/vehicles.md#monthly-fleet-report).
 
 A client fleet lives in its own business workspace, so "per fleet and month" is one row per workspace and month
-(``vehicle_fleet_reports``, migration ``0191_gap_fleet``): the company name and the owner's notes kept between
+(``vehicle_fleet_reports``, migration ``0189_gap_fleet``): the company name and the owner's notes kept between
 visits, the AI summary paragraph per language (``fleet_summary.py``) and the report's deliveries. Each delivery keeps
 the frozen content it attaches (the figures, the company name, the notes, the paragraph and the date prepared), so
 the file rendered when the approved call runs is byte for byte the one whose hash was approved.

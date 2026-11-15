@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0191_gap_fleet"
+revision = "0189_gap_fleet"
 down_revision = "0188_pf_fx_matching"
 branch_labels = None
 depends_on = None

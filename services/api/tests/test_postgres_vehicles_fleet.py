@@ -104,7 +104,7 @@ def _as_app(connection, user_id: str, workspace_id: str = WORKSPACE_A) -> None: 
 
 
 def test_the_report_draft_is_kept_per_workspace_and_month_under_rls(client: TestClient, database_engine: Engine) -> None:
-    """Migration 0191_gap_fleet: the colleague reads the owner's notes and saves their own over them, a stale version is
+    """Migration 0189_gap_fleet: the colleague reads the owner's notes and saves their own over them, a stale version is
     refused, a row is written only by the person it names, and another workspace sees nothing."""
     month = (utc_now().date().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     saved = client.put(f"{FLEET}/report/draft", headers=ME, json={"month": month, "company_name": "Gulf Mixers LLC", "notes": "Two trucks idle.",
