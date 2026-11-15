@@ -11,6 +11,7 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
+import 'finance_import_rows.dart';
 import 'finance_models.dart';
 import 'finance_more_data.dart';
 import 'finance_recon_actions.dart' show pickAccount;
@@ -211,6 +212,16 @@ class _StatementImportScreenState extends State<StatementImportScreen> {
     if (done == true && mounted) await _reload();
   }
 
+  /// What the import did with each row (docs/finance.md#import-history).
+  Future<void> _rows(StatementImport i) async {
+    final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => ImportRowsScreen(
+            repository: widget.repository,
+            item: i,
+            currency: _accounts[i.accountId]?.currency ?? '')));
+    if (changed == true && mounted) await _reload();
+  }
+
   Future<void> _undo(StatementImport i) async {
     final t = FinanceToolsStrings.of(context);
     final ok = await confirmRecords(context,
@@ -269,6 +280,7 @@ class _StatementImportScreenState extends State<StatementImportScreen> {
             row: (i) => RecordsRowAction(
               row: AnumRow(
                 key: Key('import-${i.id}'),
+                onTap: () => _rows(i),
                 icon: i.filename.toLowerCase().endsWith('.pdf')
                     ? Icons.picture_as_pdf_outlined
                     : Icons.table_chart_outlined,

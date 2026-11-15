@@ -1,5 +1,6 @@
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
+import '../meetings/meetings_repository.dart' show MeetingUploadTransfer;
 import '../records_kit/records_export.dart';
 import '../records_kit/records_kit.dart';
 import 'finance_money_models.dart';
@@ -662,8 +663,12 @@ class FinanceTag {
 
 /// Every route these pages use, through the app's API client.
 class FinanceMoreRepository {
-  FinanceMoreRepository(this.api, {this.pdf});
+  FinanceMoreRepository(this.api, {this.pdf, this.uploads});
   final AnumApiClient api;
+
+  /// The app's file transfer for a receipt sent to the vault from a
+  /// transaction; null where uploading is not available.
+  final MeetingUploadTransfer? uploads;
 
   /// Sends a statement PDF to the reader (the app's file transfer); null
   /// where reading PDFs is not available (a test that never reads one).

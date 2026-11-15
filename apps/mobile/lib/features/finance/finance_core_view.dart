@@ -6,11 +6,14 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
+import '../vault/vault_transfer.dart' show VaultFilePicker, pickVaultFile;
 import 'finance_core_models.dart';
 import 'finance_core_repository.dart';
 import 'finance_core_strings.dart';
+import 'finance_correct_view.dart';
 import 'finance_models.dart';
 import 'finance_personal_models.dart';
+import 'finance_review_models.dart';
 import 'finance_review_strings.dart';
 import 'finance_review_view.dart' show typeLabel;
 import 'finance_strings.dart';
@@ -23,17 +26,9 @@ import 'finance_strings.dart';
 /// Every figure is the server's (`GET /finance/summary`), the same answer the
 /// web reads, so both show the same totals.
 
-const financeCategories = [
-  'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel',
-  'utilities', //
-  'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash',
-  'transfer', 'income', 'other',
-];
-const _types = [
-  'expense', 'income', 'internal_transfer', 'card_payment', 'loan_principal', //
-  'loan_received', 'refund', 'cashback', 'bank_fee', 'uncategorized',
-];
+/// Every category and type, in the web's order (the register's filters).
+const financeCategories = fileableCategories;
+const _types = [...fileableTypes, 'uncategorized'];
 const _statuses = [
   'needs_review',
   'uncategorized',
@@ -648,11 +643,19 @@ class TransactionEvidenceSection extends StatefulWidget {
       required this.transactionId,
       this.onOpen,
       this.onChanged,
+      this.onDeleted,
+      this.pickFile = pickVaultFile,
       super.key});
   final FinanceCoreRepository repository;
   final String transactionId;
   final void Function(String id)? onOpen;
   final Future<void> Function()? onChanged;
+
+  /// After the owner deleted this copy of a duplicate.
+  final VoidCallback? onDeleted;
+
+  /// Picks a receipt file (the system picker; a fake in tests).
+  final VaultFilePicker pickFile;
 
   @override
   State<TransactionEvidenceSection> createState() =>
@@ -665,7 +668,6 @@ class _TransactionEvidenceSectionState
   RecordsFailure? _failure;
   RegisterDetail? _detail;
   final _note = TextEditingController();
-  String? _category;
   bool _busy = false;
   String? _message;
   bool _messageError = false;
@@ -687,7 +689,6 @@ class _TransactionEvidenceSectionState
       final d = await widget.repository.detail(widget.transactionId);
       _detail = d;
       _note.text = d.row.notes ?? '';
-      _category = d.row.category;
       _failure = null;
       _phase = RecordsPhase.ready;
     } on Object catch (error) {
@@ -720,7 +721,6 @@ class _TransactionEvidenceSectionState
   @override
   Widget build(BuildContext context) {
     final s = FinanceCoreStrings.of(context);
-    final f = FinanceStrings.of(context);
     switch (_phase) {
       case RecordsPhase.loading:
         return AnumFeedback(
@@ -738,7 +738,6 @@ class _TransactionEvidenceSectionState
     }
     final d = _detail!;
     final row = d.row;
-    final fromMessage = row.origin == 'sms' || row.origin == 'apple_pay';
     final kept = d.sources.where((m) => m.text != null).firstOrNull;
     return Column(
         key: const Key('tx-evidence'),
@@ -751,6 +750,8 @@ class _TransactionEvidenceSectionState
                   AnumHeader(title: s.t('tx.evidence')),
                   RecordsField(s.t('tx.account'),
                       d.accountName.isEmpty ? '-' : d.accountName),
+                  RecordsField(
+                      s.t('tx.categoryBy'), s.t('tx.by.${d.categoryBy}')),
                   RecordsField(
                       s.t('tx.evidence'),
                       [
@@ -772,51 +773,16 @@ class _TransactionEvidenceSectionState
                   ],
                 ]),
           ),
-          AnumSurface(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  AnumHeader(title: f.t('category.${row.category}')),
-                  RecordsField(
-                      s.t('tx.categoryBy'), s.t('tx.by.${d.categoryBy}')),
-                  if (fromMessage)
-                    Text(s.t('tx.smsOrigin'), style: _muted(context))
-                  else ...[
-                    DropdownButtonFormField<String>(
-                      key: const Key('tx-category'),
-                      initialValue: financeCategories.contains(_category)
-                          ? _category
-                          : null,
-                      isExpanded: true,
-                      decoration:
-                          InputDecoration(labelText: s.t('tx.changeCategory')),
-                      items: [
-                        for (final c in financeCategories)
-                          DropdownMenuItem(
-                              value: c, child: Text(f.t('category.$c')))
-                      ],
-                      onChanged:
-                          _busy ? null : (v) => setState(() => _category = v),
-                    ),
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: FilledButton.tonal(
-                        key: const Key('tx-category-save'),
-                        onPressed: _busy ||
-                                _category == null ||
-                                (_category == row.category &&
-                                    row.categorySource == 'manual')
-                            ? null
-                            : () => _save(
-                                () => widget.repository
-                                    .saveCategory(row.id, _category!),
-                                'tx.categorySaved'),
-                        child: Text(s.t('tx.changeCategory')),
-                      ),
-                    ),
-                  ],
-                ]),
-          ),
+          TransactionCorrectionPanel(
+              repository: widget.repository,
+              detail: d,
+              onOpen: widget.onOpen,
+              onDeleted: widget.onDeleted,
+              pickFile: widget.pickFile,
+              onSaved: () async {
+                await _load();
+                await widget.onChanged?.call();
+              }),
           AnumSurface(
             key: const Key('tx-links'),
             child: Column(

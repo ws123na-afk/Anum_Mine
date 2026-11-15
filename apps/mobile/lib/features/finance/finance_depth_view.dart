@@ -832,6 +832,7 @@ class TransactionScreen extends StatelessWidget {
               repository: core!,
               transactionId: transactionId,
               onChanged: onChanged,
+              onDeleted: () => Navigator.of(context).maybePop(),
               onOpen: (id) => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                       builder: (_) => TransactionScreen(
