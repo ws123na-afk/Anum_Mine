@@ -68,6 +68,8 @@ class Links:
     payslip_credits: dict[str, set[str]] = field(default_factory=dict)
     # Payments accepted at once for bank loans (``LoanBatch``): their salary months count as paid instalments.
     loan_batches: list = field(default_factory=list)
+    # Regular remittances (sent every month): Safe to spend keeps the ones not sent yet this month back.
+    remittances: list = field(default_factory=list)
 
 
 def load(context: TenantContext) -> Links:
@@ -108,13 +110,15 @@ def load(context: TenantContext) -> Links:
         slips = people.list(context, "payslip")
         profiles = people.list(context, "salary_profile")
         batches = [b for b in people.list(context, "loan_batch") if b.status == "active"]
+        remittances = [r for r in people.list(context, "remittance") if r.regular]
     credits: dict[str, set[str]] = {}
     for slip in slips:
         if slip.id in by_slip:
             credits.setdefault(slip.month, set()).update(by_slip[slip.id])
     return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=lending,
                  person_loans=loans, loan_links=[l for l in loan_rows if l.status != LinkStatus.VOID],
-                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits, loan_batches=batches)
+                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits, loan_batches=batches,
+                 remittances=remittances)
 
 
 def _lending(sms: object, links: object, context: TenantContext) -> tuple[list, frozenset[str]]:

@@ -196,6 +196,8 @@ from .finance.advisor_api import router as finance_advisor_router
 from .finance.personal_api import router as finance_personal_router
 from .finance.revaluation_api import router as finance_revaluation_router
 from .finance.tags_api import router as finance_tags_router
+from .finance.categories_api import router as finance_categories_router
+from .finance.recurring_api import router as finance_recurring_router
 from .finance.salary_api import router as finance_salary_router
 from .finance.card_fx_api import router as finance_card_fx_router  # docs/finance.md#card-fx-and-fees
 from .finance.reconciliation_api import router as finance_reconciliation_router
@@ -658,6 +660,8 @@ app.include_router(finance_statement_router)
 app.include_router(finance_advisor_router)
 app.include_router(finance_personal_router)
 app.include_router(finance_tags_router)
+app.include_router(finance_categories_router)
+app.include_router(finance_recurring_router)
 app.include_router(finance_revaluation_router)
 app.include_router(finance_salary_router)
 app.include_router(finance_reconciliation_router)

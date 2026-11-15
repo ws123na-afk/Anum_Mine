@@ -321,8 +321,9 @@ def test_coming_payments_in_the_next_30_days() -> None:
     loan = next(i for i in coming.items if i.name == "Car loan")
     assert loan.due_on is None and loan.kind == "minimum" and coming.items[-1] is not None
     assert coming.saved_total == D("500.00") + D("1500.00") + D("100.00")
-    # Found in the records, not saved as bills: Netflix and the gym, and the steady rent, groceries and dining of the ledger.
-    assert coming.detected_total == D("55.00") + D("250.00") + D("4000.00") + D("1500.00") + D("600.00")
+    # Found in the records, not saved as bills: Netflix, the gym and the steady rent. Repeated groceries and dining are
+    # ordinary purchases, never a recurring payment (docs/finance.md#recurring-payments).
+    assert coming.detected_total == D("55.00") + D("250.00") + D("4000.00")
     assert coming.total == coming.saved_total + coming.detected_total
     assert {"subscriptions_review", "save_recurring", "debt_add_due_day", "bill_due"} <= set(codes(note))
     assert next(a for a in note.actions if a.code == "bill_due").text_en == "Maid (AED 100.00) is due on 2026-11-06, in 1 days."

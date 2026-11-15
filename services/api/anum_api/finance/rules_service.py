@@ -81,6 +81,13 @@ def check_content(finance: Any, store: RulesStore, context: TenantContext, conte
         if any(a not in mine for a in content.match.account_ids):
             raise RuleError(422, "One of the accounts is not yours or no longer exists.", "unknown_account")
     if content.subcategory_id:
+        from .categories import subcategory_parent
+
+        built_in = subcategory_parent(content.subcategory_id)
+        if built_in is not None:
+            if built_in != content.category:
+                raise RuleError(422, "That subcategory belongs to another category.", "subcategory_parent")
+            return
         sub = next((s for s in store.list_subcategories(context) if s.id == content.subcategory_id), None)
         if sub is None or sub.archived:
             raise RuleError(422, "That subcategory does not exist. Choose another or add it first.", "unknown_subcategory")

@@ -452,7 +452,8 @@ def test_subcategories_split_a_category_without_changing_its_total() -> None:
     month = date.today() - timedelta(days=1)
     spend = client.get(f"{API}/subcategories/spend", headers=OWNER, params={"month": month.strftime("%Y-%m")}).json()["items"]
     groceries = [i for i in spend if i["category"] == "groceries"]
-    assert {(i["subcategory_id"], i["amount"]) for i in groceries} == {(sub.json()["id"], "10.00"), (None, "5.00")}
+    # The row the owner left gets the built-in subcategory its merchant names (docs/finance.md#category-ontology).
+    assert {(i["subcategory_id"], i["amount"]) for i in groceries} == {(sub.json()["id"], "10.00"), ("sys:supermarket", "5.00")}
     rule = client.post(f"{API}/rules", headers=OWNER, json={"content": {"match": {"words": ["zebramart"]}, "category": "dining",
                                                                         "subcategory_id": sub.json()["id"]}})
     assert rule.status_code == 422  # a subcategory stays under its own category

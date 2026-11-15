@@ -47,6 +47,7 @@ from .models import (
     Goal,
     Holding,
     Transaction,
+    TransactionType,
 )
 from .money import quantize, totals
 from .store import FinanceStore
@@ -165,6 +166,13 @@ class BillSuggestion(BaseModel):
     category: Category
     account_id: str
     occurrences: int
+    # docs/finance.md#recurring-payments: what kind of payment it is, the merchant key it was found for, the newest
+    # amount and how far it moved from the usual one (5 percent or more), and the payments it rests on (newest first).
+    kind: str = "other"
+    merchant: str | None = None
+    last_amount: Decimal | None = None
+    price_change: Decimal | None = None
+    transaction_ids: list[str] = Field(default_factory=list)
 
 
 def settings_for(store: FinanceStore, context: TenantContext) -> FinanceSettings:
@@ -394,11 +402,18 @@ def detect_recurring(rows: list[Transaction], today: date, known_names: list[str
 
     One payee is one group across accounts (a bill paid from two accounts is still one bill), one missed
     period does not break the pattern, and a saved bill with the same currency, cadence and amount (within
-    15 percent) counts as already saved even when its name differs from the bank's wording."""
+    15 percent) counts as already saved even when its name differs from the bank's wording.
+
+    Repeated ordinary purchases (groceries, eating out, fuel, taxis, shopping) are never suggested unless something names
+    them as recurring (a gym membership, an installment plan): ``recurring.ordinary_purchase``. A loan repayment (a
+    transfer of principal) and an uncategorized transfer out to the same person can recur and are looked at too."""
+    from .recurring import counts_for_recurring, kind_of, ordinary_purchase
+    from .rules import merchant_key
+
     known = {_payee(name) for name in known_names}
     groups: dict[tuple[str, str], list[Transaction]] = {}
     for t in rows:
-        if t.amount >= 0 or t.category in NOT_SPEND:
+        if not counts_for_recurring(t) or (t.category in NOT_SPEND and t.transaction_type != TransactionType.LOAN_PRINCIPAL):
             continue
         key = _payee(t.description)
         if key:
@@ -408,6 +423,9 @@ def detect_recurring(rows: list[Transaction], today: date, known_names: list[str
         if len(items) < 3 or key in known:
             continue
         items.sort(key=lambda t: t.posted_on)
+        kind = kind_of(items[-1])
+        if ordinary_purchase(items[-1], kind):
+            continue
         gaps = [(b.posted_on - a.posted_on).days for a, b in pairwise(items)]
         base = min(gaps) if gaps else 0
         # A gap of about two periods is one missed payment: halve it to find the usual interval.
@@ -419,7 +437,9 @@ def detect_recurring(rows: list[Transaction], today: date, known_names: list[str
             continue
         amounts = [-t.amount for t in items]
         middle = Decimal(median(amounts))
-        if any(abs(a - middle) > middle * Decimal("0.15") for a in amounts):
+        # The earlier payments are steady (within 15 percent); the newest may have moved (a price change, within half).
+        steady = Decimal(median(amounts[:-1]))
+        if any(abs(a - steady) > steady * Decimal("0.15") for a in amounts[:-1]) or abs(amounts[-1] - steady) > steady * Decimal("0.5"):
             continue
         if _covered(known_bills or [], currency, cadence, middle, {t.account_id for t in items}):
             continue
@@ -428,11 +448,16 @@ def detect_recurring(rows: list[Transaction], today: date, known_names: list[str
         due = next_after(last.posted_on, cadence, last.posted_on.day) or last.posted_on
         while due < today:
             due = next_after(due, cadence, last.posted_on.day) or today
+        earlier = Decimal(median(amounts[:-1]))
+        moved = amounts[-1] - earlier
         found.append(
             BillSuggestion(
                 name=last.description[:120], amount=quantize(middle, currency), currency=currency, cadence=cadence,
-                next_due_on=due, category=last.category if last.category != Category.OTHER else Category.UTILITIES,
-                account_id=account_id, occurrences=len(items),
+                next_due_on=due, category=last.category if last.category not in (Category.OTHER, Category.TRANSFER) else Category.UTILITIES,
+                account_id=account_id, occurrences=len(items), kind=kind, merchant=merchant_key(last.description) or None,
+                last_amount=quantize(amounts[-1], currency),
+                price_change=quantize(moved, currency) if earlier > 0 and abs(moved) >= earlier * Decimal("0.05") else None,
+                transaction_ids=[t.id for t in reversed(items[-6:])],
             )
         )
     return sorted(found, key=lambda s: (s.next_due_on, s.name.lower()))[:50]

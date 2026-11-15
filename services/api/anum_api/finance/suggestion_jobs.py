@@ -43,6 +43,7 @@ class SuggestionJobResult:
     matched: int = 0  # links the record-linking policy made (docs/finance-matching.md)
     backfill_months: int = 0  # months a running history run processed
     alerts: int = 0  # docs/finance.md#financial-alerts
+    recurring_links: int = 0  # docs/finance.md#recurring-payments
     skipped: int = 0
     failed: int = 0
 
@@ -201,6 +202,15 @@ def run_person(tenant_id: str, workspace_id: str, user_id: str, *, now: datetime
         sent, failed = 0, 1
     result.alerts += sent
     result.failed += failed
+    # A kept bill the owner allowed to link itself (docs/finance.md#recurring-payments): its one strong payment only.
+    from . import recurring
+
+    try:
+        linked, _left = recurring.run_auto_links(context, now=moment, dry_run=dry_run)
+        result.recurring_links += linked
+    except Exception as exc:  # noqa: BLE001 - counts only; the next run tries again
+        logger.warning("finance_recurring_links_failed error_class=%s", type(exc).__name__)
+        result.failed += 1
     return result
 
 
@@ -254,7 +264,7 @@ def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]
             logger.warning("finance_suggestions_person_failed error_class=%s", type(exc).__name__)
             total.failed += 1
             continue
-        for name in ("people", "applied", "batches", "notices", "exception_notices", "matched", "backfill_months", "alerts", "skipped", "failed"):
+        for name in ("people", "applied", "batches", "notices", "exception_notices", "matched", "backfill_months", "alerts", "recurring_links", "skipped", "failed"):
             setattr(total, name, getattr(total, name) + getattr(part, name))
     return asdict(total)
 

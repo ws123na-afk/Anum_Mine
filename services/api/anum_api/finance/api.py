@@ -454,6 +454,9 @@ class TransactionPatch(BaseModel):
     subcategory_id: str | None = Field(default=None, max_length=80)
     # The owner took the category from the AI suggestion: kept, but history never learns from it (rules.learnable).
     from_ai_suggestion: bool = False
+    # docs/finance.md#learned-merchants: the owner's permission for this correction to file the merchant's later rows the
+    # same way (the drawer's "Use this for later payments" tick). Off: this row only, and history only suggests.
+    learn_merchant: bool = False
 
 
 class TransactionView(BaseModel):
@@ -706,12 +709,16 @@ def update_transaction(
                 settings.category_rules.insert(0, CategoryRule(match=match, category=body.category))
             settings.updated_at = item.updated_at
             store.save_settings(context, settings)
+        learned = None
+        if body.learn_merchant and not match and (body.category is not None or body.transaction_type is not None or "subcategory_id" in changes):
+            learned = _learn_mapping(store, context, item)
         store.save_transaction(item)
         if plain and entry is not None and (item.posted_on, item.amount, item.category, item.transaction_type) != before:
             # A correction reverses the entry and reposts it in the same canonical chain; the row keeps its id.
             repost_plain(store, sms, context, entry, item, now=item.updated_at)
         decision = check_record(store, context, item, utc_now())
-    _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), "learned_category": bool(match), **_guardian_meta(decision)})
+    _audit(repository, context, "finance.transaction.update", transaction_id,
+           {"fields": sorted(changes), "learned_category": bool(match), "learned_merchant": learned is not None, **_guardian_meta(decision)})
     return TransactionView(**_txn_view(item, kind), guardian=decision)
 
 
@@ -719,8 +726,17 @@ def _set_subcategory(store: FinanceStore, context: TenantContext, item: Transact
     """The row's subcategory: one of the owner's under the row's category, or none. Choosing one is the owner's choice."""
     from .rules_store import rules_store_for
 
+    from .categories import subcategory_parent
+
     if not subcategory_id:
         item.subcategory_id = None
+        return
+    built_in = subcategory_parent(subcategory_id)
+    if built_in is not None:
+        if built_in != item.category:
+            raise _invalid("That subcategory belongs to another category. Choose the category first.")
+        item.subcategory_id = subcategory_id
+        item.category_source = CategorySource.MANUAL
         return
     found = next((s for s in rules_store_for(store).list_subcategories(context) if s.id == subcategory_id), None)
     if found is None or found.archived:
@@ -729,6 +745,21 @@ def _set_subcategory(store: FinanceStore, context: TenantContext, item: Transact
         raise _invalid("That subcategory belongs to another category. Choose the category first.")
     item.subcategory_id = subcategory_id
     item.category_source = CategorySource.MANUAL
+
+
+def _learn_mapping(store: FinanceStore, context: TenantContext, item: Transaction) -> Any:
+    """Store what the owner filed this row's merchant as, so the merchant's later rows follow it
+    (docs/finance.md#learned-merchants). Nothing is stored for a row that names no specific merchant."""
+    from .rules import learnable_correction, remember_correction
+    from .rules_store import alias_book
+
+    key = learnable_correction(item, alias_book(store, context))
+    if key is None:
+        return None
+    planning = store.get_planning(context)
+    planning.category_mappings, made = remember_correction(planning.category_mappings, item, key, item.updated_at)
+    store.save_planning(context, planning)
+    return made
 
 
 def _learn_as_rule(store: FinanceStore, context: TenantContext, item: Transaction, match: str) -> bool:
@@ -1583,6 +1614,9 @@ def _build_bill(store: FinanceStore, context: TenantContext, body: BillInput, ex
         amount=_money(body.amount, currency, field="Amount", positive=True), currency=currency, cadence=body.cadence,
         next_due_on=body.next_due_on, category=body.category, account_id=account.id if account else None, source=body.source,
         active=body.active, notes=_clean(body.notes, 1000), created_at=existing.created_at if existing else now, updated_at=now,
+        # The recurring settings (docs/finance.md#recurring-payments) are changed on the Recurring page; an edit keeps them.
+        merchant=existing.merchant if existing else None, recurring_kind=existing.recurring_kind if existing else None,
+        auto_link=existing.auto_link if existing else False, usage=existing.usage if existing else None,
     )
 
 

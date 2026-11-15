@@ -9,6 +9,9 @@
 * ``GET, PUT /debt-plan``: the payoff strategy and planned monthly payment per currency.
 * ``GET /budgets``, ``PUT /budgets/alerts``: the Guardian category caps as budgets, with spend, pace and
   the alert threshold per budget. Caps themselves change only through Guardian (propose, then confirm).
+* ``GET, POST /budgets/plans``, ``PATCH, DELETE /budgets/plans/{id}``: the owner's own budgets (spending, savings,
+  reserve, sinking funds, remittances, debts; monthly, weekly or custom) with spent, left, coming bills, forecast and
+  risk; ``GET /budgets/allocation``: the month's income split across them (docs/finance.md#budgets-and-planning).
 
 Matching writes a finance link through ``links.create`` (the owner's lock, idempotency, never more than
 the payment); nothing here posts money or changes the journal.
@@ -20,12 +23,12 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..dependencies import repository_context, tenant_context
 from ..repository import AnumRepository
-from ..schemas import TenantContext, utc_now
+from ..schemas import TenantContext, new_id, utc_now
 from . import links as K
 from .api import _audit, _currency, _invalid, _manage, _money, _not_found, _read
 from .commitments import (
@@ -33,18 +36,36 @@ from .commitments import (
     BILL_TARGET,
     DEBT_DIMENSION,
     DEBT_TARGET,
+    AllocationView,
     BillOccurrence,
     BudgetReport,
+    PlanBudgetLine,
+    PlanReport,
     bill_schedule,
     bill_target_id,
     budget_report,
     is_money_out,
     occurrences,
+    plan_budget_report,
+    salary_allocation,
 )
 from .links_api import LinkResult, _view, refusals
 from .links_store import LinkStatus, open_link_stores
 from .money import quantize
-from .models import Bill, BudgetAlert, Category, Debt, DebtPlan, DebtStrategy, InstallmentRefundNotice, InstallmentStatementEntry, Planning
+from .models import (
+    Bill,
+    Budget,
+    BudgetAlert,
+    BudgetKind,
+    BudgetPeriod,
+    Category,
+    Debt,
+    DebtPlan,
+    DebtStrategy,
+    InstallmentRefundNotice,
+    InstallmentStatementEntry,
+    Planning,
+)
 from .policy import current_rules
 from .store import open_finance_store
 from .summary import month_range, settings_for, today_in
@@ -575,6 +596,208 @@ def put_budget_alerts(body: AlertsInput, context: TenantContext = Depends(tenant
         store.save_planning(context, planning)
     _audit(repository, context, "finance.budget_alerts.update", context.user_id, {"budgets": len(seen)})
     return AlertsView(alerts=planning.budget_alerts)
+
+
+# -- planned budgets (docs/finance.md#budgets-and-planning) ---------------------------------------------------
+
+
+class PlanBudgetInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    kind: BudgetKind = BudgetKind.SPENDING
+    period: BudgetPeriod = BudgetPeriod.MONTHLY
+    currency: str = Field(min_length=3, max_length=3)
+    amount: Any
+    categories: list[Category] = Field(default_factory=list, max_length=30)
+    subcategory_ids: list[str] = Field(default_factory=list, max_length=60)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    fixed: bool = False
+    essential: bool | None = None  # None: from the categories (``categories.is_essential``)
+    allocation: str | None = Field(default=None, pattern=r"^(housing|food|transport|family|debts|cards|savings|remittances|other)$")
+    goal_id: str | None = Field(default=None, max_length=80)
+    debt_ids: list[str] = Field(default_factory=list, max_length=20)
+    alert_percent: int = Field(default=80, ge=50, le=99)
+    reserve_in_safe_to_spend: bool = False
+    active: bool = True
+    notes: str | None = Field(default=None, max_length=500)
+
+
+MAX_PLAN_BUDGETS = 200
+CUSTOM_MAX_DAYS = 400
+
+
+def _owned_sub_ids(context: TenantContext) -> dict[str, Category]:
+    from .rules_store import open_rule_stores
+
+    with open_rule_stores(context) as (_finance, store):
+        return {s.id: s.parent for s in store.list_subcategories(context) if not s.archived}
+
+
+def _check_plan(store: Any, context: TenantContext, body: PlanBudgetInput, owned_subs: dict[str, Category]) -> tuple[Decimal, str, bool]:
+    """Every reference is the owner's own and the budget says what it covers. Returns the amount, currency and essential."""
+    from .categories import is_essential, subcategory_parent
+
+    currency = _currency(body.currency, body.currency)
+    amount = _money(body.amount, currency, field="Amount", positive=True, allow_zero=False)
+    kind = body.kind
+    if body.period == BudgetPeriod.CUSTOM:
+        if body.starts_on is None or body.ends_on is None:
+            raise _invalid("A custom period needs its first and last day.")
+        if body.ends_on < body.starts_on:
+            raise _invalid("The last day is before the first day.")
+        if (body.ends_on - body.starts_on).days > CUSTOM_MAX_DAYS:
+            raise _invalid(f"A custom period is at most {CUSTOM_MAX_DAYS} days.")
+    for sub in body.subcategory_ids:
+        if subcategory_parent(sub) is None and sub not in owned_subs:
+            raise _invalid("One of the subcategories does not exist. Choose another.")
+    if kind == BudgetKind.SPENDING:
+        if not body.categories and not body.subcategory_ids:
+            raise _invalid("Choose at least one category or subcategory for a spending budget.")
+        from .flows import NOT_SPEND
+
+        if any(c in NOT_SPEND for c in body.categories):
+            raise _invalid("Transfers, income, cashback and refunds are not spending: choose spending categories.")
+    elif kind in (BudgetKind.SAVINGS, BudgetKind.EMERGENCY, BudgetKind.SINKING_FUND):
+        if not body.goal_id:
+            raise _invalid("Choose the goal this budget saves into (the emergency reserve or a sinking fund is a goal).")
+        goal = store.get_item(context, "goal", body.goal_id)
+        if goal is None:
+            raise _invalid("That goal does not exist. Choose another.")
+        if goal.currency != currency:
+            raise _invalid(f"The goal is in {goal.currency}: a budget for it is in the same currency.")
+    elif kind == BudgetKind.DEBT:
+        for debt_id in body.debt_ids:
+            debt = store.get_item(context, "debt", debt_id)
+            if debt is None:
+                raise _invalid("One of the debts does not exist. Choose another.")
+            if debt.currency != currency:
+                raise _invalid(f"{debt.name} is in {debt.currency}: a budget for it is in the same currency.")
+    essential = body.essential
+    if essential is None:
+        essential = bool(body.categories) and all(is_essential(c) for c in body.categories) if kind == BudgetKind.SPENDING else True
+    return amount, currency, bool(essential)
+
+
+def _save_plan(context: TenantContext, body: PlanBudgetInput, budget_id: str | None) -> Budget:
+    owned = _owned_sub_ids(context)
+    now = utc_now()
+    with open_finance_store(context) as store:
+        planning: Planning = store.get_planning(context)
+        existing = next((b for b in planning.budgets if b.id == budget_id), None) if budget_id else None
+        if budget_id and existing is None:
+            raise _not_found("Budget")
+        if not budget_id and len(planning.budgets) >= MAX_PLAN_BUDGETS:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"You have {MAX_PLAN_BUDGETS} budgets. Remove one first.")
+        amount, currency, essential = _check_plan(store, context, body, owned)
+        item = Budget(
+            id=budget_id or new_id("fin_bud"), name=" ".join(body.name.split()), kind=body.kind, period=body.period, currency=currency,
+            amount=amount, categories=list(dict.fromkeys(body.categories)), subcategory_ids=list(dict.fromkeys(body.subcategory_ids)),
+            starts_on=body.starts_on, ends_on=body.ends_on if body.period == BudgetPeriod.CUSTOM else None, fixed=body.fixed, essential=essential,
+            allocation=body.allocation, goal_id=body.goal_id if body.kind in (BudgetKind.SAVINGS, BudgetKind.EMERGENCY, BudgetKind.SINKING_FUND) else None,
+            debt_ids=list(dict.fromkeys(body.debt_ids)) if body.kind == BudgetKind.DEBT else [], alert_percent=body.alert_percent,
+            reserve_in_safe_to_spend=body.reserve_in_safe_to_spend and body.kind == BudgetKind.SPENDING, active=body.active,
+            notes=" ".join((body.notes or "").split()) or None, created_at=existing.created_at if existing else now, updated_at=now,
+        )
+        planning.budgets = [item if b.id == item.id else b for b in planning.budgets] if existing else [*planning.budgets, item]
+        store.save_planning(context, planning)
+    return item
+
+
+def _plan_inputs(context: TenantContext, on: date | None) -> tuple[list[Budget], dict[str, Any]]:
+    from . import obligations
+    from .commitments import budget_period
+    from .personal_store import open_personal_store
+
+    links = obligations.load(context)  # its own short unit of work first
+    with open_finance_store(context) as store:
+        today = today_in(settings_for(store, context))
+        day = on or today
+        budgets = store.get_planning(context).budgets
+        accounts = store.list_accounts(context)
+        balances = store.account_sums(context)
+        periods = [budget_period(b, day) for b in budgets] or [(day, day)]
+        start, end = min(p[0] for p in periods), max(p[1] for p in periods)
+        rows = store.transactions_between(context, start, end) if budgets else []
+        bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
+        goals = obligations.current_goals([g for g in store.list_items(context, "goal")], accounts, balances)
+    with open_personal_store(context) as personal:
+        remittances = personal.list(context, "remittance") if any(b.kind == BudgetKind.REMITTANCE for b in budgets) else []
+    return budgets, {"rows": rows, "on": day, "today": today, "bills": bills, "bill_links": links.bill_links, "lending": links.lending_ids,
+                     "goals": goals, "remittances": remittances, "debt_payments": links.debt_payments}
+
+
+@router.get("/budgets/plans", response_model=PlanReport)
+def list_plan_budgets(on: date | None = Query(default=None), include_inactive: bool = Query(default=False),
+                      context: TenantContext = Depends(tenant_context)) -> PlanReport:
+    """Your own budgets for the period holding ``on`` (default today): spent, left, coming bills, the forecast to the
+    period end and the risk, from linked transactions, each counted once."""
+    _read(context)
+    budgets, inputs = _plan_inputs(context, on)
+    return plan_budget_report(budgets, include_inactive=include_inactive, **inputs)
+
+
+@router.post("/budgets/plans", response_model=PlanBudgetLine, status_code=status.HTTP_201_CREATED)
+def create_plan_budget(body: PlanBudgetInput, context: TenantContext = Depends(tenant_context),
+                       repository: AnumRepository = Depends(repository_context)) -> PlanBudgetLine:
+    _manage(context)
+    item = _save_plan(context, body, None)
+    _audit(repository, context, "finance.budget.create", item.id, {"kind": item.kind.value, "period": item.period.value})
+    return _line_for(context, item.id)
+
+
+@router.patch("/budgets/plans/{budget_id}", response_model=PlanBudgetLine)
+def update_plan_budget(budget_id: str, body: PlanBudgetInput, context: TenantContext = Depends(tenant_context),
+                       repository: AnumRepository = Depends(repository_context)) -> PlanBudgetLine:
+    """Change a budget: send the whole budget (the form's fields)."""
+    _manage(context)
+    item = _save_plan(context, body, budget_id)
+    _audit(repository, context, "finance.budget.update", item.id, {"kind": item.kind.value, "active": item.active})
+    return _line_for(context, item.id)
+
+
+@router.delete("/budgets/plans/{budget_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_plan_budget(budget_id: str, context: TenantContext = Depends(tenant_context),
+                       repository: AnumRepository = Depends(repository_context)) -> Response:
+    _manage(context)
+    with open_finance_store(context) as store:
+        planning: Planning = store.get_planning(context)
+        if not any(b.id == budget_id for b in planning.budgets):
+            raise _not_found("Budget")
+        planning.budgets = [b for b in planning.budgets if b.id != budget_id]
+        store.save_planning(context, planning)
+    _audit(repository, context, "finance.budget.delete", budget_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _line_for(context: TenantContext, budget_id: str) -> PlanBudgetLine:
+    budgets, inputs = _plan_inputs(context, None)
+    report = plan_budget_report([b for b in budgets if b.id == budget_id], include_inactive=True, **inputs)
+    return report.budgets[0]
+
+
+class AllocationReport(BaseModel):
+    month: str
+    currencies: list[AllocationView]
+
+
+@router.get("/budgets/allocation", response_model=AllocationReport)
+def budget_allocation(context: TenantContext = Depends(tenant_context)) -> AllocationReport:
+    """How this month's income (the salary profile's expected net, else the average of the last three full months) is
+    split across your budgets: housing, food, transport, family, debts, cards, savings, remittances and other."""
+    _read(context)
+    from . import planning_service as S
+
+    ctx = S.load(context)
+    with open_finance_store(context) as store:
+        budgets = store.get_planning(context).budgets
+    currencies = sorted({b.currency for b in budgets if b.active} | ({ctx.salary_profile.currency} if ctx.salary_profile else set()))
+    views = []
+    for currency in currencies:
+        income = S.income(ctx, currency)
+        views.append(salary_allocation(budgets, currency, income.amount, income.source))
+    return AllocationReport(month=ctx.today.strftime("%Y-%m"), currencies=views)
 
 
 __all__ = ["router"]

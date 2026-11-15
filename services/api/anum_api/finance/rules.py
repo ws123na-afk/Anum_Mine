@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .match_policy import MatchingPolicy
 from .merchant_match import STOP_WORDS, _fold
-from .models import Category, CategoryRule, CategorySource, Transaction, TransactionType, _Owned
+from .models import Category, CategoryMapping, CategoryRule, CategorySource, Transaction, TransactionType, _Owned
 
 MAX_RULES = 300  # rule lineages per person
 MAX_VERSIONS = 50  # versions kept per rule
@@ -333,6 +333,65 @@ class ActiveRule:
         return True
 
 
+# -- learned merchant mappings (docs/finance.md#learned-merchants) -------------------------------------------
+
+LEARNED_PREFIX = "learned:"
+MAX_MAPPINGS = 2000  # models.Planning.category_mappings
+
+
+@dataclass(frozen=True)
+class LearnedRule(ActiveRule):
+    """A learned mapping ready to run: it matches a row whose merchant key and side are the mapping's."""
+
+    key: str = ""
+    direction: str = "out"
+
+    @classmethod
+    def of_mapping(cls, mapping: CategoryMapping) -> LearnedRule:
+        content = RuleContent(match=RuleMatch(merchant=mapping.merchant, direction=mapping.direction), category=mapping.category,
+                              subcategory_id=mapping.subcategory_id, transaction_type=mapping.transaction_type, enabled=mapping.enabled)
+        confidence = min(Decimal("0.95"), Decimal("0.85") + Decimal("0.02") * Decimal(mapping.confirmations - 1))
+        return cls(f"{LEARNED_PREFIX}{mapping.key}", mapping.confirmations, content, "learned", confidence, mapping.merchant, (),
+                   None, mapping.merchant, mapping.direction)
+
+    def matches(self, row: Row, aliases: AliasBook | None = None) -> bool:
+        if not self.content.enabled or row.amount == 0:
+            return False
+        if (row.amount < 0) != (self.direction == "out"):
+            return False
+        if self.content.category in MONEY_IN_ONLY and row.amount < 0:
+            return False
+        book = aliases or self.book or AliasBook()
+        return book.key(row.description) == self.key
+
+
+def learnable_correction(t: Transaction, aliases: AliasBook | None = None) -> str | None:
+    """The merchant key a hand correction of ``t`` teaches, or ``None`` when it teaches nothing (no merchant, a merchant
+    made only of common banking words, a zero amount, or a category the owner took from an AI answer)."""
+    if t.amount == 0 or (t.type_reason or "") == "owner_ai":
+        return None
+    key = (aliases or AliasBook()).key(t.description)
+    if not key or len(key) < 2 or all(w in {fold(b) for b in TOO_BROAD} for w in key.split()):
+        return None
+    return key
+
+
+def remember_correction(mappings: list[CategoryMapping], t: Transaction, key: str, now: datetime) -> tuple[list[CategoryMapping], CategoryMapping]:
+    """The mappings with the owner's correction of ``t`` stored (a new one, or the merchant's one updated)."""
+    direction: Literal["in", "out"] = "out" if t.amount < 0 else "in"
+    out = [m for m in mappings if not (m.merchant == key and m.direction == direction)]
+    old = next((m for m in mappings if m.merchant == key and m.direction == direction), None)
+    kind = t.transaction_type if t.type_source is not None and t.type_source.value == "owner" else None
+    same = old is not None and (old.category, old.subcategory_id, old.transaction_type) == (t.category, t.subcategory_id, kind)
+    made = CategoryMapping(
+        merchant=key, direction=direction, category=t.category, subcategory_id=t.subcategory_id, transaction_type=kind,
+        confirmations=(old.confirmations + 1) if same and old is not None else 1, enabled=True, source_transaction_id=t.id,
+        example=" ".join(t.description.split())[:200], created_at=old.created_at if old is not None else now, updated_at=now,
+    )
+    out.insert(0, made)
+    return out[:MAX_MAPPINGS], made
+
+
 def ordered(rules: list[ActiveRule]) -> list[ActiveRule]:
     """The order rules run in: priority (lower first), then the more specific, then the newest."""
     def specific(r: ActiveRule) -> int:
@@ -432,7 +491,8 @@ def history_suggestion(row: Transaction, past: list[Transaction], aliases: Alias
 # matching policy, reversible without losing the transaction. A link writes no journal entry and moves no money.
 LINKING_ACTIONS = frozenset({"match_transactions", "reconcile_installments", "link_recurring_bills", "link_card_repayments",
                              "link_bank_loan_repayment", "prevent_duplicates", "reprocess_history"})
-AUTOMATABLE = frozenset({"classify", "notify"}) | LINKING_ACTIONS
+# ``link_recurring_bill``: a later payment of a bill the owner kept with auto_link (docs/finance.md#recurring-payments).
+AUTOMATABLE = frozenset({"classify", "notify", "link_recurring_bill"}) | LINKING_ACTIONS
 # ``link_loan_payments`` is a bank loan's found-payments batch (salary months included); a loan with a person is only ever
 # suggested; a policy never changes itself.
 NEVER_AUTOMATED = frozenset({"post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period", "link_loan_payments",
@@ -486,6 +546,7 @@ class AutomationSettings(_Owned):
 __all__ = [
     "LINKING_ACTIONS", "NOTICE_KINDS", "NoticeKind", "AUTOMATABLE", "ActiveRule", "AliasBook", "AutomationPolicy", "AutomationRefused", "AutomationSettings", "FinanceRule", "HistoryHint",
     "MAX_ALIASES", "MAX_RULES", "MAX_SUBCATEGORIES", "MAX_VERSIONS", "MerchantAlias", "NEVER_AUTOMATED", "Row", "RuleContent", "RuleMatch",
+    "CategoryMapping", "LEARNED_PREFIX", "LearnedRule", "MAX_MAPPINGS", "learnable_correction", "remember_correction",
     "active_rules", "current_versions", "first_match", "fold", "from_legacy", "has_phrase", "history_index", "history_suggestion", "learnable", "merchant_key",
     "ordered", "payload_hash", "require_automatable", "Subcategory",
 ]

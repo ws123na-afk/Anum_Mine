@@ -20,11 +20,15 @@ promised. Per currency, line by line, from their own records only:
    is left divided by the months left (rounded up to the minor unit). A goal without
    either, or already reached, is listed as not counted.
 5. **Buffer:** what the person always keeps back, per currency.
+6. **Planned commitments** (docs/finance.md#safe-to-spend): this month's unpaid installments from the provider
+   statements (Tamara, Tabby; an order saved as a bill is the bill), regular remittances not sent yet this month (one
+   saved as a bill is the bill), and what is left of each budget the person keeps back here
+   (``Budget.reserve_in_safe_to_spend``), less the bills in its categories already taken off above, so nothing counts twice.
 
 With a salary profile (``salary.py``) the salary's currency also shows the next usual pay day and the net
 expected then (the one income figure), so the page can say how long the money has to last.
 
-``safe_to_spend = money you have - bills - minimum payments - goals - buffer``. It can be
+``safe_to_spend = money you have - bills - minimum payments - goals - buffer - planned commitments``. It can be
 negative: the page then says by how much the month is short. ``per_day`` divides a positive
 figure by the days left (today included) and rounds **down** to the minor unit, so it is
 never more than the month allows.
@@ -39,7 +43,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -55,12 +59,14 @@ from .summary import settings_for, today_in
 SPENDABLE = M.SPENDABLE
 NOTE = "An estimate from your own records: not advice and not a forecast."
 
-LineKind = Literal["balance", "bill", "minimum_payment", "goal", "buffer"]
+LineKind = Literal["balance", "bill", "minimum_payment", "goal", "buffer", "installment", "remittance", "budget"]
 # Why a line is there or not counted; clients show these in the person's language.
 NoteCode = Literal[
     "account_balance", "bill_due", "bill_overdue", "minimum_due", "minimum_no_day", "minimum_passed", "minimum_overdue", "minimum_in_bill", "goal_set",
     "goal_derived",
     "goal_no_plan", "goal_reached", "goal_paused", "buffer", "account_card", "account_loan", "account_investment", "account_archived",
+    "installment_due", "installment_overdue", "installment_in_bill", "remittance_due", "remittance_in_bill", "remittance_sent", "budget_reserve",
+    "budget_spent",
 ]
 
 
@@ -87,6 +93,10 @@ class CurrencySafeToSpend(BaseModel):
     per_day: Decimal
     short: bool
     lines: list[SafeLine]
+    # Installments, regular remittances and budgets kept back (docs/finance.md#safe-to-spend). Zero without any.
+    planned: Decimal = Decimal(0)
+    # The figure in one English sentence, for the assistant (clients word the lines themselves).
+    explanation: str = ""
     # With a salary profile in this currency: the next usual pay day and the net expected then (``salary.py``).
     next_pay_on: date | None = None
     expected_pay: Decimal | None = None
@@ -151,6 +161,11 @@ def compute(
     debt_payments: list[O.DebtPayment] | None = None,
     salary_profile: object | None = None,
     payslips: list | None = None,
+    installments: list | None = None,
+    remittances: list | None = None,
+    budgets: list | None = None,
+    month_rows: list | None = None,
+    lending: frozenset[str] | None = None,
 ) -> SafeToSpend:
     """The pure calculation: the same inputs always give the same figure.
 
@@ -257,7 +272,12 @@ def compute(
             lines.append(SafeLine(kind="buffer", label=buffer.currency, currency=buffer.currency, amount=-buffer.amount,
                                   note="buffer", detail="The buffer you keep back."))
 
-    order = {"balance": 0, "bill": 1, "minimum_payment": 2, "goal": 3, "buffer": 4}
+    planned, left_out = planned_lines(today, month_end, bills, installments or [], remittances or [], budgets or [], month_rows or [],
+                                      bill_links or [], lending)
+    lines += planned
+    excluded += left_out
+
+    order = {"balance": 0, "bill": 1, "minimum_payment": 2, "goal": 3, "buffer": 4, "installment": 5, "remittance": 6, "budget": 7}
     currencies: list[CurrencySafeToSpend] = []
     for currency in sorted({line.currency for line in lines}, key=lambda c: (c != base_currency, c)):
         mine = sorted((line for line in lines if line.currency == currency), key=lambda line: (order[line.kind], line.params.get("date", ""), line.label.lower()))
@@ -267,11 +287,17 @@ def compute(
 
         available, bills_total, minimums = total("balance"), -total("bill"), -total("minimum_payment")
         goals_total, buffer_total = -total("goal"), -total("buffer")
-        safe = available - bills_total - minimums - goals_total - buffer_total
+        planned_total = -(total("installment") + total("remittance") + total("budget"))
+        safe = available - bills_total - minimums - goals_total - buffer_total - planned_total
         per_day = _floor(safe / days_left, currency) if safe > 0 else Decimal(0)
+        explanation = (f"{money(available, currency)} in bank and cash, less bills {money(bills_total, currency)}, minimum payments "
+                       f"{money(minimums, currency)}, goals {money(goals_total, currency)}, buffer {money(buffer_total, currency)} and planned "
+                       f"commitments {money(planned_total, currency)}: {money(safe, currency)} to spend until {month_end.isoformat()}. "
+                       "Card credit is not cash and is not counted.")
         currencies.append(CurrencySafeToSpend(
             currency=currency, available=available, bills=bills_total, minimum_payments=minimums, goals=goals_total,
             buffer=buffer_total, safe_to_spend=safe, per_day=quantize(per_day, currency), short=safe < 0, lines=mine,
+            planned=planned_total, explanation=explanation,
         ))
 
     from . import salary as SAL
@@ -316,13 +342,87 @@ def compute(
     )
 
 
+def planned_lines(today: date, month_end: date, bills: list[Bill], installments: list, remittances: list, budgets: list, month_rows: list,
+                  bill_links: list, lending: frozenset[str] | None) -> tuple[list[SafeLine], list[SafeLine]]:
+    """The planned commitments: unpaid installments and regular remittances to the month's end, and budgets kept back."""
+    lines: list[SafeLine] = []
+    excluded: list[SafeLine] = []
+    start = M.month_start(today)
+    names = {(M.name_key(b.name), b.currency) for b in bills if b.active}
+    in_bill: set[str] = set()
+    for entry in installments:
+        if entry.source_status in ("paid", "refunded"):
+            continue
+        due = max(Decimal(0), entry.amount - entry.refunded_amount)
+        if due <= 0 or entry.due_on < start or entry.due_on > month_end:
+            continue
+        label = f"{entry.provider}: {entry.merchant}"
+        key = f"{entry.provider}:{entry.order_id}"
+        if (M.name_key(entry.merchant), entry.currency) in names or (M.name_key(entry.provider), entry.currency) in names:
+            if key not in in_bill:
+                in_bill.add(key)
+                excluded.append(SafeLine(kind="installment", label=label, ref_id=key, currency=entry.currency, amount=Decimal(0),
+                                         note="installment_in_bill", detail="Saved as a bill: counted once, as the bill."))
+            continue
+        overdue = entry.due_on < today
+        lines.append(SafeLine(kind="installment", label=label, ref_id=key, currency=entry.currency,
+                              amount=-quantize(due, entry.currency), note="installment_overdue" if overdue else "installment_due",
+                              params={"date": entry.due_on.isoformat(), "number": str(entry.installment), "of": str(entry.total_installments)},
+                              detail=f"Installment {entry.installment} of {entry.total_installments} due {entry.due_on.isoformat()}"
+                                     + (" and not paid yet." if overdue else ".")))
+    newest: dict[tuple[str, str], Any] = {}
+    sent: set[tuple[str, str]] = set()
+    for r in sorted(remittances, key=lambda r: (r.sent_on, r.created_at)):
+        key2 = (M.name_key(r.recipient), r.currency)
+        if M.month_start(r.sent_on) == start:
+            sent.add(key2)
+        if r.regular:
+            newest[key2] = r
+    for key2, r in sorted(newest.items()):
+        amount = quantize(r.amount + r.fee, r.currency)
+        if key2 in names:
+            excluded.append(SafeLine(kind="remittance", label=r.recipient, ref_id=r.id, currency=r.currency, amount=-amount,
+                                     note="remittance_in_bill", detail="Saved as a bill: counted once, as the bill."))
+        elif key2 in sent:
+            excluded.append(SafeLine(kind="remittance", label=r.recipient, ref_id=r.id, currency=r.currency, amount=-amount,
+                                     note="remittance_sent", detail="Already sent this month: it is in the balance."))
+        else:
+            lines.append(SafeLine(kind="remittance", label=r.recipient, ref_id=r.id, currency=r.currency, amount=-amount,
+                                  note="remittance_due", params={"day": str(r.sent_on.day)}, detail="Sent every month and not sent yet this month."))
+    kept = [b for b in budgets if getattr(b, "reserve_in_safe_to_spend", False) and b.active and getattr(b.kind, "value", b.kind) == "spending"]
+    if kept:
+        from .commitments import plan_budget_report
+
+        report = plan_budget_report(kept, month_rows, on=today, today=today, bills=bills, bill_links=bill_links, lending=lending)
+        for line in report.budgets:
+            # What is left of the budget, less its bills still to pay: those are taken off above already.
+            reserve = max((line.remaining or Decimal(0)) - line.coming, Decimal(0))
+            if reserve > 0:
+                lines.append(SafeLine(kind="budget", label=line.name, ref_id=line.id, currency=line.currency, amount=-quantize(reserve, line.currency),
+                                      note="budget_reserve", params={"spent": fmt(line.spent or Decimal(0), line.currency),
+                                                                      "amount": fmt(line.amount, line.currency)},
+                                      detail="What is left of this budget, kept back (its bills are counted above)."))
+            else:
+                excluded.append(SafeLine(kind="budget", label=line.name, ref_id=line.id, currency=line.currency, amount=Decimal(0),
+                                         note="budget_spent", detail="Nothing left of this budget to keep back."))
+    return lines, excluded
+
+
 def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: datetime | None = None, links: O.Links | None = None) -> SafeToSpend:
     """``links`` come from ``obligations.load``, read in its own short unit of work before this one."""
+    from .commitments import budget_period
+
     settings = settings_for(store, context)
     today = today_in(settings, now)
     plan = store.get_plan(context) or PlanSettings()
     accounts = store.list_accounts(context)
     balances = store.account_sums(context)
+    planning = store.get_planning(context)
+    kept = [b for b in planning.budgets if b.reserve_in_safe_to_spend and b.active]
+    periods = [budget_period(b, today) for b in kept]
+    month_rows = store.transactions_between(context, min(p[0] for p in periods), max(p[1] for p in periods)) if periods else []
+    # Regular remittances come in with ``links`` (``obligations.load`` reads the personal store in its own unit).
+    remittances = list(getattr(links, "remittances", []) or [])
     return compute(
         today=today, base_currency=settings.base_currency, timezone=settings.timezone,
         accounts=accounts, balances=balances,
@@ -333,4 +433,6 @@ def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: dat
         bill_links=links.bill_links if links is not None else None,
         debt_payments=links.debt_payments if links is not None else None,
         salary_profile=links.salary_profile if links is not None else None, payslips=links.payslips if links is not None else None,
+        installments=list(planning.installment_entries), remittances=remittances, budgets=kept, month_rows=month_rows,
+        lending=links.lending_ids if links is not None else None,
     )
