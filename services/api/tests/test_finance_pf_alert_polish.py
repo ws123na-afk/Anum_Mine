@@ -186,8 +186,10 @@ def test_the_capture_alert_has_its_own_channels_and_runs_once(monkeypatch: pytes
     sent, failed = A.run(ME, now=utc_now())
     assert failed == 0 and sent == 2 and len(mailbox) == 1  # in the app and by email
     assert A.run(ME, now=utc_now()) == (0, 0) and len(mailbox) == 1  # the same message is never told again
-    inbox = [n for n in client.get("/api/v1/notifications", headers=OWNER).json()["items"] if n["kind"] == "finance_alerts"]
-    assert len(inbox) == 1 and inbox[0]["title"] == A.TITLES["capture_failed"]
+    # Other tests leave earlier finance alerts in the shared in-memory inbox: count only this kind's notice.
+    inbox = [n for n in client.get("/api/v1/notifications", headers=OWNER).json()["items"]
+             if n["kind"] == "finance_alerts" and n["title"] == A.TITLES["capture_failed"]]
+    assert len(inbox) == 1
 
 
 # -- alert emails in the person's language -------------------------------------------------------------------------------
