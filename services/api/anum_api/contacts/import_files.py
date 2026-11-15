@@ -6,7 +6,8 @@ exactly the CSV path:
 
 * **Excel (.xlsx).** The workbook is hostile input. It is opened with the checked OOXML reader of
   ``doc_extract`` (``_Package``: entry count, total uncompressed size, compression ratio, encryption flag,
-  bounded reads, XML through defusedxml with any ``DOCTYPE`` refused). Only the first sheet is read; its first
+  bounded reads, XML through defusedxml with any ``DOCTYPE`` refused). Only the first sheet is read (another import may
+  name a sheet, and list every sheet's header to choose one); its first
   non-empty row names the columns. A cell's stored value is taken as it is: a formula is never evaluated (its
   last saved result is read, as text), and a workbook that carries macros (``xl/vbaProject.bin``, an .xlsm
   saved as .xlsx) is refused, never opened further. An old binary workbook (.xls) or a password-protected
@@ -93,10 +94,27 @@ def _plain_number(value: str) -> str:
     return value
 
 
-def read_workbook(data: bytes, *, max_rows: int, max_columns: int, max_bytes: int = MAX_WORKBOOK_BYTES, noun: str = "people") -> Table:
-    """The first sheet of an .xlsx workbook as the import's table. Formulas are never evaluated.
+def read_workbook(data: bytes, *, max_rows: int, max_columns: int, max_bytes: int = MAX_WORKBOOK_BYTES, noun: str = "people",
+                  sheet: str | None = None) -> Table:
+    """One sheet of an .xlsx workbook as the import's table (the first sheet, or the one named ``sheet``). Formulas are
+    never evaluated.
 
-    ``max_bytes`` and ``noun`` let another import (Vehicles' fleet import) reuse the reader with its own limit and words."""
+    ``max_bytes``, ``noun`` and ``sheet`` let another import (Vehicles' fleet import) reuse the reader with its own limit,
+    words and choice of sheet."""
+    header, rows = _workbook_sheets(data, max_rows=max_rows, max_columns=max_columns, max_bytes=max_bytes, noun=noun, only=sheet or "")[0][1:]
+    return header, rows, "xlsx"
+
+
+def workbook_sheets(data: bytes, *, max_columns: int, max_bytes: int = MAX_WORKBOOK_BYTES, max_sheets: int = 30) -> list[tuple[str, list[str]]]:
+    """Every sheet's name and header row (its first non-empty row; empty for an empty sheet), in workbook order, for an
+    import that lets the person choose a sheet or finds it by its headers. Only the header rows are read."""
+    return [(name, header) for name, header, _rows in _workbook_sheets(data, max_rows=0, max_columns=max_columns, max_bytes=max_bytes,
+                                                                        noun="rows", only=None, max_sheets=max_sheets)]
+
+
+def _workbook_sheets(data: bytes, *, max_rows: int, max_columns: int, max_bytes: int, noun: str, only: str | None,
+                     max_sheets: int = 30) -> list[tuple[str, list[str], list[tuple[int, list[str]]]]]:
+    """``only=""``: the first sheet read whole; ``only=<name>``: that sheet read whole; ``only=None``: every sheet's header."""
     from ..doc_extract import OLE_SIGNATURE, ExtractionError, ExtractionLimits, _Budget, _cell_value, _local, _Package, _relationship_id, _shared_strings
 
     if data.startswith(OLE_SIGNATURE):
@@ -104,6 +122,7 @@ def read_workbook(data: bytes, *, max_rows: int, max_columns: int, max_bytes: in
                              "(Excel Workbook) without a password, or as CSV, and choose it again.")
     limits = ExtractionLimits(max_input_bytes=max_bytes, max_seconds=10.0, max_zip_entries=500, max_part_bytes=16 * 1024 * 1024,
                               max_uncompressed_bytes=48 * 1024 * 1024)
+    out: list[tuple[str, list[str], list[tuple[int, list[str]]]]] = []
     try:
         package = _Package(data, limits)
         if "xl/workbook.xml" not in package.names:
@@ -113,54 +132,68 @@ def read_workbook(data: bytes, *, max_rows: int, max_columns: int, max_bytes: in
                                  "or as CSV, and choose it again.")
         budget = _Budget(limits)
         relationships = package.relationships("xl/workbook.xml")
-        first = next((relationships.get(_relationship_id(element)) for _, element in package.events("xl/workbook.xml")
-                      if _local(element.tag) == "sheet"), None)
-        if not first:
+        sheets = [(" ".join((element.get("name") or "").split()), relationships.get(_relationship_id(element)))
+                  for _, element in package.events("xl/workbook.xml") if _local(element.tag) == "sheet"]
+        sheets = [(name, part) for name, part in sheets if part]
+        if not sheets:
             raise _unprocessable("The workbook has no sheet to read.")
+        if only == "":
+            sheets = sheets[:1]
+        elif only is not None:
+            sheets = [(name, part) for name, part in sheets if name == only]
+            if not sheets:
+                raise _unprocessable(f"The workbook has no sheet named {only!r}. Choose one of its sheets.")
+        else:
+            sheets = sheets[:max_sheets]
         strings = _shared_strings(package, budget)
-        header: list[str] | None = None
-        header_number, last_number = 1, 0
-        rows: list[tuple[int, list[str]]] = []
-        for _, element in package.events(first):
-            if _local(element.tag) != "row":
-                continue
-            budget.check()
-            cells: dict[int, str] = {}
-            position = 0
-            for cell in element:
-                if _local(cell.tag) != "c":
+        for sheet_name, part in sheets:
+            header: list[str] | None = None
+            header_number, last_number = 1, 0
+            rows: list[tuple[int, list[str]]] = []
+            for _, element in package.events(part):  # type: ignore[arg-type]
+                if _local(element.tag) != "row":
                     continue
-                found = _CELL_REF.match(cell.get("r") or "")
-                if found:
-                    position = _column_index(found.group(1))
-                if position >= max_columns:
-                    raise _unprocessable(f"The sheet has more than {max_columns} columns; ANUM reads at most {max_columns}.")
-                kind = cell.get("t")
-                value = "" if kind == "e" else _cell_value(cell, strings)
-                if kind in (None, "n"):
-                    value = _plain_number(value)
-                cells[position] = value
-                position += 1
-            written = element.get("r") or ""
-            number = int(written) if written.isdigit() and len(written) <= 7 else last_number + 1
-            last_number = number
-            element.clear()
-            width = max(cells) + 1 if cells else 0
-            line = [cells.get(i, "") for i in range(width)]
-            if not any(value.strip() for value in line):
-                continue
-            if header is None:
-                header = line
-                header_number = number
-                continue
-            rows.append((number - header_number + 1, line))
-            if len(rows) > max_rows:
-                raise _error(status.HTTP_413_CONTENT_TOO_LARGE, f"The sheet has more than {max_rows} {noun}. Split it into files of at most {max_rows} rows.")
+                budget.check()
+                cells: dict[int, str] = {}
+                position = 0
+                for cell in element:
+                    if _local(cell.tag) != "c":
+                        continue
+                    found = _CELL_REF.match(cell.get("r") or "")
+                    if found:
+                        position = _column_index(found.group(1))
+                    if position >= max_columns:
+                        raise _unprocessable(f"The sheet has more than {max_columns} columns; ANUM reads at most {max_columns}.")
+                    kind = cell.get("t")
+                    value = "" if kind == "e" else _cell_value(cell, strings)
+                    if kind in (None, "n"):
+                        value = _plain_number(value)
+                    cells[position] = value
+                    position += 1
+                written = element.get("r") or ""
+                number = int(written) if written.isdigit() and len(written) <= 7 else last_number + 1
+                last_number = number
+                element.clear()
+                width = max(cells) + 1 if cells else 0
+                line = [cells.get(i, "") for i in range(width)]
+                if not any(value.strip() for value in line):
+                    continue
+                if header is None:
+                    header = line
+                    header_number = number
+                    if only is None:
+                        break  # the header is all a sheet list needs
+                    continue
+                rows.append((number - header_number + 1, line))
+                if len(rows) > max_rows:
+                    raise _error(status.HTTP_413_CONTENT_TOO_LARGE, f"The sheet has more than {max_rows} {noun}. Split it into files of at most {max_rows} rows.")
+            if header is None and only is not None:
+                which = "The first sheet" if only == "" else f"The sheet {only!r}"
+                raise _unprocessable(f"{which} is empty. Its first row must name the columns (Name, Phone, Email...).")
+            out.append((sheet_name, header or [], rows))
     except ExtractionError as exc:
         raise _unprocessable(f"The Excel file could not be read: {exc.message} Save it as .xlsx or CSV and choose it again.") from None
-    if header is None:
-        raise _unprocessable("The first sheet is empty. Its first row must name the columns (Name, Phone, Email...).")
-    return header, rows, "xlsx"
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ vCard

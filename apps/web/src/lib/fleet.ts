@@ -1,9 +1,9 @@
 // Running a client fleet on the web (docs/vehicles.md#fleet): fleet costs, the monthly report and the import. Pure helpers
 // (the API calls are in fleetApi.ts). Money is never added across currencies; each row of a currency is its own figure.
-import type { FleetImportKind, FleetImportRow, FleetRowAction, FleetRowStatus, FleetTotal, FleetVehicleRow } from '@anum/contracts';
+import type { FleetImportKind, FleetImportRow, FleetImportSheet, FleetReportDelivery, FleetReportDraft, FleetRowAction, FleetRowStatus, FleetTotal, FleetVehicleRow } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 
-export const FLEET_KINDS: readonly FleetImportKind[] = ['vehicles', 'fuel', 'service', 'odometer'];
+export const FLEET_KINDS: readonly FleetImportKind[] = ['vehicles', 'fuel', 'service', 'trips', 'odometer'];
 export const FLEET_STATUSES: readonly FleetRowStatus[] = ['new', 'exists', 'duplicate_in_file', 'imported', 'invalid'];
 export const IMPORT_MAX_ROWS = 5000;
 export const IMPORT_MAX_WORKBOOK_BYTES = 5_000_000;
@@ -101,9 +101,37 @@ export const TEMPLATE_HEADERS: Record<FleetImportKind, string[]> = {
     'Insurance expiry', 'Registration expiry', 'Inspection expiry', 'Notes'],
   fuel: ['Registration', 'Date', 'Litres', 'Total', 'Price per litre', 'Odometer', 'Station', 'Fuel type', 'Full tank', 'Currency', 'Notes'],
   service: ['Registration', 'Date', 'Service type', 'Total', 'Odometer', 'Workshop', 'Description', 'Reference', 'Next due date', 'Next due km', 'Currency'],
+  trips: ['Registration', 'Trip date', 'End date', 'Start km', 'End km', 'Distance', 'Purpose', 'Reason', 'Notes'],
   odometer: ['Registration', 'Date', 'Odometer'],
 };
 
 export function templateCsv(kind: FleetImportKind): string {
   return `${TEMPLATE_HEADERS[kind].join(',')}\r\n`;
+}
+
+/** A workbook sheet in the picker: its name and the kind its columns fit. */
+export function sheetLabel(sheet: FleetImportSheet): string {
+  return sheet.kind ? t('veh.fleet.import.sheetKind', { name: sheet.name, kind: kindLabel(sheet.kind) }) : t('veh.fleet.import.sheetUnknown', { name: sheet.name });
+}
+
+// ---- the report's saved draft, AI summary and sending -------------------------------------------------------------------------
+
+/** Whether the typed company name or notes differ from what is saved for the month. */
+export function draftDirty(draft: Pick<FleetReportDraft, 'company_name' | 'notes' | 'saved'>, company: string, notes: string): boolean {
+  const savedCompany = draft.saved ? (draft.company_name ?? '') : '';
+  return company.trim().replace(/\s+/g, ' ') !== savedCompany || notes.replace(/\r\n/g, '\n') !== draft.notes;
+}
+
+export const deliveryStatusLabel = (status: FleetReportDelivery['status']) => t(`veh.fleet.delivery.${status}` as MessageKey);
+export const deliveryTone = (status: FleetReportDelivery['status']): 'ok' | 'info' | 'warn' | 'bad' =>
+  status === 'sent' ? 'ok' : status === 'waiting_approval' || status === 'preparing' ? 'info' : status === 'unavailable' ? 'warn' : 'bad';
+export const channelLabel = (channel: string) => { const key = `veh.fleet.send.channel.${channel}` as MessageKey; const text = t(key); return text === key ? channel : text; };
+
+/** Why a send cannot go yet, in words, or null. */
+export function sendProblem(channel: string, to: string): string | null {
+  const value = to.trim();
+  if (!value) return t('veh.fleet.send.toRequired');
+  if (channel === 'email' && !/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(value)) return t('veh.fleet.send.toHint.email');
+  if (channel === 'whatsapp' && !/^\+?[0-9 ]{7,20}$/.test(value)) return t('veh.fleet.send.toHint.whatsapp');
+  return null;
 }

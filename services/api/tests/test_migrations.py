@@ -1726,3 +1726,17 @@ def test_pf_fx_matching_migration_is_expand_only_with_nullable_columns_and_check
     assert upgrade.count("op.add_column(") == 4 and upgrade.count("nullable=true") == 4
     assert "ck_finance_links_settled_pair" in upgrade and "settled_currency <> currency" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "policy" not in upgrade
+
+
+def test_gap_fleet_migration_adds_one_forced_rls_table_for_the_report_draft() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0191_gap_fleet.py").read_text(encoding="utf-8")
+    assert 'revision = "0191_gap_fleet"' in revision_text and len("0191_gap_fleet") <= 32
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one new table with forced RLS, the writer policies and the purge policy; nothing else changes.
+    assert upgrade.count("op.create_table(") == 1 and '"vehicle_fleet_reports"' in upgrade
+    assert "op.drop" not in upgrade and "alter_column" not in upgrade and "add_column" not in upgrade
+    assert "force row level security" in upgrade and "uq_vehicle_fleet_reports_month" in upgrade
+    assert "vehicle_fleet_report_writer_insert" in upgrade and "vehicle_fleet_report_writer_update" in upgrade and "as restrictive" in upgrade
+    assert "create policy lifecycle_purge_vehicle_fleet_reports" in upgrade and "with check (false)" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade

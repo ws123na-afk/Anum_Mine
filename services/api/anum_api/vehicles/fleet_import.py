@@ -1,7 +1,9 @@
 """Importing a client's fleet from a spreadsheet (docs/vehicles.md#fleet-import).
 
-One file holds one kind of row: **vehicles**, **fuel** entries, **service** records (maintenance, tyres,
-fees and fines, every service kind) or **odometer** readings. Two calls, both for people who may manage
+One file (or one sheet of a workbook) holds one kind of row: **vehicles**, **fuel** entries, **service** records
+(maintenance, tyres, fees and fines, every service kind), **trips** (start and end with their odometer, or the start
+odometer and the distance) or **odometer** readings. In a workbook with several sheets the caller names the sheet, or
+the first sheet whose headers fit the kind is read; the preview lists every sheet with the kind its headers fit. Two calls, both for people who may manage
 the workspace's vehicles (``vehicle:manage``, workspace owners), because a file brings many records into
 the workspace at once:
 
@@ -52,8 +54,10 @@ MAX_WORKBOOK_BYTES = 5_000_000
 MAX_WORKBOOK_BASE64 = 6_700_000  # a 5 MB workbook in base64
 SHOWN_PROBLEMS = 5
 
-ImportKind = Literal["vehicles", "fuel", "service", "odometer"]
-RECORD_KIND = {"fuel": "fuel", "service": "service"}
+ImportKind = Literal["vehicles", "fuel", "service", "trips", "odometer"]
+KINDS: tuple[str, ...] = ("vehicles", "fuel", "service", "trips", "odometer")
+RECORD_KIND = {"fuel": "fuel", "service": "service", "trips": "trips"}
+MAX_SHEETS = 30
 
 # The fields of each kind, in the order a form shows them; the first ones are required.
 FIELDS: dict[str, tuple[str, ...]] = {
@@ -63,10 +67,13 @@ FIELDS: dict[str, tuple[str, ...]] = {
     "fuel": ("registration", "date", "litres", "total", "price_per_litre", "odometer_km", "station", "fuel_type", "full_tank", "currency", "notes"),
     "service": ("registration", "date", "kind", "total", "odometer_km", "workshop", "description", "reference", "next_due_on", "next_due_km",
                 "currency"),
+    "trips": ("registration", "date", "end_date", "start_odometer_km", "end_odometer_km", "distance_km", "purpose", "purpose_note", "origin",
+              "destination", "notes"),
     "odometer": ("registration", "date", "odometer_km"),
 }
 REQUIRED: dict[str, tuple[str, ...]] = {"vehicles": ("registration",), "fuel": ("registration", "date", "litres"),
-                                        "service": ("registration", "date"), "odometer": ("registration", "date", "odometer_km")}
+                                        "service": ("registration", "date"), "trips": ("registration", "date"),
+                                        "odometer": ("registration", "date", "odometer_km")}
 
 # Header words that suggest each field (English and Arabic), compared after folding case, spaces, dots and dashes.
 _HINTS: dict[str, tuple[str, ...]] = {
@@ -92,7 +99,19 @@ _HINTS: dict[str, tuple[str, ...]] = {
                                 "licence expiry", "license expiry", "انتهاء الاستمارة", "انتهاء الملكية", "انتهاء التسجيل", "انتهاء الرخصة"),
     "inspection_expires_on": ("inspection expiry", "inspection expires", "fahas expiry", "mvpi expiry", "انتهاء الفحص", "الفحص الدوري"),
     "notes": ("notes", "note", "remarks", "comments", "ملاحظات"),
-    "date": ("date", "fill date", "fuel date", "service date", "reading date", "transaction date", "التاريخ", "تاريخ"),
+    "date": ("date", "fill date", "fuel date", "service date", "reading date", "transaction date", "trip date", "start date", "start time",
+             "departure", "departure date", "التاريخ", "تاريخ", "تاريخ الرحلة", "تاريخ البداية", "وقت البداية"),
+    "end_date": ("end date", "end time", "arrival", "arrival date", "return date", "finish date", "تاريخ النهاية", "وقت النهاية", "تاريخ العودة"),
+    "start_odometer_km": ("start km", "start odometer", "odometer start", "opening km", "opening odometer", "km out", "odometer out",
+                          "start reading", "عداد البداية", "قراءة البداية", "كم البداية"),
+    "end_odometer_km": ("end km", "end odometer", "odometer end", "closing km", "closing odometer", "km in", "odometer in", "end reading",
+                        "عداد النهاية", "قراءة النهاية", "كم النهاية"),
+    "distance_km": ("distance", "distance km", "km driven", "kms driven", "kilometres driven", "kilometers driven", "trip km", "المسافة",
+                    "المسافة المقطوعة"),
+    "purpose": ("purpose", "trip type", "use", "الغرض", "نوع الرحلة"),
+    "purpose_note": ("purpose note", "reason", "job", "job no", "customer", "السبب", "العميل"),
+    "origin": ("from", "origin", "start location", "departure from", "من", "مكان الانطلاق"),
+    "destination": ("to", "destination", "end location", "إلى", "الى", "الوجهة"),
     "litres": ("litres", "liters", "ltr", "ltrs", "qty", "quantity", "volume", "لتر", "اللترات", "الكمية"),
     "total": ("total", "amount", "cost", "total amount", "total cost", "value", "net amount", "المبلغ", "الإجمالي", "التكلفة", "القيمة"),
     "price_per_litre": ("price per litre", "price per liter", "unit price", "rate", "price", "سعر اللتر"),
@@ -128,6 +147,9 @@ _SERVICE_WORDS = (("oil", "oil"), ("زيت", "oil"), ("tyre", "tyres"), ("tire",
                   ("سالك", "toll"), ("parking", "parking"), ("مواقف", "parking"), ("warranty", "warranty"), ("ضمان", "warranty"),
                   ("wash", "wash"), ("غسيل", "wash"), ("repair", "repair"), ("breakdown", "repair"), ("إصلاح", "repair"), ("تصليح", "repair"),
                   ("service", "maintenance"), ("maintenance", "maintenance"), ("صيانة", "maintenance"))
+_PURPOSE_WORDS = (("business", "business"), ("work", "business"), ("official", "business"), ("delivery", "business"), ("عمل", "business"),
+                  ("رسمي", "business"), ("توصيل", "business"), ("commut", "commute"), ("تنقل", "commute"), ("personal", "personal"),
+                  ("private", "personal"), ("شخصي", "personal"), ("خاص", "personal"))
 _ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬", "01234567890123456789.,")
 _SLASH_DATE = re.compile(r"^(\d{1,4})[/.\-](\d{1,2})[/.\-](\d{1,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$")
 _ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$")
@@ -181,6 +203,7 @@ class FleetImportFile(BaseModel):
     mapping: dict[str, str] | None = Field(default=None, description="Field to column; omitted: ANUM suggests one from the headers")
     country: Literal["SA", "AE"] = Field(default="AE", description="For rows without a country column")
     date_order: Literal["dmy", "mdy"] = Field(default="dmy", description="How 03/04/2026 reads: 3 April (dmy) or 4 March (mdy)")
+    sheet: str | None = Field(default=None, max_length=100, description="The workbook sheet to read; omitted: the sheet whose headers fit the kind")
 
     @field_validator("file_name")
     @classmethod
@@ -203,6 +226,8 @@ class FleetImportFile(BaseModel):
                 raise ValueError("An Excel file is sent in file_base64 (and csv is left empty).")
         elif not self.csv or self.file_base64:
             raise ValueError("A CSV file is sent as text in csv (and file_base64 is left empty).")
+        elif self.sheet:
+            raise ValueError("A CSV file has no sheets; leave sheet empty.")
         if self.mapping is not None:
             unknown = sorted(set(self.mapping) - set(FIELDS[self.kind]))
             if unknown:
@@ -254,8 +279,16 @@ class ImportCounts(BaseModel):
     invalid: int = 0
 
 
+class SheetView(BaseModel):
+    name: str
+    kind: ImportKind | None = Field(description="The kind its headers fit best, or null")
+    columns: int
+
+
 class FleetPreview(BaseModel):
     kind: ImportKind
+    sheet: str | None = Field(default=None, description="The workbook sheet read (null for CSV)")
+    sheets: list[SheetView] = Field(default_factory=list, description="Every sheet of the workbook, with the kind its headers fit")
     columns: list[str]
     fields: list[dict[str, Any]]
     mapping: dict[str, str]
@@ -318,22 +351,63 @@ def _read_csv(text: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
     return columns, rows
 
 
-def load_table(payload: FleetImportFile) -> tuple[list[str], list[tuple[int, list[str]]]]:
-    """The header and the rows (each with its row number in the sheet, the header being 1)."""
+class _Table:
+    def __init__(self, columns: list[str], rows: list[tuple[int, list[str]]], sheet: str | None = None,
+                 sheets: list[SheetView] | None = None) -> None:
+        self.columns, self.rows, self.sheet, self.sheets = columns, rows, sheet, sheets or []
+
+
+def detect_kind(columns: list[str]) -> str | None:
+    """The kind a header row fits best: every required field recognised, then the most fields recognised (required ones
+    counted twice). None when it fits no kind."""
+    best: tuple[int, str] | None = None
+    for kind in KINDS:
+        mapping = suggest_mapping(kind, columns)
+        if any(f not in mapping for f in REQUIRED[kind]):
+            continue
+        score = len(mapping) + sum(1 for f in REQUIRED[kind] if f in mapping)
+        if best is None or score > best[0]:
+            best = (score, kind)
+    return best[1] if best else None
+
+
+def _sheets_extra(sheets: list[SheetView], chosen: str | None) -> dict[str, Any] | None:
+    return {"sheets": [sheet.model_dump() for sheet in sheets], "sheet": chosen} if sheets else None
+
+
+def load_table(payload: FleetImportFile) -> _Table:
+    """The header and the rows (each with its row number in the sheet, the header being 1). For a workbook: the sheet the
+    caller named, else the first sheet whose headers fit the kind, else the first sheet with a header; and every sheet's
+    name with the kind its headers fit (refusals carry them too, so the person can choose another sheet)."""
     from ..contacts import import_files
 
-    if payload.format == ImportFormat.XLSX:
-        try:
-            data = import_files.decode_workbook(payload.content(), max_bytes=MAX_WORKBOOK_BYTES)
-            header, rows, _ = import_files.read_workbook(data, max_rows=MAX_ROWS, max_columns=MAX_COLUMNS, max_bytes=MAX_WORKBOOK_BYTES, noun="rows")
-        except HTTPException as exc:
-            raise _refuse(exc.status_code, str(exc.detail), "too_large" if exc.status_code == 413 else "invalid_file") from None
-        columns = _check_columns(header)
-    else:
+    if payload.format != ImportFormat.XLSX:
         columns, rows = _read_csv(payload.content())
+        if not rows:
+            raise _refuse(422, "The file has a header row but no rows under it.")
+        return _Table(columns, rows)
+    sheets: list[SheetView] = []
+    chosen = payload.sheet
+    try:
+        data = import_files.decode_workbook(payload.content(), max_bytes=MAX_WORKBOOK_BYTES)
+        listed = import_files.workbook_sheets(data, max_columns=MAX_COLUMNS, max_bytes=MAX_WORKBOOK_BYTES, max_sheets=MAX_SHEETS)
+        sheets = [SheetView(name=name, kind=detect_kind([" ".join(c.split())[:MAX_HEADER] for c in header]) if header else None,  # type: ignore[arg-type]
+                            columns=sum(1 for c in header if c.strip())) for name, header in listed]
+        if chosen is not None and chosen not in {sheet.name for sheet in sheets}:
+            raise _refuse(422, f"The workbook has no sheet named {chosen!r}. Choose one of its sheets.", "unknown_sheet", _sheets_extra(sheets, None))
+        if chosen is None:
+            chosen = next((sheet.name for sheet in sheets if sheet.kind == payload.kind), None) \
+                or next((sheet.name for sheet in sheets if sheet.columns), sheets[0].name if sheets else None)
+        header, rows, _ = import_files.read_workbook(data, max_rows=MAX_ROWS, max_columns=MAX_COLUMNS, max_bytes=MAX_WORKBOOK_BYTES, noun="rows",
+                                                     sheet=chosen)
+    except HTTPException as exc:
+        raise _refuse(exc.status_code, str(exc.detail), "too_large" if exc.status_code == 413 else "invalid_file",
+                      _sheets_extra(sheets, chosen)) from None
+    columns = _check_columns(header)
     if not rows:
-        raise _refuse(422, "The file has a header row but no rows under it.")
-    return columns, rows
+        raise _refuse(422, f"The sheet {chosen!r} has a header row but no rows under it." + (" Choose another sheet." if len(sheets) > 1 else ""),
+                      "invalid_file", _sheets_extra(sheets, chosen))
+    return _Table(columns, rows, chosen, sheets)
 
 
 def suggest_mapping(kind: str, columns: list[str]) -> dict[str, str]:
@@ -370,10 +444,11 @@ def _check_mapping(kind: str, mapping: dict[str, str], columns: list[str]) -> No
         raise _refuse(422, "One column is chosen for two fields. Choose a different column for each.", "invalid_mapping")
 
 
-def fingerprint(payload: FleetImportFile, mapping: dict[str, str]) -> str:
-    """The same file with the same kind, mapping and defaults (apply refuses a preview of another file)."""
+def fingerprint(payload: FleetImportFile, mapping: dict[str, str], sheet: str | None = None) -> str:
+    """The same file (and workbook sheet read) with the same kind, mapping and defaults (apply refuses a preview of another file)."""
     ordered = sorted(mapping.items())
-    text = "\x1e".join([payload.kind, payload.format.value, payload.country, payload.date_order, repr(ordered), payload.content().lstrip("﻿")])
+    text = "\x1e".join([payload.kind, payload.format.value, payload.country, payload.date_order, repr(ordered), sheet or "",
+                        payload.content().lstrip("﻿")])
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -450,6 +525,20 @@ def registration_key(value: str) -> str:
     return re.sub(r"[\s\-]+", "", _plain(value)).upper()
 
 
+def _has_time(raw: str) -> bool:
+    """Whether a date cell carries a time of day (10:30, or an Excel day number with a fraction)."""
+    value = _plain(raw)
+    return bool(re.search(r"\d:\d{2}", value) or re.fullmatch(r"\d{4,5}\.\d*[1-9]\d*", value))
+
+
+def _record_day(kind: str, record: Any) -> date:
+    if kind == "fuel":
+        return record.filled_at.date()
+    if kind == "trips":
+        return record.started_at.date()
+    return record.service_on
+
+
 # -- one row -------------------------------------------------------------------------------------------
 
 
@@ -463,6 +552,7 @@ class _Row:
         self.vehicle: Vehicle | None = None  # the vehicle a record row belongs to, or the existing vehicle of a vehicle row
         self.record: Any = None  # the record a fuel or service row would add
         self.readings: list[tuple[Decimal, datetime, str]] = []
+        self.timed: dict[str, bool] = {}  # whether the date cell of "date" / "end_date" had a time
         self.key = ""  # what makes the row the same as another (duplicates)
         self.idem = ""  # the record's idempotency key (fuel and service rows)
 
@@ -489,15 +579,19 @@ def _read_values(kind: str, row: _Row, cells: list[str], index: dict[str, int], 
         if any(ord(ch) < 32 for ch in raw if ch not in "\n\t"):
             row.issue(IssueCode.OTHER, "The row has control characters.", field)
             continue
-        if field in ("date", "odometer_on", "acquisition_date", "insurance_expires_on", "registration_expires_on", "inspection_expires_on", "next_due_on"):
+        if field in ("date", "end_date", "odometer_on", "acquisition_date", "insurance_expires_on", "registration_expires_on", "inspection_expires_on",
+                     "next_due_on"):
             moment = parse_moment(raw, payload.date_order)
             if moment is None:
                 row.issue(IssueCode.DATE, f"{raw[:40]!r} is not a date (use 2026-03-31 or 31/03/2026).", field, raw)
-            elif field in ("date", "odometer_on", "acquisition_date") and moment.date() > today:
+            elif field in ("date", "end_date", "odometer_on", "acquisition_date") and moment.date() > today:
                 row.issue(IssueCode.FUTURE, f"The date {moment.date().isoformat()} is in the future.", field, raw)
             else:
-                row.values[field] = moment if field == "date" else moment.date()
-        elif field in ("litres", "total", "price_per_litre", "odometer_km", "next_due_km", "tank_litres", "purchase_price", "year"):
+                row.values[field] = moment if field in ("date", "end_date") else moment.date()
+                if field in ("date", "end_date"):
+                    row.timed[field] = _has_time(raw)
+        elif field in ("litres", "total", "price_per_litre", "odometer_km", "next_due_km", "tank_litres", "purchase_price", "year",
+                       "start_odometer_km", "end_odometer_km", "distance_km"):
             number = parse_number(raw)
             if number is None:
                 row.issue(IssueCode.NUMBER, f"{raw[:40]!r} is not a number.", field, raw)
@@ -519,6 +613,12 @@ def _read_values(kind: str, row: _Row, cells: list[str], index: dict[str, int], 
             row.values[field] = _word(raw, _TYPE_WORDS) or "other"
         elif field == "kind":
             row.values[field] = _word(raw, _SERVICE_WORDS) or "other"
+        elif field == "purpose":
+            purpose = _word(raw, _PURPOSE_WORDS)
+            if purpose is None:
+                row.issue(IssueCode.CHOICE, f"{raw[:40]!r} is not a trip purpose (business, personal or commute).", field, raw)
+            else:
+                row.values[field] = purpose
         elif field == "full_tank":
             folded = _fold(raw)
             if folded in _YES:
@@ -576,8 +676,7 @@ class _Fleet:
         # Records by vehicle and day, so a 5,000-row file is checked against them without comparing every pair.
         self.by_day: dict[tuple[str, date], list[Any]] = defaultdict(list)
         for record in self.records:
-            day = record.filled_at.date() if kind == "fuel" else record.service_on
-            self.by_day[(record.vehicle_id, day)].append(record)
+            self.by_day[(record.vehicle_id, _record_day(kind, record))].append(record)
 
 
 def _vehicle_for(fleet: _Fleet, row: _Row, context: TenantContext) -> Vehicle | None:
@@ -611,11 +710,12 @@ def _exists(kind: str, fleet: _Fleet, row: _Row) -> bool:
         km, moment, _source = row.readings[0]
         return any(r.reading_km == km and r.read_at.date() == moment.date() for r in fleet.readings.get(vehicle.id, []))
     record = row.record
-    day = record.filled_at.date() if kind == "fuel" else record.service_on
-    for other in fleet.by_day.get((vehicle.id, day), []):
+    for other in fleet.by_day.get((vehicle.id, _record_day(kind, record)), []):
         if kind == "fuel" and other.litres == record.litres and _same_figure(other.total, record.total):
             return True
         if kind == "service" and other.kind == record.kind and _same_figure(other.receipt_total, record.receipt_total):
+            return True
+        if kind == "trips" and other.start_odometer_km == record.start_odometer_km and other.end_odometer_km == record.end_odometer_km:
             return True
     return False
 
@@ -658,6 +758,47 @@ def _build_vehicle(context: TenantContext, row: _Row, payload: FleetImportFile, 
         row.readings = [(body.odometer_km, moment, "manual")]
 
 
+def _trip_data(row: _Row, values: dict[str, Any]) -> dict[str, Any] | None:
+    """A trip's form input from its row: a date without a time starts at noon; an end without a time is noon of its day,
+    or a minute after the start on the same day (so the two readings keep their order). The distance column fills a
+    missing start or end odometer and must agree with both when both are given."""
+    now = utc_now()
+    start: datetime = values["date"] if row.timed.get("date") else S.at_noon(values["date"].date())
+    end: datetime | None = values.get("end_date")
+    if end is None or not row.timed.get("end_date"):
+        end_day = end.date() if end is not None else start.date()
+        end = S.at_noon(end_day) if end_day != start.date() else start + timedelta(minutes=1)
+    if end == start:
+        end = start + timedelta(minutes=1)
+    if end > now:
+        start, end = min(start, now - timedelta(minutes=1)), now
+    if end < start:
+        row.issue(IssueCode.RANGE, "The trip ends before it starts.", "end_date")
+        return None
+    start_km, end_km, distance = values.get("start_odometer_km"), values.get("end_odometer_km"), values.get("distance_km")
+    if distance is not None:
+        if distance < 0:
+            row.issue(IssueCode.RANGE, "Distance: enter the kilometres driven, 0 or more.", "distance_km")
+            return None
+        if start_km is not None and end_km is None:
+            end_km = start_km + distance
+        elif start_km is None and end_km is not None:
+            start_km = end_km - distance
+        elif start_km is not None and end_km is not None and abs(end_km - start_km - distance) > 1:
+            row.issue(IssueCode.RANGE, f"The distance {distance} km does not match the odometer ({start_km} to {end_km} km).", "distance_km")
+            return None
+    if start_km is None and end_km is None:
+        row.issue(IssueCode.REQUIRED, "A trip needs its start or end odometer (a distance alone cannot be placed on the odometer).", "start_odometer_km")
+        return None
+    data: dict[str, Any] = {"started_at": start, "ended_at": end, "purpose": values.get("purpose") or "business",
+                            "start_odometer_km": start_km.quantize(Decimal("0.1")) if start_km is not None else None,
+                            "end_odometer_km": end_km.quantize(Decimal("0.1")) if end_km is not None else None}
+    for key, limit in (("purpose_note", 200), ("origin", 120), ("destination", 120), ("notes", 500)):
+        if values.get(key):
+            data[key] = str(values[key])[:limit]
+    return data
+
+
 def _build_record(context: TenantContext, kind: str, row: _Row, store: VehicleStore, fleet: _Fleet, now: datetime) -> None:
     from .api import INPUTS, _build, _planned_readings
 
@@ -675,7 +816,11 @@ def _build_record(context: TenantContext, kind: str, row: _Row, store: VehicleSt
         row.readings = [(km.quantize(Decimal("0.1")), moment, "manual")]
         row.key = f"{vehicle.id}:{moment.date().isoformat()}:{km}"
         return
-    if kind == "fuel":
+    if kind == "trips":
+        data = _trip_data(row, values)
+        if data is None:
+            return
+    elif kind == "fuel":
         data = {"filled_at": values["date"] if values["date"].time() != time(12, 0) else S.at_noon(values["date"].date()),
                 **{k: values.get(k) for k in ("station", "fuel_type", "litres", "price_per_litre", "total", "currency", "odometer_km", "notes")}}
         data["full_tank"] = values.get("full_tank", True)
@@ -705,6 +850,8 @@ def _build_record(context: TenantContext, kind: str, row: _Row, store: VehicleSt
     row.readings = _planned_readings(kind, record)  # type: ignore[arg-type]
     if kind == "fuel":
         row.key = f"{vehicle.id}:{record.filled_at.date().isoformat()}:{record.litres}:{record.total}"
+    elif kind == "trips":
+        row.key = f"{vehicle.id}:{record.started_at.date().isoformat()}:{record.start_odometer_km}:{record.end_odometer_km}"
     else:
         row.key = f"{vehicle.id}:{record.service_on.isoformat()}:{record.kind}:{record.receipt_total}"
 
@@ -812,12 +959,17 @@ def _summary(kind: str, row: _Row) -> dict[str, str | None]:
     if kind == "service":
         return {"date": text(v.get("date")), "kind": text(v.get("kind") or "maintenance"), "total": text(v.get("total")),
                 "odometer_km": text(v.get("odometer_km")), "currency": text(getattr(row.record, "currency", None))}
+    if kind == "trips":
+        record = row.record
+        return {"date": text(v.get("date")), "end_date": text(v.get("end_date")), "start_odometer_km": text(getattr(record, "start_odometer_km", None)),
+                "end_odometer_km": text(getattr(record, "end_odometer_km", None)), "distance_km": text(getattr(record, "distance_km", None)),
+                "purpose": text(getattr(record, "purpose", None) or v.get("purpose"))}
     return {"date": text(v.get("date")), "odometer_km": text(v.get("odometer_km"))}
 
 
 def _evaluate(store: VehicleStore, context: TenantContext, payload: FleetImportFile, mapping: dict[str, str],
-              decisions: dict[int, RowAction] | None) -> tuple[list[_Row], list[RowView], _Fleet]:
-    columns, table = load_table(payload)
+              decisions: dict[int, RowAction] | None, loaded: _Table) -> tuple[list[_Row], list[RowView], _Fleet]:
+    columns, table = loaded.columns, loaded.rows
     _check_mapping(payload.kind, mapping, columns)
     fleet = _Fleet(store, context, payload.kind)
     now = utc_now()
@@ -841,27 +993,30 @@ def _fields(kind: str) -> list[dict[str, Any]]:
 
 
 def preview(store: VehicleStore, context: TenantContext, payload: FleetImportFile) -> FleetPreview:
-    columns, table = load_table(payload)
+    loaded = load_table(payload)
+    columns, table = loaded.columns, loaded.rows
+    sheet = {"sheet": loaded.sheet, "sheets": loaded.sheets}
     suggested = payload.mapping is None
     mapping = payload.mapping if payload.mapping is not None else suggest_mapping(payload.kind, columns)
     if suggested and any(f not in mapping for f in REQUIRED[payload.kind]):
         # Not every required column was recognised: the caller chooses (the preview still lists the columns).
-        return FleetPreview(kind=payload.kind, columns=columns, fields=_fields(payload.kind), mapping=mapping, suggested=True, rows=[],
-                            counts=ImportCounts(rows=len(table)), fingerprint=fingerprint(payload, mapping))
-    _rows, views, _fleet = _evaluate(store, context, payload, mapping, None)
+        return FleetPreview(kind=payload.kind, **sheet, columns=columns, fields=_fields(payload.kind), mapping=mapping, suggested=True, rows=[],
+                            counts=ImportCounts(rows=len(table)), fingerprint=fingerprint(payload, mapping, loaded.sheet))
+    _rows, views, _fleet = _evaluate(store, context, payload, mapping, None, loaded)
     counts = ImportCounts(rows=len(views))
     for view in views:
         setattr(counts, view.status.value, getattr(counts, view.status.value) + 1)
-    return FleetPreview(kind=payload.kind, columns=columns, fields=_fields(payload.kind), mapping=mapping, suggested=suggested, rows=views,
-                        counts=counts, fingerprint=fingerprint(payload, mapping))
+    return FleetPreview(kind=payload.kind, **sheet, columns=columns, fields=_fields(payload.kind), mapping=mapping, suggested=suggested,
+                        rows=views, counts=counts, fingerprint=fingerprint(payload, mapping, loaded.sheet))
 
 
 def apply(store: VehicleStore, context: TenantContext, payload: FleetImportApply) -> FleetImportResult:
     """Check every decision against the workspace as it is now, then write all of it in the caller's unit of work."""
-    if payload.fingerprint != fingerprint(payload, payload.mapping):
+    loaded = load_table(payload)
+    if payload.fingerprint != fingerprint(payload, payload.mapping, loaded.sheet):
         raise _refuse(409, "The file or the columns changed since the preview. Preview the file again, then import.", "stale_preview")
     chosen = {d.row: d.action for d in payload.decisions}
-    rows, views, fleet = _evaluate(store, context, payload, payload.mapping, chosen)
+    rows, views, fleet = _evaluate(store, context, payload, payload.mapping, chosen, loaded)
     by_number = {row.number: row for row in rows}
     unknown = sorted(set(chosen) - set(by_number))
     if unknown:
@@ -951,12 +1106,14 @@ def _write_vehicle(store: VehicleStore, context: TenantContext, row: _Row, actio
 
 __all__ = [
     "FIELDS",
+    "KINDS",
     "REQUIRED",
     "FleetImportApply",
     "FleetImportFile",
     "FleetImportResult",
     "FleetPreview",
     "apply",
+    "detect_kind",
     "parse_moment",
     "parse_number",
     "preview",

@@ -3,15 +3,15 @@
 // (a client's vehicles, fuel, service records or odometer readings from Excel or CSV: preview, columns, row problems,
 // duplicates, all or nothing). A lazy chunk of the Vehicles page.
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { CalendarClock, CarFront, CircleGauge, Download, FileSpreadsheet, FileText, FileUp, Fuel, RefreshCw, Route, Search, TrendingUp, TriangleAlert, Upload, Wallet } from 'lucide-react';
-import type { FleetCosts, FleetImportKind, FleetImportPreview, FleetImportResult, FleetRowAction, FleetRowStatus } from '@anum/contracts';
+import { CalendarClock, CarFront, CircleGauge, Download, FileSpreadsheet, FileText, FileUp, Fuel, RefreshCw, Route, Save, Search, Send, Sparkles, TrendingUp, TriangleAlert, Upload, Wallet } from 'lucide-react';
+import type { FleetCosts, FleetImportKind, FleetImportPreview, FleetImportResult, FleetImportSheet, FleetReportDraft, FleetRowAction, FleetRowStatus } from '@anum/contracts';
 import * as api from './lib/fleet';
 import * as fleetApi from './lib/fleetApi';
 import { getCurrentMembership } from './lib/api';
 import { bytesToBase64 } from './lib/contacts';
 import { formatAmount, monthLabel } from './lib/finance';
-import { describeError } from './lib/errors';
-import { formatNumber, t, type MessageKey } from './lib/i18n';
+import { ApiError, describeError } from './lib/errors';
+import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import { ConfirmDialog } from './Dialog';
@@ -152,41 +152,147 @@ function TyreCard({ value }: { value: FleetCosts }) {
   </FinCard>;
 }
 
+type Lang = 'en' | 'ar';
+const languageName = (language: Lang) => t(language === 'ar' ? 'veh.fleet.report.arabic' : 'veh.fleet.report.english');
+
 function ReportCard({ month }: { month: string }) {
   const id = useId();
+  const [draft, setDraft] = useState<Load<FleetReportDraft>>({ kind: 'loading' });
   const [company, setCompany] = useState('');
-  const [language, setLanguage] = useState<'en' | 'ar'>('en');
+  const [language, setLanguage] = useState<Lang>('en');
   const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState<'pdf' | 'xlsx' | null>(null);
+  const [busy, setBusy] = useState<'pdf' | 'xlsx' | 'save' | 'ai' | 'removeAi' | 'send' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
-  const download = async (format: 'pdf' | 'xlsx') => {
-    if (!company.trim()) { setError(t('veh.fleet.report.companyRequired')); return; }
-    setBusy(format); setError(null); setSaved(null);
-    try { setSaved(await fleetApi.downloadReport({ month, language, format, company_name: company.trim(), notes })); }
-    catch (e) { setError(t('veh.fleet.report.failed', { message: describeError(e) })); } finally { setBusy(null); }
+  const [stale, setStale] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    setDraft({ kind: 'loading' }); setError(null); setStale(false);
+    try {
+      const value = await fleetApi.reportDraft(month);
+      setDraft({ kind: 'ready', value }); setCompany(value.company_name ?? ''); setNotes(value.notes);
+    } catch (e) { setDraft(failed(e)); }
+  }, [month]);
+  useEffect(() => { void load(); }, [load]);
+  if (draft.kind === 'loading') return <FinCard title={t('veh.fleet.report.title')} icon={<FileText />}><Notice busy>{t('veh.fleet.report.loading')}</Notice></FinCard>;
+  if (draft.kind !== 'ready') return <FinCard title={t('veh.fleet.report.title')} icon={<FileText />}>
+    <LoadError message={t('veh.fleet.report.loadError', { message: draft.message })} retry={() => void load()} /></FinCard>;
+  const value = draft.value;
+  const dirty = api.draftDirty(value, company, notes);
+  const companyMissing = error === t('veh.fleet.report.companyRequired');
+  const run = async (kind: NonNullable<typeof busy>, work: () => Promise<void>) => {
+    setBusy(kind); setError(null); setDone(null); setStale(false);
+    try { await work(); } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && kind === 'save') setStale(true);
+      setError(kind === 'pdf' || kind === 'xlsx' ? t('veh.fleet.report.failed', { message: describeError(e) })
+        : kind === 'save' ? t('veh.fleet.report.saveFailed', { message: describeError(e) })
+          : kind === 'send' ? t('veh.fleet.send.failed', { message: describeError(e) }) : t('veh.fleet.ai.failed', { message: describeError(e) }));
+    } finally { setBusy(null); }
   };
+  const ready = (next: FleetReportDraft) => { setDraft({ kind: 'ready', value: next }); setCompany(next.company_name ?? ''); setNotes(next.notes); };
+  const save = async (): Promise<FleetReportDraft> => {
+    const next = await fleetApi.saveReportDraft({ month, company_name: company.trim(), notes, version: value.version });
+    ready(next);
+    return next;
+  };
+  const download = (format: 'pdf' | 'xlsx') => {
+    if (!company.trim()) { setError(t('veh.fleet.report.companyRequired')); return; }
+    void run(format, async () => setDone(t('veh.fleet.report.saved', { name: await fleetApi.downloadReport({ month, language, format, company_name: company.trim(), notes }) })));
+  };
+  const submitSave = () => {
+    if (!company.trim()) { setError(t('veh.fleet.report.companyRequired')); return; }
+    void run('save', async () => { await save(); setDone(null); });
+  };
+  const summary = value.summaries[language];
   return <FinCard title={t('veh.fleet.report.title')} icon={<FileText />} subtitle={t('veh.fleet.report.subtitle', { month: monthLabel(month) })}>
-    <form className="vehForm vehReportForm" onSubmit={(e) => { e.preventDefault(); void download('pdf'); }}>
+    <form className="vehForm vehReportForm" onSubmit={(e) => { e.preventDefault(); download('pdf'); }}>
       <label className="field" htmlFor={`${id}-company`}><span>{t('veh.fleet.report.company')}</span>
-        <input id={`${id}-company`} dir="auto" value={company} maxLength={120} aria-required="true" aria-invalid={error === t('veh.fleet.report.companyRequired') || undefined}
+        <input id={`${id}-company`} dir="auto" value={company} maxLength={120} aria-required="true" aria-invalid={companyMissing || undefined}
           aria-describedby={`${id}-company-hint`} onChange={(e) => setCompany(e.target.value)} />
-        <small id={`${id}-company-hint`} className="muted">{t('veh.fleet.report.companyHint')}</small></label>
+        <small id={`${id}-company-hint`} className="muted">{value.company_from && !value.saved
+          ? t('veh.fleet.report.carried', { month: monthLabel(value.company_from) }) : t('veh.fleet.report.companyHint')}</small></label>
       <label className="field" htmlFor={`${id}-language`}><span>{t('veh.fleet.report.language')}</span>
-        <select id={`${id}-language`} value={language} onChange={(e) => setLanguage(e.target.value as 'en' | 'ar')}>
+        <select id={`${id}-language`} value={language} onChange={(e) => setLanguage(e.target.value as Lang)}>
           <option value="en">{t('veh.fleet.report.english')}</option><option value="ar">{t('veh.fleet.report.arabic')}</option></select></label>
       <label className="field vehReportNotes" htmlFor={`${id}-notes`}><span>{t('veh.fleet.report.notes')}</span>
-        <textarea id={`${id}-notes`} dir="auto" rows={4} value={notes} maxLength={api.NOTES_MAX} placeholder={t('veh.fleet.report.notesPlaceholder')} onChange={(e) => setNotes(e.target.value)} />
-        <small className="muted">{t('veh.fleet.report.notesHint', { left: formatNumber(api.NOTES_MAX - notes.length) })}</small></label>
+        <textarea id={`${id}-notes`} dir="auto" rows={4} value={notes} maxLength={api.NOTES_MAX} placeholder={t('veh.fleet.report.notesPlaceholder')}
+          aria-describedby={`${id}-notes-hint`} onChange={(e) => setNotes(e.target.value)} />
+        <small id={`${id}-notes-hint`} className="muted">{t('veh.fleet.report.notesHint', { left: formatNumber(api.NOTES_MAX - notes.length) })}{' '}
+          {dirty ? t('veh.fleet.report.unsaved') : value.updated_at ? t('veh.fleet.report.savedAt', { when: formatDateTime(value.updated_at) }) : null}</small></label>
       <div className="actions">
+        {value.can_edit && <button type="button" className="secondary" disabled={busy !== null || !dirty} onClick={submitSave}>
+          <Save aria-hidden="true" />{busy === 'save' ? t('veh.fleet.report.saving') : t('veh.fleet.report.save')}</button>}
         <button type="submit" disabled={busy !== null}><Download aria-hidden="true" />{busy === 'pdf' ? t('veh.fleet.report.making') : t('veh.fleet.report.pdf')}</button>
-        <button type="button" className="secondary" disabled={busy !== null} onClick={() => void download('xlsx')}><FileSpreadsheet aria-hidden="true" />{busy === 'xlsx' ? t('veh.fleet.report.making') : t('veh.fleet.report.xlsx')}</button>
+        <button type="button" className="secondary" disabled={busy !== null} onClick={() => download('xlsx')}><FileSpreadsheet aria-hidden="true" />{busy === 'xlsx' ? t('veh.fleet.report.making') : t('veh.fleet.report.xlsx')}</button>
       </div>
     </form>
     {error && <Notice error>{error}</Notice>}
-    {saved && <Notice>{t('veh.fleet.report.saved', { name: saved })}</Notice>}
+    {stale && <div className="actions"><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('veh.fleet.report.reload')}</button></div>}
+    {done && <Notice>{done}</Notice>}
+    {!value.can_edit && <p className="muted vehNote">{t('veh.fleet.report.readOnly')}</p>}
+    <section className="vehReportPart" aria-labelledby={`${id}-ai`}>
+      <h3 id={`${id}-ai`}><Sparkles aria-hidden="true" />{t('veh.fleet.ai.title')}</h3>
+      <p className="muted vehNote">{t('veh.fleet.ai.intro')}</p>
+      {summary ? <blockquote className={`vehAiSummary${summary.current ? '' : ' stale'}`} lang={language} dir={language === 'ar' ? 'rtl' : 'ltr'}>
+        <small>{t('veh.fleet.ai.label', { language: languageName(language) })}</small><p>{summary.text}</p></blockquote>
+        : <p className="muted">{!value.ai.available ? t('veh.fleet.ai.off') : value.ai.empty_month ? t('veh.fleet.ai.empty') : t('veh.fleet.ai.none', { language: languageName(language) })}</p>}
+      {summary && !summary.current && <Notice>{t('veh.fleet.ai.stale')}</Notice>}
+      {value.can_edit && value.ai.available && !value.ai.empty_month && <div className="actions">
+        <button type="button" className="secondary" disabled={busy !== null} onClick={() => void run('ai', async () => ready(await fleetApi.writeReportSummary(month, language)))}>
+          <Sparkles aria-hidden="true" />{busy === 'ai' ? t('veh.fleet.ai.writing') : summary ? t('veh.fleet.ai.rewrite') : t('veh.fleet.ai.write')}</button>
+        {summary && <button type="button" className="secondary" disabled={busy !== null} onClick={() => void run('removeAi', async () => ready(await fleetApi.removeReportSummary(month, language)))}>
+          {t('veh.fleet.ai.remove')}</button>}
+      </div>}
+    </section>
+    <SendReport month={month} language={language} value={value} busy={busy}
+      onSend={(body) => run('send', async () => {
+        if (!company.trim()) throw new Error(t('veh.fleet.report.companyRequired'));
+        if (dirty) await save();
+        const result = await fleetApi.sendReport(body);
+        ready(result.draft);
+        setDone(result.status === 'waiting_approval' ? t('veh.fleet.send.waiting') : result.status === 'sent' ? t('veh.fleet.send.sent') : result.message);
+      })} />
+    {done === t('veh.fleet.send.waiting') && <p><a href="#approvals">{t('veh.fleet.send.openApprovals')}</a></p>}
     <p className="muted vehNote">{t('veh.fleet.report.never')}</p>
   </FinCard>;
+}
+
+function SendReport({ month, language, value, busy, onSend }: { month: string; language: Lang; value: FleetReportDraft; busy: string | null;
+  onSend: (body: { month: string; language: Lang; format: 'pdf' | 'xlsx'; channel: string; to: string }) => void }) {
+  const id = useId();
+  const [channel, setChannel] = useState(value.channels[0] ?? '');
+  const [to, setTo] = useState('');
+  const [format, setFormat] = useState<'pdf' | 'xlsx'>('pdf');
+  const [problem, setProblem] = useState<string | null>(null);
+  const picked = value.channels.includes(channel) ? channel : value.channels[0] ?? '';
+  return <section className="vehReportPart" aria-labelledby={`${id}-send`}>
+    <h3 id={`${id}-send`}><Send aria-hidden="true" />{t('veh.fleet.send.title')}</h3>
+    {value.channels.length === 0 ? <p className="muted">{t('veh.fleet.send.none')}</p>
+      : !value.can_edit ? null
+        : <form className="vehForm vehReportForm" onSubmit={(e) => {
+          e.preventDefault();
+          const why = api.sendProblem(picked, to);
+          setProblem(why);
+          if (!why) onSend({ month, language, format, channel: picked, to: to.trim() });
+        }}>
+          <label className="field" htmlFor={`${id}-channel`}><span>{t('veh.fleet.send.channel')}</span>
+            <select id={`${id}-channel`} value={picked} onChange={(e) => setChannel(e.target.value)}>
+              {value.channels.map((c) => <option key={c} value={c}>{api.channelLabel(c)}</option>)}</select></label>
+          <label className="field" htmlFor={`${id}-format`}><span>{t('veh.fleet.send.format')}</span>
+            <select id={`${id}-format`} value={format} onChange={(e) => setFormat(e.target.value as 'pdf' | 'xlsx')}>
+              <option value="pdf">PDF</option><option value="xlsx">Excel</option></select></label>
+          <label className="field vehReportNotes" htmlFor={`${id}-to`}><span>{t('veh.fleet.send.to')}</span>
+            <input id={`${id}-to`} dir="ltr" value={to} maxLength={200} type={picked === 'email' ? 'email' : 'tel'} autoComplete="off" aria-required="true"
+              aria-invalid={problem ? true : undefined} aria-describedby={`${id}-to-hint`} onChange={(e) => setTo(e.target.value)} />
+            <small id={`${id}-to-hint`} className={problem ? 'vehImportProblem' : 'muted'}>{problem ?? t(picked === 'whatsapp' ? 'veh.fleet.send.toHint.whatsapp' : 'veh.fleet.send.toHint.email')}</small></label>
+          <div className="actions"><button type="submit" disabled={busy !== null}><Send aria-hidden="true" />{busy === 'send' ? t('veh.fleet.send.sending') : t('veh.fleet.send.submit')}</button></div>
+        </form>}
+    <h4>{t('veh.fleet.send.history')}</h4>
+    {value.deliveries.length === 0 ? <p className="muted">{t('veh.fleet.send.historyEmpty')}</p>
+      : <ul className="cmList">{value.deliveries.map((d) => <li key={d.id}>
+        <div><strong><bdi dir="ltr">{d.to}</bdi></strong>
+          <small>{api.channelLabel(d.channel)} · {d.format === 'pdf' ? 'PDF' : 'Excel'} · {languageName(d.language)} · <bdi>{formatDateTime(d.requested_at)}</bdi></small></div>
+        <StatusChip tone={api.deliveryTone(d.status)}>{api.deliveryStatusLabel(d.status)}</StatusChip></li>)}</ul>}
+  </section>;
 }
 
 // ---- Import --------------------------------------------------------------------------------------------------------------
@@ -211,20 +317,21 @@ export function FleetImportPanel({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<FleetImportResult | null>(null);
+  const [sheets, setSheets] = useState<FleetImportSheet[]>([]);
   const input = useRef<HTMLInputElement>(null);
   if (owner === null) return <Notice busy>{t('veh.loading')}</Notice>;
   if (!owner) return <section className="surface cmPanel cmDenied" aria-labelledby={`${fileId}-denied`}><div><h2 id={`${fileId}-denied`}>{t('veh.fleet.import.ownersTitle')}</h2>
     <p className="muted">{t('veh.fleet.import.ownersOnly')}</p></div></section>;
 
-  const body = (source: Source, chosen: Record<string, string> | null) => ({
-    kind, format: source.format, ...(source.format === 'xlsx' ? { file_base64: source.content } : { csv: source.content }), file_name: source.name,
+  const body = (source: Source, chosen: Record<string, string> | null, sheet: string | null) => ({
+    kind, format: source.format, ...(source.format === 'xlsx' ? { file_base64: source.content, sheet } : { csv: source.content }), file_name: source.name,
     mapping: chosen, country, date_order: dateOrder,
   });
-  const check = async (source: Source, chosen: Record<string, string> | null) => {
+  const check = async (source: Source, chosen: Record<string, string> | null, sheet: string | null = preview?.sheet ?? null) => {
     setBusy(chosen ? 'checking' : 'reading'); setError(null); setResult(null);
     try {
-      const next = await fleetApi.previewImport(body(source, chosen));
-      setPreview(next); setMapping(next.mapping); setChoices({}); setShown(api.IMPORT_PAGE);
+      const next = await fleetApi.previewImport(body(source, chosen, sheet));
+      setPreview(next); setMapping(next.mapping); setChoices({}); setShown(api.IMPORT_PAGE); setSheets(next.sheets);
     } catch (e) { setError(describeError(e)); } finally { setBusy(null); }
   };
   const choose = async (picked: File | undefined) => {
@@ -238,10 +345,10 @@ export function FleetImportPanel({ onDone }: { onDone: () => void }) {
     try { content = format === 'xlsx' ? bytesToBase64(new Uint8Array(await picked.arrayBuffer())) : await picked.text(); }
     catch (e) { setBusy(null); setError(t('veh.fleet.err.read', { error: describeError(e) })); return; }
     const source = { name: picked.name, format, content };
-    setFile(source);
-    await check(source, null);
+    setFile(source); setSheets([]);
+    await check(source, null, null);
   };
-  const reset = () => { setFile(null); setPreview(null); setError(null); setChoices({}); setMapping({}); if (input.current) input.current.value = ''; };
+  const reset = () => { setFile(null); setPreview(null); setError(null); setChoices({}); setMapping({}); setSheets([]); if (input.current) input.current.value = ''; };
   const decisions = preview ? api.importDecisions(preview.rows, choices) : [];
   const totals = api.importTotals(decisions);
   const rows = preview ? api.importRowsShown(preview.rows, status, query) : [];
@@ -249,7 +356,7 @@ export function FleetImportPanel({ onDone }: { onDone: () => void }) {
     if (!preview || !file) return;
     setBusy('importing'); setError(null);
     try {
-      const done = await fleetApi.applyImport({ ...body(file, mapping), mapping, fingerprint: preview.fingerprint,
+      const done = await fleetApi.applyImport({ ...body(file, mapping, preview.sheet), mapping, fingerprint: preview.fingerprint,
         decisions: decisions.filter((d) => d.action !== preview.rows.find((r) => r.row === d.row)?.action) });
       setConfirming(false); setResult(done); setPreview(null); setFile(null); onDone();
     } catch (e) { setConfirming(false); setError(describeError(e)); } finally { setBusy(null); }
@@ -275,6 +382,14 @@ export function FleetImportPanel({ onDone }: { onDone: () => void }) {
         onChange={(e) => void choose(e.target.files?.[0])} /></label>}
     {file && <div className="actions vehImportFileName"><span dir="auto"><FileUp aria-hidden="true" />{t('veh.fleet.import.file', { name: file.name })}</span>
       <button type="button" className="secondary" disabled={busy !== null} onClick={reset}>{t('veh.fleet.import.another')}</button></div>}
+    {file && sheets.length > 1 && <div className="vehImportSheet">
+      <label className="field" htmlFor={`${fileId}-sheet`}><span>{t('veh.fleet.import.sheet')}</span>
+        <select id={`${fileId}-sheet`} value={preview?.sheet ?? ''} disabled={busy !== null} aria-describedby={`${fileId}-sheet-hint`}
+          onChange={(e) => void check(file, null, e.target.value)}>
+          {!preview && <option value="">-</option>}
+          {sheets.map((sheet) => <option key={sheet.name} value={sheet.name}>{api.sheetLabel(sheet)}</option>)}</select></label>
+      <small id={`${fileId}-sheet-hint`} className="muted">{t('veh.fleet.import.sheetHint', { count: formatNumber(sheets.length) })}</small>
+    </div>}
     {busy === 'reading' && <Notice busy>{t('veh.fleet.import.reading')}</Notice>}
     {error && <Notice error>{error}</Notice>}
     {result && <div className="vehImportDone">

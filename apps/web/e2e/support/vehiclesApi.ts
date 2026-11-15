@@ -23,6 +23,7 @@ export interface VehiclesState {
   allocations: Row[];
   /** Fleet import (docs/vehicles.md#fleet-import): the files applied, as the server would count them. */
   imports: Row[];
+  sheetsRead: string[];
 }
 
 const vehicle = (id: string, registration: string, extra: Row = {}): Row => ({
@@ -72,6 +73,7 @@ export function vehiclesState({ empty = false, denied = false, failOverview = fa
     denied, failOverview, links: 1, cashTransactions: new Set(),
     allocations: vanFuel ? [{ allocation_id: 'alloc_1', posted_on: day(-1), amount: '150.00', currency: 'SAR', category: 'fuel', memo: 'Van diesel', source_ref: 'a1b2c3' }] : [],
     imports: [],
+    sheetsRead: [],
   };
 }
 
@@ -123,8 +125,12 @@ export function fleetCosts(state: VehiclesState, month: string): Row {
 
 /** POST /fleet/import/preview and /apply: a fuel file with one new row, one repeated row and one with a problem. */
 function fleetImport(state: VehiclesState, sub: string, b: Row): { status: number; body: unknown } {
-  const text = String(b.csv ?? '');
+  const text = b.format === 'xlsx' ? 'Plate,Date,Litres,Amount' : String(b.csv ?? '');
   const columns = (text.split(/\r?\n/)[0] ?? '').split(',').map((c) => c.trim()).filter(Boolean);
+  // A workbook has two sheets; the one whose columns fit the kind is read unless the caller names one.
+  const sheets = b.format === 'xlsx' ? [{ name: 'Vehicles', kind: 'vehicles', columns: 4 }, { name: 'Diesel', kind: 'fuel', columns: 4 }] : [];
+  const sheet = b.format === 'xlsx' ? String(b.sheet ?? sheets.find((x) => x.kind === b.kind)?.name ?? 'Vehicles') : null;
+  if (b.format === 'xlsx') state.sheetsRead.push(sheet as string);
   const mapping = (b.mapping as Record<string, string> | null) ?? Object.fromEntries([['registration', columns[0]], ['date', columns[1]], ['litres', columns[2]]].filter(([, c]) => c));
   const fields = ['registration', 'date', 'litres', 'total', 'price_per_litre', 'odometer_km', 'station', 'fuel_type', 'full_tank', 'currency', 'notes']
     .map((field) => ({ field, required: ['registration', 'date', 'litres'].includes(field) }));
@@ -135,7 +141,7 @@ function fleetImport(state: VehiclesState, sub: string, b: Row): { status: numbe
       issues: [{ code: 'number', field: 'litres', value: 'ten', text: "'ten' is not a number." }] },
   ];
   if (sub === '/fleet/import/preview') {
-    return { status: 200, body: { kind: b.kind, columns, fields, mapping, suggested: !b.mapping, rows, counts: { rows: 3, new: 1, exists: 0, duplicate_in_file: 1, imported: 0, invalid: 1 }, fingerprint: 'f'.repeat(64) } };
+    return { status: 200, body: { kind: b.kind, sheet, sheets, columns, fields, mapping, suggested: !b.mapping, rows, counts: { rows: 3, new: 1, exists: 0, duplicate_in_file: 1, imported: 0, invalid: 1 }, fingerprint: 'f'.repeat(64) } };
   }
   const decisions = (b.decisions as { row: number; action: string }[] | undefined) ?? [];
   if (decisions.some((d) => d.row === 4 && d.action !== 'skip')) return refusal(409, "Nothing was imported. Row 4: 'ten' is not a number. Fix the file or skip those rows, then preview again.", 'rows_refused');

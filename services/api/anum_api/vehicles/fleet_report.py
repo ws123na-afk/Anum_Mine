@@ -4,9 +4,11 @@ Built on the server from the fleet summary (``fleet.py``), so the figures are th
 the company name and period, the month's totals per currency against the month before, cost per vehicle and
 per km, the vehicles with the highest cost per km, the twelve months to the report month, the renewals due
 (insurance, registration, inspection), the tyre planning snapshot when there is one (read only, never added to
-the totals) and the notes the owner wrote. An Arabic report is right to left throughout (the PDF from the right
-margin with mirrored tables, the Excel sheets opened right to left). The file is made for the request and never
-stored or sent anywhere: the person downloads it.
+the totals), the AI summary paragraph when the owner asked for one (labelled, built only from these figures,
+``fleet_summary.py``) and the notes the owner wrote. An Arabic report is right to left throughout (the PDF from the right
+margin with mirrored tables, the Excel sheets opened right to left). The file is made for the request: the person
+downloads it, or sends it from Vehicles through the delivery and approval path (``fleet_api.py``), which renders it
+from the frozen content of that delivery.
 """
 
 from __future__ import annotations
@@ -47,6 +49,8 @@ TEXT: dict[str, dict[str, str]] = {
         "no_data": "No costs or kilometres were recorded for this month.", "page": "page {number} of {total}", "footer": "ANUM fleet report",
         "sheet_summary": "Summary", "sheet_vehicles": "Vehicles", "sheet_trend": "Last 12 months", "sheet_renewals": "Renewals",
         "sheet_tyres": "Tyres", "sheet_notes": "Notes",
+        "ai_title": "Summary (written by AI)",
+        "ai_label": "Written by AI from the figures in this report. It adds no figures of its own.",
     },
     "ar": {
         "title": "تقرير تكاليف الأسطول الشهري", "company": "الشركة", "period": "الفترة", "prepared": "تاريخ الإعداد", "summary": "الملخص",
@@ -65,6 +69,8 @@ TEXT: dict[str, dict[str, str]] = {
         "no_data": "لم تُسجل تكاليف أو كيلومترات لهذا الشهر.", "page": "صفحة {number} من {total}", "footer": "تقرير الأسطول من ANUM",
         "sheet_summary": "الملخص", "sheet_vehicles": "المركبات", "sheet_trend": "آخر 12 شهرا", "sheet_renewals": "التجديدات",
         "sheet_tyres": "الإطارات", "sheet_notes": "ملاحظات",
+        "ai_title": "الملخص (كتبه الذكاء الاصطناعي)",
+        "ai_label": "كتبه الذكاء الاصطناعي من أرقام هذا التقرير، ولا يضيف أرقاما من عنده.",
     },
 }
 CATEGORY_KEYS = ("fuel", "service", "tyres", "other")
@@ -157,7 +163,7 @@ def _empty_month(summary: dict[str, Any]) -> bool:
     return Decimal(summary["distance_km"]) == 0 and all(Decimal(t["total"]) == 0 for t in summary["totals"])
 
 
-def pdf(summary: dict[str, Any], *, company: str, notes: str, language: Language, prepared_on: date) -> bytes:
+def pdf(summary: dict[str, Any], *, company: str, notes: str, language: Language, prepared_on: date, ai_summary: str | None = None) -> bytes:
     t = _texts(language)
     rtl = language == "ar"
     doc = PdfDocument(f"{t['footer']}: {company}", rtl=rtl, page_label=t["page"], empty=t["no_rows"])
@@ -167,6 +173,10 @@ def pdf(summary: dict[str, Any], *, company: str, notes: str, language: Language
                                                   [t["prepared"], prepared_on.isoformat()], *lines["summary"]])
     if _empty_month(summary):
         doc.paragraph(t["no_data"])
+    if ai_summary:
+        doc.heading(t["ai_title"], 12)
+        doc.paragraph(t["ai_label"], 8)
+        doc.paragraph(ai_summary, 9)
     doc.table(t["total"], columns["money"], lines["money"])
     doc.paragraph(t["basis"], 8)
     doc.table(t["per_vehicle"], columns["vehicles"], lines["vehicles"])
@@ -182,7 +192,7 @@ def pdf(summary: dict[str, Any], *, company: str, notes: str, language: Language
     return doc.render()
 
 
-def xlsx(summary: dict[str, Any], *, company: str, notes: str, language: Language, prepared_on: date) -> bytes:
+def xlsx(summary: dict[str, Any], *, company: str, notes: str, language: Language, prepared_on: date, ai_summary: str | None = None) -> bytes:
     t = _texts(language)
     rtl = language == "ar"
     lines, columns = _lines(summary, t), _columns(t)
@@ -196,6 +206,10 @@ def xlsx(summary: dict[str, Any], *, company: str, notes: str, language: Languag
     first.row([t["vehicles"], summary["vehicles"]])
     first.row([t["distance"], Decimal(summary["distance_km"])])
     first.row([t["litres"], Decimal(summary["fuel_litres"])])
+    if ai_summary:
+        first.blank()
+        first.row([t["ai_title"], ai_summary])
+        first.row([t["ai_label"]])
     first.blank()
     first.header(columns["money"])
     for row in numbers["money"]:
