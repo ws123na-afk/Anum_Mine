@@ -6,7 +6,7 @@ import type {
   FinancePayoffPage, FinancePayslip, FinancePayslipDetail, FinancePayslipInput, FinancePayslipPage, FinancePersonLoan, FinancePersonLoanDetail,
   FinancePersonLoanInput, FinancePersonLoanPage, FinanceRemittance, FinanceRemittanceDetail, FinanceRemittanceInput, FinanceRemittancePage,
   FinanceResearch, FinanceResearchInput, FinanceSalaryMonthsPage, FinanceSalaryProfile, FinanceSalaryProfileInput,
-  FinanceFxRevaluation, FinancePersonLoanSplitInput, FinancePersonLoanSplitResult, FinanceTag, FinanceTagDetail, FinanceTagInput, FinanceTagPage,
+  FinanceFxRevaluation, FinanceLoanPersonDetail, FinanceLoanPersonPage, FinancePersonLoanSplitInput, FinancePersonLoanSplitResult, FinanceTag, FinanceTagDetail, FinanceTagInput, FinanceTagPage,
 } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 import { query } from './financeApi';
@@ -31,6 +31,9 @@ export const deleteLoan = (loanId: string) => remove(`/people-loans/${id(loanId)
 export const linkLoan = (loanId: string, canonicalId: string, kind: 'handed' | 'repayment', amount?: string | null) =>
   send<FinanceLinkResult>('POST', `/people-loans/${id(loanId)}/links`, { canonical_id: canonicalId, kind, ...(amount ? { amount } : {}) }, newKey());
 export const unlinkLoan = (loanId: string, linkId: string) => remove(`/people-loans/${id(loanId)}/links/${id(linkId)}`);
+/** Lent and borrowed by person: each person's loans together, by Contacts person or typed name (docs/finance.md#people-from-contacts). */
+export const listLoanPeople = (p: { q?: string; limit: number; offset: number }) => get<FinanceLoanPersonPage>(`/people-loans/people${query({ ...p })}`);
+export const getLoanPerson = (key: string) => get<FinanceLoanPersonDetail>(`/people-loans/people/detail${query({ key })}`);
 /** One transaction split across several loans, an amount each: all parts are made or none (docs/finance.md#lent-and-borrowed). */
 export const splitLoans = (body: FinancePersonLoanSplitInput) => send<FinancePersonLoanSplitResult>('POST', '/people-loans/split', body, newKey());
 

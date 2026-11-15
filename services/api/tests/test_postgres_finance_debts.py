@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from conftest import APP_ROLE, TENANT_A, WORKSPACE_A
+from conftest import APP_ROLE, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DBAPIError
@@ -32,6 +32,13 @@ def _members(engine: Engine) -> None:
         for user_id, role in (("owner_1", "owner"), ("alice", "member")):
             connection.execute(text("insert into workspace_memberships (user_id, tenant_id, workspace_id, role, active) values "
                                     "(:u, :t, :w, :r, true) on conflict do nothing"), {"u": user_id, "r": role, "t": TENANT_A, "w": WORKSPACE_A})
+
+
+def _member_in(engine: Engine, headers: dict[str, str]) -> None:
+    with engine.begin() as connection:
+        connection.execute(text("insert into workspace_memberships (user_id, tenant_id, workspace_id, role, active) values "
+                                "(:u, :t, :w, 'owner', true) on conflict do nothing"),
+                           {"u": headers["x-user-id"], "t": headers["x-tenant-id"], "w": headers["x-workspace-id"]})
 
 
 def test_the_new_columns_are_nullable_and_the_alert_table_has_forced_rls(database_engine: Engine) -> None:
@@ -60,14 +67,31 @@ def test_a_profile_a_promise_and_alert_choices_are_the_owners_own(client: TestCl
     view = client.get(f"{FIN}/debt-overview", headers=OWNER).json()
     mine = next(i for i in view["items"] if i["ref_id"] == debt_id)
     assert mine["type"] == "informal" and mine["discrepancy"] is True and mine["fees"] == "10.00"
+    # The person comes from Contacts under RLS (docs/finance.md#people-from-contacts): one in this workspace links, one in
+    # another workspace or tenant is "not found" for the owner and refused.
+    friend = client.post("/api/v1/contacts", headers=OWNER, json={"name": "Synthetic Friend"})
+    assert friend.status_code == 201, friend.text
+    contact_id = friend.json()["person"]["id"]
+    for elsewhere in ({**OWNER, "x-workspace-id": WORKSPACE_A2}, {**OWNER, "x-tenant-id": TENANT_B, "x-workspace-id": WORKSPACE_B}):
+        _member_in(database_engine, elsewhere)
+        foreign = client.post("/api/v1/contacts", headers=elsewhere, json={"name": "Synthetic Stranger"})
+        assert foreign.status_code == 201, foreign.text
+        refused = client.post(f"{FIN}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Stranger", "amount": "1", "currency": "SAR",
+                                                                           "lent_on": today.isoformat(), "contact_id": foreign.json()["person"]["id"]})
+        assert refused.status_code == 422, refused.text
     loan = client.post(f"{FIN}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Synthetic Friend", "amount": "300", "currency": "SAR",
-                                                                    "lent_on": today.isoformat(), "contact_id": "contact_example"})
+                                                                    "lent_on": today.isoformat(), "contact_id": contact_id})
     assert loan.status_code == 201, loan.text
     loan_id = loan.json()["id"]
     promise = client.post(f"{FIN}/people-loans/{loan_id}/promises", headers=OWNER, json={"amount": "100", "due_by": date(today.year + 1, 1, 1).isoformat()})
     assert promise.status_code == 201, promise.text
+    assert client.patch(f"/api/v1/contacts/{contact_id}", headers=OWNER, json={"name": "Synthetic Friend Renamed"}).status_code == 200
     detail = client.get(f"{FIN}/people-loans/{loan_id}", headers=OWNER).json()
-    assert detail["contact_id"] == "contact_example" and detail["promises"][0]["amount"] == "100.00" and detail["promise_states"][0]["status"] == "pending"
+    assert (detail["contact_name"], detail["person"]) == ("Synthetic Friend Renamed", "Synthetic Friend")
+    grouped = client.get(f"{FIN}/people-loans/people", headers=OWNER).json()
+    assert [g["key"] for g in grouped["items"]] == [f"contact:{contact_id}"]
+    assert client.get(f"{FIN}/people-loans/people", headers=ALICE).json()["total"] == 0
+    assert detail["contact_id"] == contact_id and detail["promises"][0]["amount"] == "100.00" and detail["promise_states"][0]["status"] == "pending"
     assert client.put(f"{FIN}/alerts/settings", headers=OWNER, json={"kinds": {"refund_received": False}}).status_code == 200
     assert next(k for k in client.get(f"{FIN}/alerts/settings", headers=OWNER).json()["kinds"] if k["kind"] == "refund_received")["on"] is False
     # Alice (a member of the same workspace) sees none of it, and her own alert choices start from the defaults.

@@ -9,7 +9,7 @@ import { useSavedLocale } from './support/workspaceApi';
 // error with a retry, denied), Arabic and the responsive gate. The API is mocked at http://localhost:8000/**
 // like the other specs; every figure is SYNTHETIC. ANUM only advises: nothing here moves money.
 
-interface Mock { loans: Record<string, unknown>[]; payslips: Record<string, unknown>[]; remittances: Record<string, unknown>[]; asked: string[]; salary: Record<string, unknown> | null; decisions: Record<string, string> }
+interface Mock { contacts: { id: string; name: string; organisation: string }[]; contactsDenied: boolean; loans: Record<string, unknown>[]; payslips: Record<string, unknown>[]; remittances: Record<string, unknown>[]; asked: string[]; salary: Record<string, unknown> | null; decisions: Record<string, string> }
 const stamp = '2026-11-01T00:00:00Z';
 
 async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?: boolean; search?: 'off' | 'on' } = {}): Promise<Mock> {
@@ -17,6 +17,8 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
   let failures = o.fail ?? 0;
   const mock: Mock = {
     asked: [],
+    contacts: [{ id: 'contact_sara', name: 'Sara Ahmed', organisation: 'Example Co' }],
+    contactsDenied: false,
     loans: o.empty ? [] : [{ id: 'loan_1', direction: 'lent', person: 'Friend A', amount: '1000.00', currency: 'AED', lent_on: '2026-10-20', due_on: '2026-11-12',
       notes: null, remind: true, remind_days_before: 3, closed_on: null, repaid: '0.00', outstanding: '1000.00', handed: '1000.00', status: 'due_soon',
       days_until_due: 5, links: 1, created_at: stamp, updated_at: stamp }],
@@ -38,6 +40,21 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals' || path === '/api/v1/conversations') return json([]);
     const sub = path.replace('/api/v1/finance', '');
     const body = request.postData() ? request.postDataJSON() : null;
+    // The Contacts directory's own API (docs/contacts.md#api): the loan form searches it and may add a person.
+    if (path === '/api/v1/contacts') {
+      mock.asked.push(`${request.method()} /contacts`);
+      if (mock.contactsDenied) return json({ error: { code: 'forbidden', message: 'Contacts hold personal data.', correlation_id: 'c', details: [] } }, 403);
+      const person = (c: Mock['contacts'][number]) => ({ ...c, notes: '', source: 'manual', phones: [], emails: [], sources: [], do_not_contact: [], open_proposals: 0,
+        created_by: 'user_local', created_at: stamp, updated_at: stamp });
+      if (request.method() === 'POST') {
+        const made = { id: `contact_${mock.contacts.length + 1}`, name: String(body.name), organisation: '' };
+        mock.contacts.push(made);
+        return json({ person: person(made), links: [], channels: [], proposals: [], mail_contacts: [], can_write: true, can_manage: false }, 201);
+      }
+      const q = (url.searchParams.get('q') ?? '').toLowerCase();
+      const items = mock.contacts.filter((c) => c.name.toLowerCase().includes(q)).map(person);
+      return json({ items, total: items.length, counts: { people: items.length, do_not_contact: 0, open_proposals: 0, by_source: {} }, can_write: true, can_manage: false, can_export: false });
+    }
     const mine = /^\/(people-loans|payslips|remittances|fixed-commitments|planner|payment-candidates|salary)/.test(sub);
     if (mine) {
       mock.asked.push(`${request.method()} ${sub}`);
@@ -47,8 +64,32 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
         const owed = mock.loans.length ? [{ currency: 'AED', they_owe_me: mock.loans.filter((l) => l.direction === 'lent').reduce((s, l) => s + Number(l.outstanding), 0).toFixed(2), i_owe: '0.00' }] : [];
         return json({ items: mock.loans, total: mock.loans.length, limit: 20, offset: 0, owed, overdue: 0, note: 'x' });
       }
+      if (sub === '/people-loans/people' && request.method() === 'GET') {
+        const groups = new Map<string, Record<string, unknown>[]>();
+        for (const l of mock.loans) {
+          const key = l.contact_id ? `contact:${l.contact_id}` : `name:${String(l.person).toLowerCase()}`;
+          groups.set(key, [...(groups.get(key) ?? []), l]);
+        }
+        const items = [...groups].map(([key, loans]) => ({ key, contact_id: loans[0].contact_id ?? null, contact_state: loans[0].contact_state ?? null,
+          name: loans[0].contact_name ?? loans[0].person, names: [...new Set(loans.map((l) => l.person))], loans: loans.length, open_loans: loans.length, overdue: 0,
+          owed: [{ currency: 'AED', they_owe_me: loans.filter((l) => l.direction === 'lent').reduce((t, l) => t + Number(l.outstanding), 0).toFixed(2),
+            i_owe: loans.filter((l) => l.direction === 'borrowed').reduce((t, l) => t + Number(l.outstanding), 0).toFixed(2), they_owe_me_overdue: '0.00', i_owe_overdue: '0.00' }],
+          last_on: loans[0].lent_on }));
+        return json({ items, total: items.length, limit: 20, offset: 0 });
+      }
+      if (sub === '/people-loans/people/detail') {
+        const key = url.searchParams.get('key');
+        const loans = mock.loans.filter((l) => (l.contact_id ? `contact:${l.contact_id}` : `name:${String(l.person).toLowerCase()}`) === key);
+        if (!loans.length) return json({ error: { code: 'not_found', message: 'Person not found.', correlation_id: 'c', details: [] } }, 404);
+        const history = loans.filter((l) => Number(l.repaid) > 0).map((l) => ({ loan_id: l.id, direction: l.direction, currency: 'AED',
+          movement: { link: { id: `link_${l.id}`, role: 'deposit', amount: l.repaid, currency: 'AED', status: 'active' }, posted_on: '2026-11-04', description: 'From Sara', account_id: null } }));
+        return json({ key, contact_id: loans[0].contact_id ?? null, contact_state: loans[0].contact_state ?? null, name: loans[0].contact_name ?? loans[0].person,
+          names: [...new Set(loans.map((l) => l.person))], loans: loans.length, open_loans: loans.length, overdue: 0, owed: [], last_on: loans[0].lent_on, items: loans, history });
+      }
       if (sub === '/people-loans' && request.method() === 'POST') {
-        const made = { ...body, id: `loan_${mock.loans.length + 1}`, amount: Number(body.amount).toFixed(2), currency: body.currency || 'AED', closed_on: null, repaid: '0.00',
+        const linked = body.contact_id ? mock.contacts.find((c) => c.id === body.contact_id) : undefined;
+        if (body.contact_id && !linked) return json({ error: { code: 'validation_error', message: 'This person is not in Contacts any more.', correlation_id: 'c', details: [] } }, 422);
+        const made = { ...body, contact_name: linked?.name ?? null, contact_state: linked ? 'linked' : null, id: `loan_${mock.loans.length + 1}`, amount: Number(body.amount).toFixed(2), currency: body.currency || 'AED', closed_on: null, repaid: '0.00',
           outstanding: Number(body.amount).toFixed(2), handed: '0.00', status: 'open', days_until_due: null, links: 0, created_at: stamp, updated_at: stamp };
         mock.loans.unshift(made);
         return json(made, 201);
@@ -154,6 +195,60 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
 
 const card = (page: Page, name: string | RegExp) => page.getByRole('region', { name });
 
+test('lent and borrowed: pick the person from Contacts or add them there, then see their loans together', async ({ page }) => {
+  const mock = await mockApi(page);
+  await page.goto('/#finance-debts-people');
+  await page.getByRole('button', { name: 'Add a loan' }).first().click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Person', exact: true }).fill('Sara');
+  await dialog.getByRole('button', { name: 'Link Sara Ahmed from Contacts' }).click();
+  await expect(dialog.getByText('Linked to Sara Ahmed in Contacts')).toBeVisible();
+  await dialog.getByLabel('Amount').fill('300');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Sara is saved.')).toBeVisible();
+  expect(mock.loans[0]).toMatchObject({ contact_id: 'contact_sara', person: 'Sara' });
+  // The list shows the name Contacts has now, with the name typed on the loan kept underneath.
+  await expect(page.getByRole('rowheader', { name: /Sara Ahmed/ })).toContainText('Saved on the loan as Sara');
+
+  // Nobody of that name: add them to Contacts from the form; unlinking keeps the typed name.
+  await page.getByRole('button', { name: 'Add a loan' }).first().click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Person', exact: true }).fill('Example Neighbour');
+  await expect(dialog.getByText('Nobody called Example Neighbour in Contacts. The loan keeps the name as typed.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Add Example Neighbour to Contacts' }).click();
+  await expect(dialog.getByText('Linked to Example Neighbour in Contacts')).toBeVisible();
+  expect(mock.asked).toContain('POST /contacts');
+  await dialog.getByLabel('Amount').fill('50');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Example Neighbour is saved.')).toBeVisible();
+  expect(mock.loans[0]).toMatchObject({ contact_id: 'contact_2' });
+
+  // By person: each person's loans and their repayments together.
+  await page.getByRole('button', { name: 'By person' }).click();
+  const people = card(page, 'People you lent to or borrowed from');
+  await expect(people.getByRole('rowheader', { name: /Sara Ahmed/ })).toContainText('From Contacts');
+  mock.loans.find((l) => l.contact_id === 'contact_sara')!.repaid = '100.00';
+  await people.getByRole('button', { name: 'Open Sara Ahmed and its linked transactions' }).click();
+  const detail = page.getByRole('dialog', { name: 'Loans with Sara Ahmed' });
+  await expect(detail.getByRole('heading', { name: 'Money handed over and repaid' })).toBeVisible();
+  await expect(detail).toContainText('From Sara');
+  await detail.getByRole('button', { name: 'Close' }).click();
+});
+
+test('lent and borrowed: without access to Contacts the loan keeps the typed name', async ({ page }) => {
+  const mock = await mockApi(page);
+  mock.contactsDenied = true;
+  await page.goto('/#finance-debts-people');
+  await page.getByRole('button', { name: 'Add a loan' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Person', exact: true }).fill('Cousin C');
+  await expect(dialog.getByText(/You cannot read Contacts in this workspace/)).toBeVisible();
+  await dialog.getByLabel('Amount').fill('80');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Cousin C is saved.')).toBeVisible();
+  expect(mock.loans[0]).toMatchObject({ person: 'Cousin C', contact_id: null });
+});
+
 test('lent and borrowed: add a loan, link a repayment and see what is left', async ({ page }) => {
   const mock = await mockApi(page);
   // The old address still works: Lent and borrowed is now the People section of Debts and goals.
@@ -166,7 +261,7 @@ test('lent and borrowed: add a loan, link a repayment and see what is left', asy
   await page.getByRole('button', { name: 'Add a loan' }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('I borrowed money (I owe them)').check();
-  await dialog.getByLabel('Person').fill('Cousin B');
+  await dialog.getByRole('textbox', { name: 'Person', exact: true }).fill('Cousin B');
   await dialog.getByLabel('Amount').fill('500');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Cousin B is saved.')).toBeVisible();
@@ -344,6 +439,37 @@ for (const [hash, ready] of [['#finance-debts-people', '.finGrid'], ['#finance-b
       }).map((e) => `${e.tagName}.${e.className}`));
       expect(sticking).toEqual([]);
       if (process.env.ANUM_E2E_SHOTS) await page.screenshot({ path: `${process.env.ANUM_E2E_SHOTS}/${hash.slice(1)}-${width}x${height}.png`, fullPage: true });
+    });
+  }
+}
+
+// The loan form with a person from Contacts and the By person view (docs/finance.md#people-from-contacts), in both languages.
+for (const [width, height] of VIEWPORTS) {
+  for (const locale of ['en', 'ar'] as const) {
+    test(`responsive @gate: the Contacts picker and By person fit at ${width}x${height} (${locale})`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      if (locale === 'ar') await useSavedLocale(page, 'ar');
+      const mock = await mockApi(page);
+      mock.loans[0] = { ...mock.loans[0], contact_id: 'contact_sara', contact_name: 'Sara Ahmed', contact_state: 'linked' };
+      await page.goto('/#finance-debts-people');
+      await page.locator('.fpmViewSwitch button').nth(1).click();
+      await expect(page.locator('.finGrid').first()).toBeVisible();
+      const fits = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(await fits()).toBeLessThanOrEqual(0);
+      if (process.env.ANUM_E2E_SHOTS) await page.screenshot({ path: `${process.env.ANUM_E2E_SHOTS}/loan-people-${locale}-${width}x${height}.png`, fullPage: true });
+      await page.locator('.fpmViewSwitch button').nth(0).click();
+      await expect(page.locator('.finGrid').first()).toBeVisible();
+      await page.locator('.fpmPage button').filter({ has: page.locator('svg.lucide-plus') }).first().click();
+      const dialog = page.getByRole('dialog');
+      await dialog.locator('.fpmPersonField input').fill('Sara');
+      await expect(dialog.locator('.fpmContactList button').first()).toBeVisible();
+      const clipped = await dialog.evaluate((root) => [...root.querySelectorAll('.fpmPersonField *')].filter((e) => {
+        const box = e.getBoundingClientRect(), frame = root.getBoundingClientRect();
+        return box.width > 0 && (box.right > frame.right + 1 || box.left < frame.left - 1);
+      }).length);
+      expect(clipped).toBe(0);
+      expect(await fits()).toBeLessThanOrEqual(0);
+      if (process.env.ANUM_E2E_SHOTS) await dialog.screenshot({ path: `${process.env.ANUM_E2E_SHOTS}/loan-contact-form-${locale}-${width}x${height}.png` });
     });
   }
 }

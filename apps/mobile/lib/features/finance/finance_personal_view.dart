@@ -8,6 +8,8 @@ import '../../src/widgets/depth.dart';
 import '../records_kit/payment_picker.dart';
 import '../records_kit/records_widgets.dart';
 import 'finance_lending_strings.dart';
+import 'finance_loan_contacts.dart';
+import 'finance_loan_contacts_strings.dart';
 import 'finance_lending_view.dart';
 import 'finance_personal_controller.dart';
 import 'finance_personal_models.dart';
@@ -275,14 +277,30 @@ class PeopleLoansView extends StatelessWidget {
             c.loansState == MoneyLoad.ready, c.loansError, c.loadLoans,
             loading: s.t('people.loading'), failed: 'people.failed');
         if (waiting != null) return waiting;
-        final add = Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: FilledButton.icon(
-            key: const Key('loan-add'),
-            onPressed: () => _add(context, c, s),
-            icon: const Icon(Icons.add),
-            label: Text(s.t('people.add')),
-          ),
+        final people = c.people;
+        final add = Wrap(
+          spacing: AnumSpacing.xs,
+          runSpacing: AnumSpacing.xs,
+          children: [
+            FilledButton.icon(
+              key: const Key('loan-add'),
+              onPressed: () => _add(context, c, s),
+              icon: const Icon(Icons.add),
+              label: Text(s.t('people.add')),
+            ),
+            // Each person's loans and repayments together
+            // (docs/finance.md#people-from-contacts).
+            if (people != null && c.loans.isNotEmpty)
+              OutlinedButton.icon(
+                key: const Key('loan-people'),
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => LoanPeopleScreen(source: people))),
+                icon: const Icon(Icons.groups_outlined),
+                label: Text(
+                    FinanceLoanContactsStrings.of(context).t('people.open')),
+              ),
+          ],
         );
         final filter = Semantics(
           label: s.t('people.filter'),
@@ -504,8 +522,11 @@ class _LoanRow extends StatelessWidget {
               : lent
                   ? AnumTone.ok
                   : AnumTone.warn,
-          title: loan.person,
+          title: loan.displayName,
           subtitle: [
+            if (loanContactNote(loan, FinanceLoanContactsStrings.of(context))
+                case final String note)
+              note,
             s.t(lent ? 'people.rowLent' : 'people.rowBorrowed'),
             due,
             ...terms,
