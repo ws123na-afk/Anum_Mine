@@ -30,9 +30,14 @@ AttachmentResolver = Callable[[TenantContext, str, str], tuple[str, str, bytes] 
 # saying what to connect (the email tool needs the server's mail settings, the WhatsApp tool
 # the workspace's own WhatsApp connection). A tool without a check is always available.
 AvailabilityCheck = Callable[[TenantContext], str | None]
+# Arguments a channel's tool adds to the call for the person asking (the mailbox channel: whose
+# mailbox and its address), so the approval shows and binds them. May raise
+# ``DeliveryUnavailableError``. Called in a worker thread.
+ArgumentsProvider = Callable[[TenantContext], dict[str, Any]]
 
 _resolvers: dict[str, AttachmentResolver] = {}
 _availability: dict[str, AvailabilityCheck] = {}
+_arguments: dict[str, ArgumentsProvider] = {}
 _registry: ToolRegistry | None = None
 
 
@@ -53,6 +58,11 @@ def registry() -> ToolRegistry | None:
 def register_availability(tool_name: str, check: AvailabilityCheck) -> None:
     """Say when ``tool_name`` can deliver for a workspace (see ``AvailabilityCheck``)."""
     _availability[tool_name] = check
+
+
+def register_arguments(tool_name: str, provider: ArgumentsProvider) -> None:
+    """Let ``tool_name`` add its own arguments for the person asking (see ``ArgumentsProvider``)."""
+    _arguments[tool_name] = provider
 
 
 def unavailable_reason(tool_name: str, context: TenantContext) -> str | None:
@@ -179,9 +189,11 @@ async def request_delivery(
     tool_name = (await asyncio.to_thread(channels, tools, context)).get(channel) if tools is not None else None
     if tools is None or tool_name is None:
         raise DeliveryUnavailableError(await asyncio.to_thread(missing_reason, channel, context, tools))
+    provider = _arguments.get(tool_name)
+    extra = await asyncio.to_thread(provider, context) if provider is not None else {}
     call = ToolCall(
         name=tool_name,
-        arguments={"to": to, "subject": subject, "text": text, "attachments": attachments},
+        arguments={**extra, "to": to, "subject": subject, "text": text, "attachments": attachments},
     )
 
     def runtime_for(repository: Any) -> AgentRuntime:

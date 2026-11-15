@@ -390,6 +390,8 @@ void main() {
     test('recipients are checked for the channel', () {
       expect(recipientProblem('email', 'fleet@example.com'), isNull);
       expect(recipientProblem('email', '+971501234567'), 'tyreOps.badEmail');
+      expect(recipientProblem('mailbox', 'fleet@example.com'), isNull);
+      expect(recipientProblem('mailbox', '+971501234567'), 'tyreOps.badEmail');
       expect(recipientProblem('whatsapp', '+971 50 123 4567'), isNull);
       expect(recipientProblem('whatsapp', 'a@b.co'), 'tyreOps.badPhone');
       expect(recipientProblem(null, 'x'), 'tyreOps.recipientNeeded');

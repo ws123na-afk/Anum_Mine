@@ -205,3 +205,43 @@ def test_a_refund_that_succeeded_then_failed_is_reversed_everywhere(fake_stripe:
                                                                "tax_label": "VAT", "version": current["version"] if current else None}))
     context = TenantContext(tenant_id=CONTEXT.tenant_id, workspace_id=CONTEXT.workspace_id, user_id="owner_biz", roles=["owner"])
     assert not [item for item in propose(gather(context), Chart()) if item.source_kind == "invoice_refund"]
+
+
+def test_a_reviewed_refund_that_then_fails_at_stripe_closes_its_review(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refund kept for review (its payment had not arrived) that Stripe then reports failed gave nothing back."""
+    turn_on_stripe(monkeypatch)
+    sent = aed_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    metadata = dict(fake_stripe.links[link["provider_invoice_id"]]["metadata"])
+    fake_stripe.intent("pi_review_fail_example", 105000, "aed", metadata)
+    refund = fake_stripe.dashboard_refund("pi_review_fail_example", 40000)
+    assert ok(_deliver(refund_object_event("evt_review_made", "refund.created", refund)))["outcome"] == "refund_needs_review"
+    assert ok(client.get(f"{BASE}/refund-reviews", headers=MEMBER))["total"] == 1
+    refund["status"] = "failed"
+    assert ok(_deliver(refund_object_event("evt_review_failed", "refund.failed", refund)))["outcome"] == "refund_review_closed"
+    assert ok(client.get(f"{BASE}/refund-reviews", headers=MEMBER))["total"] == 0
+    [closed] = ok(client.get(f"{BASE}/refund-reviews?state=checked", headers=MEMBER))["items"]
+    assert closed["checked_by"] == "system:stripe" and "failed" in closed["note"] and "no money was given back" in closed["note"]
+    # A repeat changes nothing, and the payment that then arrives is recorded whole: nothing was refunded.
+    assert ok(_deliver(refund_object_event("evt_review_failed_2", "charge.refund.updated", refund)))["outcome"] == "ignored"
+    assert ok(stripe_session(link, "evt_review_paid", "pi_review_fail_example", 105000, metadata))["outcome"] == "paid"
+    view = invoice(sent["id"])
+    assert view["status"] == "paid" and view["amount_paid"] == 1050 and view["refunds"] == []
+
+
+def test_a_reviewed_refund_that_fails_after_the_payment_arrived_closes_too(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The payment arrives while the refund is pending again at Stripe (nothing recorded), then the refund is canceled."""
+    turn_on_stripe(monkeypatch)
+    sent = aed_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    metadata = dict(fake_stripe.links[link["provider_invoice_id"]]["metadata"])
+    fake_stripe.intent("pi_review_late_example", 105000, "aed", metadata)
+    refund = fake_stripe.dashboard_refund("pi_review_late_example", 40000)
+    assert ok(_deliver(refund_object_event("evt_rl_made", "refund.created", refund)))["outcome"] == "refund_needs_review"
+    refund["status"] = "pending"
+    assert ok(stripe_session(link, "evt_rl_paid", "pi_review_late_example", 105000, metadata))["outcome"] == "paid"
+    assert ok(client.get(f"{BASE}/refund-reviews", headers=MEMBER))["total"] == 1
+    refund["status"] = "canceled"
+    assert ok(_deliver(refund_object_event("evt_rl_cancel", "charge.refund.updated", refund)))["outcome"] == "refund_review_closed"
+    assert ok(client.get(f"{BASE}/refund-reviews", headers=MEMBER))["total"] == 0
+    assert invoice(sent["id"])["amount_paid"] == 1050

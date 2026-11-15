@@ -115,6 +115,11 @@ class FakeCalendars:
             {"id": "AAMkCal2=", "name": "Fleet bookings", "isDefaultCalendar": False, "canEdit": False, "hexColor": ""},
         ]
         self.graph_other: dict[str, list[dict[str, Any]]] = {"AAMkCal2=": [graph_item("b1", "Truck 12 service", 9)]}
+        # Per-calendar incremental reads: Google sync tokens (off unless a test turns them on) and Graph delta changes.
+        self.google_other_tokens = False
+        self.google_other_changes: dict[str, list[dict[str, Any]]] = {}
+        self.google_other_expire = False
+        self.graph_other_changes: dict[str, list[dict[str, Any]]] = {}
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         host, path = request.url.host, request.url.path
@@ -154,9 +159,20 @@ class FakeCalendars:
         if request.url.path.startswith("/calendar/v3/calendars/") and not request.url.path.startswith("/calendar/v3/calendars/primary/"):
             calendar_id = request.url.path.split("/")[4]
             from urllib.parse import unquote as _unquote
-            self.google_query.append({**params, "calendar": _unquote(calendar_id)})
+            name = _unquote(calendar_id)
+            self.google_query.append({**params, "calendar": name})
             assert params["singleEvents"] == "true"
-            return httpx.Response(200, json={"items": self.google_other.get(_unquote(calendar_id), [])})
+            if params.get("syncToken"):
+                assert "timeMin" not in params and "timeMax" not in params and "orderBy" not in params  # Google refuses them with a token
+                if self.google_other_expire:
+                    self.google_other_expire = False
+                    return httpx.Response(410, json={"error": {"message": "Sync token is no longer valid"}})
+                changes = self.google_other_changes.pop(name, [])
+                return httpx.Response(200, json={"items": changes, "nextSyncToken": f"cs-{len(self.google_query)}"})
+            body: dict[str, Any] = {"items": self.google_other.get(name, [])}
+            if self.google_other_tokens:
+                body["nextSyncToken"] = f"cs-{len(self.google_query)}"
+            return httpx.Response(200, json=body)
         path = request.url.path.removeprefix("/calendar/v3/calendars/primary/events")
         if request.method == "GET" and path.endswith("/instances"):
             self.google_query.append({**params, "instances": path})
@@ -197,6 +213,16 @@ class FakeCalendars:
             return httpx.Response(200, json={"mail": "owner@contoso.example", "displayName": "Owner Two"})
         if path == "/calendars":
             return httpx.Response(200, json={"value": self.graph_calendars})
+        if path.startswith("/calendars/") and path.endswith("/calendarView/delta"):
+            from urllib.parse import unquote as _unquote
+            calendar_id = _unquote(path.split("/")[2])
+            self.graph_params.append({**params, "calendar": calendar_id})
+            base = f"https://graph.microsoft.com/v1.0/me/calendars('{calendar_id}')/calendarView/delta"
+            if "$deltatoken" in params:
+                items = self.graph_other_changes.pop(calendar_id, [])
+                return httpx.Response(200, json={"value": items, "@odata.deltaLink": f"{base}?$deltatoken=od-{len(self.graph_params)}"})
+            assert "startDateTime" in params and "endDateTime" in params
+            return httpx.Response(200, json={"value": self.graph_other.get(calendar_id, []), "@odata.deltaLink": f"{base}?$deltatoken=od-{len(self.graph_params)}"})
         if path.startswith("/calendars/") and path.endswith("/calendarView"):
             from urllib.parse import unquote as _unquote
             calendar_id = _unquote(path.split("/")[2])
@@ -856,3 +882,68 @@ def test_connecting_from_the_phone_returns_to_the_app(fake: FakeCalendars) -> No
     assert "com.anum.app:/calendar-connected?calendar_connect=" in declined.text
     refused = client.post("/api/v1/calendar/sync/oauth/complete", headers=OWNER, json={"connection": again["request"]})
     assert refused.status_code == 400 and "access_denied" in refused.json()["error"]["message"]
+
+
+# -- other calendars read incrementally (docs/calendar.md#choosing-calendars) ------------------------
+
+
+def test_google_other_calendars_keep_their_own_sync_token(fake: FakeCalendars) -> None:
+    fake.google_other_tokens = True
+    team = "team@group.calendar.google.com"
+    fake.google_other[team] = [google_item("t1", "Team offsite", 50), google_item("rs_20261120T090000Z", "Weekly sync", 60, recurringEventId="rs")]
+    connection = connect()
+    url = f"/api/v1/calendar/sync/connections/{connection['id']}/calendars"
+    assert client.put(url, headers=OWNER, json={"selected": [team]}).status_code == 200
+    reads = [q for q in fake.google_query if q.get("calendar") == team]
+    assert "timeMin" in reads[-1] and "syncToken" not in reads[-1]  # first read: the whole window
+    [choice] = [c for c in stored(connection["id"]).calendars if c.id == team]
+    assert choice.sync_cursor and choice.sync_cursor.startswith("sync:cs-")
+    # The token never reaches the apps.
+    assert all("sync_cursor" not in c for c in client.get(url, headers=OWNER).json()["calendars"])
+    setup = client.get("/api/v1/calendar/sync", headers=VIEWER).json()["connections"][0]
+    assert all("sync_cursor" not in c for c in setup["calendars"])
+    # Next pass: only the token; a changed event, a cancelled one and a whole series removed by its id.
+    fake.google_other[team] = []  # a full read would now remove everything: proves the pass is incremental
+    fake.google_other_changes[team] = [
+        google_item("t1", "Team offsite (moved)", 52, etag='"e2"', updated=stamp(-0.5)),
+        google_item("t9", "Team dinner", 70),
+        {"id": "rs", "status": "cancelled"},
+    ]
+    summary = sync(connection["id"])["summary"]
+    last = [q for q in fake.google_query if q.get("calendar") == team][-1]
+    assert last.get("syncToken") == choice.sync_cursor.split(":", 1)[1].split("|", 1)[0]
+    assert summary["calendars_read"] == 1 and summary["created"] >= 1 and summary["deleted"] == 1
+    titles = {e["title"] for e in events()}
+    assert {"Team offsite (moved)", "Team dinner"} <= titles and "Weekly sync" not in titles
+    # A cancelled occurrence goes; an expired token reads the whole window again.
+    fake.google_other_changes[team] = [{"id": "t9", "status": "cancelled"}]
+    sync(connection["id"])
+    assert "Team dinner" not in {e["title"] for e in events()}
+    fake.google_other_expire = True
+    fake.google_other[team] = [google_item("t1", "Team offsite (moved)", 52, etag='"e2"', updated=stamp(-0.5))]
+    sync(connection["id"])
+    assert "timeMin" in [q for q in fake.google_query if q.get("calendar") == team][-1]
+    assert by_title("Team offsite (moved)")["source_ref"] == "calendar_copy"
+    # Choosing again keeps the cursor of a calendar that stays chosen; dropping it forgets it.
+    kept = [c for c in stored(connection["id"]).calendars if c.id == team][0].sync_cursor
+    assert client.get(url, headers=OWNER).status_code == 200
+    assert [c for c in stored(connection["id"]).calendars if c.id == team][0].sync_cursor == kept
+    client.put(url, headers=OWNER, json={"selected": []})
+    assert [c for c in stored(connection["id"]).calendars if c.id == team][0].sync_cursor is None
+
+
+def test_microsoft_other_calendars_use_their_own_delta(fake: FakeCalendars) -> None:
+    connection = connect("microsoft")
+    url = f"/api/v1/calendar/sync/connections/{connection['id']}/calendars"
+    assert client.put(url, headers=OWNER, json={"selected": ["AAMkCal2="]}).status_code == 200
+    assert by_title("Truck 12 service")["source_ref"] == "calendar_copy"
+    [choice] = [c for c in stored(connection["id"]).calendars if c.id == "AAMkCal2="]
+    assert choice.sync_cursor and json.loads(choice.sync_cursor)["q"].startswith("$deltatoken=od-")
+    fake.graph_other["AAMkCal2="] = []
+    fake.graph_other_changes["AAMkCal2="] = [graph_item("b2", "Truck 14 service", 11), {"id": "b1", "@removed": {"reason": "deleted"}}]
+    summary = sync(connection["id"])["summary"]
+    last = [p for p in fake.graph_params if p.get("calendar") == "AAMkCal2="][-1]
+    assert "$deltatoken" in last and "startDateTime" not in last
+    assert summary["deleted"] == 1
+    titles = {e["title"] for e in events()}
+    assert "Truck 14 service" in titles and "Truck 12 service" not in titles

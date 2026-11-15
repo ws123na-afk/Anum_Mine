@@ -194,9 +194,9 @@ class ConnectionStatus(StrEnum):
     REAUTH_REQUIRED = "reauth_required"
 
 
-class CalendarChoice(BaseModel):
-    """One calendar of the connected account and whether it syncs. The primary calendar always
-    syncs both ways; the others chosen are read only (their events are copies in ANUM)."""
+class CalendarChoiceView(BaseModel):
+    """One calendar of the connected account and whether it syncs, as the apps see it. The primary
+    calendar always syncs both ways; the others chosen are read only (their events are copies in ANUM)."""
 
     id: str = Field(min_length=1, max_length=512)
     name: str = Field(max_length=200)
@@ -204,6 +204,17 @@ class CalendarChoice(BaseModel):
     selected: bool = False
     can_edit: bool = False
     color: str | None = Field(default=None, max_length=7)
+
+
+# A provider cursor longer than this is not kept (the calendar is then read in full each pass).
+MAX_CALENDAR_CURSOR = 8192
+
+
+class CalendarChoice(CalendarChoiceView):
+    """A stored calendar choice: with the calendar's own sync cursor (Google sync token, Graph delta
+    token, and the window's end), never shown to the apps (their views are ``CalendarChoiceView``)."""
+
+    sync_cursor: str | None = Field(default=None, max_length=MAX_CALENDAR_CURSOR)
 
 
 def calendar_key(calendar_id: str) -> str:
@@ -1061,6 +1072,7 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
         token = await connection_token(connection, context)
         client = provider_client(connection.provider)
         cursor = connection.sync_cursor
+        calendar_cursors: dict[str, str | None] = {}
         since = now - timedelta(days=calendar_settings.days_back)
         until = now + timedelta(days=calendar_settings.days_ahead)
         for _ in range(4):
@@ -1097,16 +1109,18 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
                 continue
             if await asyncio.to_thread(_keep_pushed, context, event, pushed) is pushed:
                 summary.pushed += 1
-        # The other calendars chosen for this account: read only, a snapshot of the window each pass.
+        # The other calendars chosen for this account: read only, each with its own cursor (only what
+        # changed since the last pass; the whole window when there is none or it expired).
         for choice in connection.extra_calendars():
             try:
-                remotes, complete = await client.window_events(token, choice.id, since=since, until=until)
+                changes = await client.calendar_changes(token, choice.id, choice.sync_cursor, since=since, until=until)
             except MailProviderError as exc:
                 if exc.reauth:
                     raise
                 summary.calendar_errors.append(f"{choice.name}: {exc.message}"[:300])
                 continue
-            await asyncio.to_thread(apply_calendar_copy, context, connection, choice, remotes, complete, summary)
+            await asyncio.to_thread(apply_calendar_changes, context, connection, choice, changes, summary, since, until)
+            calendar_cursors[choice.id] = changes.cursor if changes.cursor and len(changes.cursor) <= MAX_CALENDAR_CURSOR else None
             summary.calendars_read += 1
         error = failures[0] if failures else None
     except (CalendarSyncError, MailProviderError) as exc:
@@ -1154,6 +1168,11 @@ async def sync_connection(connection_id: str, context: TenantContext, *, force: 
             if stored is None:  # disconnected meanwhile
                 raise CalendarSyncError(404, "Calendar connection not found.")
             stored.sync_cursor = cursor or stored.sync_cursor
+            # Each other calendar's cursor, onto the choice as stored now (a calendar no longer chosen keeps none).
+            stored.calendars = [
+                c.model_copy(update={"sync_cursor": calendar_cursors[c.id]}) if c.id in calendar_cursors and c.selected and not c.primary else c
+                for c in stored.calendars
+            ]
             stored.last_sync_at = finished
             stored.last_sync_status = "error" if error else "ok"
             stored.last_error = f"Some changes could not be sent: {error}" if error else None
@@ -1218,36 +1237,82 @@ def apply_calendar_copy(
         existing = {e.external_id: e for e in events.by_external_prefix(connection.id, prefix) if e.external_id}
         seen: set[str] = set()
         for remote in remotes:
-            external_id = prefix + remote.external_id
-            if len(external_id) > 1024 or not _remote_times_ok(remote):
-                summary.skipped += 1
-                continue
-            seen.add(external_id)
-            local = existing.get(external_id)
-            if local is not None and not _remote_changed(local, remote):
-                continue
-            event = local or CalendarEvent(
-                id=new_id("event"), tenant_id=connection.tenant_id, workspace_id=connection.workspace_id, title=remote.title,
-                kind=EventKind.MEETING, starts_at=remote.starts_at, ends_at=remote.ends_at, attendees=[],
-                source=connection.provider.value, created_by=connection.connected_by, created_at=now, updated_at=now,
-                connection_id=connection.id, external_id=external_id,
-            )
-            copied = _copy_remote(event, remote, now)
-            copied.source_ref = CALENDAR_COPY_REF
-            copied = _rebuilt(copied)
-            if copied is None:
-                summary.skipped += 1
-                continue
-            if local is None:
-                events.add(copied)
-                summary.created += 1
-            else:
-                events.save(copied)
-                summary.updated += 1
+            kept = _keep_copy(events, connection, prefix, remote, existing, summary, now)
+            if kept is not None:
+                seen.add(kept)
         if complete:
             for external_id, local in existing.items():
                 if external_id not in seen:
                     events.delete(local.id)
+                    summary.deleted += 1
+
+
+def _keep_copy(events: Any, connection: CalendarConnection, prefix: str, remote: RemoteEvent, existing: dict[str, CalendarEvent],
+               summary: SyncSummary, now: datetime) -> str | None:
+    """Add or overwrite ANUM's copy of one provider occurrence; its external id, or None when skipped."""
+    external_id = prefix + remote.external_id
+    if len(external_id) > 1024 or not _remote_times_ok(remote):
+        summary.skipped += 1
+        return None
+    local = existing.get(external_id)
+    if local is not None and not _remote_changed(local, remote):
+        return external_id
+    event = local or CalendarEvent(
+        id=new_id("event"), tenant_id=connection.tenant_id, workspace_id=connection.workspace_id, title=remote.title,
+        kind=EventKind.MEETING, starts_at=remote.starts_at, ends_at=remote.ends_at, attendees=[],
+        source=connection.provider.value, created_by=connection.connected_by, created_at=now, updated_at=now,
+        connection_id=connection.id, external_id=external_id,
+    )
+    copied = _copy_remote(event, remote, now)
+    copied.source_ref = CALENDAR_COPY_REF
+    copied = _rebuilt(copied)
+    if copied is None:
+        summary.skipped += 1
+        return None
+    if local is None:
+        events.add(copied)
+        existing[external_id] = copied
+        summary.created += 1
+    else:
+        events.save(copied)
+        existing[external_id] = copied
+        summary.updated += 1
+    return external_id
+
+
+def apply_calendar_changes(
+    context: TenantContext, connection: CalendarConnection, choice: CalendarChoice, changes: Any, summary: SyncSummary,
+    since: datetime, until: datetime,
+) -> None:
+    """Apply one other calendar's read: a full read makes the copies match the window
+    (``apply_calendar_copy``); an incremental one adds or overwrites the changed occurrences inside the
+    window and removes the cancelled, removed or moved-out ones. Removing a cancelled id also removes
+    the copies of its occurrences (Google names a whole series' removal by the series id, its
+    occurrences being ``<series id>_<start>``)."""
+    if changes.full:
+        live = [r for r in changes.events if not r.cancelled]
+        apply_calendar_copy(context, connection, choice, live, not changes.more, summary)
+        return
+    prefix = copy_prefix(choice.id)
+    now = utc_now()
+    with open_calendar_store(context) as events:
+        existing = {e.external_id: e for e in events.by_external_prefix(connection.id, prefix) if e.external_id}
+        gone = list(changes.removed)
+        for remote in changes.events:
+            inside = remote.ends_at > since and remote.starts_at < until
+            if remote.cancelled or not inside:
+                gone.append(remote.external_id)
+                continue
+            if len(existing) >= MAX_COPIED_PER_CALENDAR and prefix + remote.external_id not in existing:
+                summary.skipped += 1
+                continue
+            _keep_copy(events, connection, prefix, remote, existing, summary, now)
+        for external_id in gone:
+            series_prefix = f"{prefix}{external_id}_"
+            for key, local in list(existing.items()):
+                if key == prefix + external_id or key.startswith(series_prefix):
+                    events.delete(local.id)
+                    existing.pop(key)
                     summary.deleted += 1
 
 

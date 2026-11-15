@@ -193,3 +193,41 @@ def test_the_books_post_a_refund_and_the_cash_figures_count_it(fake_stripe: Fake
     # The cash basis sees it as money given back on its own day.
     book = Book(inputs)
     assert sorted(float(item.amount) for item in book.payments if item.invoice_id == sent["id"]) == [-300.0, 1050.0]
+
+
+def test_a_moyasar_payment_delivered_after_its_refunds_records_them_and_closes_the_reviews(fake_moyasar: FakeMoyasar, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Moyasar does not promise order either: refunds arrive first and are kept for review, then the payment arrives."""
+    turn_on_moyasar(monkeypatch)
+    sent = arabic_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    fake_moyasar.pay(link["provider_invoice_id"], payment_id="pay_late_1")
+    fake_moyasar.payments["pay_late_1"]["refunded"] = 15000
+    assert ok(moyasar_refund_event("pay_late_1", "evt_late_r1"))["outcome"] == "refund_needs_review"
+    fake_moyasar.payments["pay_late_1"]["refunded"] = 40000
+    assert ok(moyasar_refund_event("pay_late_1", "evt_late_r2"))["outcome"] == "refund_needs_review"
+    assert ok(client.get(f"{BASE}/refund-reviews", headers=MEMBER))["total"] == 2
+    # payment_paid arrives last: the payment is recorded, then Moyasar's running total, and both reviews close.
+    assert ok(webhook("pay_late_1", "evt_late_paid"))["outcome"] == "paid_then_refunded"
+    view = invoice(sent["id"])
+    assert [item["provider_refund_id"] for item in view["refunds"]] == ["pay_late_1:40000"]
+    assert view["refunds"][0]["provider_amount"] == 400 and view["amount_paid"] == 750 and view["status"] == "sent"
+    assert ok(client.get(f"{BASE}/refund-reviews", headers=MEMBER))["total"] == 0
+    closed = ok(client.get(f"{BASE}/refund-reviews?state=checked", headers=MEMBER))["items"]
+    assert len(closed) == 2 and {item["checked_by"] for item in closed} == {"system:moyasar"}
+    # Repeats record nothing twice.
+    assert ok(webhook("pay_late_1", "evt_late_paid_2"))["outcome"] == "duplicate_payment"
+    assert ok(moyasar_refund_event("pay_late_1", "evt_late_r3"))["outcome"] == "unchanged"
+    assert invoice(sent["id"])["amount_paid"] == 750 and len(invoice(sent["id"])["refunds"]) == 1
+
+
+def test_a_moyasar_payment_refunded_in_full_before_payment_paid_is_still_recorded(fake_moyasar: FakeMoyasar, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fully refunded, Moyasar reads the payment back as ``refunded``: it was paid, so it is recorded and refunded."""
+    turn_on_moyasar(monkeypatch)
+    sent = arabic_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    fake_moyasar.pay(link["provider_invoice_id"], payment_id="pay_late_full")
+    fake_moyasar.payments["pay_late_full"].update({"refunded": 115000, "status": "refunded"})
+    assert ok(webhook("pay_late_full", "evt_full_paid"))["outcome"] == "paid_then_refunded"
+    view = invoice(sent["id"])
+    assert view["amount_paid"] == 0 and view["status"] == "sent" and [item["provider_amount"] for item in view["refunds"]] == [1150]
+    assert len(view["payments"]) == 1

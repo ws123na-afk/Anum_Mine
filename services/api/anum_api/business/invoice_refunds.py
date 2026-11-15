@@ -25,9 +25,12 @@ was refunded. Nothing here trusts the delivered body.
 * **Refunds started from ANUM.** A Stripe refund carries its request id in its metadata
   (``anum_refund_request_id``), so a request whose provider answer was lost (still processing)
   is matched by that id and settled here instead of holding its amount a second time.
-* **Payment after its refund.** Stripe does not promise delivery order: a refund that arrived
+* **Payment after its refund.** Neither provider promises delivery order: a refund that arrived
   before the payment it gives back was kept for review; once the payment is recorded the billing
-  webhook reads the refunds again and records them here, and the review is closed.
+  webhook reads the refunds again (Stripe's refund list, Moyasar's running total) and records them
+  here, and the review is closed (for Moyasar every earlier total the recorded one covers).
+* **A reviewed refund that fails.** A refund kept for review that the provider later reports
+  failed or canceled gave nothing back: its review is closed with that reason instead of waiting.
 """
 
 from __future__ import annotations
@@ -117,13 +120,28 @@ def _restore(store: BusinessStore, invoice: Invoice, amount: Decimal, now: datet
     return invoice
 
 
-def _close_reviews(store: BusinessStore, provider: Literal["moyasar", "stripe"], refund_id: str, now: datetime) -> None:
-    """A refund kept for review (its payment had not arrived yet) is closed once it is recorded on the payment."""
+def _close_reviews(store: BusinessStore, provider: Literal["moyasar", "stripe"], refund_id: str, now: datetime,
+                   note: str = "Recorded on the card payment once the payment arrived.") -> bool:
+    """A refund kept for review (its payment had not arrived yet) is closed once it is recorded on the payment, or once
+    the provider reports it failed (nothing was given back). Returns whether a review was closed."""
     review: RefundReview | None = store.first("refund_reviews", provider=provider, provider_refund_id=refund_id, status=RefundReviewStatus.OPEN)
-    if review is not None:
-        store.save("refund_reviews", review.model_copy(update={
-            "status": RefundReviewStatus.CHECKED, "checked_by": PROVIDER_USERS[provider], "checked_at": now, "updated_at": now,
-            "note": "Recorded on the card payment once the payment arrived."}))
+    if review is None:
+        return False
+    store.save("refund_reviews", review.model_copy(update={
+        "status": RefundReviewStatus.CHECKED, "checked_by": PROVIDER_USERS[provider], "checked_at": now, "updated_at": now, "note": note[:300]}))
+    return True
+
+
+def _close_running_total_reviews(store: BusinessStore, provider_payment_id: str, total_minor: int, now: datetime) -> None:
+    """Moyasar reports a running total, so each refund delivered before its payment was kept as its own total
+    (``<payment>:<total>``). Once a later total is recorded on the payment it covers every earlier one: those close too."""
+    prefix = f"{provider_payment_id[:150]}:"
+    items, _ = store.find("refund_reviews", Query(where={"provider": "moyasar", "provider_payment_id": provider_payment_id[:200],
+                                                         "status": RefundReviewStatus.OPEN}, limit=MAX_REFUNDS))
+    for review in items:
+        suffix = review.provider_refund_id[len(prefix):] if review.provider_refund_id.startswith(prefix) else ""
+        if suffix.isdigit() and int(suffix) <= total_minor:
+            _close_reviews(store, "moyasar", review.provider_refund_id, now)
 
 
 def has_open_review(provider: Literal["moyasar", "stripe"], issuer_tenant_id: str, metadata: dict[str, str], provider_payment_id: str) -> bool:
@@ -155,8 +173,13 @@ def _keep_for_review(store: BusinessStore, context: TenantContext, provider: Lit
     if running_total is not None:
         total_minor, total_currency = running_total
         refunds = [ProviderRefund(f"{provider_payment_id[:150]}:{total_minor}", total_minor, total_currency, "succeeded")]
-    added = 0
+    added = closed = 0
     for item in refunds:
+        if item.status in FAILED:
+            # A refund kept for review that the provider then reports failed or canceled gave nothing back: its review closes.
+            closed += _close_reviews(store, provider, item.id[:200], now,
+                                     f"{PROVIDER_NAMES[provider]} reports the refund {item.status}; no money was given back.")
+            continue
         if item.status not in DONE or item.amount_minor <= 0:
             continue
         refund_id = item.id[:200]
@@ -174,7 +197,7 @@ def _keep_for_review(store: BusinessStore, context: TenantContext, provider: Lit
                         account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "review_id": review.id},
                         idempotency_key=f"{provider}-refund-review:{refund_id[:100]}")
         added += 1
-    return "refund_needs_review" if added else "ignored"
+    return "refund_needs_review" if added else "refund_review_closed" if closed else "ignored"
 
 
 def apply_card_refunds(provider: Literal["moyasar", "stripe"], issuer_tenant_id: str, metadata: dict[str, str], provider_payment_id: str,
@@ -185,7 +208,8 @@ def apply_card_refunds(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
     ``metadata`` is the payment's own (read from the provider); only the issuer's own Business
     invoices are touched. ``actor`` is set when the refund was started from ANUM (the approved request records it
     through this same path, so the provider's webhook that follows finds the refund and records nothing twice).
-    Returns ``ignored``, ``unchanged``, ``refund_recorded``, ``refund_reversed`` or ``refund_needs_review``.
+    Returns ``ignored``, ``unchanged``, ``refund_recorded``, ``refund_reversed``, ``refund_needs_review`` or
+    ``refund_review_closed`` (a refund kept for review that the provider reports failed).
     """
     now = now or utc_now()
     name = PROVIDER_NAMES[provider]
@@ -240,6 +264,9 @@ def apply_card_refunds(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
                         store.save("refund_requests", asked.model_copy(update={"status": RefundRequestStatus.SUCCEEDED, "refund_id": found.id, "updated_at": now,
                                                                                "provider_refund_id": refund_id, "detail": f"Refunded through {name}."}))
                 continue
+            if item.status in FAILED and _close_reviews(store, provider, refund_id, now,
+                                                        f"{name} reports the refund {item.status}; no money was given back."):
+                outcome = "refund_review_closed"
             asked = _asked(store, provider, payment, item)
             if asked is not None and item.status in FAILED and asked.status in (RefundRequestStatus.PENDING_PROVIDER, RefundRequestStatus.PROCESSING):
                 # A refund started from ANUM that the provider never finished (or whose answer was lost): its amount is free again.
@@ -274,6 +301,8 @@ def apply_card_refunds(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
                 store.save("refund_requests", asked.model_copy(update={"status": RefundRequestStatus.SUCCEEDED, "refund_id": refund.id, "updated_at": now,
                                                                        "provider_refund_id": refund_id, "detail": f"Refunded through {name}."}))
             _close_reviews(store, provider, refund_id, now)
+            if running_total is not None:
+                _close_running_total_reviews(store, provider_payment_id, running_total[0], now)
             if taken > 0:
                 invoice = _reopen(store, invoice, taken, now)
             owed = (f" The invoice is open again with a balance of {invoice.currency.value} {invoice.balance_due()}: issue a credit note if the customer no longer owes it."

@@ -324,14 +324,19 @@ export function isRecipient(value: string, channel?: string): boolean {
   const text = value.trim();
   const email = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(text);
   const phone = /^\+?[0-9 ]{7,20}$/.test(text);
-  if (channel === 'email') return email;
+  if (isEmailChannel(channel)) return email;
   if (channel === 'whatsapp') return phone;
   return email || phone;
 }
 
 /** The label of a delivery channel ("email", "whatsapp"); an unknown one is shown as it is. */
+/** Channels that send to one email address: the server's address, or the person's own mailbox in Email. */
+export function isEmailChannel(channel?: string): boolean {
+  return channel === 'email' || channel === 'mailbox';
+}
+
 export function channelLabel(channel: string): string {
-  return channel === 'email' ? t('tyre.channel.email') : channel === 'whatsapp' ? t('tyre.channel.whatsapp') : channel;
+  return channel === 'email' ? t('tyre.channel.email') : channel === 'mailbox' ? t('tyre.channel.mailbox') : channel === 'whatsapp' ? t('tyre.channel.whatsapp') : channel;
 }
 
 /** Query string for the forecasts list. */

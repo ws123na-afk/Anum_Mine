@@ -25,6 +25,7 @@ from anum_api.tyre import api as tyre_api
 from anum_api.tyre import service, sources, tools
 from anum_api.tyre.store import memory_tyre_store
 from tyre_fixtures import AS_OF, TABLES, FakeSupabase
+from test_mail_center import fake  # noqa: F401 - the Email Center's fake mail server fixture
 
 TENANT, WORKSPACE = "tenant_tyre", "workspace_tyre"
 OWNER = {"x-tenant-id": TENANT, "x-workspace-id": WORKSPACE, "x-user-id": "owner_tyre", "x-user-roles": "owner"}
@@ -476,3 +477,72 @@ def test_report_by_email_through_the_real_email_tool(monkeypatch: pytest.MonkeyP
     assert len(sent) == 1 and sent[0]["to"] == "fleet@example.com" and sent[0]["subject"].startswith("Fleet tyre health")
     filename, content_type, content = sent[0]["attachments"][0]
     assert filename.endswith(".pdf") and content_type == "application/pdf" and content.startswith(b"%PDF")
+
+
+def test_report_from_the_owners_own_mailbox_through_the_email_center(fake: Any) -> None:  # noqa: F811 - the Email Center fixture
+    """The mailbox channel (docs/tools-and-integrations.md#delivery): a channel only for a person with their own
+    mailbox, the approval names it, nothing leaves before the approval, then the PDF goes out over the mailbox's SMTP."""
+    from email import policy
+    from email.parser import BytesParser
+
+    from anum_api.delivery_tools import MAILBOX_TOOL, NO_OWN_MAILBOX
+    from test_mail_center import ADDRESS, PASSWORD
+
+    connect_and_sync()
+    report = client.post(f"{API}/reports", headers=OWNER, json={"kind": "fleet_health"}).json()
+    assert "mailbox" not in client.get(f"{API}/delivery-channels", headers=OWNER).json()["channels"]
+    refused = client.post(f"{API}/reports/{report['id']}/deliver", headers=OWNER, json={"channel": "mailbox", "to": "fleet@example.com"})
+    assert refused.status_code == 409 and refused.json()["error"]["message"] == NO_OWN_MAILBOX
+    mailbox = client.post("/api/v1/mail/accounts", headers=OWNER, json={"address": ADDRESS, "password": PASSWORD, "display_name": "Owner"})
+    assert mailbox.status_code == 201, mailbox.text
+    assert "mailbox" in client.get(f"{API}/delivery-channels", headers=OWNER).json()["channels"]
+    # The mailbox is the owner's own: a member does not get it as a channel.
+    assert "mailbox" not in client.get(f"{API}/delivery-channels", headers=MEMBER).json()["channels"]
+    assert client.post(f"{API}/reports/{report['id']}/deliver", headers=OWNER, json={"channel": "mailbox", "to": "+971501234567"}).status_code == 422
+
+    requested = client.post(f"{API}/reports/{report['id']}/deliver", headers=OWNER, json={"channel": "mailbox", "to": "fleet@example.com"})
+    body = requested.json()
+    assert requested.status_code == 200 and body["status"] == "waiting_approval", requested.text
+    assert fake.sent == []
+    approval = next(a for a in client.get("/api/v1/approvals", headers=OWNER).json() if a["id"] == body["approval_id"])
+    assert approval["action"] == MAILBOX_TOOL and approval["arguments"]["from"] == ADDRESS
+    assert approval["arguments"]["owner_user_id"] == "owner_tyre" and approval["arguments"]["attachments"][0]["kind"] == "tyre_report"
+    approved = client.post(f"/api/v1/approvals/{body['approval_id']}/approve", headers=OWNER, json={"payload_hash": body["payload_hash"]})
+    assert approved.status_code == 200, approved.text
+    [(sender, recipients, raw)] = fake.sent
+    assert sender == ADDRESS and recipients == ["fleet@example.com"]
+    message = BytesParser(policy=policy.default).parsebytes(raw)
+    assert message["Subject"].startswith("Fleet tyre health")
+    [part] = list(message.iter_attachments())
+    assert part.get_content_type() == "application/pdf" and part.get_payload(decode=True).startswith(b"%PDF")
+    # The message is the mailbox's own: saved to Sent and listed as sent in the Email Center.
+    assert any(item.raw == raw for item in fake.folders_["Sent"][1])
+    sent_messages = client.get("/api/v1/mail/drafts", headers=OWNER)
+    assert sent_messages.status_code == 200
+    assert any(d["subject"].startswith("Fleet tyre health") and d["status"] == "sent" for d in sent_messages.json())
+
+
+def test_the_mailbox_tool_acts_only_for_its_owner(fake: Any) -> None:  # noqa: F811
+    from anum_api import delivery_tools
+    from test_mail_center import ADDRESS, PASSWORD
+
+    connect_and_sync()
+    report = client.post(f"{API}/reports", headers=OWNER, json={"kind": "fleet_health"}).json()
+    assert client.post("/api/v1/mail/accounts", headers=OWNER, json={"address": ADDRESS, "password": PASSWORD}).status_code == 201
+    owner = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_tyre", roles=["owner"])
+    member = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="member_tyre", roles=["member"])
+    reference = delivery.attachment_reference(tyre_api.REPORT_ATTACHMENT_KIND, report["id"], "pdf", owner)
+    arguments = {**delivery_tools.mailbox_arguments(owner), "to": "fleet@example.com", "subject": "Report", "text": "Attached.",
+                 "attachments": [reference]}
+    result = asyncio.run(delivery_tools.mailbox_tool(ToolCall(name=delivery_tools.MAILBOX_TOOL, arguments=arguments), member))
+    assert result.status == "failed" and "another person's mailbox" in result.summary and fake.sent == []
+    # A file changed after the approval is never sent.
+    changed = {**arguments, "attachments": [{**reference, "sha256": "0" * 64}]}
+    result = asyncio.run(delivery_tools.mailbox_tool(ToolCall(name=delivery_tools.MAILBOX_TOOL, arguments=changed), owner))
+    assert result.status == "failed" and "changed after it was approved" in result.summary and fake.sent == []
+    # A mailbox whose address is no longer the approved one is refused.
+    moved = {**arguments, "from": "someone@example.test"}
+    result = asyncio.run(delivery_tools.mailbox_tool(ToolCall(name=delivery_tools.MAILBOX_TOOL, arguments=moved), owner))
+    assert result.status == "failed" and "mailbox named in the approval" in result.summary and fake.sent == []
+    result = asyncio.run(delivery_tools.mailbox_tool(ToolCall(name=delivery_tools.MAILBOX_TOOL, arguments=arguments), owner))
+    assert result.status == "succeeded" and len(fake.sent) == 1 and result.audit_metadata["channel"] == "mailbox"

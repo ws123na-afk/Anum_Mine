@@ -360,6 +360,7 @@ export const tyreEn = {
   'tyre.reports.noChannels': 'Reports cannot be sent from here yet: this server has no mail server set up and the workspace has no WhatsApp number connected. Download the PDF or CSV and send it yourself. An owner connects WhatsApp under WhatsApp, Settings; email needs the mail settings of the server.',
   'tyre.channel.email': 'Email',
   'tyre.channel.whatsapp': 'WhatsApp',
+  'tyre.channel.mailbox': 'Email from my mailbox',
   'tyre.reports.badEmail': 'Enter one email address, such as fleet@example.com.',
   'tyre.reports.badPhone': 'Enter one phone number in international format, such as +971501234567.',
   'tyre.reports.whatsappWindow': 'WhatsApp delivers a document only to someone who wrote to your WhatsApp number in the last 24 hours.',

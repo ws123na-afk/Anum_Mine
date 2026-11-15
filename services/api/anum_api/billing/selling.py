@@ -203,10 +203,18 @@ def handle_moyasar_event(issuer_tenant_id: str, payload: bytes, *, now: datetime
         tenant_id, invoice_id = metadata.get("anum_tenant_id", ""), metadata.get("anum_invoice_id", "")
         if metadata.get("anum_business_invoice_id"):
             # A customer of the issuer's own Business desk paid an invoice (docs/business.md#payment-links).
-            if event_type == "payment_paid" and payment.status == "paid":
+            # A payment refunded before its ``payment_paid`` arrived reads back as ``refunded`` (in full) or ``paid`` with a total
+            # refunded: it was paid all the same, so it is recorded, then the refunds Moyasar holds for it (docs/business.md).
+            was_paid = payment.status == "paid" or (payment.status == "refunded" and payment.refunded_minor > 0)
+            if event_type == "payment_paid" and was_paid:
+                from ..business.invoice_refunds import apply_moyasar_refunds
                 from ..business.invoice_send import apply_moyasar_payment
 
-                outcome = apply_moyasar_payment(issuer_tenant_id, metadata, payment.id, payment.status, payment.amount_minor, payment.currency, now)
+                outcome = apply_moyasar_payment(issuer_tenant_id, metadata, payment.id, "paid", payment.amount_minor, payment.currency, now)
+                if outcome in ("paid", "duplicate_payment") and payment.refunded_minor > 0:
+                    # The total read just now, with no transaction open; a refund kept for review closes once it is recorded.
+                    if apply_moyasar_refunds(issuer_tenant_id, metadata, payment.id, payment.refunded_minor, payment.currency, now) == "refund_recorded":
+                        outcome = "paid_then_refunded"
             elif event_type == "payment_refunded":
                 # A refund made in the Moyasar dashboard (docs/business.md#refunds-made-in-the-provider-dashboard): the total comes from Moyasar's API.
                 from ..business.invoice_refunds import apply_moyasar_refunds

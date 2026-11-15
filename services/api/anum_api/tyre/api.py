@@ -796,7 +796,7 @@ class DeliveryInput(BaseModel):
 
     @model_validator(mode="after")
     def _fits_channel(self) -> DeliveryInput:
-        if self.channel == "email" and "@" not in self.to:
+        if self.channel in ("email", "mailbox") and "@" not in self.to:
             raise ValueError("Email delivery needs one email address.")
         if self.channel == "whatsapp" and "@" in self.to:
             raise ValueError("WhatsApp delivery needs one phone number in international format, such as +971501234567.")

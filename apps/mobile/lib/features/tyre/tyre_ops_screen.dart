@@ -532,20 +532,24 @@ class _TyreReportScreenState extends State<TyreReportScreen> {
   }
 }
 
-/// The label of a delivery channel ("email", "whatsapp"); others as sent.
+/// The label of a delivery channel ("email", "mailbox", "whatsapp"); others as sent.
 String channelLabel(AnumLocalizations l, String channel) => switch (channel) {
       'email' => l.t('tyreOps.channelEmail'),
+      'mailbox' => l.t('tyreOps.channelMailbox'),
       'whatsapp' => l.t('tyreOps.channelWhatsapp'),
       _ => channel,
     };
 
 /// The message key of what is wrong with [to] for [channel], or null:
-/// email needs one address, WhatsApp one number in international format.
+/// email (the server's address or the person's own mailbox) needs one address,
+/// WhatsApp one number in international format.
 String? recipientProblem(String? channel, String to) {
   final text = to.trim();
   final email = RegExp(r'^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$').hasMatch(text);
   final phone = RegExp(r'^\+?[0-9 ]{7,20}$').hasMatch(text);
-  if (channel == 'email') return email ? null : 'tyreOps.badEmail';
+  if (channel == 'email' || channel == 'mailbox') {
+    return email ? null : 'tyreOps.badEmail';
+  }
   if (channel == 'whatsapp') return phone ? null : 'tyreOps.badPhone';
   return email || phone ? null : 'tyreOps.recipientNeeded';
 }

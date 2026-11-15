@@ -54,6 +54,7 @@ const tyreOpsEn = <String, String>{
       'CSV and PDF downloads are on the web; here you can send the report to a recipient.',
   'tyreOps.channelEmail': 'Email',
   'tyreOps.channelWhatsapp': 'WhatsApp',
+  'tyreOps.channelMailbox': 'Email from my mailbox',
   'tyreOps.badEmail': 'Enter one email address, such as fleet@example.com.',
   'tyreOps.badPhone':
       'Enter one phone number in international format, such as +971501234567.',
@@ -157,6 +158,7 @@ const tyreOpsAr = <String, String>{
       'تنزيل CSV وPDF على الويب؛ هنا يمكنك إرسال التقرير إلى مستلم.',
   'tyreOps.channelEmail': 'البريد الإلكتروني',
   'tyreOps.channelWhatsapp': 'واتساب',
+  'tyreOps.channelMailbox': 'البريد من صندوقي',
   'tyreOps.badEmail': 'أدخل عنوان بريد إلكتروني واحدًا، مثل fleet@example.com.',
   'tyreOps.badPhone':
       'أدخل رقم هاتف واحدًا بالصيغة الدولية، مثل +971501234567.',

@@ -29,6 +29,7 @@ from .calendar_sync import (
     MAX_EXTRA_CALENDARS,
     SEND_INVITATIONS_TOOL,
     CalendarChoice,
+    CalendarChoiceView,
     CalendarConnection,
     CalendarOAuthPending,
     CalendarSyncError,
@@ -112,7 +113,7 @@ class ConnectionView(BaseModel):
     last_summary: dict[str, Any]
     events_synced: int
     # The account's calendars as last listed and which sync (empty until someone opens the choice).
-    calendars: list[CalendarChoice]
+    calendars: list[CalendarChoiceView]
     created_at: str
 
 
@@ -138,7 +139,7 @@ class ConnectStartResponse(BaseModel):
 
 class CalendarChoices(BaseModel):
     connection: str
-    calendars: list[CalendarChoice]
+    calendars: list[CalendarChoiceView]
     max_extra: int
 
 
@@ -524,9 +525,10 @@ def missing_list_scope(connection: CalendarConnection) -> bool:
 
 def _merge_choices(stored: list[CalendarChoice], listed: list[Any]) -> list[CalendarChoice]:
     """The provider's list now, keeping each calendar's earlier choice; the primary always syncs."""
-    chosen = {c.id for c in stored if c.selected}
+    chosen = {c.id: c.sync_cursor for c in stored if c.selected}
     return [
-        CalendarChoice(id=c.id, name=c.name, primary=c.primary, selected=c.primary or c.id in chosen, can_edit=c.can_edit, color=c.color)
+        CalendarChoice(id=c.id, name=c.name, primary=c.primary, selected=c.primary or c.id in chosen, can_edit=c.can_edit, color=c.color,
+                       sync_cursor=None if c.primary else chosen.get(c.id))
         for c in listed
     ]
 
@@ -561,7 +563,9 @@ def _save_choices(context: TenantContext, connection_id: str, calendars: list[Ca
         stored = store.get_connection(connection_id)
         if stored is None:
             raise HTTPException(status_code=404, detail="Calendar connection not found.")
-        stored.calendars = calendars
+        # A calendar that stays chosen keeps its sync cursor as stored now; one newly chosen starts with a full read.
+        cursors = {c.id: c.sync_cursor for c in stored.calendars if c.selected and not c.primary}
+        stored.calendars = [c.model_copy(update={"sync_cursor": cursors.get(c.id) if c.selected and not c.primary else None}) for c in calendars]
         stored.updated_at = utc_now()
         store.save_connection(stored)
         return stored
