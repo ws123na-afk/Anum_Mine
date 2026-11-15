@@ -9,6 +9,7 @@ import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'purchase_actions.dart';
+import 'purchase_items.dart';
 import 'purchases_controller.dart';
 import 'purchases_data.dart';
 import 'purchases_strings.dart';
@@ -630,18 +631,39 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                     ),
                   ],
                 ),
-              if (detail.items.isNotEmpty)
-                RecordsSection(title: s.t('items'), children: [
-                  for (final item in detail.items)
-                    Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: AnumSpacing.xxs),
-                      child: Text(s.t('itemLine', {
-                        'quantity': item.quantity,
-                        'description': item.description
-                      })),
-                    ),
-                ]),
+              if (detail.items.isNotEmpty || editable)
+                RecordsSection(
+                    key: const Key('purchase-items'),
+                    title: s.t('items'),
+                    trailing: editable
+                        ? IconButton(
+                            key: const Key('purchase-edit-items'),
+                            tooltip: s.t('editItems'),
+                            onPressed: () => editPurchaseItems(context, _c),
+                            icon: const Icon(Icons.edit_note))
+                        : null,
+                    children: [
+                      if (detail.items.isEmpty)
+                        Text(s.t('itemsNone'),
+                            style: TextStyle(color: context.palette.muted)),
+                      for (final item in detail.items)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: AnumSpacing.xxs),
+                          child: Text(item.unitPrice == null
+                              ? s.t('itemLine', {
+                                  'quantity': _quantity(item.quantity),
+                                  'description': item.description
+                                })
+                              : s.t('itemPriced', {
+                                  'quantity': _quantity(item.quantity),
+                                  'description': item.description,
+                                  'price': formatMoneyText(
+                                      item.unitPrice!, p.currency,
+                                      locale: locale),
+                                })),
+                        ),
+                    ]),
               RecordsSection(
                 title: s.t('shipments'),
                 trailing: editable
@@ -722,17 +744,34 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                                 locale: locale)
                           }),
                         ].join(' · '),
-                        detail: r.reasonNote,
+                        detail: [
+                          if (r.reasonNote != null) r.reasonNote!,
+                          if (detail.items.isNotEmpty)
+                            '${s.t('returnItems')}: ${r.items.isEmpty ? s.t('wholeOrder') : [
+                                for (final l in r.items)
+                                  s.t('returnLine', {
+                                    'description': detail.items
+                                            .where((i) => i.id == l.itemId)
+                                            .firstOrNull
+                                            ?.description ??
+                                        '-',
+                                    'quantity': _quantity(l.quantity),
+                                  })
+                              ].join(', ')}',
+                          if (r.proofDocumentId != null) s.t('proofOn'),
+                        ].join('\n').nullIfEmpty,
                         onTap: editable && (r.canEdit || r.canRefund)
                             ? () => returnActions(context, _c, r,
-                                onLinkRefund: () => _link(refundOf: r))
+                                onLinkRefund: () => _link(refundOf: r),
+                                receipts: widget.receipts)
                             : null,
                         trailing: editable && (r.canEdit || r.canRefund)
                             ? IconButton(
                                 key: Key('return-actions-${r.id}'),
                                 tooltip: s.t('returnActions'),
                                 onPressed: () => returnActions(context, _c, r,
-                                    onLinkRefund: () => _link(refundOf: r)),
+                                    onLinkRefund: () => _link(refundOf: r),
+                                    receipts: widget.receipts),
                                 icon: const Icon(Icons.more_vert))
                             : null,
                       ),
@@ -825,3 +864,8 @@ class _TrackingLinks extends StatelessWidget {
     );
   }
 }
+
+/// "2.000" shown as "2".
+String _quantity(String value) => value.contains('.')
+    ? value.replaceFirst(RegExp(r'\.?0+$'), '')
+    : value;
