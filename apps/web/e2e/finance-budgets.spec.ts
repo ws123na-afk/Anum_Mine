@@ -99,5 +99,5 @@ test('categories list groups with built-in subcategories, and a learned merchant
 test('budgets say who can use them when Finance is not allowed', async ({ page }) => {
   await mockApi(page, { denied: true });
   await page.goto('/#finance-budgets');
-  await expect(page.getByText(/finance/i).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Finance is not available to your role' }).first()).toBeVisible();
 });
