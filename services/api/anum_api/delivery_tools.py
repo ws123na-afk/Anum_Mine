@@ -44,7 +44,7 @@ def email_unavailable(_context: TenantContext) -> str | None:
         return None
     return (
         "No email integration is connected: this ANUM server has no mail server set up (ANUM_SMTP_HOST and "
-        "ANUM_SMTP_FROM). Ask the server's operator to set one up; until then, download the report and send it yourself."
+        "ANUM_SMTP_FROM). Connect one: the server's operator sets it up; until then, download the file and send it yourself."
     )
 
 

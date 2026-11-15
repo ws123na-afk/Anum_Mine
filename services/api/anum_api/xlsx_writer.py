@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
-_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
 MAX_SHEET_NAME = 31
 
 # Styles: 0 plain, 1 bold (headers), 2 number with two decimals, 3 bold title.
