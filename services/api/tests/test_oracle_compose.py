@@ -870,6 +870,8 @@ case "$*" in
   *"alembic heads"*) cat "$STATE/heads" ;;
   *"config --format json"*) cat "$STATE/config.json" ;;
   *" ps -q "*) echo "$last" ;;
+  "inspect --format {{.Image}} "*) cat "$STATE/running_$last" 2>/dev/null || echo sha256:same ;;
+  "image inspect --format {{.Id}} "*) name="${last#anum/}"; cat "$STATE/built_${name%:local}" 2>/dev/null || echo sha256:same ;;
   "inspect --format"*) cat "$STATE/health_$last" 2>/dev/null || echo healthy ;;
   "tag anum/api:previous anum/api:local") [ ! -e "$STATE/old_version_works" ] || echo healthy > "$STATE/health_api" ;;
   *"up -d --remove-orphans"*) exit "$(cat "$STATE/up_status" 2>/dev/null || echo 0)" ;;
@@ -969,6 +971,24 @@ def test_update_run_without_new_migrations_takes_no_extra_backup(tmp_path: Path)
     assert result.returncode == 0, result.stderr
     assert not [call for call in calls if call.startswith("backup.sh")]
     assert _first(calls, "run --rm --no-deps migrate")
+
+
+@needs_update_harness
+def test_update_run_recreates_a_service_left_on_an_older_image(tmp_path: Path) -> None:
+    # Compose kept the running API although the rebuild gave anum/api:local a new id
+    # (16 Nov 2026): update.sh recreates only that service, on the image just built.
+    result, calls = _run_update(tmp_path, running_api="sha256:old\n", built_api="sha256:new\n")
+    assert result.returncode == 0, result.stderr
+    recreate = [call for call in calls if "--force-recreate" in call]
+    assert recreate == [recreate[0]] and recreate[0].endswith("up -d --no-deps --no-build --force-recreate api")
+    assert _first(calls, "up -d --remove-orphans") < _first(calls, "--force-recreate api")
+    assert "recreating api: still running an older image" in result.stdout
+    # Both on their tag already: nothing is recreated.
+    same = tmp_path / "same"
+    same.mkdir()
+    result, calls = _run_update(same)
+    assert result.returncode == 0, result.stderr
+    assert not [call for call in calls if "--force-recreate" in call]
 
 
 @needs_update_harness
