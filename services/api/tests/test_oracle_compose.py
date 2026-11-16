@@ -1711,7 +1711,7 @@ case "$*" in
     while [ "$1" != python ]; do shift; done
     shift
     exec python3 "$@" ;;
-  "image inspect --format {{.Created}}"*) echo "2099-01-01T00:00:00.000000000Z" ;;
+  "image inspect --format {{.Created}}"*) name="${last#anum/}"; cat "$STATE/built_${name%:local}" 2>/dev/null || echo "2099-01-01T00:00:00.000000000Z" ;;
   "image inspect --format {{.Id}}"*) echo "id-$last" ;;
   "inspect --format {{.Image}}"*) echo "id-anum/${last#cid_}:local" ;;
   "ps --all --quiet"*) : ;;
@@ -1740,8 +1740,9 @@ FINANCE_ROUTES = (
 )
 
 
-def _git(cwd: Path, *arguments: str) -> str:
+def _git(cwd: Path, *arguments: str, date: str | None = None) -> str:
     environment = {
+        **({"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date} if date else {}),
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": str(cwd),
         "GIT_AUTHOR_NAME": "test",
@@ -1762,7 +1763,13 @@ def _git(cwd: Path, *arguments: str) -> str:
 
 
 def _run_verify(
-    tmp_path: Path, *, api_env: dict[str, str] | None = None, origin_ahead: bool = False, **state: str
+    tmp_path: Path,
+    *,
+    api_env: dict[str, str] | None = None,
+    origin_ahead: bool = False,
+    deployed_date: str | None = None,
+    script_commit_date: str | None = None,
+    **state: str,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """The real verify.sh in a scratch git checkout with an origin, with stand-ins for docker,
     systemctl, journalctl and smoke.sh. `state` files steer the stand-ins; `api_env` is what
@@ -1788,7 +1795,12 @@ def _run_verify(
     _git(tmp_path, "init", "--quiet", "--bare", "--initial-branch=main", str(origin))
     _git(repo, "init", "--quiet", "--initial-branch=main")
     _git(repo, "add", ".")
-    _git(repo, "commit", "--quiet", "-m", "deployed")
+    _git(repo, "commit", "--quiet", "-m", "deployed", date=deployed_date)
+    if script_commit_date:
+        # A later commit that changes only a script: no image input.
+        (oracle / "notes.txt").write_text("scripts only\n", encoding="utf-8")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "--quiet", "-m", "scripts only", date=script_commit_date)
     _git(repo, "remote", "add", "origin", str(origin))
     _git(repo, "push", "--quiet", "origin", "main")
     if origin_ahead:
@@ -1875,6 +1887,29 @@ needs_verify_harness = pytest.mark.skipif(
     sys.platform != "linux" or not all(shutil.which(tool) for tool in ("bash", "python3", "git")),
     reason="verify.sh needs bash, python3, git and GNU date: Linux only (CI runs it)",
 )
+
+
+@needs_verify_harness
+def test_verify_dates_an_image_by_the_last_commit_that_changed_its_inputs(tmp_path: Path) -> None:
+    # 16 Nov 2026: a commit touching only update.sh reused the cached API image, whose
+    # creation time stayed older, and verify.sh warned. Only a change to services/api counts.
+    old = "2026-11-01T00:00:00+00:00"
+    result, _ = _run_verify(
+        tmp_path,
+        deployed_date=old,
+        script_commit_date="2026-11-10T00:00:00+00:00",
+        built_api="2026-11-05T00:00:00.000000000Z",
+    )
+    assert result.returncode in (0, 1), result.stderr
+    entry = _verify_entry(result.stdout, "image anum/api:local")
+    assert entry.startswith("PASS") and "after the last commit that changed it" in entry
+    # A newer change to the API itself still asks for a rebuild.
+    newer = tmp_path / "newer"
+    newer.mkdir()
+    result, _ = _run_verify(newer, built_api="2000-01-01T00:00:00.000000000Z")
+    entry = _verify_entry(result.stdout, "image anum/api:local")
+    assert entry.startswith("WARN") and "before the last commit that changed it" in entry
+    assert entry.endswith("next: sudo bash infra/oracle/update.sh --no-pull")
 
 
 def test_verify_is_read_only_and_asks_for_real_routes() -> None:

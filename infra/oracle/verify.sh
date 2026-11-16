@@ -94,10 +94,18 @@ else
       record WARN "commit vs origin/main" "$ahead local commit(s) not on origin/main, $behind behind$note" "git -C $REPO_DIR status"
     fi
   fi
-  # The images serving now: built after the checked-out commit, and the ones running.
-  commit_time="$(git_ log -1 --format=%cI HEAD)"
+  # The images serving now: built after the newest commit that changed what goes into
+  # them (a commit touching only scripts or docs reuses the cached image, whose creation
+  # time stays older), and the ones running.
   for pair in api:anum/api web:anum/web; do
     service="${pair%%:*}" image="${pair#*:}:local"
+    if [ "$service" = api ]; then
+      inputs=(services/api)
+    else
+      inputs=(package.json pnpm-lock.yaml pnpm-workspace.yaml apps/web apps/desktop/package.json packages/contracts docs/legal)
+    fi
+    commit_time="$(git_ log -1 --format=%cI HEAD -- "${inputs[@]}" 2>/dev/null || true)"
+    [ -n "$commit_time" ] || commit_time="$(git_ log -1 --format=%cI HEAD)"
     if ! built="$(docker image inspect --format '{{.Created}}' "$image" 2>/dev/null)"; then
       record FAIL "image $image" "not built on this VM" "$SCRIPT/update.sh --no-pull"
       continue
@@ -109,9 +117,9 @@ else
     if [ -n "$running_id" ] && [ "$running_id" != "$image_id" ]; then
       record WARN "image $image" "$service runs an older image than $image" "$SCRIPT/update.sh --no-pull"
     elif [ "$built_s" -lt "$commit_s" ]; then
-      record WARN "image $image" "built ${built%%.*} before the checked-out commit ($commit_time)" "$SCRIPT/update.sh --no-pull"
+      record WARN "image $image" "built ${built%%.*} before the last commit that changed it ($commit_time)" "$SCRIPT/update.sh --no-pull"
     else
-      record PASS "image $image" "built ${built%%.*}, after the checked-out commit"
+      record PASS "image $image" "built ${built%%.*}, after the last commit that changed it"
     fi
   done
 fi
