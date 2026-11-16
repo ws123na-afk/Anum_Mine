@@ -212,6 +212,25 @@ roll_back() {
 
 log "Starting or recreating the services"
 dc up -d --remove-orphans || roll_back "docker compose up failed while starting the new version"
+# Compose can keep a running container whose image tag was rebuilt to a new id (a rebuild
+# with --pull of the same commit, seen 16 Nov 2026), and verify.sh then reports "runs an
+# older image". Recreate any built service still running an image other than its tag.
+stale=()
+for pair in api:anum/api web:anum/web; do
+  service="${pair%%:*}" image="${pair#*:}:local"
+  container="$(dc ps -q "$service" 2>/dev/null | head -n 1 || true)"
+  [ -n "$container" ] || continue
+  running_id="$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null || true)"
+  image_id="$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null || true)"
+  if [ -n "$running_id" ] && [ -n "$image_id" ] && [ "$running_id" != "$image_id" ]; then
+    stale+=("$service")
+  fi
+done
+if [ "${#stale[@]}" -gt 0 ]; then
+  echo "recreating ${stale[*]}: still running an older image than the one just built"
+  dc up -d --no-deps --no-build --force-recreate "${stale[@]}" \
+    || roll_back "docker compose could not recreate ${stale[*]} on the new image"
+fi
 
 log "Waiting for the API and the web app to be healthy"
 wait_healthy api 60 || roll_back "the new API is not healthy after 5 minutes"
