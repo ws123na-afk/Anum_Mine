@@ -50,7 +50,7 @@ dependencies:
   # they rely on AGP 9 built-in Kotlin and would compile nothing while
   # android.builtInKotlin=false (checked in each android/build.gradle.kts).
   local_auth: ^3.0.2
-  local_auth_android: 2.0.7
+  local_auth_android: 2.3.0
 
 dev_dependencies:
   flutter_test:
