@@ -23,9 +23,10 @@ client can only ever stream its own tenant+workspace's events - see
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
@@ -47,6 +48,52 @@ router = APIRouter()
 # implementation; see the module docstring for the tradeoffs.
 POLL_INTERVAL_SECONDS = 1.0
 NATS_NEXT_MSG_TIMEOUT_SECONDS = 1.0
+
+# When NATS is configured, new events still also arrive via this slower
+# reconciliation poll (see _merge_streams / event_stream below) - AgentRuntime
+# and the Temporal activities only ever write to the repository, not NATS
+# (anum_api/runtime.py's _record_event, workflows/activities.py's
+# repository.record_event), so a NATS-only live path would silently miss
+# every run step / approval-requested event until the client's next
+# reconnect replays the backlog. This keeps "live" actually live for those
+# too, at a coarser interval than the no-NATS fallback above.
+RECONCILE_INTERVAL_SECONDS = 5.0
+
+
+@contextlib.contextmanager
+def _repository_for_read(context: TenantContext, fallback: AnumRepository) -> Iterator[AnumRepository]:
+    """A repository to read with, scoped to exactly this one call.
+
+    On the PostgreSQL backend, `fallback` (the request's own
+    dependency-injected repository) is backed by a session that FastAPI
+    closes - committing it, which clears the `SET LOCAL anum.tenant_id`/
+    `anum.workspace_id` settings `set_tenant_context` established - as soon
+    as the route handler returns its `StreamingResponse` object. That
+    happens *before* Starlette ever starts iterating this module's
+    generators to send the response body, so by the time any of them would
+    actually run a query, `fallback`'s session is already committed and
+    closed: queries through it still succeed (SQLAlchemy opens a fresh
+    transaction) but run with no tenant context, and the `domain_events` RLS
+    policy then filters out every row.  Opening a short-lived session here
+    instead - used for exactly one read and then closed - keeps each query's
+    tenant context correct regardless of the request's own session
+    lifecycle. The in-memory backend has no sessions/RLS to worry about, so
+    `fallback` (the same singleton every caller shares) is used as-is there.
+    """
+
+    if settings.repository_backend != "postgresql":
+        yield fallback
+        return
+
+    from .db.repository import SqlAlchemyRepository
+    from .db.session import SessionLocal, set_tenant_context
+
+    session = SessionLocal()
+    try:
+        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        yield SqlAlchemyRepository(session, created_by_user_id=context.user_id)
+    finally:
+        session.close()
 
 
 def _visible_to_context(event: DomainEvent, context: TenantContext) -> bool:
@@ -90,7 +137,8 @@ async def _replay_backlog(
 ) -> tuple[list[DomainEvent], str | None]:
     """Return (backlog events to emit, id of the last event now seen)."""
 
-    persisted = repository.list_events(context)
+    with _repository_for_read(context, repository) as repo:
+        persisted = repo.list_events(context)
     backlog = _events_after_cursor(persisted, cursor)
     last_seen = backlog[-1].id if backlog else cursor
     return backlog, last_seen
@@ -101,20 +149,63 @@ async def _poll_for_new_events(
     context: TenantContext,
     request: Request,
     last_seen: str | None,
+    *,
+    interval_seconds: float | None = None,
 ) -> AsyncIterator[DomainEvent]:
-    """Fallback live path: no NATS configured, poll the persisted event log."""
+    """Live path: poll the persisted event log for anything new.
+
+    Used as the only live path when no NATS is configured (at
+    POLL_INTERVAL_SECONDS), and as a slower reconciliation poll alongside
+    the NATS live path otherwise (at RECONCILE_INTERVAL_SECONDS, via
+    `interval_seconds` - see event_stream).
+    """
 
     while True:
         if await request.is_disconnected():
             return
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        await asyncio.sleep(interval_seconds if interval_seconds is not None else POLL_INTERVAL_SECONDS)
         if await request.is_disconnected():
             return
-        persisted = repository.list_events(context)
+        with _repository_for_read(context, repository) as repo:
+            persisted = repo.list_events(context)
         new_events = _events_after_cursor(persisted, last_seen)
         for event in new_events:
             last_seen = event.id
             yield event
+
+
+async def _merge_streams(*sources: AsyncIterator[DomainEvent]) -> AsyncIterator[DomainEvent]:
+    """Interleave events from several sources as they arrive, until all are
+    exhausted (or this generator itself is closed early).
+
+    Used to combine the NATS live path with the slower reconciliation poll
+    (see RECONCILE_INTERVAL_SECONDS) without either one waiting on the
+    other. Closing this generator (e.g. the client disconnected) cancels
+    whichever source is still mid-`__anext__` and closes every source in
+    turn, so each one's own cleanup (e.g. the NATS path's unsubscribe/drain)
+    still runs.
+    """
+
+    pending: dict[asyncio.Task[DomainEvent], AsyncIterator[DomainEvent]] = {
+        asyncio.ensure_future(anext(source)): source for source in sources
+    }
+    try:
+        while pending:
+            done, _ = await asyncio.wait(pending.keys(), return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                source = pending.pop(task)
+                try:
+                    result = task.result()
+                except StopAsyncIteration:
+                    continue
+                pending[asyncio.ensure_future(anext(source))] = source
+                yield result
+    finally:
+        for task in pending:
+            task.cancel()
+        for source in {*pending.values()}:
+            with contextlib.suppress(Exception):
+                await source.aclose()
 
 
 async def _subscribe_nats_for_new_events(
@@ -189,12 +280,27 @@ async def event_stream(
         return
 
     live_source = (
-        _subscribe_nats_for_new_events(context, request)
+        _merge_streams(
+            _subscribe_nats_for_new_events(context, request),
+            # Reconciliation poll: AgentRuntime/Temporal activities only
+            # ever write to the repository, not NATS, so the NATS path
+            # alone would miss their events until the next reconnect
+            # replays the backlog - see RECONCILE_INTERVAL_SECONDS above.
+            _poll_for_new_events(
+                repository, context, request, last_seen, interval_seconds=RECONCILE_INTERVAL_SECONDS
+            ),
+        )
         if settings.nats_url
         else _poll_for_new_events(repository, context, request, last_seen)
     )
+    seen_ids = {event.id for event in backlog}
     try:
         async for event in live_source:
+            # The two merged sources above can both independently observe
+            # the same persisted event; only emit it once.
+            if event.id in seen_ids:
+                continue
+            seen_ids.add(event.id)
             yield format_sse_event(event)
     finally:
         # If our consumer (StreamingResponse on a real client disconnect, or

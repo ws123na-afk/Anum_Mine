@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     object_storage_region: str = "us-east-1"
     object_storage_access_key: str | None = None
     object_storage_secret_key: str | None = None
+    # The host a browser/client should use for presigned download URLs, if
+    # different from `object_storage_endpoint_url` (which the API itself
+    # uses for upload/head/delete). Needed whenever the API reaches storage
+    # over a host clients can't resolve - e.g. the Compose stack's internal
+    # `http://minio:9000` - and the AWS SigV4 signature covers the host, so
+    # swapping it in after signing would just invalidate the signature.
+    # Unset (the default) reuses `object_storage_endpoint_url`, matching a
+    # real S3/production deployment where the endpoint is already public.
+    object_storage_public_endpoint_url: str | None = None
 
     # Model gateway (see anum_api/model_gateway.py, docs/model-gateway.md).
     # "mock" (the default) keeps every task run exactly as it behaves

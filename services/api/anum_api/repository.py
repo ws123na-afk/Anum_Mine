@@ -27,6 +27,19 @@ class AnumRepository(Protocol):
     def list_files_for_task(self, task_id: str, context: TenantContext) -> list[FileObject]: ...
     def delete_file(self, file_id: str, context: TenantContext) -> bool: ...
 
+    def release_row_locks(self) -> None:
+        """End the current unit of work so any `for_update` row locks it
+        holds are released.
+
+        Call this once a `get_*_for_update` read's validation is done and
+        before awaiting something that needs a *different* session to make
+        progress on the same row - e.g. a Temporal activity, which opens its
+        own short-lived session per call (see workflows/activities.py). On
+        the in-memory backend there is nothing to release (no real
+        transactions), so this is a no-op there.
+        """
+        ...
+
 
 class InMemoryRepository:
     def __init__(self, store: InMemoryStore) -> None:
@@ -141,3 +154,7 @@ class InMemoryRepository:
             return False
         del self.store.files[file_id]
         return True
+
+    def release_row_locks(self) -> None:
+        # No real transactions/locks on the in-memory backend.
+        pass

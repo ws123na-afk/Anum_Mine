@@ -144,6 +144,52 @@ def test_generate_presigned_download_url_points_at_key() -> None:
     assert client.bucket in url
 
 
+@mock_aws
+def test_presign_client_reuses_the_main_client_when_no_public_endpoint_is_set() -> None:
+    client = make_client()
+    assert client._presign_client is client._client
+
+
+@mock_aws
+def test_presign_client_reuses_the_main_client_when_public_endpoint_matches() -> None:
+    client = ObjectStorageClient(
+        endpoint_url=_MOTO_ENDPOINT_URL,
+        bucket="anum-files-test",
+        region="us-east-1",
+        access_key="test",
+        secret_key="test",
+        public_endpoint_url=_MOTO_ENDPOINT_URL,
+    )
+    assert client._presign_client is client._client
+
+
+@mock_aws
+def test_generate_presigned_download_url_uses_the_public_endpoint_when_configured() -> None:
+    """Regression test for the Codex P2 finding on PR #481: a presigned URL
+    signed for an internal-only endpoint (e.g. Compose's `http://minio:9000`)
+    is useless to a browser client outside that network. When
+    `public_endpoint_url` differs from `endpoint_url`, presigning must use
+    it - and since AWS SigV4 signs the host itself, that has to happen by
+    presigning against a second client configured with that host from the
+    start, not by rewriting the URL after the fact.
+    """
+
+    client = ObjectStorageClient(
+        endpoint_url=_MOTO_ENDPOINT_URL,
+        bucket="anum-files-public-endpoint",
+        region="us-east-1",
+        access_key="test",
+        secret_key="test",
+        public_endpoint_url="http://localhost:9000",
+    )
+    client.upload("docs/presign.txt", b"data", "text/plain")
+
+    url = client.generate_presigned_download_url("docs/presign.txt", expires_in_seconds=120)
+
+    assert url.startswith("http://localhost:9000/")
+    assert "presign.txt" in url
+
+
 # ---------------------------------------------------------------------------
 # InMemoryRepository file methods
 # ---------------------------------------------------------------------------

@@ -45,6 +45,7 @@ class ObjectStorageClient:
         region: str,
         access_key: str | None,
         secret_key: str | None,
+        public_endpoint_url: str | None = None,
     ) -> None:
         if not endpoint_url:
             raise ObjectStorageNotConfiguredError(
@@ -60,6 +61,26 @@ class ObjectStorageClient:
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             config=BotoConfig(signature_version="s3v4"),
+        )
+        # Only used by generate_presigned_download_url - a *different*
+        # client so `_client` above (upload/head/delete, called from inside
+        # the API's own network - e.g. the Compose stack's `minio` service)
+        # can keep using a host external callers can't resolve, while
+        # presigned URLs get signed for one they can. Same credentials/
+        # bucket either way; AWS SigV4 signs the host itself, so swapping it
+        # in after signing (rather than signing with it from the start)
+        # would just invalidate the signature.
+        self._presign_client = (
+            self._client
+            if not public_endpoint_url or public_endpoint_url == endpoint_url
+            else boto3.client(
+                "s3",
+                endpoint_url=public_endpoint_url,
+                region_name=region,
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                config=BotoConfig(signature_version="s3v4"),
+            )
         )
         self._ensure_bucket()
 
@@ -129,7 +150,7 @@ class ObjectStorageClient:
         return response["Body"].read()
 
     def generate_presigned_download_url(self, key: str, expires_in_seconds: int = 3600) -> str:
-        return self._client.generate_presigned_url(
+        return self._presign_client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expires_in_seconds,
@@ -168,4 +189,5 @@ def build_object_storage_client() -> "ObjectStorageClient | None":
         region=settings.object_storage_region,
         access_key=settings.object_storage_access_key,
         secret_key=settings.object_storage_secret_key,
+        public_endpoint_url=settings.object_storage_public_endpoint_url,
     )

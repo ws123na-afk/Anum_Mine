@@ -148,6 +148,7 @@ today (via `pydantic-settings`, prefix `ANUM_`, optionally from a
 | `temporal_task_queue` | `ANUM_TEMPORAL_TASK_QUEUE` | `anum-tasks` | Temporal task queue the in-process worker polls. |
 | `object_storage_endpoint_url` | `ANUM_OBJECT_STORAGE_ENDPOINT_URL` | unset | Set to an S3-compatible endpoint (e.g. MinIO) to enable `/api/v1/files`; unset returns `503`. See `anum_api/object_storage.py`. |
 | `object_storage_bucket` / `object_storage_region` / `object_storage_access_key` / `object_storage_secret_key` | `ANUM_OBJECT_STORAGE_BUCKET` / `_REGION` / `_ACCESS_KEY` / `_SECRET_KEY` | `anum-files` / `us-east-1` / unset / unset | Bucket + credentials for the object storage endpoint above. |
+| `object_storage_public_endpoint_url` | `ANUM_OBJECT_STORAGE_PUBLIC_ENDPOINT_URL` | unset (reuses the endpoint above) | Set this if `object_storage_endpoint_url` isn't reachable from a browser (e.g. Compose's internal `http://minio:9000`) - presigned download URLs are signed for this host instead. |
 | `model_provider` | `ANUM_MODEL_PROVIDER` | `mock` | `mock` (default) keeps every task run's model call deterministic and offline. `anthropic` opts into real calls via `AnthropicModelGateway` — requires `anthropic_api_key`. See `anum_api/model_gateway.py`. |
 | `anthropic_api_key` | `ANUM_ANTHROPIC_API_KEY` | unset | Required when `model_provider=anthropic`. Never falls back to an ambient `ANTHROPIC_API_KEY` env var. |
 | `anthropic_model` | `ANUM_ANTHROPIC_MODEL` | `claude-sonnet-5` | Model id passed to the Anthropic Messages API. |

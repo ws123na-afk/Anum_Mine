@@ -369,6 +369,47 @@ def test_nats_live_path_delivers_a_published_event_end_to_end(nats_url: str) -> 
 
 
 @pytest.mark.nats
+def test_nats_reconciliation_poll_delivers_events_nats_itself_never_saw(
+    nats_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for the gap Codex flagged on PR #481: AgentRuntime
+    and the Temporal activities only ever call repository.record_event (see
+    runtime.py's _record_event, workflows/activities.py) - they never
+    publish to NATS themselves. With NATS configured, a client would
+    otherwise only see those events on its next reconnect's backlog replay,
+    not live. Record an event directly on the repository (never published
+    to NATS) and confirm event_stream's reconciliation poll still delivers
+    it live, within one reconciliation interval.
+    """
+
+    monkeypatch.setattr("anum_api.realtime.RECONCILE_INTERVAL_SECONDS", 0.05)
+
+    async def scenario() -> list[str]:
+        repository = make_repository()
+        context = tenant_context()
+        request = FakeRequest()
+        frames: list[str] = []
+
+        async def consume() -> None:
+            async for frame in event_stream(request, context, repository, None):
+                frames.append(frame)
+                request.force_disconnected = True
+                return
+
+        consumer = asyncio.create_task(consume())
+        await asyncio.sleep(0.2)  # let the NATS subscription finish subscribing
+        # Written straight to the repository, exactly like a real task run's
+        # steps/approval-requested events - never published to NATS.
+        record(repository, context, "task_reconciled", event_id="event_reconciled")
+        await asyncio.wait_for(consumer, timeout=10)
+        return frames
+
+    frames = asyncio.run(scenario())
+    assert len(frames) == 1
+    assert "event_reconciled" in frames[0]
+
+
+@pytest.mark.nats
 def test_nats_live_path_is_tenant_isolated(nats_url: str) -> None:
     async def scenario() -> list[str]:
         repository = make_repository()
@@ -412,3 +453,78 @@ def test_nats_live_path_is_tenant_isolated(nats_url: str) -> None:
     assert len(frames) == 1
     assert "event_a" in frames[0]
     assert "event_b" not in frames[0]
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL backend: the request-session-already-closed regression
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.database
+def test_sse_stream_still_sees_events_after_the_request_session_is_closed(
+    seed_scopes: None,
+    database_engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for the Codex P1 finding on PR #481: FastAPI closes a
+    `yield`-dependency's session (committing it, via db_session_context) as
+    soon as the route handler returns its `StreamingResponse` object - which
+    happens *before* Starlette ever iterates event_stream() to send the
+    body. The session `repository_context` hands event_stream is therefore
+    always already committed and closed by the time it's actually used, and
+    committing clears the `SET LOCAL anum.tenant_id`/`anum.workspace_id`
+    settings the `domain_events` RLS policy depends on. Build a repository
+    exactly that way - open, use, commit, close, all before calling
+    event_stream - and confirm it still sees the event, instead of silently
+    returning nothing.
+    """
+
+    import sqlalchemy.orm as sa_orm
+
+    from anum_api.db.repository import SqlAlchemyRepository
+    from anum_api.db.session import set_tenant_context
+    from conftest import TENANT_A, WORKSPACE_A
+    from conftest import tenant_context as seeded_tenant_context
+
+    monkeypatch.setattr(settings, "repository_backend", "postgresql")
+    # Point this module's SessionLocal lookup at the real test database
+    # instead of whatever settings.database_url happened to resolve to at
+    # import time - mirrors db_session_context's own session construction.
+    test_sessionmaker = sa_orm.sessionmaker(bind=database_engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr("anum_api.db.session.SessionLocal", test_sessionmaker)
+
+    context = seeded_tenant_context(TENANT_A, WORKSPACE_A)
+    event = make_event_for_db(context)
+
+    # Exactly db_session_context's lifecycle: open, use, commit, close -
+    # already finished before event_stream ever runs.
+    session = test_sessionmaker()
+    set_tenant_context(session, context.tenant_id, context.workspace_id)
+    already_closed_repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
+    already_closed_repository.record_event(event)
+    session.commit()
+    session.close()
+
+    request = FakeRequest(disconnect_after=0)
+
+    async def scenario() -> list[str]:
+        return [
+            frame
+            async for frame in event_stream(request, context, already_closed_repository, None)
+        ]
+
+    frames = asyncio.run(scenario())
+    assert len(frames) == 1
+    assert event.id in frames[0]
+
+
+def make_event_for_db(context: TenantContext) -> DomainEvent:
+    return DomainEvent(
+        id="event_already_closed_session",
+        type="task.created",
+        tenant_id=context.tenant_id,
+        workspace_id=context.workspace_id,
+        subject="task_already_closed_session",
+        correlation_id="task_already_closed_session",
+        created_at=NOW,
+    )

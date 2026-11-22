@@ -221,6 +221,18 @@ async def run_task(
             # repository so the response shape matches the non-Temporal path
             # exactly - see workflows/client.py's wait_for_task_change.
             starting_status = task.status
+            # Validation above used a `for_update` row lock to rule out a
+            # concurrent duplicate run; release it now, before awaiting the
+            # workflow. run_agent_activity opens its *own* short-lived
+            # session per call (see workflows/activities.py) and needs to
+            # read/write this same row - on the PostgreSQL backend it would
+            # otherwise block on this request's still-open lock until this
+            # request's session commits, which can't happen until the
+            # activity it's waiting on finishes. Temporal's own workflow-id
+            # uniqueness (see task_workflow.py's module docstring) already
+            # prevents a real double-run, so dropping the lock here costs
+            # nothing.
+            repository.release_row_locks()
             await _start_temporal_task_workflow(task.id, context)
             try:
                 task = await _wait_for_temporal_task_change(
@@ -294,6 +306,10 @@ async def cancel_task(
             # cancel_task_activity (identical logic, run once, durably) does
             # the work instead of racing a second, independent mutation here.
             try:
+                # See run_task's matching comment: release the lock this
+                # request holds before awaiting the workflow, which needs a
+                # different session to make progress on this same row.
+                repository.release_row_locks()
                 await _signal_temporal_cancel(task.id)
                 cancelled = await _wait_for_temporal_task_change(
                     repository, task.id, context, from_status=TaskStatus.WAITING_APPROVAL
@@ -534,6 +550,10 @@ async def _decide_approval(
         # Temporal configured, has its workflow durably parked on this exact
         # decision - signal it instead of mutating state here directly.
         try:
+            # See run_task's matching comment: release the locks this
+            # request holds (task + approval) before awaiting the workflow,
+            # which needs a different session to make progress on these rows.
+            repository.release_row_locks()
             await _signal_temporal_approval_decision(task.id, decision.value)
             resolved_task = await _wait_for_temporal_task_change(
                 repository, task.id, context, from_status=TaskStatus.WAITING_APPROVAL

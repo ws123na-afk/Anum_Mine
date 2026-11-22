@@ -130,9 +130,21 @@ services:
       # Matches the `minio` service's MINIO_ROOT_USER/MINIO_ROOT_PASSWORD
       # below - local dev/test credentials only, never reuse in production.
       ANUM_OBJECT_STORAGE_ENDPOINT_URL: http://minio:9000
+      # `minio` only resolves inside this Compose network - a browser
+      # loading the `web` service below can't use it. The `minio` service's
+      # 9000 port is also published to the host (see that service's
+      # `ports:`), so presigned download URLs are signed for this host-
+      # reachable address instead; see object_storage.py's
+      # generate_presigned_download_url and its public_endpoint_url param.
+      ANUM_OBJECT_STORAGE_PUBLIC_ENDPOINT_URL: http://localhost:9000
       ANUM_OBJECT_STORAGE_BUCKET: anum-files
       ANUM_OBJECT_STORAGE_ACCESS_KEY: anum
       ANUM_OBJECT_STORAGE_SECRET_KEY: anum-local-secret
+      # The `web` service below is published on 8081, not the `pnpm dev`
+      # server's 5173 - both need to be allowed so either one can call this
+      # API from a browser (stub-header auth sends custom identity headers,
+      # which require CORS preflight to succeed).
+      ANUM_CORS_ORIGINS: '["http://localhost:8081","http://localhost:5173"]'
 
   web:
     build:

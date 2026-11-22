@@ -345,6 +345,14 @@ class SqlAlchemyRepository(AnumRepository):
         self.session.flush()
         return True
 
+    def release_row_locks(self) -> None:
+        # Ends the session's current transaction so any `with_for_update()`
+        # row locks it holds are released; SQLAlchemy opens a new one
+        # transparently on the next statement, so later calls on this same
+        # repository/session keep working unchanged. See the protocol
+        # docstring in repository.py for why this is needed at all.
+        self.session.commit()
+
     def _sync_steps(
         self,
         run_record: AgentRunRecord,
