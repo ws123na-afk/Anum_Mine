@@ -1,0 +1,18 @@
+# Trivy ignore file (docs/security.md#docker-images). One entry per line: `<CVE-ID> exp:YYYY-MM-DD`.
+# Each entry needs a reason here and a matching row in docs/security.md's "Reviewed exceptions" table.
+# `exp:` forces Trivy to stop ignoring the CVE on that date, so a stale exception fails CI again
+# instead of staying silently suppressed.
+
+# nginx 1.30.6-r1 -> 1.30.7-r0 on Alpine 3.24 (apps/web/Dockerfile, nginx-unprivileged:1.30-alpine).
+# The fix is merged in Alpine's aports (3.24-stable and edge both carry pkgver=1.30.7-r0), but the
+# built package was not yet published to the v3.24/main binary repo as of 22 Nov 2026 (confirmed
+# against a live CI run: `apk upgrade --no-cache` ran with full network access and still installed
+# 1.30.6-r1). apps/web/Dockerfile already upgrades with `apk upgrade --no-cache`, so these clear on
+# their own, with no Dockerfile change, once Alpine publishes the package. Re-check before this
+# expires; renew only if the package is still not published.
+CVE-2026-113425 exp:2026-12-06
+CVE-2026-121810 exp:2026-12-06
+CVE-2026-123007 exp:2026-12-06
+CVE-2026-123633 exp:2026-12-06
+CVE-2026-118899 exp:2026-12-06
+CVE-2026-123634 exp:2026-12-06
