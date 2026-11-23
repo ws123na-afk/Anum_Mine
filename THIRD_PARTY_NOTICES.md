@@ -95,11 +95,13 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 
 ## JavaScript packages (npm)
 
-175 components.
+180 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
+| @emnapi/core | MIT | desktop, web | <https://github.com/toyobayashi/emnapi> |
 | @emnapi/runtime | MIT | desktop, web | <https://github.com/toyobayashi/emnapi> |
+| @emnapi/wasi-threads | MIT | desktop, web | <https://github.com/toyobayashi/emnapi> |
 | @huggingface/jinja | MIT | desktop, web | <https://github.com/huggingface/huggingface.js> |
 | @huggingface/transformers | Apache-2.0 | desktop, web | <https://github.com/huggingface/transformers.js> |
 | @img/colour | MIT | desktop, web | <https://github.com/lovell/colour> |
@@ -142,6 +144,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | @napi-rs/canvas-linux-x64-musl | MIT | desktop, web | <https://github.com/Brooooooklyn/canvas> |
 | @napi-rs/canvas-win32-arm64-msvc | MIT | desktop, web | <https://github.com/Brooooooklyn/canvas> |
 | @napi-rs/canvas-win32-x64-msvc | MIT | desktop, web | <https://github.com/Brooooooklyn/canvas> |
+| @napi-rs/wasm-runtime | MIT | desktop, web | <https://github.com/napi-rs/napi-rs> |
 | @oxc-project/types | MIT | desktop, web | <https://github.com/oxc-project/oxc> |
 | @protobufjs/aspromise | BSD-3-Clause | desktop, web | <https://github.com/dcodeIO/protobuf.js> |
 | @protobufjs/base64 | BSD-3-Clause | desktop, web | <https://github.com/dcodeIO/protobuf.js> |
@@ -165,6 +168,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | @rolldown/binding-linux-x64-gnu | MIT | desktop, web | <https://github.com/rolldown/rolldown> |
 | @rolldown/binding-linux-x64-musl | MIT | desktop, web | <https://github.com/rolldown/rolldown> |
 | @rolldown/binding-openharmony-arm64 | MIT | desktop, web | <https://github.com/rolldown/rolldown> |
+| @rolldown/binding-wasm32-wasi | MIT | desktop, web | <https://github.com/rolldown/rolldown> |
 | @rolldown/binding-win32-arm64-msvc | MIT | desktop, web | <https://github.com/rolldown/rolldown> |
 | @rolldown/binding-win32-x64-msvc | MIT | desktop, web | <https://github.com/rolldown/rolldown> |
 | @rolldown/pluginutils | MIT | desktop, web | <https://github.com/rolldown/plugins> |
@@ -177,6 +181,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | @sentry/replay-canvas | MIT | desktop, web | <https://github.com/getsentry/sentry-javascript> |
 | @twilio/voice-errors | BSD-3-Clause | desktop, web | <https://www.npmjs.com/package/@twilio/voice-errors> |
 | @twilio/voice-sdk | Apache-2.0 | desktop, web | <https://github.com/twilio/twilio-voice.js> |
+| @tybys/wasm-util | MIT | desktop, web | <https://github.com/toyobayashi/wasm-util> |
 | @types/events | MIT | desktop, web | <https://github.com/DefinitelyTyped/DefinitelyTyped> |
 | @types/node | MIT | desktop, web | <https://github.com/DefinitelyTyped/DefinitelyTyped> |
 | @types/react | MIT | desktop, web | <https://github.com/DefinitelyTyped/DefinitelyTyped> |
