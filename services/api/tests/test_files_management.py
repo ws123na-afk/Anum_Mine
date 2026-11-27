@@ -312,7 +312,9 @@ def test_tampered_expired_and_orphaned_links_are_refused() -> None:
     forged = file_policy.sign_link(file_policy.LinkClaims(
         tenant_id=TENANT, workspace_id="workspace_other", user_id="member_1", file_id=record["id"],
         sha256=record["sha256"], inline=False, expires_at=datetime.now(UTC) + timedelta(minutes=5)))
-    assert client.get(f"/api/v1/files/links/{payload}.{signature[:-2]}AA").status_code == 410
+    # Change the first character: a fixed replacement at the end matched the real signature about once in 4,096 runs.
+    tampered = ("B" if signature[0] != "B" else "C") + signature[1:]
+    assert client.get(f"/api/v1/files/links/{payload}.{tampered}").status_code == 410
     assert client.get("/api/v1/files/links/not-a-token").status_code == 410
     # A validly signed link for another workspace finds nothing there (RLS scope).
     assert client.get(f"/api/v1/files/links/{forged}").status_code == 404

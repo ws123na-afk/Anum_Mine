@@ -1,4 +1,13 @@
-# Pending work (handoff, 4 November 2026; updated 15 November 2026)
+# Pending work (handoff, 4 November 2026; updated 27 November 2026)
+
+Update 27 November 2026 (session state for the next session):
+
+- **Merged to `main`:** #491, the hands-on audit batch (Playwright against the real stack, web and the Flutter app built for the browser): Settings crash and a page error boundary, first fuel fill, integration endpoints masked, hard-coded Gmail removed, fleet PDF widths, one vehicle cost rule (linked, else recorded) and Business by default, phone numbers read with the workspace country (contacts, Business, Calls), membership retry and an honest busy message, approval titles, invoice dialog and CSV BOM, rate limit per signed-in credential with a per-address ceiling (`ANUM_RATE_LIMIT_ADDRESS_MULTIPLIER`), Flutter first run without a model (banners where AI is needed), Arabic sign-in and setup, vehicle edit and archive on the phone.
+- **Open PR:** #492 (`.xlsx` renders to the same bytes so an approved fleet report always sends; a link test that passed by chance). Merge it when green, then update #488 onto `main`.
+- **Dependabot:** #484, #485, #486, #487, #488 and #490 were updated onto `main`; owner asked to merge each once green. #488 failed only on the two tests #492 fixes.
+- **Owner step:** to let Claude test the iPhone app, update the Claude desktop app on the Mac mini (or move `Anum_Mine` out of a hidden folder) so the folder can be used from a cloud session, then say so; Xcode with an iOS simulator must be installed there.
+- **Not done:** the app has never been run on an iPhone or simulator (only CI's iOS compile check). Server messages still show in the language the server wrote them in on the phone. Knowledge search uses all-words matching; currency codes are not checked against ISO 4217; memory mode shows "Workspace not found" for a missing workspace.
+
 
 Update 15 November 2026 (session state for the next session):
 
