@@ -281,7 +281,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 
 ## Rust crates (crates.io)
 
-471 components.
+473 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -334,6 +334,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | chrono | MIT OR Apache-2.0 | desktop | <https://github.com/chronotope/chrono> |
 | combine | MIT | desktop | <https://github.com/Marwes/combine> |
 | concurrent-queue | Apache-2.0 OR MIT | desktop | <https://github.com/smol-rs/concurrent-queue> |
+| const-oid | Apache-2.0 OR MIT | desktop | <https://github.com/RustCrypto/formats> |
 | cookie | MIT OR Apache-2.0 | desktop | <https://github.com/SergioBenitez/cookie-rs> |
 | core-foundation | MIT OR Apache-2.0 | desktop | <https://github.com/servo/core-foundation-rs> |
 | core-foundation-sys | MIT OR Apache-2.0 | desktop | <https://github.com/servo/core-foundation-rs> |
@@ -431,6 +432,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | http-body | MIT | desktop | <https://github.com/hyperium/http-body> |
 | http-body-util | MIT | desktop | <https://github.com/hyperium/http-body> |
 | httparse | MIT OR Apache-2.0 | desktop | <https://github.com/seanmonstar/httparse> |
+| hybrid-array | MIT OR Apache-2.0 | desktop | <https://github.com/RustCrypto/hybrid-array> |
 | hyper | MIT | desktop | <https://github.com/hyperium/hyper> |
 | hyper-rustls | Apache-2.0 OR ISC OR MIT | desktop | <https://github.com/rustls/hyper-rustls> |
 | hyper-util | MIT | desktop | <https://github.com/hyperium/hyper-util> |
