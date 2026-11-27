@@ -178,6 +178,17 @@ def test_the_odometer_never_goes_down_without_a_correction() -> None:
     assert refused.status_code == 409 and client.get(f"{API}/{car['id']}/fuel", headers=OWNER).json()["total"] == 0
 
 
+def test_the_first_fill_in_the_minute_the_vehicle_was_added_is_accepted() -> None:
+    # The fuel form sends whole minutes; the reading taken when the vehicle was added must not sort after it.
+    car = vehicle(odometer_km="84200")
+    minute = utc_now().replace(second=0, microsecond=0).isoformat()
+    accepted = fuel(car["id"], filled_at=minute, odometer_km="84650")
+    assert accepted.status_code == 201, accepted.text
+    lower = fuel(car["id"], filled_at=minute, odometer_km="84000")
+    assert lower.status_code == 409
+    assert "84,650 km was recorded on" in lower.json()["detail"] and ".0 km" not in lower.json()["detail"]
+
+
 def test_only_the_vehicle_owner_corrects_a_business_vehicle() -> None:
     van = vehicle(registration="VAN 1", ownership="business", odometer_km="500")
     refused = client.post(f"{API}/{van['id']}/odometer", headers=MEMBER, json={"reading_km": "100", "correction": True, "reason": "cluster swap"})
