@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from anum_api import main
 from anum_api.contacts.store import memory_data
+from anum_api import suppression as suppression_module
 
 TENANT, WORKSPACE = "tenant_contacts_files", "workspace_contacts_files"
 URL = "/api/v1/contacts"
@@ -81,6 +82,13 @@ def workbook(sheet: str = PEOPLE, *, strings: list[str] | None = None, extra: di
 
 def b64(data: bytes) -> str:
     return base64.b64encode(data).decode()
+
+
+@pytest.fixture(autouse=True)
+def _uae_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These scenarios are a UAE workspace: a typed 05... number is a UAE mobile. The Saudi default and
+    # the workspace country from Books settings are covered in test_phone_country.py.
+    monkeypatch.setattr(suppression_module, "DEFAULT_PHONE_COUNTRY", "AE")
 
 
 @pytest.fixture(autouse=True)

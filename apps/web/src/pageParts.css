@@ -192,7 +192,8 @@ button.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line
 .formDialog textarea { min-height: 120px; }
 .formDialog fieldset { border: 0; display: grid; gap: var(--d-s2); margin: var(--d-s3) 0 0; padding: 0; }
 .formDialog legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--d-s1); }
-.formDialog fieldset label { align-items: center; display: flex; gap: var(--d-s2); }
+/* Checkbox and radio rows; a text field (.field) in a fieldset keeps its label above the input. */
+.formDialog fieldset label:not(.field) { align-items: center; display: flex; gap: var(--d-s2); }
 :is(.formDialog, .pane) input[type="file"] { color: var(--d-muted); }
 :is(.formDialog, .pane) input[type="file"]::file-selector-button {
   background: var(--d-control-bg); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer; font: inherit; font-weight: 600;

@@ -56,7 +56,7 @@ Alerts: `AnumApiHighErrorRate`, `AnumApiHighLatencyP95`, `AnumRateLimitRejection
 2. 5xx on every route: check API health (`/health`), recent deploys, PostgreSQL (connections, locks), and the startup log for `InsecureConfigurationError` or migration errors. Roll back if a deploy correlates.
 3. 5xx on run, resume or approval routes: check `503`s from run coordination (Valkey) or the durable runtime (Temporal) in the **queue depth** dashboard, then the sections below.
 4. Latency: open slow traces in Tempo for the route (`{ span.http.route = "<route>" && duration > 1s }`) and look at which child span dominates: SQL, model call (`generate_text ...`), JWKS fetch or NATS publish. Model latency belongs to the provider; consider lowering `ANUM_MODEL_TIMEOUT_SECONDS` or moving the workspace to another model.
-5. 429s: a single client is usually the cause (rate limits are per client IP). Check that `FORWARDED_ALLOW_IPS` matches the load balancer, otherwise every user shares the balancer's IP. Raise `ANUM_RATE_LIMIT_REQUESTS_PER_MINUTE` only with a reason; use `ANUM_RATE_LIMIT_BACKEND=valkey` with more than one replica.
+5. 429s: a single client is usually the cause (signed-in requests are limited per credential, the rest per client IP, and one address's signed-in traffic together by `ANUM_RATE_LIMIT_ADDRESS_MULTIPLIER` times the limit). Check that `FORWARDED_ALLOW_IPS` matches the load balancer, otherwise every user shares the balancer's IP and its ceiling. The `anum.rate_limit.scope` attribute on the rejection metric says which bucket refused. Raise `ANUM_RATE_LIMIT_REQUESTS_PER_MINUTE` only with a reason; use `ANUM_RATE_LIMIT_BACKEND=valkey` with more than one replica.
 
 ## Outbox Backlog
 

@@ -48,6 +48,8 @@ class KitStrings {
     'shownOf': '{shown} of {total}',
     'required': 'Required',
     'invalidNumber': 'Enter a number such as 12.5',
+    'aboveZero': 'Enter a number above zero, such as 12.5',
+    'notNegative': 'Enter zero or more, such as 12.5',
     'invalidDate': 'Enter a date as YYYY-MM-DD',
     'pickDate': 'Pick a date',
     'conflict':
@@ -87,6 +89,8 @@ class KitStrings {
     'shownOf': '{shown} من {total}',
     'required': 'مطلوب',
     'invalidNumber': 'أدخل رقمًا مثل 12.5',
+    'aboveZero': 'أدخل رقمًا أكبر من صفر، مثل 12.5',
+    'notNegative': 'أدخل صفرًا أو أكثر، مثل 12.5',
     'invalidDate': 'أدخل التاريخ بالشكل YYYY-MM-DD',
     'pickDate': 'اختر تاريخًا',
     'conflict':

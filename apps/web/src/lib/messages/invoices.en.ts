@@ -111,6 +111,7 @@ export const invoicesEn = {
   'inv.form.lineKind': 'Type',
   'inv.form.lineQty': 'Quantity',
   'inv.form.linePrice': 'Unit price',
+  'inv.form.linePriceInvalid': 'Enter each line\'s unit price as a number with at most two decimals, for example 33.34.',
   'inv.form.lineTax': 'Tax (%)',
   'inv.form.addLine': 'Add a line',
   'inv.form.removeLine': 'Remove line',

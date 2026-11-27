@@ -40,6 +40,20 @@ function row(key: string, value: string): ArgumentRow {
 }
 
 /** What a list shows: a pending approval past its expiry reads as expired. */
+/**
+ * What the approval would do, in the words the run proposed ("Issue an invoice of SAR 115.11 to ..."): the
+ * text after "Proposed action:" in the reason, else a string `action` argument, else null. Lists lead with it
+ * so several calls of one tool (external.action) do not look identical.
+ */
+export function proposedAction(approval: Pick<Approval, 'reason' | 'arguments'>): string | null {
+  const marker = 'Proposed action:';
+  const at = approval.reason?.indexOf(marker) ?? -1;
+  const fromReason = at >= 0 ? approval.reason.slice(at + marker.length).trim() : '';
+  if (fromReason) return fromReason;
+  const argument = approval.arguments?.action;
+  return typeof argument === 'string' && argument.trim() ? argument.trim() : null;
+}
+
 export function effectiveStatus(approval: Approval, now: Date = new Date()): ApprovalStatus {
   if (approval.status === 'pending' && approval.expiresAt && Date.parse(approval.expiresAt) <= now.getTime()) {
     return 'expired';

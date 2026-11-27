@@ -15,6 +15,7 @@ from anum_api.business.whatsapp_leads import memory_whatsapp_leads, pair_key
 from anum_api.sales_lead_lifecycle import Lead as SalesLead
 from anum_api.sales_lead_lifecycle import LeadStatus
 from anum_api.whatsapp_sales import SalesIntent
+from anum_api import suppression as suppression_module
 
 client = TestClient(main.app)
 TENANT, WORKSPACE = "tenant_unify", "workspace_unify"
@@ -37,6 +38,13 @@ def whatsapp_lead(lead_id: str, phone: str | None, *, status: LeadStatus = LeadS
         status=status, created_at=when, updated_at=when, contact_name=contact_name, company_name=company_name, phone_e164=phone,
         requirements=requirements,
     )
+
+
+@pytest.fixture(autouse=True)
+def _uae_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These scenarios are a UAE workspace: a typed 05... number is a UAE mobile. The Saudi default and
+    # the workspace country from Books settings are covered in test_phone_country.py.
+    monkeypatch.setattr(suppression_module, "DEFAULT_PHONE_COUNTRY", "AE")
 
 
 @pytest.fixture(autouse=True)

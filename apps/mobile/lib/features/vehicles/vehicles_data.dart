@@ -334,6 +334,13 @@ abstract interface class VehiclesRepository {
       {String query, bool archived, String? token});
   Future<Vehicle> get(String id);
   Future<Vehicle> create(Map<String, Object?> body);
+
+  /// `PATCH /vehicles/{id}`: only the fields in [changes], with the
+  /// version the person loaded (a stale version is refused, 409 `stale`).
+  Future<Vehicle> update(String id, int version, Map<String, Object?> changes);
+
+  /// `POST /vehicles/{id}/archive`: archive, or restore with [archived] false.
+  Future<Vehicle> archive(String id, int version, {bool archived = true});
   Future<List<VehicleDue>> reminders();
   Future<RecordsChunk<VehicleRecord>> records(
       VehicleRecordKind kind, String vehicleId,
@@ -342,6 +349,11 @@ abstract interface class VehiclesRepository {
       VehicleRecordKind kind, String vehicleId, Map<String, Object?> body,
       {required String idempotencyKey});
   Future<void> deleteRecord(VehicleRecordKind kind, String recordId);
+
+  /// `PATCH /vehicles/{kind}/{id}`: only the fields in [changes], with the
+  /// version the person loaded.
+  Future<VehicleRecord> updateRecord(VehicleRecordKind kind, String recordId,
+      int version, Map<String, Object?> changes);
   Future<void> addReading(String vehicleId,
       {required String readingKm, bool correction, String? reason});
   Future<List<VehiclePaymentCandidate>> paymentCandidates(
@@ -386,6 +398,20 @@ class ApiVehiclesRepository implements VehiclesRepository {
       JsonReader(await api.request('POST', _base, body: body)));
 
   @override
+  Future<Vehicle> update(
+          String id, int version, Map<String, Object?> changes) async =>
+      Vehicle.fromJson(JsonReader(await api.request(
+          'PATCH', '$_base/${_id(id)}',
+          body: {...changes, 'version': version})));
+
+  @override
+  Future<Vehicle> archive(String id, int version,
+          {bool archived = true}) async =>
+      Vehicle.fromJson(JsonReader(await api.request(
+          'POST', '$_base/${_id(id)}/archive',
+          body: {'version': version, 'archived': archived})));
+
+  @override
   Future<List<VehicleDue>> reminders() async =>
       JsonReader(await api.request('GET', '$_base/reminders'))
           .optObjects('items', VehicleDue.fromJson);
@@ -423,6 +449,15 @@ class ApiVehiclesRepository implements VehiclesRepository {
   @override
   Future<void> deleteRecord(VehicleRecordKind kind, String recordId) =>
       api.request('DELETE', '$_base/${kind.path}/${_id(recordId)}');
+
+  @override
+  Future<VehicleRecord> updateRecord(VehicleRecordKind kind, String recordId,
+          int version, Map<String, Object?> changes) async =>
+      _record(
+          kind,
+          JsonReader(await api.request(
+              'PATCH', '$_base/${kind.path}/${_id(recordId)}',
+              body: {...changes, 'version': version})));
 
   @override
   Future<void> addReading(String vehicleId,

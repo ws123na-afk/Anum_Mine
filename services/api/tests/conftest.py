@@ -271,9 +271,10 @@ def _fresh_rate_limit_budget() -> Iterator[None]:
     only emptied between tests so tests do not consume each other's budget.
     """
     main = sys.modules.get("anum_api.main")
-    limiter = getattr(main.app.state, "rate_limiter", None) if main is not None else None
-    if limiter is not None:
-        limiter.reset()
+    for name in ("rate_limiter", "rate_limit_ceiling"):
+        limiter = getattr(main.app.state, name, None) if main is not None else None
+        if limiter is not None:
+            limiter.reset()
     yield
 
 

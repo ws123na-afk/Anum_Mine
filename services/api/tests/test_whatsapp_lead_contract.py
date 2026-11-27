@@ -17,10 +17,18 @@ from anum_api.business.whatsapp_leads import memory_whatsapp_leads
 from anum_api.sales_lead_lifecycle import LeadStatus
 from anum_api.schemas import TenantContext
 from anum_api.whatsapp_store import Direction
+from anum_api import suppression as suppression_module
 from test_business_lead_sources import BASE, MEMBER, OTHER_WORKSPACE, OWNER, TENANT, VIEWER, WORKSPACE, lead_with_contact, waiting, whatsapp_lead
 
 client = TestClient(main.app)
 WEBHOOK = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="system:whatsapp", roles=[])
+
+
+@pytest.fixture(autouse=True)
+def _uae_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These scenarios are a UAE workspace: a typed 05... number is a UAE mobile. The Saudi default and
+    # the workspace country from Books settings are covered in test_phone_country.py.
+    monkeypatch.setattr(suppression_module, "DEFAULT_PHONE_COUNTRY", "AE")
 
 
 @pytest.fixture(autouse=True)
