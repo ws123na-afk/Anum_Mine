@@ -102,7 +102,7 @@ PDF statements (text, scanned or password protected) are read and reviewed on th
 - **Duplicates.** Each row's hash covers the account, date, amount, currency, cleaned description and its occurrence number among identical rows in the same file. The hash is unique per account, so importing the same or an overlapping statement again adds only new rows; two identical purchases on one day in one file stay two rows. Beyond the hash, every row goes through the [statement matching engine](#statement-matching): rows that SMS, Apple Pay or the person already recorded are attached to that record instead of being added, and the preview groups rows by what the import will do.
 - **Running balance and reference.** A `balance` column (the balance after the row) feeds the [balance check](#reconciliation); a `reference` column is the bank's reference, used by the matching engine. Both are detected from common names and can be mapped.
 - **Balances.** `opening_balance` and `closing_balance` (optional, as printed on the statement) are checked against the rows.
-- **Export.** `GET /api/v1/finance/transactions/export.csv` (same filters as the list, at most 10,000 rows). Text cells that start with `=`, `+`, `-`, `@`, `|`, `%`, a tab or a carriage return get a leading apostrophe so a spreadsheet does not run them as formulas.
+- **Export.** `GET /api/v1/finance/transactions/export.csv` (same filters as the list, at most 10,000 rows). The file starts with a UTF-8 byte order mark so Excel shows Arabic merchant names correctly. Text cells that start with `=`, `+`, `-`, `@`, `|`, `%`, a tab or a carriage return get a leading apostrophe so a spreadsheet does not run them as formulas.
 
 ## Statement matching
 
