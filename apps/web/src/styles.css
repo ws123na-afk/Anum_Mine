@@ -283,7 +283,7 @@ kbd { background: var(--d-glass-1); border: 1px solid var(--d-line); border-bott
 .popoverList button:hover { background: var(--d-glass-2); }
 .popoverList svg { color: var(--d-blue); flex: none; height: 18px; margin-top: 2px; width: 18px; }
 .popoverList span { display: grid; min-width: 0; }
-.popoverList strong { font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
+.popoverList strong { -webkit-box-orient: vertical; display: -webkit-box; font-size: var(--text-md); font-weight: 600; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .popoverList small { color: var(--d-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .userButton {
   align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: flex; gap: var(--d-s2);
@@ -954,7 +954,7 @@ code { unicode-bidi: isolate; }
 [dir="rtl"] .approvalQueueItem { border-radius: var(--d-r-control) 0 0 var(--d-r-control); }
 .approvalQueueItem:hover { background: var(--d-glass-1); }
 .approvalQueueItem:focus-visible { outline-offset: -2px; }
-.approvalQueueItem strong { font-family: var(--d-mono); font-size: var(--text-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.approvalQueueItem strong { font-size: var(--text-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .approvalQueueItem small { color: var(--d-muted); font-size: var(--text-xs); }
 .approvalQueueItem.risk-high { border-inline-start-color: var(--d-stop); }
 .approvalQueueItem.risk-medium { border-inline-start-color: var(--d-warn); }
