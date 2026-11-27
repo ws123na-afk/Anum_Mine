@@ -155,10 +155,14 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
               Expanded(
                 child: selected == null
                     ? Center(
-                        child: Padding(
+                        child: SingleChildScrollView(
                           padding: const EdgeInsets.all(AnumSpacing.lg),
-                          child: Text(s.t('subtitle'),
-                              textAlign: TextAlign.center),
+                          child: AnumEmpty(
+                            key: const Key('vehicles-choose'),
+                            title: s.t('chooseVehicle'),
+                            message: s.t('chooseVehicleText'),
+                            icon: Icons.directions_car_outlined,
+                          ),
                         ),
                       )
                     : VehicleDetailHost(
@@ -302,7 +306,7 @@ class _VehicleRow extends StatelessWidget {
           vehicle.makeModel,
           s.t(vehicle.ownership == 'business' ? 'business' : 'personal'),
           if (vehicle.odometerKm != null)
-            s.t('km', {'km': vehicle.odometerKm!}),
+            s.t('km', {'km': quantity(context, vehicle.odometerKm!)}),
         ].where((part) => part.isNotEmpty).join(' · '),
         detail: vehicle.due.isEmpty
             ? null
@@ -331,11 +335,72 @@ String dueLabel(BuildContext context, VehicleDue due) {
   } else if (due.kmLeft != null) {
     final km = due.kmLeft!;
     when = km.startsWith('-')
-        ? s.t('dueKmOver', {'km': km.substring(1)})
-        : s.t('dueKm', {'km': km});
+        ? s.t('dueKmOver', {'km': quantity(context, km.substring(1))})
+        : s.t('dueKm', {'km': quantity(context, km)});
   }
   return when == null ? what : '$what $when';
 }
+
+/// A kilometre or litre figure for reading: `45,200`, `60`, `40.5`.
+String quantity(BuildContext context, String value) =>
+    formatQuantityText(value, locale: Localizations.localeOf(context));
+
+/// A figure to put back in a form field: no grouping, no trailing zero
+/// decimals (`45.000` becomes `45`), so the field reads it back unchanged.
+String? plainDecimal(String? value) {
+  if (value == null) return null;
+  final match = RegExp(r'^(-?\d+)(?:\.(\d*?)0*)?$').firstMatch(value.trim());
+  if (match == null) return value;
+  final fraction = match.group(2) ?? '';
+  return fraction.isEmpty ? match.group(1) : '${match.group(1)}.$fraction';
+}
+
+String _hhmm(TimeOfDay t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+String? _localDay(String? instant) {
+  final at = instant == null ? null : DateTime.tryParse(instant);
+  return at == null ? null : isoDay(at.toLocal());
+}
+
+String? _localTime(String? instant) {
+  final at = instant == null ? null : DateTime.tryParse(instant);
+  return at == null ? null : _hhmm(TimeOfDay.fromDateTime(at.toLocal()));
+}
+
+/// A form's values as they were when it opened (read the way the form reads
+/// its fields), to tell which ones the person changed.
+RecordsValues initialValues(List<RecordsInput> fields) => {
+      for (final field in fields)
+        field.name: switch (field.kind) {
+          RecordsInputKind.toggle => field.initial == 'true',
+          RecordsInputKind.number =>
+            field.initial == null ? null : decimalText(field.initial!),
+          RecordsInputKind.choice => field.initial,
+          _ => (field.initial?.trim().isEmpty ?? true)
+              ? null
+              : field.initial!.trim(),
+        },
+    };
+
+/// The API body: to add, every value that is set; to edit ([before] given),
+/// only the fields whose form inputs changed, a cleared one as null. Each
+/// API field names the inputs it is made from and how.
+Map<String, Object?> recordBody(RecordsValues values, RecordsValues? before,
+        Map<String, (List<String>, Object? Function())> fields) =>
+    {
+      for (final MapEntry(key: name, value: (inputs, make)) in fields.entries)
+        if (before == null
+            ? make() != null
+            : inputs.any((input) => values[input] != before[input]))
+          name: make(),
+    };
+
+Map<String, (List<String>, Object? Function())> _same(
+        RecordsValues v, List<String> names) =>
+    {
+      for (final name in names) name: ([name], () => v[name])
+    };
 
 class _DueCard extends StatelessWidget {
   const _DueCard({required this.controller});
@@ -468,126 +533,241 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
             })
           : null;
 
-  Future<void> _addRecord(VehicleRecordKind kind) async {
+  Future<void> _addRecord(VehicleRecordKind kind) => _openRecord(kind);
+
+  /// Adds a record, or with [existing] edits it: the edit sends only the
+  /// fields the person changed, with the version they loaded.
+  Future<void> _openRecord(VehicleRecordKind kind,
+      {VehicleRecord? existing}) async {
     final s = VehiclesStrings.of(context);
     final vehicle = _c.vehicle;
     final today = isoDay(DateTime.now());
+    final editing = existing != null;
     // One key for every attempt in this form: a retry is stored once.
     final key = newIdempotencyKey('veh');
-    final RecordsForm form;
+    final List<RecordsInput> fields;
+    final Map<String, (List<String>, Object? Function())> Function(
+        RecordsValues v) api;
+    final String title;
+    final Widget? Function(Object, RecordsValues) onError;
     switch (kind) {
       case VehicleRecordKind.fuel:
-        form = RecordsForm(
-          title: s.t('addFuel'),
-          submitLabel: s.t('addFuel'),
-          fields: [
-            RecordsInput.date('day', s.t('filledAt'),
-                required: true, initial: today),
-            RecordsInput.number('litres', s.t('litres'), required: true),
-            RecordsInput.number('total', s.t('total')),
-            RecordsInput.number('price_per_litre', s.t('pricePerLitre')),
-            RecordsInput.number('odometer_km', s.t('odometerKm')),
-            RecordsInput.choice('fuel_type', s.t('fuelType'),
-                initial: vehicle?.fuelType,
-                options: {for (final f in fuelTypes) f: s.label('fuel', f)}),
-            RecordsInput.text('station', s.t('station'), maxLength: 120),
-            RecordsInput.toggle('full_tank', s.t('fullTank'), initial: true),
-          ],
-          onSubmit: (v) => _c.add(
-              kind,
-              {
-                'filled_at': instantOf(v['day']! as String, null),
-                'litres': v['litres'],
-                if (v['total'] != null) 'total': v['total'],
-                if (v['price_per_litre'] != null)
-                  'price_per_litre': v['price_per_litre'],
-                if (v['odometer_km'] != null) 'odometer_km': v['odometer_km'],
-                if (v['fuel_type'] != null) 'fuel_type': v['fuel_type'],
-                if (v['station'] != null) 'station': v['station'],
-                'full_tank': v['full_tank'],
-              },
-              idempotencyKey: key),
-          onError: (e, v) => _decrease(e, v, 'odometer_km'),
-        );
+        final f = existing as VehicleFuel?;
+        title = editing ? s.t('editRecord') : s.t('addFuel');
+        fields = [
+          RecordsInput.date('day', s.t('filledAt'),
+              required: true,
+              initial: f == null ? today : _localDay(f.filledAt)),
+          RecordsInput.number('litres', s.t('litres'),
+              required: true, positive: true, initial: plainDecimal(f?.litres)),
+          RecordsInput.number('total', s.t('total'),
+              positive: true, initial: plainDecimal(f?.total)),
+          if (!editing)
+            RecordsInput.number('price_per_litre', s.t('pricePerLitre'),
+                positive: true),
+          RecordsInput.number('odometer_km', s.t('odometerKm'),
+              initial: plainDecimal(f?.odometerKm)),
+          RecordsInput.choice('fuel_type', s.t('fuelType'),
+              initial: f?.fuelType ?? vehicle?.fuelType,
+              options: {for (final t in fuelTypes) t: s.label('fuel', t)}),
+          RecordsInput.text('station', s.t('station'),
+              maxLength: 120, initial: f?.station),
+          RecordsInput.toggle('full_tank', s.t('fullTank'),
+              initial: f?.fullTank ?? true),
+        ];
+        api = (v) => {
+              // An edited day keeps the time of day the fill was logged at.
+              'filled_at': (
+                ['day'],
+                () => instantOf(v['day']! as String,
+                    f == null ? null : _localTime(f.filledAt))
+              ),
+              ..._same(v, [
+                'litres',
+                'total',
+                'price_per_litre',
+                'odometer_km',
+                'fuel_type',
+                'station',
+                'full_tank'
+              ]),
+            };
+        onError = (e, v) => _decrease(e, v, 'odometer_km');
       case VehicleRecordKind.trips:
-        final now = TimeOfDay.now();
-        String hhmm(TimeOfDay t) =>
-            '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-        form = RecordsForm(
-          title: s.t('addTrip'),
-          submitLabel: s.t('addTrip'),
-          fields: [
-            RecordsInput.date('day', s.t('filledAt'),
-                required: true, initial: today),
-            RecordsInput.time('start_time', s.t('startTime'),
-                required: true, initial: hhmm(now)),
-            RecordsInput.number('start_odometer_km', s.t('startKm')),
-            RecordsInput.time('end_time', s.t('endTime'), initial: hhmm(now)),
-            RecordsInput.number('end_odometer_km', s.t('endKm')),
-            RecordsInput.choice('purpose', s.t('purpose'),
-                initial: 'business',
-                options: {
-                  for (final p in ['business', 'personal', 'commute'])
-                    p: s.label('purpose', p)
-                }),
+        final t = existing as VehicleTrip?;
+        final now = _hhmm(TimeOfDay.now());
+        title = editing ? s.t('editRecord') : s.t('addTrip');
+        fields = [
+          RecordsInput.date('day', s.t('filledAt'),
+              required: true,
+              initial: t == null ? today : _localDay(t.startedAt)),
+          RecordsInput.time('start_time', s.t('startTime'),
+              required: true,
+              initial: t == null ? now : _localTime(t.startedAt)),
+          RecordsInput.number('start_odometer_km', s.t('startKm'),
+              initial: plainDecimal(t?.startOdometerKm)),
+          RecordsInput.time('end_time', s.t('endTime'),
+              initial: t == null ? now : _localTime(t.endedAt)),
+          RecordsInput.number('end_odometer_km', s.t('endKm'),
+              initial: plainDecimal(t?.endOdometerKm)),
+          RecordsInput.choice('purpose', s.t('purpose'),
+              initial: t?.purpose ?? 'business',
+              options: {
+                for (final p in ['business', 'personal', 'commute'])
+                  p: s.label('purpose', p)
+              }),
+          if (!editing)
             RecordsInput.text('notes', s.t('notes'), maxLength: 500),
-          ],
-          onSubmit: (v) {
-            final day = v['day']! as String;
-            final ended = v['end_time'] as String?;
-            return _c.add(
-                kind,
-                {
-                  'started_at': instantOf(day, v['start_time'] as String?),
-                  if (ended != null) 'ended_at': instantOf(day, ended),
-                  if (v['start_odometer_km'] != null)
-                    'start_odometer_km': v['start_odometer_km'],
-                  if (v['end_odometer_km'] != null)
-                    'end_odometer_km': v['end_odometer_km'],
-                  'purpose': v['purpose'],
-                  if (v['notes'] != null) 'notes': v['notes'],
-                },
-                idempotencyKey: key);
-          },
-          onError: (e, v) => _decrease(
-              e,
-              v,
-              v['end_odometer_km'] != null
-                  ? 'end_odometer_km'
-                  : 'start_odometer_km'),
-        );
+        ];
+        api = (v) {
+          final day = v['day']! as String;
+          final ended = v['end_time'] as String?;
+          return {
+            'started_at': (
+              ['day', 'start_time'],
+              () => instantOf(day, v['start_time'] as String?)
+            ),
+            'ended_at': (
+              ['day', 'end_time'],
+              () => ended == null ? null : instantOf(day, ended)
+            ),
+            ..._same(v, [
+              'start_odometer_km',
+              'end_odometer_km',
+              'purpose',
+              if (!editing) 'notes'
+            ]),
+          };
+        };
+        onError = (e, v) => _decrease(
+            e,
+            v,
+            v['end_odometer_km'] != null
+                ? 'end_odometer_km'
+                : 'start_odometer_km');
       case VehicleRecordKind.service:
-        form = RecordsForm(
-          title: s.t('addService'),
-          submitLabel: s.t('addService'),
-          fields: [
-            RecordsInput.choice('kind', s.t('serviceKind'),
-                initial: 'maintenance',
-                options: {
-                  for (final k in serviceKinds) k: s.label('service', k)
-                }),
-            RecordsInput.date('service_on', s.t('serviceOn'),
-                required: true, initial: today),
-            RecordsInput.number('odometer_km', s.t('odometerKm')),
-            RecordsInput.text('workshop', s.t('workshop'), maxLength: 120),
-            RecordsInput.multiline('description', s.t('description'),
-                maxLength: 500),
-            RecordsInput.number('receipt_total', s.t('receiptTotal')),
-            RecordsInput.date('next_due_on', s.t('nextDueOn')),
-            RecordsInput.number('next_due_km', s.t('nextDueKm')),
-          ],
-          onSubmit: (v) => _c.add(
-              kind,
-              {
-                for (final entry in v.entries)
-                  if (entry.value != null) entry.key: entry.value,
-              },
-              idempotencyKey: key),
-          onError: (e, v) => _decrease(e, v, 'odometer_km'),
-        );
+        final r = existing as VehicleService?;
+        title = editing ? s.t('editRecord') : s.t('addService');
+        fields = [
+          RecordsInput.choice('kind', s.t('serviceKind'),
+              initial: r?.kind ?? 'maintenance',
+              options: {
+                for (final k in serviceKinds) k: s.label('service', k)
+              }),
+          RecordsInput.date('service_on', s.t('serviceOn'),
+              required: true, initial: r?.serviceOn ?? today),
+          RecordsInput.number('odometer_km', s.t('odometerKm'),
+              initial: plainDecimal(r?.odometerKm)),
+          RecordsInput.text('workshop', s.t('workshop'),
+              maxLength: 120, initial: r?.workshop),
+          RecordsInput.multiline('description', s.t('description'),
+              maxLength: 500, initial: r?.description),
+          RecordsInput.number('receipt_total', s.t('receiptTotal'),
+              positive: true, initial: plainDecimal(r?.receiptTotal)),
+          RecordsInput.date('next_due_on', s.t('nextDueOn'),
+              initial: r?.nextDueOn),
+          RecordsInput.number('next_due_km', s.t('nextDueKm'),
+              positive: true, initial: plainDecimal(r?.nextDueKm)),
+        ];
+        api = (v) => _same(v, [for (final field in fields) field.name]);
+        onError = (e, v) => _decrease(e, v, 'odometer_km');
     }
-    final saved = await openRecordsForm(context, form);
+    final before = editing ? initialValues(fields) : null;
+    final saved = await openRecordsForm(
+      context,
+      RecordsForm(
+        title: title,
+        submitLabel: editing ? KitStrings.of(context).t('save') : title,
+        fields: fields,
+        onSubmit: (v) async {
+          final body = recordBody(v, before, api(v));
+          if (!editing) {
+            await _c.add(kind, body, idempotencyKey: key);
+          } else if (body.isNotEmpty) {
+            await _c.update(kind, existing, body);
+          }
+        },
+        onError: onError,
+      ),
+    );
     if (saved && mounted) recordsToast(context, s.t('saved'));
+  }
+
+  Future<void> _editVehicle() async {
+    final s = VehiclesStrings.of(context);
+    final v = _c.vehicle!;
+    final fields = [
+      RecordsInput.text('registration', s.t('registration'),
+          required: true, maxLength: 20, initial: v.registration),
+      RecordsInput.text('nickname', s.t('nickname'),
+          maxLength: 60, initial: v.nickname),
+      RecordsInput.choice('vehicle_type', s.t('vehicleType'),
+          initial: v.vehicleType,
+          options: {for (final t in vehicleTypes) t: s.label('type', t)}),
+      RecordsInput.choice('fuel_type', s.t('fuelType'),
+          initial: v.fuelType,
+          options: {for (final f in fuelTypes) f: s.label('fuel', f)}),
+      RecordsInput.text('make', s.t('make'), maxLength: 60, initial: v.make),
+      RecordsInput.text('model', s.t('model'), maxLength: 60, initial: v.model),
+      RecordsInput.text('year', s.t('year'),
+          maxLength: 4, initial: v.year?.toString()),
+      RecordsInput.text('vin', s.t('vin'), maxLength: 20, initial: v.vin),
+      RecordsInput.date('insurance_expires_on', s.t('insurance'),
+          initial: v.insuranceExpiresOn),
+      RecordsInput.date('registration_expires_on', s.t('registrationExpires'),
+          initial: v.registrationExpiresOn),
+      RecordsInput.date('inspection_expires_on', s.t('inspection'),
+          initial: v.inspectionExpiresOn),
+      RecordsInput.multiline('notes', s.t('notes'),
+          maxLength: 1000, initial: v.notes),
+    ];
+    final before = initialValues(fields);
+    final saved = await openRecordsForm(
+      context,
+      RecordsForm(
+        title: s.t('editVehicle'),
+        submitLabel: KitStrings.of(context).t('save'),
+        fields: fields,
+        onSubmit: (values) async {
+          final changes = recordBody(values, before,
+              _same(values, [for (final field in fields) field.name]));
+          if (changes.isNotEmpty) await _c.updateVehicle(changes);
+        },
+      ),
+    );
+    if (saved && mounted) recordsToast(context, s.t('saved'));
+  }
+
+  Future<void> _archive() async {
+    final s = VehiclesStrings.of(context);
+    final k = KitStrings.of(context);
+    final restoring = _c.vehicle!.archivedAt != null;
+    if (!restoring) {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          content: Text(s.t('archiveConfirm')),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialog, false),
+                child: Text(k.t('cancel'))),
+            FilledButton(
+                key: const Key('confirm-archive'),
+                onPressed: () => Navigator.pop(dialog, true),
+                child: Text(s.t('archiveVehicle'))),
+          ],
+        ),
+      );
+      if (sure != true || !mounted) return;
+    }
+    try {
+      await _c.archive(archived: !restoring);
+      if (mounted) {
+        recordsToast(context, s.t(restoring ? 'restoredDone' : 'archivedDone'));
+      }
+    } on Object catch (error) {
+      if (mounted) recordsToast(context, RecordsFailure.from(error).message);
+    }
   }
 
   Future<void> _link(VehicleRecordKind kind, VehicleRecord record) async {
@@ -743,10 +923,16 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
             ]);
           }
           final list = _c.lists[_tab]!;
+          // An archived vehicle takes no new records until it is restored.
+          final canAdd = vehicle.canEdit && vehicle.archivedAt == null;
           return AnumPage(
             onRefresh: _c.load,
             children: [
-              _Summary(vehicle: vehicle, onReading: _reading),
+              _Summary(
+                  vehicle: vehicle,
+                  onReading: _reading,
+                  onEdit: _editVehicle,
+                  onArchive: _archive),
               SegmentedButton<VehicleRecordKind>(
                 segments: [
                   for (final kind in VehicleRecordKind.values)
@@ -757,7 +943,7 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                 onSelectionChanged: (value) =>
                     setState(() => _tab = value.first),
               ),
-              if (vehicle.canEdit)
+              if (canAdd)
                 Align(
                   alignment: AlignmentDirectional.centerStart,
                   child: FilledButton.tonalIcon(
@@ -782,14 +968,14 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                   title: s.t('${_tab.path}Empty'),
                   message: s.t('${_tab.path}EmptyText'),
                   icon: Icons.receipt_long_outlined,
-                  action: vehicle.canEdit
+                  action: canAdd
                       ? s.t(switch (_tab) {
                           VehicleRecordKind.fuel => 'addFuel',
                           VehicleRecordKind.trips => 'addTrip',
                           VehicleRecordKind.service => 'addService',
                         })
                       : null,
-                  onAction: vehicle.canEdit ? () => _addRecord(_tab) : null,
+                  onAction: canAdd ? () => _addRecord(_tab) : null,
                 )
               else ...[
                 AnumSurface(
@@ -806,6 +992,9 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                                 record.canEdit &&
                                 vehicle.ownership == 'business'
                             ? () => _allocate(_tab, record)
+                            : null,
+                        onEdit: record.canEdit
+                            ? () => _openRecord(_tab, existing: record)
                             : null,
                         onDelete:
                             record.canEdit ? () => _delete(_tab, record) : null,
@@ -843,9 +1032,15 @@ class _CorrectionAction extends StatelessWidget {
 }
 
 class _Summary extends StatelessWidget {
-  const _Summary({required this.vehicle, required this.onReading});
+  const _Summary({
+    required this.vehicle,
+    required this.onReading,
+    required this.onEdit,
+    required this.onArchive,
+  });
   final Vehicle vehicle;
   final Future<void> Function({bool correction, String? km}) onReading;
+  final VoidCallback onEdit, onArchive;
 
   @override
   Widget build(BuildContext context) {
@@ -872,7 +1067,7 @@ class _Summary extends StatelessWidget {
             s.t('odometer'),
             vehicle.odometerKm == null
                 ? null
-                : s.t('km', {'km': vehicle.odometerKm!})),
+                : s.t('km', {'km': quantity(context, vehicle.odometerKm!)})),
         if (vehicle.makeModel.isNotEmpty)
           RecordsField(s.t('make'), vehicle.makeModel),
         RecordsField(s.t('country'), s.label('country', vehicle.country)),
@@ -890,16 +1085,39 @@ class _Summary extends StatelessWidget {
                 style: TextStyle(color: context.palette.muted)),
           )
         else ...[
-          const SizedBox(height: AnumSpacing.xs),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: OutlinedButton.icon(
-              key: const Key('vehicle-reading'),
-              onPressed: () => onReading(),
-              icon: const Icon(Icons.speed),
-              label: Text(s.t('addReading')),
+          if (vehicle.archivedAt != null)
+            Padding(
+              padding: const EdgeInsets.only(top: AnumSpacing.xs),
+              child: Text(s.t('archivedNote'),
+                  key: const Key('vehicle-archived-note'),
+                  style: TextStyle(color: context.palette.muted)),
             ),
-          ),
+          const SizedBox(height: AnumSpacing.xs),
+          Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
+            if (vehicle.archivedAt == null)
+              OutlinedButton.icon(
+                key: const Key('vehicle-reading'),
+                onPressed: () => onReading(),
+                icon: const Icon(Icons.speed),
+                label: Text(s.t('addReading')),
+              ),
+            OutlinedButton.icon(
+              key: const Key('vehicle-edit'),
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              label: Text(s.t('editVehicle')),
+            ),
+            OutlinedButton.icon(
+              key: const Key('vehicle-archive'),
+              onPressed: onArchive,
+              icon: Icon(vehicle.archivedAt == null
+                  ? Icons.archive_outlined
+                  : Icons.unarchive_outlined),
+              label: Text(s.t(vehicle.archivedAt == null
+                  ? 'archiveVehicle'
+                  : 'restoreVehicle')),
+            ),
+          ]),
         ],
       ],
     );
@@ -951,9 +1169,13 @@ class _ProposalRow extends StatelessWidget {
 
 class _RecordRow extends StatelessWidget {
   const _RecordRow(
-      {required this.record, this.onLink, this.onAllocate, this.onDelete});
+      {required this.record,
+      this.onLink,
+      this.onAllocate,
+      this.onEdit,
+      this.onDelete});
   final VehicleRecord record;
-  final VoidCallback? onLink, onAllocate, onDelete;
+  final VoidCallback? onLink, onAllocate, onEdit, onDelete;
 
   String _payment(BuildContext context, VehiclePayment? payment) {
     final s = VehiclesStrings.of(context);
@@ -984,13 +1206,14 @@ class _RecordRow extends StatelessWidget {
       bool payable
     ) = switch (record) {
       VehicleFuel f => (
-          s.t('litresValue', {'litres': f.litres}),
+          s.t('litresValue', {'litres': quantity(context, f.litres)}),
           [
             recordsDate(context, f.filledAt),
             s.label('fuel', f.fuelType),
             if (f.total != null)
               formatMoneyText(f.total!, f.currency, locale: locale),
-            if (f.odometerKm != null) s.t('km', {'km': f.odometerKm!}),
+            if (f.odometerKm != null)
+              s.t('km', {'km': quantity(context, f.odometerKm!)}),
             if (f.station != null) f.station!,
           ].join(' · '),
           _payment(context, f.payment),
@@ -1000,12 +1223,14 @@ class _RecordRow extends StatelessWidget {
       VehicleTrip t => (
           t.distanceKm == null
               ? s.label('purpose', t.purpose)
-              : s.t('distance', {'km': t.distanceKm!}),
+              : s.t('distance', {'km': quantity(context, t.distanceKm!)}),
           [
             recordsDateTime(context, t.startedAt),
             s.label('purpose', t.purpose),
             if (t.startOdometerKm != null || t.endOdometerKm != null)
-              '${t.startOdometerKm ?? '-'} → ${t.endOdometerKm ?? '-'}',
+              '${t.startOdometerKm == null ? '-' : quantity(context, t.startOdometerKm!)}'
+                  ' → '
+                  '${t.endOdometerKm == null ? '-' : quantity(context, t.endOdometerKm!)}',
           ].join(' · '),
           t.status == 'open' ? s.t('tripOpen') : null,
           null,
@@ -1018,7 +1243,8 @@ class _RecordRow extends StatelessWidget {
             if (v.workshop != null) v.workshop!,
             if (v.receiptTotal != null)
               formatMoneyText(v.receiptTotal!, v.currency, locale: locale),
-            if (v.odometerKm != null) s.t('km', {'km': v.odometerKm!}),
+            if (v.odometerKm != null)
+              s.t('km', {'km': quantity(context, v.odometerKm!)}),
             if (v.nextDueOn != null)
               '${s.t('nextDueOn')} ${recordsDate(context, v.nextDueOn)}',
           ].join(' · '),
@@ -1038,7 +1264,9 @@ class _RecordRow extends StatelessWidget {
       title: title,
       subtitle: subtitle,
       detail: detail,
-      trailing: (onLink == null || !payable || pay != null) && onDelete == null
+      trailing: (onLink == null || !payable || pay != null) &&
+              onEdit == null &&
+              onDelete == null
           ? null
           : PopupMenuButton<String>(
               key: Key('record-menu-${record.id}'),
@@ -1046,9 +1274,15 @@ class _RecordRow extends StatelessWidget {
               onSelected: (value) => switch (value) {
                 'link' => onLink?.call(),
                 'allocate' => onAllocate?.call(),
+                'edit' => onEdit?.call(),
                 _ => onDelete?.call(),
               },
               itemBuilder: (_) => [
+                if (onEdit != null)
+                  PopupMenuItem(
+                      key: const Key('menu-edit'),
+                      value: 'edit',
+                      child: Text(s.t('editRecord'))),
                 if (onLink != null && payable && pay == null)
                   PopupMenuItem(
                       key: const Key('menu-link'),
