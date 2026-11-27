@@ -22,7 +22,7 @@ The web page (`CallsView.tsx`, on the shared page shell, [communication pages](w
 
 ## Free calling and the call log
 
-**Contacts** belong to the workspace: name, phone number, company, language (English or Arabic), favourite, and where the contact came from (`manual`, or `device` for one picked from the phone's address book). Search runs over name, company and number; lists are paged (25 a page, at most 100). Numbers are stored as typed and also normalised (digits and one leading `+`, Arabic and Persian digits converted) so the same number is found however it was written.
+**Contacts** belong to the workspace: name, phone number, company, language (English or Arabic), favourite, and where the contact came from (`manual`, or `device` for one picked from the phone's address book). Search runs over name, company and number; lists are paged (25 a page, at most 100). Numbers are stored as typed and also normalised (digits and one leading `+`, Arabic and Persian digits converted) so the same number is found however it was written ([Numbers](#numbers)).
 
 **The dialpad** (web and phone) takes 0 to 9, `*` and `#`; `+` only as the first character; a long press on 0 types `+`; pasting a number keeps only what can be dialled (`+971 (50) 123-4567` becomes `+971501234567`); delete removes the last character and a long press on delete clears the number. When the number belongs to a contact, the contact's name is shown. **Call** opens a `tel:` link: on a phone it opens the phone's own dialer; on a computer it opens whatever handles phone links (a softphone, a paired phone). The call itself is free and goes through the phone's carrier, not through ANUM.
 
@@ -33,6 +33,10 @@ The web page (`CallsView.tsx`, on the shared page shell, [communication pages](w
 **AI summary and follow-up.** **Summarize** sends the call's notes (or transcript) to the workspace's model through the [budgeted model gateway](model-gateway.md): the text is labelled untrusted data with provenance (`call_notes`, `call_transcript`), capped at `ANUM_CALLS_SUMMARY_MAX_CHARS`, and the answer is a short summary plus a suggested follow-up with an optional due date. Nothing acts on its own: the person edits the follow-up, saves it, and may turn it into a [task](tasks.md) with **Create task**. Without a configured model the button says so and the rest of the page works.
 
 **Picking a contact from the phone.** On Android and iOS, **Pick from phone** opens the system contact picker (Android `ACTION_PICK` on phone numbers, iOS `CNContactPickerViewController`). ANUM never asks for permission to read the address book and never reads it: the system hands over the one contact the person picked, and only its name and the chosen number are put into the contact form, which the person then saves (or cancels).
+
+### Numbers
+
+A number is matched on its international form (`+` and digits; `00` reads as `+`). A local Gulf mobile number typed without its country code (`05x xxx xxxx`) takes the workspace's country from its Books settings: `+9715...` in a workspace whose country is the UAE, `+9665...` when the country is Saudi Arabia or not set. The same reading is used for contacts (added or changed), logged calls, opt-outs, calls through ANUM and inbound callers, so a caller on `+971501234567` is matched to the contact saved as `050 123 4567` in a UAE workspace. The country is read before the calls store opens. An AI call opt-out is also looked up under the other Gulf code with the same nine digits (`suppression.opt_out_readings`): before November 2026 a typed `05...` number was always stored as UAE, so an opt-out is never missed for its country code. Provider numbers (the caller ID) are entered in international form. Covered by `tests/test_calls_phone_country.py`.
 
 ## Permissions
 

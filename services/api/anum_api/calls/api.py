@@ -23,6 +23,7 @@ from ..authorization import Permission
 from ..dependencies import has_permission, tenant_context
 from ..model_budget import ModelBudgetExceededError
 from ..schemas import TenantContext, new_id, utc_now
+from ..suppression import workspace_phone_country
 from . import ai, service
 from .config import call_settings
 from .phone import PhoneNumberError, dialable, masked, normalized
@@ -504,9 +505,11 @@ def list_contacts(
 def create_contact(payload: ContactCreate, context: TenantContext = Depends(tenant_context)) -> ContactView:
     require(context, Permission.CALL_LOG)
     now = utc_now()
+    # Read before any store opens (a store never opens inside another one).
+    country = workspace_phone_country(context)
     contact = CallContact(
         id=new_id("contact"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, created_by=context.user_id,
-        name=payload.name, phone=payload.phone, phone_normalized=normalized(payload.phone), company=_text(payload.company),
+        name=payload.name, phone=payload.phone, phone_normalized=normalized(payload.phone, country), company=_text(payload.company),
         email=payload.email, notes=_text(payload.notes), favourite=payload.favourite, source=payload.source,
         language=payload.language, created_at=now, updated_at=now,
     )
@@ -531,6 +534,7 @@ def update_contact(contact_id: str, payload: ContactUpdate, context: TenantConte
     for the old number)."""
     require(context, Permission.CALL_LOG)
     changes = payload.model_dump(exclude_unset=True)
+    country = workspace_phone_country(context) if changes.get("phone") else None
     with open_calls_store(context) as store:
         contact = _contact_or_404(store, contact_id)
         if set(changes) - {"favourite"}:
@@ -547,7 +551,7 @@ def update_contact(contact_id: str, payload: ContactUpdate, context: TenantConte
         consent_dropped = False
         if changes.get("phone"):
             update["phone"] = changes["phone"]
-            update["phone_normalized"] = normalized(changes["phone"])
+            update["phone_normalized"] = normalized(changes["phone"], country)
             if update["phone_normalized"] != contact.phone_normalized and contact.ai_consent is not None:
                 update["ai_consent"] = None
                 consent_dropped = True
@@ -668,6 +672,7 @@ def log_call(payload: CallCreate, context: TenantContext = Depends(tenant_contex
     """Log a call made on the phone's own dialer (``kind: phone``) or an in-app call (``kind: in_app``)."""
     require(context, Permission.CALL_LOG)
     now = utc_now()
+    country = workspace_phone_country(context)
     with open_calls_store(context) as store:
         contact = _contact_or_404(store, payload.contact_id) if payload.contact_id else None
         phone = payload.phone or (contact.phone if contact else None)
@@ -681,7 +686,7 @@ def log_call(payload: CallCreate, context: TenantContext = Depends(tenant_contex
         entry = CallEntry(
             id=new_id("call"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, user_id=context.user_id,
             contact_id=contact.id if contact else None, contact_name=contact.name if contact else None,
-            phone=phone, phone_normalized=normalized(phone) if phone else None, peer_user_id=payload.peer_user_id,
+            phone=phone, phone_normalized=normalized(phone, country) if phone else None, peer_user_id=payload.peer_user_id,
             direction=payload.direction, kind=CallKind(payload.kind), status=CallStatus.LOGGED, outcome=payload.outcome,
             started_at=started, duration_seconds=payload.duration_seconds, notes=_text(payload.notes), created_at=now, updated_at=now,
         )
@@ -859,7 +864,7 @@ def add_opt_out(payload: OptOutCreate, context: TenantContext = Depends(tenant_c
     """Record that a number asked not to be called by the AI. It also withdraws the consent of
     every contact with that number."""
     require(context, Permission.CALL_LOG)
-    number = normalized(payload.phone)
+    number = normalized(payload.phone, workspace_phone_country(context))
     with open_calls_store(context) as store:
         entry = service.record_opt_out(store, context, number, OptOutSource.OWNER, _text(payload.note), context.user_id)
         withdrawn = 0
@@ -999,6 +1004,7 @@ def prepare_browser_call(payload: BrowserCallCreate, context: TenantContext = De
     if payload.record and not payload.recording_consent:
         raise HTTPException(status_code=422, detail="Recording needs your confirmation that the other side will hear the recording notice and that recording this call is lawful.")
     now = utc_now()
+    country = workspace_phone_country(context)
     with open_calls_store(context) as store:
         account = store.get_provider()
         problem = service.browser_problem(account)
@@ -1012,7 +1018,7 @@ def prepare_browser_call(payload: BrowserCallCreate, context: TenantContext = De
         raw = payload.phone or (contact.phone if contact else None)
         from .phone import international
 
-        number = international(raw or "")
+        number = international(raw or "", country)
         if number is None:
             raise HTTPException(status_code=422, detail="Provider calls need a full international number, for example +971501234567.")
         from ..contacts.models import Channel as ContactChannel

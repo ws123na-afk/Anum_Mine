@@ -431,7 +431,7 @@ def _iso(value: Any) -> datetime | None:
 
 def channel_summaries(context: TenantContext, person: Person, identifiers: list[Identifier], dnc: list[DoNotContact], rows: Iterable[SourcePerson]) -> list[ChannelSummary]:
     """What every module says about contacting this person, per channel (docs/contacts.md#consent-per-channel)."""
-    from ..calls.phone import opt_out_hash
+    from ..calls.service import opted_out
     from ..calls.store import open_calls_store
     from ..contact_consent import ConsentChannel, open_consent_store
     from ..suppression import SuppressionChannel, SuppressionPurpose, open_suppression_store, recipient_hash
@@ -449,7 +449,7 @@ def channel_summaries(context: TenantContext, person: Person, identifiers: list[
     if phones:
         with open_calls_store(context) as calls:
             for value in phones:
-                found = calls.find_opt_out(opt_out_hash(context.tenant_id, context.workspace_id, value))
+                found = opted_out(calls, context, value)
                 if found is not None:
                     opt_outs[value] = found
     blocked = blocked_channels(dnc)
