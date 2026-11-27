@@ -201,14 +201,16 @@ def attach_source(store: ContactsStore, context: TenantContext, row: SourcePerso
     return link, created, proposals
 
 
-def build_directory(store: ContactsStore, context: TenantContext, *, limit: int = DEFAULT_BUILD_LIMIT, actor: str | None = None) -> BuildReport:
+def build_directory(store: ContactsStore, context: TenantContext, *, limit: int = DEFAULT_BUILD_LIMIT, actor: str | None = None,
+                    country: str | None = None) -> BuildReport:
     """Link every source record not yet in the directory, at most ``limit`` per source.
 
     Idempotent: a record already linked is skipped (one link per source record), so running it
     again changes nothing until a source gains records."""
     now = utc_now()
     who = actor or context.user_id
-    country = workspace_phone_country(context)
+    # Read before the caller opens its store (workspace_phone_country opens the books store).
+    country = country or workspace_phone_country(context)
     scanned = linked = people = proposals = 0
     complete = True
     for kind in LinkKind:
@@ -228,8 +230,8 @@ def build_directory(store: ContactsStore, context: TenantContext, *, limit: int 
 # -- people --------------------------------------------------------------------------------
 
 
-def create_person(store: ContactsStore, context: TenantContext, payload: PersonInput) -> tuple[Person, int]:
-    identifiers = identifiers_from(payload.phones, payload.emails, strict=True, country=workspace_phone_country(context))
+def create_person(store: ContactsStore, context: TenantContext, payload: PersonInput, *, country: str | None = None) -> tuple[Person, int]:
+    identifiers = identifiers_from(payload.phones, payload.emails, strict=True, country=country or workspace_phone_country(context))
     now = utc_now()
     person = store.add_person(Person(
         id=new_id("contact"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, name=payload.name, organisation=payload.organisation,
@@ -239,7 +241,7 @@ def create_person(store: ContactsStore, context: TenantContext, payload: PersonI
     return person, proposals
 
 
-def update_person(store: ContactsStore, context: TenantContext, person: Person, payload: PersonPatch) -> tuple[Person, int]:
+def update_person(store: ContactsStore, context: TenantContext, person: Person, payload: PersonPatch, *, country: str | None = None) -> tuple[Person, int]:
     now = utc_now()
     # Every value is checked before anything is written, so a 422 changes nothing.
     identifiers: list[tuple[IdentifierKind, str, str]] | None = None
@@ -247,7 +249,7 @@ def update_person(store: ContactsStore, context: TenantContext, person: Person, 
         current = store.identifiers_of([person.id]).get(person.id, [])
         phones = payload.phones if payload.phones is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.PHONE]
         emails = payload.emails if payload.emails is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.EMAIL]
-        identifiers = identifiers_from(phones, emails, strict=True, country=workspace_phone_country(context))
+        identifiers = identifiers_from(phones, emails, strict=True, country=country or workspace_phone_country(context))
     changes: dict[str, Any] = {"updated_at": now}
     for field in ("name", "organisation", "notes"):
         value = getattr(payload, field)

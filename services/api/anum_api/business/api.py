@@ -456,11 +456,13 @@ def _account(context: TenantContext, payload: AccountInput, now: datetime) -> Ac
     )
 
 
-def _contact(context: TenantContext, account_id: str, payload: ContactInput, now: datetime, source: RecordSource = RecordSource.MANUAL) -> Contact:
+def _contact(context: TenantContext, account_id: str, payload: ContactInput, now: datetime, source: RecordSource = RecordSource.MANUAL, *,
+             country: str) -> Contact:
+    # ``country`` (workspace_phone_country) is read before the caller opens its store: it opens the books store.
     email = normal_email(payload.email) if payload.email else None
     if payload.email and email is None:
         raise http_error(422, "Enter a valid e-mail address, or leave it empty.")
-    phone = normal_phone(payload.phone, suppression.workspace_phone_country(context)) if payload.phone else None
+    phone = normal_phone(payload.phone, country) if payload.phone else None
     if payload.phone and phone is None:
         raise http_error(422, "Enter the phone number with its country code, or leave it empty.")
     profile = clean_url(payload.profile_url) if payload.profile_url else None
@@ -663,9 +665,10 @@ def account_do_not_contact(account_id: str, payload: DoNotContact, context: Tena
 @router.post("/accounts/{account_id}/contacts", response_model=AccountDetail, status_code=status.HTTP_201_CREATED)
 def add_contact(account_id: str, payload: ContactInput, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> AccountDetail:
     write(context)
+    country = suppression.workspace_phone_country(context)
     with open_business_store(context) as store:
         account = get_or_404(store, "accounts", account_id, "Account", for_update=True)
-        contact = _contact(context, account_id, payload, utc_now())
+        contact = _contact(context, account_id, payload, utc_now(), country=country)
         if contact.email and store.first("contacts", email=contact.email):
             raise http_error(409, "A contact with this e-mail address already exists.")
         store.add("contacts", contact)
@@ -681,10 +684,11 @@ def update_contact(contact_id: str, payload: ContactUpdate, context: TenantConte
     write(context)
     changes = payload.model_dump(exclude_unset=True)
     now = utc_now()
+    country = suppression.workspace_phone_country(context)
     with open_business_store(context) as store:
         contact = get_or_404(store, "contacts", contact_id, "Contact", for_update=True)
         merged = ContactInput(**{**contact.model_dump(include=set(ContactInput.model_fields)), **{k: v for k, v in changes.items() if v is not None or k in {"email", "phone", "profile_url"}}})
-        fresh = _contact(context, contact.account_id, merged, now)
+        fresh = _contact(context, contact.account_id, merged, now, country=country)
         if fresh.email and fresh.email != contact.email:
             other = store.first("contacts", email=fresh.email)
             if other is not None and other.id != contact_id:
@@ -889,7 +893,7 @@ def list_leads(
     return Page[LeadView](items=views, total=total, limit=limit, offset=offset)
 
 
-def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCreate, now: datetime) -> tuple[Lead, Account]:
+def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCreate, now: datetime, *, country: str) -> tuple[Lead, Account]:
     if payload.account_id:
         account = get_or_404(store, "accounts", payload.account_id, "Account", for_update=True)
     else:
@@ -914,7 +918,7 @@ def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCr
             raise http_error(422, "That contact belongs to another account.")
         contact_id = contact.id
     elif payload.contact is not None:
-        contact = _contact(context, account.id, payload.contact, now, payload.source)
+        contact = _contact(context, account.id, payload.contact, now, payload.source, country=country)
         if contact.email and store.first("contacts", email=contact.email):
             raise http_error(409, "A contact with this e-mail address already exists. Choose that contact instead.")
         store.add("contacts", contact)
@@ -932,8 +936,9 @@ def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCr
 @router.post("/leads", response_model=LeadDetail, status_code=status.HTTP_201_CREATED)
 def create_lead(payload: LeadCreate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> LeadDetail:
     write(context)
+    country = suppression.workspace_phone_country(context)
     with open_business_store(context) as store:
-        lead, _ = create_lead_in(store, context, payload, utc_now())
+        lead, _ = create_lead_in(store, context, payload, utc_now(), country=country)
         detail = lead_detail(context, store, lead)
     audit(repository, context, "business.lead.created", lead.id, metadata={"source": lead.source.value})
     return detail
@@ -1474,7 +1479,7 @@ def import_leads(payload: ImportRequest, context: TenantContext = Depends(tenant
                 contact=contact_input, product_id=payload.product_id, source=RecordSource.CSV_IMPORT,
             )
             try:
-                lead, _ = create_lead_in(store, context, create, now)
+                lead, _ = create_lead_in(store, context, create, now, country=country)
             except Exception as exc:  # an HTTP refusal for this row only
                 detail = getattr(exc, "detail", None)
                 if detail is None:
