@@ -335,17 +335,21 @@ class ValkeyTokenBucket:
             logger.warning("Could not reset Valkey rate-limit buckets", exc_info=True)
 
 
-def build_rate_limit_backend(config: Any) -> Any:
-    rate = config.rate_limit_requests_per_minute / 60.0
+def build_rate_limit_backend(config: Any, *, scale: int = 1, name: str | None = None) -> Any:
+    """The configured limit, or ``scale`` times it (the per-address ceiling for signed-in traffic)."""
+    rate = config.rate_limit_requests_per_minute * scale / 60.0
+    burst = config.rate_limit_burst * scale
     if config.rate_limit_backend == "valkey":
+        prefix = f"{KEY_PREFIX}:ratelimit" + (f":{name}" if name else "")
         return ValkeyTokenBucket(
             create_sync_client(config.valkey_url, timeout_seconds=config.valkey_timeout_seconds),
             rate_per_second=rate,
-            burst=config.rate_limit_burst,
+            burst=burst,
+            key_prefix=prefix,
         )
     if config.rate_limit_backend != "memory":
         raise RuntimeError(f"Unsupported rate limit backend: {config.rate_limit_backend}")
-    return InMemoryTokenBucket(rate_per_second=rate, burst=config.rate_limit_burst)
+    return InMemoryTokenBucket(rate_per_second=rate, burst=burst)
 
 
 __all__ = [
