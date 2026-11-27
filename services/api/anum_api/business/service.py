@@ -114,10 +114,11 @@ def normal_email(value: str | None) -> str | None:
     return found[1] if found else None
 
 
-def normal_phone(value: str | None) -> str | None:
+def normal_phone(value: str | None, country: str | None = None) -> str | None:
+    """``+`` and digits; a local ``05...`` number takes ``country``'s code (``suppression.normalize``)."""
     if not value or "@" in value:
         return None
-    found = suppression.normalize(value)
+    found = suppression.normalize(value, country)
     return found[1] if found else None
 
 
@@ -187,7 +188,7 @@ def contact_suppressed(context: TenantContext, contact: Contact | None) -> list[
     found = [(kind, value) for kind, value in (suppression.normalize(value) or ("", "") for value in values) if kind]
     if not found:
         return []
-    hashes = {suppression.recipient_hash(context.tenant_id, value): (kind, value) for kind, value in found}
+    hashes = suppression.check_hashes(context.tenant_id, found)
     with suppression.open_suppression_store(context) as store:
         entries = store.find(context, list(hashes))
     return [entry.masked for entry in entries]

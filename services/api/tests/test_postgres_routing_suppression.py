@@ -22,6 +22,7 @@ from anum_api.main import app
 from anum_api.schemas import TenantContext
 from anum_api.settings import settings
 from anum_api.suppression import SuppressionChannel, apply_inbound_keyword, suppressed_for_call
+from anum_api import suppression as suppression_module
 
 pytestmark = pytest.mark.database
 
@@ -30,6 +31,13 @@ URL = "/api/v1/contact-suppressions"
 
 def headers(tenant_id: str = TENANT_A, workspace_id: str = WORKSPACE_A, roles: str = "owner,org_admin", user: str = "user_test") -> dict[str, str]:
     return {"x-tenant-id": tenant_id, "x-workspace-id": workspace_id, "x-user-id": user, "x-user-roles": roles}
+
+
+@pytest.fixture(autouse=True)
+def _uae_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These scenarios are a UAE workspace: a typed 05... number is a UAE mobile. The Saudi default and
+    # the workspace country from Books settings are covered in test_phone_country.py.
+    monkeypatch.setattr(suppression_module, "DEFAULT_PHONE_COUNTRY", "AE")
 
 
 @pytest.fixture

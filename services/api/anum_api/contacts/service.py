@@ -20,6 +20,7 @@ from fastapi import HTTPException, status
 from ..audit import AuditRecord
 from ..schemas import TenantContext, new_id, utc_now
 from ..suppression import normalize as normalize_recipient
+from ..suppression import opt_out_readings, workspace_phone_country
 from .models import (
     CONTACT_CHANNELS,
     SOURCE_OF_KIND,
@@ -60,9 +61,10 @@ def http_error(code: int, detail: str) -> HTTPException:
 # -- identifiers ---------------------------------------------------------------------------
 
 
-def normalise_phone(raw: str) -> str | None:
-    """``+`` and digits (E.164 form), or None when it is not a phone number."""
-    found = normalize_recipient(raw)
+def normalise_phone(raw: str, country: str | None = None) -> str | None:
+    """``+`` and digits (E.164 form), or None when it is not a phone number. A local ``05...`` number
+    takes ``country``'s code, Saudi when none is given (``suppression.normalize``)."""
+    found = normalize_recipient(raw, country)
     return found[1] if found is not None and found[0] == "phone" else None
 
 
@@ -71,11 +73,11 @@ def normalise_email(raw: str) -> str | None:
     return found[1] if found is not None and found[0] == "email" else None
 
 
-def normalise_value(kind: IdentifierKind, raw: str) -> str | None:
-    return normalise_phone(raw) if kind == IdentifierKind.PHONE else normalise_email(raw)
+def normalise_value(kind: IdentifierKind, raw: str, country: str | None = None) -> str | None:
+    return normalise_phone(raw, country) if kind == IdentifierKind.PHONE else normalise_email(raw)
 
 
-def identifiers_from(phones: Iterable[str], emails: Iterable[str], *, strict: bool) -> list[tuple[IdentifierKind, str, str]]:
+def identifiers_from(phones: Iterable[str], emails: Iterable[str], *, strict: bool, country: str | None = None) -> list[tuple[IdentifierKind, str, str]]:
     """(kind, normalised value, label as typed), unique by kind and value.
 
     ``strict`` raises 422 on a value that is not a phone number or an address (a person typed
@@ -87,7 +89,7 @@ def identifiers_from(phones: Iterable[str], emails: Iterable[str], *, strict: bo
             label = " ".join(str(raw).split())
             if not label:
                 continue
-            value = normalise_value(kind, label)
+            value = normalise_value(kind, label, country)
             if value is None:
                 if strict:
                     what = "phone number with its country code (+971...)" if kind == IdentifierKind.PHONE else "e-mail address"
@@ -160,11 +162,13 @@ def _add_identifiers(store: ContactsStore, context: TenantContext, person: Perso
     return proposals
 
 
-def attach_source(store: ContactsStore, context: TenantContext, row: SourcePerson, now: datetime, actor: str) -> tuple[Link, bool, int]:
+def attach_source(store: ContactsStore, context: TenantContext, row: SourcePerson, now: datetime, actor: str,
+                  country: str | None = None) -> tuple[Link, bool, int]:
     """Link one source record to the person it belongs to, creating the person when needed.
 
-    Returns the link, whether a person was created and how many merge proposals were opened."""
-    identifiers = identifiers_from(row.phones, row.emails, strict=False)
+    Returns the link, whether a person was created and how many merge proposals were opened. A local
+    ``05...`` number reads with ``country`` (the workspace's, see ``workspace_phone_country``)."""
+    identifiers = identifiers_from(row.phones, row.emails, strict=False, country=country)
     candidates = _candidates(store, identifiers)
     # The person whose name agrees (or who has no name to disagree), the most shared identifiers first.
     person: Person | None = None
@@ -204,6 +208,7 @@ def build_directory(store: ContactsStore, context: TenantContext, *, limit: int 
     again changes nothing until a source gains records."""
     now = utc_now()
     who = actor or context.user_id
+    country = workspace_phone_country(context)
     scanned = linked = people = proposals = 0
     complete = True
     for kind in LinkKind:
@@ -213,7 +218,7 @@ def build_directory(store: ContactsStore, context: TenantContext, *, limit: int 
             scanned += 1
             if store.link_for_source(kind, row.source_id) is not None:
                 continue
-            _link, created, opened = attach_source(store, context, row, now, who)
+            _link, created, opened = attach_source(store, context, row, now, who, country)
             linked += 1
             people += int(created)
             proposals += opened
@@ -224,7 +229,7 @@ def build_directory(store: ContactsStore, context: TenantContext, *, limit: int 
 
 
 def create_person(store: ContactsStore, context: TenantContext, payload: PersonInput) -> tuple[Person, int]:
-    identifiers = identifiers_from(payload.phones, payload.emails, strict=True)
+    identifiers = identifiers_from(payload.phones, payload.emails, strict=True, country=workspace_phone_country(context))
     now = utc_now()
     person = store.add_person(Person(
         id=new_id("contact"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, name=payload.name, organisation=payload.organisation,
@@ -242,7 +247,7 @@ def update_person(store: ContactsStore, context: TenantContext, person: Person, 
         current = store.identifiers_of([person.id]).get(person.id, [])
         phones = payload.phones if payload.phones is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.PHONE]
         emails = payload.emails if payload.emails is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.EMAIL]
-        identifiers = identifiers_from(phones, emails, strict=True)
+        identifiers = identifiers_from(phones, emails, strict=True, country=workspace_phone_country(context))
     changes: dict[str, Any] = {"updated_at": now}
     for field in ("name", "organisation", "notes"):
         value = getattr(payload, field)
@@ -319,8 +324,11 @@ def do_not_contact_block(context: TenantContext, channel: Channel, value: str) -
     normalised = normalise_value(kind, value)
     if normalised is None:
         return None
+    # A phone number is looked up under both Gulf readings of a mobile number, as opt-outs are
+    # (``suppression.opt_out_readings``): a do-not-contact mark is never missed for the country code.
+    readings = opt_out_readings(normalised) if kind == IdentifierKind.PHONE else [normalised]
     with open_contacts_store(context) as store:
-        hits = store.find_by_identifier(kind, normalised)
+        hits = [hit for reading in readings for hit in store.find_by_identifier(kind, reading)]
         if not hits:
             return None
         ids = sorted({h.contact_id for h in hits})
@@ -429,8 +437,10 @@ def channel_summaries(context: TenantContext, person: Person, identifiers: list[
     phones = [i.value for i in identifiers if i.kind == IdentifierKind.PHONE]
     emails = [i.value for i in identifiers if i.kind == IdentifierKind.EMAIL]
     hashes = {recipient_hash(context.tenant_id, value): value for value in phones + emails}
+    # Opt-outs are looked up under both Gulf readings of a mobile number (suppression.opt_out_readings).
+    readings = {recipient_hash(context.tenant_id, reading): value for value in phones for reading in opt_out_readings(value)}
     with open_suppression_store(context) as suppressions:
-        entries = suppressions.find(context, list(hashes)) if hashes else []
+        entries = suppressions.find(context, sorted(set(hashes) | set(readings))) if hashes else []
     with open_consent_store(context) as consents:
         records = consents.find(context, list(hashes)) if hashes else []
     opt_outs: dict[str, Any] = {}
@@ -451,7 +461,7 @@ def channel_summaries(context: TenantContext, person: Person, identifiers: list[
         supp_channel = {Channel.PHONE: None, Channel.EMAIL: SuppressionChannel.EMAIL, Channel.WHATSAPP: SuppressionChannel.WHATSAPP}[channel]
         hard_block = False
         for entry in entries:
-            if hashes.get(entry.recipient_hash) not in values:
+            if (hashes.get(entry.recipient_hash) or readings.get(entry.recipient_hash)) not in values:
                 continue
             if entry.channel == SuppressionChannel.ALL or (supp_channel is not None and entry.channel == supp_channel):
                 facts.append(ConsentFact(source="suppression", state="blocked", detail=f"{entry.purpose.value}:{entry.masked}", at=entry.created_at))
