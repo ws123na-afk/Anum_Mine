@@ -315,7 +315,7 @@ test('full statement keeps completed orders, excludes refund cases from monthly 
   await expect(section.getByRole('button', { name: 'Export statement CSV' })).toBeVisible();
 });
 
-test('Gmail sync for the person's own mailbox previews and imports only pending installments', async ({ page }) => {
+test('Gmail sync for the owner\'s own mailbox previews and imports only pending installments', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-bills');
   await page.getByRole('button', { name: 'Sync Gmail' }).click();
