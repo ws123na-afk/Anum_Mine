@@ -42,6 +42,20 @@ String formatMoneyText(String value, String? currency, {Locale? locale}) {
   return code.isEmpty ? signed : '$code $signed';
 }
 
+/// A quantity the API sends as a decimal string (`"45200.0"` km,
+/// `"60.000"` L) for reading: grouped for the locale with trailing zero
+/// decimals dropped (`45,200`, `60`, `40.5`). Text that is not a plain
+/// decimal number is returned as it is.
+String formatQuantityText(String value, {Locale? locale}) {
+  final text = value.trim();
+  final match = RegExp(r'^(-?\d+)(?:\.(\d*?)0*)?$').firstMatch(text);
+  if (match == null) return value;
+  final fraction = match.group(2) ?? '';
+  return formatMoneyText(
+      fraction.isEmpty ? match.group(1)! : '${match.group(1)}.$fraction', null,
+      locale: locale);
+}
+
 /// The intl locale for numbers: Arabic always uses `ar`, which intl writes
 /// with Western digits (regional Arabic locales such as `ar_EG` would switch
 /// to Arabic-Indic digits); anything intl does not know falls back to `en`.

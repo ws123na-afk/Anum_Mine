@@ -315,7 +315,10 @@ def test_logs_carry_no_device_token_message_text_or_bank_details(caplog: pytest.
     send("anum_sms_example", f"SYNTHETIC. Purchase of SAR 45.50 at {MARK} SHOP with card **1234")
     wallet(s["token"], amount="SAR 99.00", merchant=f"{MARK} WALLET")
     imported(s["bank"]["id"], f"Date,Description,Amount\n2026-11-04,{MARK} CSV,-12.00\n")
-    texts = [f"{r.getMessage()} {r.__dict__}" for r in caplog.records]
+    # The message and every extra field; the record's own timing floats are left out, since a timestamp
+    # such as 1764265299.0012 contains "99.00" by chance.
+    standard = set(logging.LogRecord("x", logging.INFO, "f", 1, "m", None, None).__dict__)
+    texts = [f"{r.getMessage()} {({k: v for k, v in r.__dict__.items() if k not in standard})}" for r in caplog.records]
     for needle in (s["token"], MARK, "45.50", "99.00", "**1234", "anum_sms_example"):
         assert not any(needle in t for t in texts), needle
 

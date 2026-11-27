@@ -21,6 +21,7 @@ import {
   approvalProgress,
   hasApproved,
   joinNames,
+  proposedAction,
 } from '../src/lib/approvals.ts';
 
 const hash = 'a'.repeat(52) + 'b'.repeat(12);
@@ -196,5 +197,14 @@ describe('approval chains', () => {
     assert.equal(approvalProgress(done)?.label, '3 of 3 approvals');
     assert.equal(joinNames(['a', 'b']), 'a and b');
     assert.equal(joinNames([]), '');
+  });
+});
+
+describe('proposedAction', () => {
+  const base = { reason: '', arguments: {} } as Pick<Approval, 'reason' | 'arguments'>;
+  test('reads what the run proposed, so calls of one tool can be told apart', () => {
+    assert.equal(proposedAction({ ...base, reason: 'External or high-impact actions require explicit approval. Proposed action: Issue an invoice of SAR 115.11' }), 'Issue an invoice of SAR 115.11');
+    assert.equal(proposedAction({ ...base, arguments: { action: ' Publish the update ' } }), 'Publish the update');
+    assert.equal(proposedAction({ ...base, reason: 'Needs approval.', arguments: { action: 7 } }), null);
   });
 });

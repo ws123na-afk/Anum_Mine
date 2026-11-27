@@ -29,20 +29,24 @@ def dialable(value: str) -> str:
     return text
 
 
-def normalized(value: str) -> str:
+def normalized(value: str, country: str | None = None) -> str:
     """The form numbers are matched on: international ``+<digits>`` when it can be told,
-    else the digits as dialled (a short code or an extension)."""
+    else the digits as dialled (a short code or an extension).
+
+    A local mobile number (``05x xxx xxxx``) takes the dialling code of ``country``, the
+    workspace's country (``suppression.workspace_phone_country``), Saudi Arabia when None.
+    """
     text = dialable(value)
-    found = normalize_recipient(text) if "*" not in text and "#" not in text else None
+    found = normalize_recipient(text, country) if "*" not in text and "#" not in text else None
     if found is not None and found[0] == "phone":
         return found[1]
     return text
 
 
-def international(value: str) -> str | None:
+def international(value: str, country: str | None = None) -> str | None:
     """``+<8 to 15 digits>`` for a number a voice provider can call, else None."""
     try:
-        text = normalized(value)
+        text = normalized(value, country)
     except PhoneNumberError:
         return None
     return text if re.fullmatch(r"\+[0-9]{8,15}", text) else None

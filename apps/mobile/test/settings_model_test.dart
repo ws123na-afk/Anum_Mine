@@ -132,7 +132,10 @@ void main() {
     expect(controller.model?.provider, 'ollama');
     final put = transport.requests.firstWhere((r) => r.method == 'PUT');
     expect(put.body!.containsKey('api_key'), isFalse);
-    expect(transport.requests.last.uri.path, endsWith('/model-config/test'));
+    final paths = transport.requests.map((r) => r.uri.path).toList();
+    expect(paths.where((p) => p.endsWith('/model-config/test')), isNotEmpty);
+    // The placeholder banner's status is read again once the model is saved.
+    expect(paths.last, '/api/v1/model-status');
   });
 
   test('an unreachable model keeps Settings usable and explains why', () async {

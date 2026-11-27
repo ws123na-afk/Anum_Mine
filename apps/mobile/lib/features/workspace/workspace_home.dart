@@ -54,6 +54,7 @@ import '../../src/theme/theme_controller.dart';
 import '../../src/widgets/brand.dart';
 import '../../src/widgets/depth.dart';
 import '../../src/widgets/greeting_header.dart';
+import '../settings/model_banner.dart';
 import '../../src/widgets/navigation.dart';
 import '../automations/automation_repository.dart';
 import '../automations/automations_controller.dart';
@@ -343,6 +344,14 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
       );
   void _openSettings() =>
       _push(SettingsScreen(controller: widget.settingsController));
+
+  /// The destinations whose answers come from the model: they carry the
+  /// placeholder banner while that model is the built-in placeholder.
+  static const _answersHere = {
+    WorkspaceDestination.assistant,
+    WorkspaceDestination.home,
+    WorkspaceDestination.voice,
+  };
   void _openReport(String id) =>
       _push(ReportDetailScreen(repository: widget.library!, id: id));
   void _openFavorites() => _push(
@@ -667,6 +676,12 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
           _StateBanner(
             icon: Icons.error_outline,
             text: widget.controller.message!,
+          ),
+        // Where AI answers appear (docs/model-gateway.md#placeholder-answers).
+        if (_answersHere.contains(index))
+          SettingsModelBanner(
+            settings: widget.settingsController,
+            onSetUp: _openSettings,
           ),
         Expanded(
           child: widget.controller.phase == LoadPhase.loading &&

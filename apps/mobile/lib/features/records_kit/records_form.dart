@@ -13,7 +13,8 @@ class RecordsInput {
       this.initial,
       this.options = const {},
       this.help,
-      this.maxLength});
+      this.maxLength,
+      this.positive = false});
 
   const RecordsInput.text(String name, String label,
       {bool required = false, String? initial, String? help, int? maxLength})
@@ -31,11 +32,18 @@ class RecordsInput {
             maxLength: maxLength);
 
   /// A decimal: Arabic-Indic digits and a comma are accepted and sent as
-  /// a plain decimal string.
+  /// a plain decimal string. [positive]: zero is refused too (litres, a
+  /// total), with a message that says so.
   const RecordsInput.number(String name, String label,
-      {bool required = false, String? initial, String? help})
+      {bool required = false,
+      String? initial,
+      String? help,
+      bool positive = false})
       : this._(RecordsInputKind.number, name, label,
-            required: required, initial: initial, help: help);
+            required: required,
+            initial: initial,
+            help: help,
+            positive: positive);
   const RecordsInput.date(String name, String label,
       {bool required = false, String? initial, String? help})
       : this._(RecordsInputKind.date, name, label,
@@ -64,6 +72,7 @@ class RecordsInput {
   final String? initial, help;
   final Map<String, String> options;
   final int? maxLength;
+  final bool positive;
 }
 
 /// The form's values: text, number, date, time and choice fields as
@@ -246,7 +255,14 @@ class _RecordsFormState extends State<RecordsForm> {
           validator: (value) {
             final text = value?.trim() ?? '';
             if (text.isEmpty) return field.required ? k.t('required') : null;
-            return decimalText(text) == null ? k.t('invalidNumber') : null;
+            final number = decimalText(text.replaceFirst(RegExp('^[-−]'), ''));
+            if (number != null && RegExp('^[-−]').hasMatch(text)) {
+              return k.t(field.positive ? 'aboveZero' : 'notNegative');
+            }
+            if (number == null) return k.t('invalidNumber');
+            return field.positive && double.parse(number) == 0
+                ? k.t('aboveZero')
+                : null;
           },
         );
       case RecordsInputKind.text:

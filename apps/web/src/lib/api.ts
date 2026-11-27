@@ -8,6 +8,7 @@ import type { ApiBulkResult, ApiFile, ApiFileLink, ApiFilePreview, ApiFileUsage,
 import { filesListPath, versionsPath } from './files';
 import { saveBlob } from './fileSave';
 import type { ApiCurrentMembership } from './policy';
+import { retryTransient } from './retry';
 import type { SkillVerification } from './skillSigning';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
@@ -683,8 +684,22 @@ export async function authHeaders(): Promise<Record<string, string>> {
 }
 
 /** The caller's membership in the current workspace, for showing their role (read-only). */
-export async function getCurrentMembership(): Promise<ApiCurrentMembership> {
-  return request('/api/v1/workspace-memberships/current', { method: 'GET' });
+let membershipLookup: { key: string; at: number; promise: Promise<ApiCurrentMembership> } | null = null;
+
+/**
+ * The caller's membership in the current workspace. About ten parts of a page ask for it at once, so one
+ * request per scope is shared for a minute, and a passing failure (429, 502 to 504, no network) is tried
+ * again: pages used to read any failure as "not an owner" and hid an owner's controls.
+ */
+export function getCurrentMembership(): Promise<ApiCurrentMembership> {
+  const { tenantId, workspaceId } = currentScope();
+  const key = `${tenantId}/${workspaceId}/${currentUserId() ?? ''}`;
+  if (membershipLookup && membershipLookup.key === key && Date.now() - membershipLookup.at < 60_000) return membershipLookup.promise;
+  const promise = retryTransient(() => request<ApiCurrentMembership>('/api/v1/workspace-memberships/current', { method: 'GET' }));
+  const lookup = { key, at: Date.now(), promise };
+  membershipLookup = lookup;
+  promise.catch(() => { if (membershipLookup === lookup) membershipLookup = null; });
+  return promise;
 }
 
 export function mapTask(task: ApiTask): Task {

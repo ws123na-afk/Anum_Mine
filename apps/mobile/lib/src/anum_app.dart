@@ -115,6 +115,8 @@ import 'infrastructure/local_auth_authenticator.dart';
 import 'infrastructure/mobile_adapters.dart';
 import 'theme/anum_theme.dart';
 import 'theme/theme_controller.dart';
+import '../features/settings/model_banner.dart';
+import '../features/settings/settings_screen.dart';
 import 'localization/anum_localizations.dart';
 import '../features/agent_controls/agent_controls_data.dart';
 import '../features/owner_desk/owner_desk_routes.dart';
@@ -1111,7 +1113,19 @@ class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
         builder: (_) => _AuthenticatedDestination(
           auth: auth,
           child: name == AnumRoutes.command
-              ? CommandScreen(controller: command)
+              ? CommandScreen(
+                  controller: command,
+                  // A placeholder plan otherwise reads as work done.
+                  banner: Builder(
+                    builder: (context) => SettingsModelBanner(
+                      settings: this.settings,
+                      onSetUp: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  SettingsScreen(controller: this.settings))),
+                    ),
+                  ),
+                )
               : QuickCommandsScreen(controller: command),
         ),
       );

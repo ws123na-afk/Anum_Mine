@@ -14,6 +14,7 @@ from anum_api.hardening import (
     InsecureConfigurationError,
     RateLimitMiddleware,
     SecurityHeadersMiddleware,
+    credential_key,
     docs_routes,
     enforce_startup_policy,
     insecure_configuration_problems,
@@ -162,8 +163,46 @@ def test_rate_limit_returns_429_with_retry_after() -> None:
     assert client.get("/health").status_code == 200, "health checks are exempt"
 
 
+def _limited(backend: InMemoryTokenBucket, ceiling: InMemoryTokenBucket) -> TestClient:
+    limited = _echo_app()
+    limited.add_middleware(RateLimitMiddleware, backend=backend, network_backend=ceiling)
+    return TestClient(limited)
+
+
+def test_colleagues_behind_one_address_each_get_their_own_allowance() -> None:
+    # An office or carrier network shares one address; one busy person must not lock out the rest.
+    client = _limited(InMemoryTokenBucket(rate_per_second=0.01, burst=2), InMemoryTokenBucket(rate_per_second=0.01, burst=20))
+    for person in ("alice-session", "bilal-session", "carmen-session"):
+        headers = {"authorization": f"Bearer {person}"}
+        assert [client.get("/ping", headers=headers).status_code for _ in range(2)] == [200, 200]
+        assert client.get("/ping", headers=headers).status_code == 429
+    assert client.get("/ping", headers={"authorization": "Bearer dina-session"}).status_code == 200
+
+
+def test_inventing_new_tokens_is_held_by_the_address_ceiling() -> None:
+    client = _limited(InMemoryTokenBucket(rate_per_second=0.01, burst=2), InMemoryTokenBucket(rate_per_second=0.01, burst=5))
+    codes = [client.get("/ping", headers={"authorization": f"Bearer made-up-{n}"}).status_code for n in range(7)]
+    assert codes == [200] * 5 + [429, 429]
+
+
+def test_requests_without_a_credential_keep_the_per_address_limit() -> None:
+    client = _limited(InMemoryTokenBucket(rate_per_second=0.01, burst=2), InMemoryTokenBucket(rate_per_second=0.01, burst=50))
+    assert [client.get("/ping").status_code for _ in range(3)] == [200, 200, 429]
+    assert client.get("/ping", headers={"authorization": "Basic abc"}).status_code == 429, "only bearer credentials get their own bucket"
+    assert client.get("/ping", headers={"authorization": "Bearer someone"}).status_code == 200
+
+
+def test_the_credential_key_is_a_digest_never_the_token() -> None:
+    key = credential_key({"type": "http", "headers": [(b"authorization", b"Bearer sample-session-value")]})
+    assert key is not None and key.startswith("cred:") and "sample" not in key
+    assert credential_key({"type": "http", "headers": []}) is None
+    assert credential_key({"type": "http", "headers": [(b"authorization", b"Bearer ")]}) is None
+
+
 def test_api_app_has_rate_limiting_enabled_with_retry_after_exposed() -> None:
     assert isinstance(app.state.rate_limiter, InMemoryTokenBucket)
+    assert isinstance(app.state.rate_limit_ceiling, InMemoryTokenBucket)
+    assert app.state.rate_limit_ceiling.burst == app.state.rate_limiter.burst * 10
     client = TestClient(app)
     response = client.options(
         "/api/v1/tasks",

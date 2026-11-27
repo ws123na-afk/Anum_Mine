@@ -104,9 +104,8 @@ void settingsLanguageJourneys() => group('Settings language', () {
         final api = FakeAnumApi();
         seedBaseline(api);
         await launchApp(tester, api, preferences: {'anum.locale': 'ar'});
-        // The sign-in page itself is in English today (development sign-in);
-        // the signed-in app comes up right to left.
-        await signIn(tester, api);
+        // The sign-in page and the signed-in app both come up in Arabic.
+        await signIn(tester, api, arabic: true);
         await waitFor(tester, find.text('القائمة'), api: api);
         expect(Directionality.of(tester.element(find.text('القائمة'))),
             TextDirection.rtl);

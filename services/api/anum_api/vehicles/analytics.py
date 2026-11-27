@@ -2,8 +2,9 @@
 
 Rules:
 
-* **Money comes only from linked payments** (``payment.status == "active"``): the pump total on a
-  fuel entry is a detail used for price trends and checks, never counted as spend.
+* **One cost per record** (the fleet costs rule, used everywhere): a record's active linked payment or
+  business allocation when it has one (``linked``), otherwise the figure written on it, the pump or
+  receipt total (``recorded``). A record is never counted twice; the share of each basis is reported.
 * **Never across currencies.** Every money figure is per currency; nothing adds SAR to AED.
 * **Distance** is the sum of increases between consecutive odometer readings; a correction starts
   a new run (the drop to it is not distance).
@@ -21,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from statistics import median
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from .models import FuelEntry, OdometerReading, ServiceRecord, Vehicle
 
@@ -159,18 +160,32 @@ class Cost:
     day: date
     amount: Decimal
     currency: str
+    basis: Literal["linked", "recorded"] = "linked"
 
 
 def costs(fuel: Iterable[FuelEntry], service: Iterable[ServiceRecord]) -> list[Cost]:
-    """Operating costs from active linked payments only (a capital purchase is never one)."""
+    """Each record's one operating cost: its active payment or allocation, else its own figure (a capital purchase is never one)."""
     out: list[Cost] = []
     for fill in fuel:
+        day = _day(fill.filled_at)
         if fill.payment is not None and fill.payment.status == "active":
-            out.append(Cost(fill.id, fill.vehicle_id, "fuel", _day(fill.filled_at), fill.payment.amount, fill.payment.currency))
+            out.append(Cost(fill.id, fill.vehicle_id, "fuel", day, fill.payment.amount, fill.payment.currency, "linked"))
+        elif fill.total is not None:
+            out.append(Cost(fill.id, fill.vehicle_id, "fuel", day, fill.total, fill.currency, "recorded"))
     for record in service:
         if record.payment is not None and record.payment.status == "active":
-            out.append(Cost(record.id, record.vehicle_id, record.kind, record.service_on, record.payment.amount, record.payment.currency))
+            out.append(Cost(record.id, record.vehicle_id, record.kind, record.service_on, record.payment.amount, record.payment.currency, "linked"))
+        elif record.receipt_total is not None:
+            out.append(Cost(record.id, record.vehicle_id, record.kind, record.service_on, record.receipt_total, record.currency, "recorded"))
     return out
+
+
+def basis_split(items: Iterable[Cost]) -> list[dict[str, str]]:
+    """``[{currency, linked, recorded}]``: how much of each currency's total came from each basis."""
+    totals: dict[str, dict[str, Decimal]] = defaultdict(lambda: {"linked": Decimal(0), "recorded": Decimal(0)})
+    for item in items:
+        totals[item.currency][item.basis] += item.amount
+    return [{"currency": c, "linked": money(v["linked"]), "recorded": money(v["recorded"])} for c, v in sorted(totals.items())]
 
 
 def by_currency(items: Iterable[Cost]) -> dict[str, Decimal]:
@@ -307,6 +322,7 @@ def vehicle_report(vehicle: Vehicle, readings: list[OdometerReading], fuel: list
         "odometer_km": str(current_odometer(readings)) if readings else None,
         "distance_km": str(km.quantize(TENTH)),
         "spend": [{"currency": c, "amount": money(v)} for c, v in sorted(spend.items())],
+        "spend_basis": basis_split(period_costs),
         "cost_per_km": [{"currency": c, "amount": str((v / km).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))}
                         for c, v in sorted(spend.items()) if km > 0],
         "monthly": monthly(period_costs),
@@ -375,6 +391,7 @@ def overview(vehicles: list[Vehicle], fuel: list[FuelEntry], service: list[Servi
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
         "spend": [{"currency": c, "amount": money(v)} for c, v in sorted(by_currency(period).items())],
+        "spend_basis": basis_split(period),
         "monthly": monthly(period),
         "by_vehicle": [{"vehicle_id": vid, "registration": names.get(vid, ""), "currency": c, "amount": money(v)}
                        for (vid, c), v in sorted(per_vehicle.items(), key=lambda kv: (kv[0][1], -kv[1]))],

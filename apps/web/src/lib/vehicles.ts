@@ -1,7 +1,7 @@
 // Vehicles, fuel and mileage on the web (docs/vehicles.md#web): tabs, labels and small pure helpers.
-// Money is never added across currencies, and a cost counts only when its payment link is active.
+// Money is never added across currencies; each record counts once, its linked payment or else its own pump or receipt total.
 import type {
-  VehicleDueItem, VehicleFuelType, VehicleMoney, VehiclePayment, VehiclePaymentMethod, VehicleServiceKind, VehicleTripPurpose,
+  VehicleDueItem, VehicleFuelType, VehicleMoney, VehicleSpendBasis, VehiclePayment, VehiclePaymentMethod, VehicleServiceKind, VehicleTripPurpose,
 } from '@anum/contracts';
 import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
@@ -60,6 +60,13 @@ export function litres(value: string | null | undefined): string {
 export function moneyList(rows: readonly VehicleMoney[] | null | undefined): string {
   if (!rows || rows.length === 0) return '-';
   return rows.map((row) => formatAmount(row.amount, row.currency)).join(' · ');
+}
+
+/** "SAR 150.00 linked, SAR 90.00 from record totals" per currency, or null when every cost is a linked payment. */
+export function spendSplit(rows: readonly VehicleSpendBasis[] | null | undefined, currency?: string): string | null {
+  const shown = (rows ?? []).filter((row) => Number(row.recorded) !== 0 && (!currency || row.currency === currency));
+  if (shown.length === 0) return null;
+  return shown.map((row) => t('veh.fig.spendSplit', { linked: formatAmount(row.linked, row.currency), recorded: formatAmount(row.recorded, row.currency) })).join(' · ');
 }
 
 export type PaymentState = 'none' | 'active' | 'needs_review' | 'void';

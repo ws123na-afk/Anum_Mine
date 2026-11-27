@@ -3,6 +3,7 @@
 // (global search with the Cmd+K command palette, notifications, the user menu). App state stays
 // in main.tsx; these components only render it and report what the person picked.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { proposedAction } from './lib/approvals';
 import {
   Activity, Bell, BellOff, BookOpen, GraduationCap, Phone, ShoppingCart, Wallet, Bot, Building2, ChevronDown, CircleAlert, FileLock2, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
@@ -305,7 +306,7 @@ export function NotificationsMenu({ approvals, alerts, notices, team, onOpenAppr
       {count === 0 && !team?.items.length && <p className="muted">{t('notifications.empty')}</p>}
       <ul className="popoverList">
         {pending.slice(0, 5).map((a) => <li key={a.id}><button type="button" onClick={() => pick(onOpenApprovals)}>
-          <ShieldCheck aria-hidden="true" /><span><strong dir="ltr">{a.action}</strong><small>{t('notifications.approval', { risk: riskLabel(a.riskLevel) })}</small></span>
+          <ShieldCheck aria-hidden="true" /><span><strong dir="auto" title={a.action}>{proposedAction(a) ?? a.action}</strong><small>{t('notifications.approval', { risk: riskLabel(a.riskLevel) })}</small></span>
         </button></li>)}
         {pending.length > 5 && <li><button type="button" onClick={() => pick(onOpenApprovals)}><ShieldCheck aria-hidden="true" /><span><strong>{t('notifications.moreApprovals', { count: pending.length - 5 })}</strong></span></button></li>}
         {alerts.map((a) => <li key={a.id}><button type="button" onClick={() => pick(() => onOpenAlert(a))}>
