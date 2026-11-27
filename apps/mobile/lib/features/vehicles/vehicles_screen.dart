@@ -49,7 +49,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
               required: true, maxLength: 20),
           RecordsInput.text('nickname', s.t('nickname'), maxLength: 60),
           RecordsInput.choice('ownership', s.t('ownership'),
-              initial: 'personal',
+              initial: 'business',
               options: {
                 'personal': s.t('personal'),
                 'business': s.t('business')

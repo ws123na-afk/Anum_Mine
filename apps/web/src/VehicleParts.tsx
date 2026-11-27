@@ -12,7 +12,7 @@ import { VEHICLE_FUEL_TYPES, VEHICLE_PAYMENT_METHODS, VEHICLE_SERVICE_KINDS, VEH
 import * as api from './lib/vehiclesApi';
 import {
   PAGE_SIZE, VEHICLE_DETAIL_TABS, anomalyLabel, decimal, dueLabel, dueText, fromLocalInput, fuelLabel, km, litres, localInput, methodLabel,
-  moneyList, newKey, paymentState, paymentText, purposeLabel, serviceLabel, today, typeLabel, vehicleName, type VehicleDetailTab,
+  moneyList, newKey, spendSplit, paymentState, paymentText, purposeLabel, serviceLabel, today, typeLabel, vehicleName, type VehicleDetailTab,
 } from './lib/vehicles';
 import { formatAmount } from './lib/finance';
 import { describeError } from './lib/errors';
@@ -29,7 +29,7 @@ type Message = { text: string; error?: boolean } | null;
 
 export function VehicleForm({ vehicle, onClose, onSaved }: { vehicle?: Vehicle; onClose: () => void; onSaved: (v: Vehicle) => void }) {
   const [f, setF] = useState(() => ({
-    ownership: vehicle?.ownership ?? 'personal', registration: vehicle?.registration ?? '', vin: vehicle && !vehicle.vin_masked ? vehicle.vin ?? '' : '',
+    ownership: vehicle?.ownership ?? 'business', registration: vehicle?.registration ?? '', vin: vehicle && !vehicle.vin_masked ? vehicle.vin ?? '' : '',
     nickname: vehicle?.nickname ?? '', make: vehicle?.make ?? '', model: vehicle?.model ?? '', year: vehicle?.year ? String(vehicle.year) : '',
     vehicle_type: vehicle?.vehicle_type ?? 'car', country: vehicle?.country ?? 'SA', fuel_type: vehicle?.fuel_type ?? 'petrol_91',
     tank_litres: vehicle?.tank_litres ?? '', odometer_km: '', acquisition_date: vehicle?.acquisition_date ?? '', purchase_price: vehicle?.purchase_price ?? '',
@@ -126,7 +126,7 @@ export function VehicleDetail({ vehicleId, onBack, onDeleted }: { vehicleId: str
   const figures: Figure[] = [
     figure('odometer', t('veh.fig.odometer'), { state: 'ready' }, () => ({ value: km(v.odometer_km), hint: t('veh.fig.odometerHint') })),
     figure('distance', t('veh.fig.distance'), { state }, () => ({ value: km(r!.distance_km), hint: t('veh.fig.distanceHint') })),
-    figure('spend', t('veh.fig.spend'), { state }, () => ({ value: moneyList(r!.spend), hint: r!.unlinked_records ? t('veh.fig.waiting', { count: r!.unlinked_records }) : t('veh.fig.spendHint') })),
+    figure('spend', t('veh.fig.spend'), { state }, () => ({ value: moneyList(r!.spend), hint: spendSplit(r!.spend_basis) ?? (r!.unlinked_records ? t('veh.fig.waiting', { count: r!.unlinked_records }) : t('veh.fig.spendHint')) })),
     figure('consumption', t('veh.fig.consumption'), { state }, () => ({ value: r!.consumption.average_per_100 ? t('veh.per100', { value: r!.consumption.average_per_100 }) : '-', hint: t('veh.fig.consumptionHint') })),
   ];
   return <div className="vehDetail">

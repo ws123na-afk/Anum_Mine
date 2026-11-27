@@ -68,21 +68,8 @@ def category_of(kind: str) -> str:
 
 
 def record_costs(fuel: list[FuelEntry], service: list[ServiceRecord]) -> list[FleetCost]:
-    """Each record's one cost: its active payment or allocation, else its own figure."""
-    out: list[FleetCost] = []
-    for fill in fuel:
-        day = fill.filled_at.date()
-        if fill.payment is not None and fill.payment.status == "active":
-            out.append(FleetCost(fill.id, fill.vehicle_id, "fuel", day, fill.payment.amount, fill.payment.currency, "linked"))
-        elif fill.total is not None:
-            out.append(FleetCost(fill.id, fill.vehicle_id, "fuel", day, fill.total, fill.currency, "recorded"))
-    for record in service:
-        category = category_of(record.kind)
-        if record.payment is not None and record.payment.status == "active":
-            out.append(FleetCost(record.id, record.vehicle_id, category, record.service_on, record.payment.amount, record.payment.currency, "linked"))
-        elif record.receipt_total is not None:
-            out.append(FleetCost(record.id, record.vehicle_id, category, record.service_on, record.receipt_total, record.currency, "recorded"))
-    return out
+    """Each record's one cost: its active payment or allocation, else its own figure (``analytics.costs``, the one rule)."""
+    return [FleetCost(c.record_id, c.vehicle_id, category_of(c.category), c.day, c.amount, c.currency, c.basis) for c in A.costs(fuel, service)]
 
 
 def parse_month(value: str | None, today: date) -> date:

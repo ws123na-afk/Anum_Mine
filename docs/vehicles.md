@@ -20,6 +20,7 @@ Code: `services/api/anum_api/vehicles/` (`models.py`, `store.py`, `service.py`, 
 
 - A **personal** vehicle and every record of it are visible only to its owner, whatever their role (row policy). Another member gets 404 for it, the same as for a vehicle that does not exist.
 - A **business** vehicle is visible to every member who may use vehicles. Each of them logs fuel, trips and service on it. The person who added it, or a workspace owner, changes, archives, corrects the odometer of or deletes it; a record is changed by the person who logged it or a workspace owner.
+- A new vehicle is a **business** vehicle unless the person picks **Personal** (web, phone and `POST /api/v1/vehicles` without `ownership`; changed in November 2026 for fleet customers).
 - A vehicle's ownership and owner never change (a database trigger refuses it), because the row policies rely on them.
 - **Personal banking stays private.** Only the person who logged a record can link a payment to it, and the payment picker lists only their own Finance ledger. Other members see the linked amount and currency on a business vehicle's record, never the payer's ledger id, account, card, merchant text or message.
 
@@ -33,7 +34,7 @@ Code: `services/api/anum_api/vehicles/` (`models.py`, `store.py`, `service.py`, 
 | Trip | Start and end time, start and end odometer, distance and how it was worked out (`typed`, or `previous_reading` when only the end was typed), purpose (business, personal, commute), what for, project, from and to (only when the person turned on **Store trip places**; places stored earlier stay and may be resent unchanged after the switch is turned off), notes, source (web or iPhone). At most one trip in progress per person and vehicle. |
 | Service record | Kind (maintenance, oil, tyres, battery, repair, inspection, insurance, registration, fine, toll, parking, warranty, wash, other), date, odometer, workshop or issuer, description, reference or fine number, next due date or kilometres, warranty until, trip (for tolls and parking), receipt total, currency, payment method, and the read copy of its payment link. |
 
-The pump total and the receipt total are **details**: they help find the payment and check it (a linked payment more than 5 % away from the pump total is flagged), but they are never counted as spend.
+The pump total and the receipt total help find the payment and check it (a linked payment more than 5 % away from the pump total is flagged). They are a record's cost only while it has no active payment: **each record counts once**, its linked payment or business allocation when it has one, otherwise the figure written on it.
 
 ## The odometer never goes down
 
@@ -79,7 +80,7 @@ Audit: `vehicle.allocation.use`, `vehicle.allocation.release` (ids only). No mig
 
 Pure functions in `vehicles/analytics.py`, tested on their own:
 
-- **Spend** from active linked payments only, per month, per category and per vehicle, **per currency**. Nothing adds SAR to AED.
+- **Spend**, one cost per record (its active linked payment or allocation, else its pump or receipt total, the [fleet costs](#fleet-costs) rule), per month, per category and per vehicle, **per currency**. Nothing adds SAR to AED. `spend_basis` on the overview and the vehicle report says, per currency, how much is `linked` and how much `recorded`; the web shows it under the figure ("SAR 150.00 linked, SAR 90.00 from record totals").
 - **Distance** is the sum of increases between consecutive readings; the jump to a correction is not distance.
 - **Usage per month** (`usage`, quantities only): kilometres and litres per month. A month's kilometres are the increases whose later reading falls in that month, so the run from the last reading of the month before counts too. The overview also gives each vehicle's kilometres, litres and average L/100 km in the period (`by_vehicle_usage`).
 - **Cost per km** per currency: spend in the period divided by the distance in the period.
@@ -166,7 +167,7 @@ Running a client's fleet in ANUM, the pilot the [product review](audits/2026-11-
 
 **Vehicles, Fleet costs** (`GET /api/v1/vehicles/fleet/costs?month=YYYY-MM`, `vehicle:read`; pure functions in `vehicles/fleet.py`):
 
-- **One cost per record:** its active linked payment or business allocation when it has one (`linked`), otherwise the figure written on it, the pump or receipt total (`recorded`), which is how an imported client fleet carries its costs. This is the fleet view's rule; the vehicle's own Report and the Overview still count linked payments only (above). The month's totals say how much came from each.
+- **One cost per record:** its active linked payment or business allocation when it has one (`linked`), otherwise the figure written on it, the pump or receipt total (`recorded`), which is how an imported client fleet carries its costs. The Vehicles overview, each vehicle's report and the fleet view use this one rule (`analytics.costs`; `fleet.record_costs` builds on it), so they show the same number. The month's totals say how much came from each.
 - **Categories:** fuel; service (maintenance, oil, battery, repair, inspection, warranty); tyres (service records of kind tyres); other (insurance, registration, fines, tolls, parking, washes, other).
 - **Per vehicle:** kilometres (the module's distance rule, in the month of the later reading), L/100 km from full-to-full chains ending in the month, cost per category and currency, cost per km in the vehicle's currency, the month before.
 - **Fleet:** totals per currency, never added across currencies; cost per km divides a currency's cost by the kilometres of the vehicles kept in that currency. Twelve months to the chosen month. The **highest cost per km**: up to five vehicles per currency that drove at least 100 km. **Renewals due:** insurance, registration and inspection expired or expiring within 60 days of the later of the month's end and today.

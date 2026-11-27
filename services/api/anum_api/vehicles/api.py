@@ -125,7 +125,7 @@ def record_view(context: TenantContext, record: Any) -> dict[str, Any]:
 class VehicleInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ownership: Literal["personal", "business"] = "personal"
+    ownership: Literal["personal", "business"] = "business"
     registration: str = Field(min_length=1, max_length=20)
     vin: str | None = Field(default=None, max_length=20)
     nickname: str | None = Field(default=None, max_length=60)

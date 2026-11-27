@@ -70,7 +70,8 @@ def _rows(app_session: Callable[..., Iterator[Session]], user: str, sql: str, pa
 
 
 def _vehicle(api: TestClient, headers: dict = ME, **body: object) -> dict:
-    response = api.post(API, headers=headers, json={"registration": "ABC 1234", "country": "SA", "fuel_type": "petrol_91", **body})
+    # Personal unless a test says otherwise (the API's default is business).
+    response = api.post(API, headers=headers, json={"registration": "ABC 1234", "country": "SA", "fuel_type": "petrol_91", "ownership": "personal", **body})
     assert response.status_code == 201, response.text
     return response.json()
 

@@ -62,8 +62,9 @@ def clean() -> Iterator[None]:
 
 
 def vehicle(headers: dict = OWNER, **body: Any) -> dict:
+    # Personal unless a test says otherwise: these tests are about one person's car (the API's default is business).
     payload = {"registration": "ABC 1234", "country": "SA", "fuel_type": "petrol_91", "make": "Toyota", "model": "Camry", "year": 2022,
-               "vin": "JTDBR32E720123456", "tank_litres": "60", **body}
+               "vin": "JTDBR32E720123456", "tank_litres": "60", "ownership": "personal", **body}
     response = client.post(API, headers=headers, json=payload)
     assert response.status_code == 201, response.text
     return response.json()
@@ -293,6 +294,34 @@ def test_an_apple_pay_and_sms_fuel_payment_stays_one_expense_after_linking() -> 
     assert link("fuel_entry", entry["id"], canonical).status_code == 201
 
 
+def test_a_new_vehicle_is_a_business_vehicle_unless_marked_personal() -> None:
+    payload = {"registration": "FLT 77", "country": "SA", "fuel_type": "diesel"}
+    created = client.post(API, headers=OWNER, json=payload)
+    assert created.status_code == 201 and created.json()["ownership"] == "business"
+    mine = client.post(API, headers=OWNER, json={**payload, "registration": "MY 77", "ownership": "personal"})
+    assert mine.status_code == 201 and mine.json()["ownership"] == "personal"
+
+
+def test_overview_and_report_count_one_cost_per_record_per_currency() -> None:
+    # The fleet costs rule everywhere: a linked payment when there is one, else the record's own figure.
+    canonical, _card = fuel_payment()
+    car = vehicle(odometer_km="10000")
+    linked = fuel(car["id"], total="160", odometer_km="10400").json()
+    assert link("fuel_entry", linked["id"], canonical).status_code == 201
+    fuel(car["id"], total="90", odometer_km="10700")
+    van = vehicle(registration="DXB 1", country="AE", vin="JTDBR32E720123457")
+    assert van["currency"] == "AED"
+    fuel(van["id"], total="70", odometer_km=None)
+    report = client.get(f"{API}/{car['id']}/report", headers=OWNER).json()
+    # 150 linked (not 160 + 150) and 90 from the pump total of the record with no payment.
+    assert report["spend"] == [{"currency": "SAR", "amount": "240.00"}]
+    assert report["spend_basis"] == [{"currency": "SAR", "linked": "150.00", "recorded": "90.00"}]
+    overview = client.get(f"{API}/overview", headers=OWNER).json()
+    assert overview["spend"] == [{"currency": "AED", "amount": "70.00"}, {"currency": "SAR", "amount": "240.00"}]
+    assert overview["spend_basis"] == [{"currency": "AED", "linked": "0.00", "recorded": "70.00"},
+                                       {"currency": "SAR", "linked": "150.00", "recorded": "90.00"}]
+
+
 def test_a_correction_keeps_the_link_and_an_undo_voids_it() -> None:
     canonical, card = fuel_payment()
     car = vehicle(odometer_km="10000")
@@ -304,12 +333,15 @@ def test_a_correction_keeps_the_link_and_an_undo_voids_it() -> None:
     assert same.status_code == 200 and same.json()["canonical_id"] == canonical
     record = client.get(f"{API}/{car['id']}/fuel", headers=OWNER).json()["items"][0]
     assert record["payment"]["status"] == "active" and record["payment"]["canonical_id"] == canonical
-    # Corrected below what is linked: the vehicle record waits for review and stops counting.
+    # Corrected below what is linked: the vehicle record waits for review, the payment stops counting and the
+    # record's own pump total counts instead (one cost per record).
     client.post(f"{FIN}/sms/messages/{message_id}/post", headers=OWNER, json={"amount": "100.00", "account_id": card["id"]})
     record = client.get(f"{API}/{car['id']}/fuel", headers=OWNER).json()["items"][0]
     assert record["payment"]["status"] == "needs_review"
     report = client.get(f"{API}/{car['id']}/report", headers=OWNER).json()
-    assert report["spend"] == [] and {a["kind"] for a in report["anomalies"]} >= {"payment_changed"}
+    assert report["spend"] == [{"currency": "SAR", "amount": "150.00"}]
+    assert report["spend_basis"] == [{"currency": "SAR", "linked": "0.00", "recorded": "150.00"}]
+    assert {a["kind"] for a in report["anomalies"]} >= {"payment_changed"}
     # Undone in Finance: the link is void and the record says so.
     assert client.post(f"{FIN}/sms/messages/{message_id}/reverse", headers=OWNER).status_code == 200
     record = client.get(f"{API}/{car['id']}/fuel", headers=OWNER).json()["items"][0]
