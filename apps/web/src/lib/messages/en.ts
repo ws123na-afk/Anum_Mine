@@ -324,6 +324,7 @@ export const en = {
   'shell.noTasksYet': 'No tasks yet. Create the first task.',
   'shell.stateUnavailable': 'Live workspace state is unavailable.',
   'shell.loadFailed': 'Tasks and approvals could not be loaded: {message} Check your connection, then try again.',
+  'shell.loadBusy': 'ANUM is answering a lot of requests from your network right now. Wait a minute, then try again.',
   'tasks.denied.title': 'You cannot see agent tasks',
   'tasks.denied.text': 'Viewing agent tasks needs task access in this workspace. Ask an owner or admin to change your role.',
   'shell.taskPaused': 'Task paused for approval.',
