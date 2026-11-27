@@ -32,6 +32,7 @@ from anum_api.model_budget import BudgetKind, BudgetScope, ModelBudgetExceededEr
 from anum_api.model_gateway import ModelResponse, ModelUsage
 from anum_api.schemas import TenantContext, utc_now
 from anum_api.store import store as memory_repository
+from anum_api import suppression as suppression_module
 
 TENANT, WORKSPACE = "tenant_calls", "workspace_calls"
 BASE = "https://api.example.test"
@@ -95,6 +96,13 @@ class Twilio:
 
     def placed(self) -> list[dict[str, list[str]]]:
         return [parse_qs(r.content.decode()) for r in self.requests if r.method == "POST" and r.url.path.endswith("/Calls.json")]
+
+
+@pytest.fixture(autouse=True)
+def _uae_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These scenarios are a UAE workspace: a typed 05... number is a UAE mobile. The Saudi default and
+    # the workspace country from Books settings are covered in test_phone_country.py.
+    monkeypatch.setattr(suppression_module, "DEFAULT_PHONE_COUNTRY", "AE")
 
 
 @pytest.fixture(autouse=True)

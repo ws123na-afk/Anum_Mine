@@ -25,7 +25,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
 from ..model_budget import ModelBudgetExceededError
 from ..schemas import TenantContext, new_id, utc_now
-from ..suppression import keyword_of, normalize_keyword
+from ..suppression import keyword_of, normalize_keyword, workspace_phone_country
 from . import ai, service
 from .config import call_settings
 from .phone import PhoneNumberError, normalized
@@ -140,7 +140,8 @@ def _browser_call(context: TenantContext, account: ProviderAccount, params: dict
 
 def _inbound(context: TenantContext, account: ProviderAccount, params: dict[str, str]) -> Response:
     try:
-        number = normalized(params.get("From", ""))
+        # Providers send E.164; a local form still reads with the workspace's country, read before the store opens.
+        number = normalized(params.get("From", ""), workspace_phone_country(context))
     except PhoneNumberError:
         number = None
     now = utc_now()

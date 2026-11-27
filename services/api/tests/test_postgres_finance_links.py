@@ -224,7 +224,7 @@ def test_deleting_the_owners_personal_workspace_removes_the_allocation_rows_they
 
 def test_a_business_vehicle_counts_the_owners_allocation_as_its_cost(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
     """docs/vehicles.md#business-allocations: in PostgreSQL, under the app role. The allocation row is read in the business
-    workspace's own scope; the record keeps no ledger id; taking the allocation back takes it out of the cost."""
+    workspace's own scope; the record keeps no ledger id; taking the allocation back leaves the fill at its pump total."""
     api = client
     canonical, _card = _fuel(api)
     allocated = api.post(f"{API}/allocations", headers=ME, json={"canonical_id": canonical, "workspace_id": WORKSPACE_A2, "amount": "150",
@@ -244,4 +244,7 @@ def test_a_business_vehicle_counts_the_owners_allocation_as_its_cost(client: Tes
     report = api.get(f"/api/v1/vehicles/{car['id']}/report", headers=COLLEAGUE).json()
     assert report["spend"] == [{"currency": "SAR", "amount": "150.00"}]
     assert api.delete(f"{API}/allocations/{allocated.json()['link']['id']}", headers=ME).status_code == 200
-    assert api.get(f"/api/v1/vehicles/{car['id']}/report", headers=owner_there).json()["spend"] == []
+    # The fill still counts at its pump total (docs/vehicles.md#fleet-costs: linked, else recorded).
+    after = api.get(f"/api/v1/vehicles/{car['id']}/report", headers=owner_there).json()
+    assert after["spend"] == [{"currency": "SAR", "amount": "150.00"}]
+    assert after["spend_basis"] == [{"currency": "SAR", "linked": "0.00", "recorded": "150.00"}]

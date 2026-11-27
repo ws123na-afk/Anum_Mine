@@ -26,6 +26,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import logging
 import re
 import unicodedata
 from collections.abc import Iterator, Mapping
@@ -43,6 +44,8 @@ from .authorization import Permission
 from .dependencies import has_permission, tenant_context
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
+
+logger = logging.getLogger("anum.suppression")
 
 
 class SuppressionChannel(StrEnum):
@@ -161,10 +164,19 @@ def _clean_reason(value: str) -> str:
 # -- normalization ---------------------------------------------------------------------
 
 
-def normalize(value: str) -> tuple[Literal["phone", "email"], str] | None:
+# A local Gulf mobile number (``05x xxx xxxx``) has no country code; it is read with the workspace's
+# country (Books settings), and as Saudi when none is set. Saudi and UAE mobiles share that local form.
+GULF_DIALLING_CODES = {"SA": "966", "AE": "971"}
+DEFAULT_PHONE_COUNTRY = "SA"
+_GULF_MOBILE = re.compile(r"^\+(966|971)(5\d{8})$")
+
+
+def normalize(value: str, country: str | None = None) -> tuple[Literal["phone", "email"], str] | None:
     """An e-mail address (lower case) or a phone number (``+`` and digits), or None.
 
-    ``00`` is read as ``+``, and a UAE local mobile number (``05x xxx xxxx``) as ``+9715...``.
+    ``00`` is read as ``+``. A local mobile number (``05x xxx xxxx``) takes the dialling code of
+    ``country`` (ISO alpha-2: ``SA`` gives ``+9665...``, ``AE`` gives ``+9715...``), Saudi when no
+    country is given; for a country without a known code its digits are kept as typed.
     """
     text = value.strip().strip("<>").strip()
     if "@" in text:
@@ -174,10 +186,47 @@ def normalize(value: str) -> tuple[Literal["phone", "email"], str] | None:
     if text.startswith("00"):
         digits = digits[2:]
     elif not text.startswith("+") and len(digits) == 10 and digits.startswith("05"):
-        digits = "971" + digits[1:]
+        code = GULF_DIALLING_CODES.get((country or DEFAULT_PHONE_COUNTRY).strip().upper())
+        if code is not None:
+            digits = code + digits[1:]
     if not 8 <= len(digits) <= 15:
         return None
     return "phone", "+" + digits
+
+
+def opt_out_readings(normalized: str) -> list[str]:
+    """Every form an opt-out for this address may have been stored under; checks look up all of them.
+
+    A Saudi or UAE mobile number is also looked up under the other country's code with the same nine
+    digits: until November 2026 a typed ``05...`` number was always stored as UAE, and a local number is
+    still stored with the workspace's country, which may not be the customer's. Matching both may hold
+    back a message to someone whose number differs only in the country code; it never lets an opt-out
+    be missed. Removals and keyword restarts use the exact form only.
+    """
+    found = _GULF_MOBILE.match(normalized)
+    if found is None:
+        return [normalized]
+    return [f"+{code}{found.group(2)}" for code in ("966", "971")]
+
+
+def check_hashes(tenant_id: str, recipients: list[tuple[str, str]]) -> dict[str, str]:
+    """``{hash: kind}`` for every stored form an opt-out of these ``(kind, normalized)`` recipients may have."""
+    return {recipient_hash(tenant_id, reading): kind for kind, value in recipients
+            for reading in (opt_out_readings(value) if kind == "phone" else [value])}
+
+
+def workspace_phone_country(context: TenantContext) -> str:
+    """The workspace's country for reading local numbers (Books settings), else Saudi Arabia."""
+    from .business.books_store import open_books_store
+
+    try:
+        with open_books_store(context) as books:
+            settings = books.get_settings()
+    except Exception as exc:  # noqa: BLE001 - a local number then reads as Saudi, the documented default
+        logger.warning("phone_country_unread error_class=%s", type(exc).__name__)
+        return DEFAULT_PHONE_COUNTRY
+    country = (settings.country or "").strip().upper() if settings is not None else ""
+    return country or DEFAULT_PHONE_COUNTRY
 
 
 def recipient_hash(tenant_id: str, normalized: str) -> str:
@@ -383,7 +432,7 @@ def suppressed_for_call(
     recipients = recipients_of(arguments)
     if not recipients:
         return []
-    hashes = {recipient_hash(context.tenant_id, value): kind for kind, value in recipients}
+    hashes = check_hashes(context.tenant_id, recipients)
     with open_suppression_store(context) as store:
         entries = store.find(context, list(hashes))
     channel = channel_of(tool, definition)
@@ -490,11 +539,11 @@ def view(entry: SuppressionEntry) -> SuppressionView:
     return SuppressionView(**entry.model_dump(exclude={"tenant_id", "recipient_hash"}))
 
 
-def _matches(entry: SuppressionEntry, query: str | None, hashed: str | None) -> bool:
+def _matches(entry: SuppressionEntry, query: str | None, hashed: set[str]) -> bool:
     if not query:
         return True
-    if hashed is not None:
-        return entry.recipient_hash == hashed
+    if hashed:
+        return entry.recipient_hash in hashed
     needle = query.casefold()
     return any(needle in field.casefold() for field in (entry.masked, entry.reason, entry.source.value, entry.created_by))
 
@@ -509,8 +558,8 @@ def list_suppressions(
 ) -> SuppressionPage:
     _require_manage(context)
     query = (q or "").strip() or None
-    normalized = normalize(query) if query else None
-    hashed = recipient_hash(context.tenant_id, normalized[1]) if normalized else None
+    normalized = normalize(query, workspace_phone_country(context)) if query else None
+    hashed = set(check_hashes(context.tenant_id, [normalized])) if normalized else set()
     with open_suppression_store(context) as store:
         entries = [e for e in store.list(context) if _matches(e, query, hashed) and (channel is None or e.channel == channel)]
     return SuppressionPage(
@@ -524,7 +573,7 @@ def list_suppressions(
 @router.post("/contact-suppressions", response_model=SuppressionView, status_code=status.HTTP_201_CREATED)
 def add_suppression(payload: SuppressionCreate, response: Response, context: TenantContext = Depends(tenant_context)) -> SuppressionView:
     _require_manage(context)
-    normalized = normalize(payload.recipient)
+    normalized = normalize(payload.recipient, workspace_phone_country(context))
     if normalized is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail="Enter a phone number with its country code (+971...) or an e-mail address.")

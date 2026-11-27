@@ -104,4 +104,22 @@ void main() {
       expect(await shown(tester, _ar), 'SAR $_lrm-2,500.00');
     });
   });
+
+  group('formatQuantityText', () {
+    test('groups thousands and drops trailing zero decimals', () {
+      expect(formatQuantityText('45200.0', locale: _en), '45,200');
+      expect(formatQuantityText('60.000', locale: _en), '60');
+      expect(formatQuantityText('40.50', locale: _en), '40.5');
+      expect(formatQuantityText('1234567.125', locale: _en), '1,234,567.125');
+      expect(formatQuantityText('0', locale: _en), '0');
+    });
+
+    test('Arabic keeps Western digits and separators', () {
+      expect(formatQuantityText('45200.0', locale: _ar), '45,200');
+    });
+
+    test('text that is not a number is left as it is', () {
+      expect(formatQuantityText('about 5', locale: _en), 'about 5');
+    });
+  });
 }

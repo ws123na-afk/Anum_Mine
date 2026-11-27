@@ -43,12 +43,14 @@ from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .suppression import (
     channel_of,
+    check_hashes,
     is_marketing,
     mask,
     normalize,
     recipient_hash,
     recipients_of,
     sends,
+    workspace_phone_country,
 )
 
 MAX_LIST = 200
@@ -309,15 +311,18 @@ def consent_refusals_for_call(
     recipients = recipients_of(arguments)
     if not recipients:
         return []
-    hashes = {recipient_hash(context.tenant_id, value): (kind, value) for kind, value in recipients}
+    # A withdrawal stored under either Gulf reading of a mobile number blocks (opt_out_readings); only a
+    # consent recorded for this exact number allows the send.
+    readings = {recipient_hash(context.tenant_id, value): (kind, value, set(check_hashes(context.tenant_id, [(kind, value)])))
+                for kind, value in recipients}
     channel = channel_of(tool, definition)
     with open_consent_store(context) as store:
-        records = store.find(context, list(hashes))
+        records = store.find(context, sorted({digest for _, _, every in readings.values() for digest in every}))
         required = store.get_settings(context).require_for_marketing
     refusals: list[ConsentRefusal] = []
-    for digest, (kind, value) in hashes.items():
-        mine = [r for r in records if r.recipient_hash == digest and _applies(r, kind, channel)]
-        if any(r.active for r in mine):
+    for digest, (kind, value, every) in readings.items():
+        mine = [r for r in records if r.recipient_hash in every and _applies(r, kind, channel)]
+        if any(r.active and r.recipient_hash == digest for r in mine):
             continue
         withdrawn = [r for r in mine if not r.active]
         if withdrawn:
@@ -391,7 +396,7 @@ def list_consents(
 ) -> ConsentPage:
     _require_manage(context)
     query = (q or "").strip() or None
-    normalized = normalize(query) if query else None
+    normalized = normalize(query, workspace_phone_country(context)) if query else None
     hashed = recipient_hash(context.tenant_id, normalized[1]) if normalized else None
     with open_consent_store(context) as store:
         records = store.list(context)
@@ -409,7 +414,7 @@ def list_consents(
 def record_consent(payload: ConsentCreate, response: Response, context: TenantContext = Depends(tenant_context)) -> ConsentView:
     """Record a consent (201), or record it again over the contact's record for the channel (200)."""
     _require_manage(context)
-    normalized = normalize(payload.recipient)
+    normalized = normalize(payload.recipient, workspace_phone_country(context))
     if normalized is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail="Enter a phone number with its country code (+971...) or an e-mail address.")

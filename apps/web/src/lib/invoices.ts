@@ -124,7 +124,7 @@ export function manualLines(drafts: readonly ManualLineDraft[]): Check<ManualInv
     const qty = quantity(draft.quantity);
     const tax = draft.taxPct.trim() === '' ? undefined : percent(draft.taxPct);
     if (!draft.description.trim()) return { ok: false, error: t('inv.form.lineDescription') };
-    if (price === null) return { ok: false, error: t('inv.form.linePrice') };
+    if (price === null) return { ok: false, error: t('inv.form.linePriceInvalid') };
     if (qty === null) return { ok: false, error: t('inv.form.lineQuantity') };
     if (tax === null) return { ok: false, error: t('inv.form.taxInvalid') };
     lines.push({ description: draft.description.trim(), kind: draft.kind, quantity: qty, unit_price: price, ...(tax !== undefined ? { tax_rate_pct: tax } : {}),

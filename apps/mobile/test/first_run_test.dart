@@ -75,6 +75,10 @@ class _Api implements ApiTransport {
   bool modelConfigured = false;
   String role = 'owner';
 
+  /// The workspace exists (set up by its owner) but this person has no
+  /// membership in it: `GET /onboarding` returns it with `membership: null`.
+  bool notMember = false;
+
   /// The server's `configured-model` routing target.
   String serverProvider = 'mock';
   String serverModel = 'anum-mock-planner';
@@ -165,9 +169,17 @@ class _Api implements ApiTransport {
   }
 
   Map<String, Object?> _status(String workspace) => {
-        'complete': complete,
+        'complete': complete && !notMember,
         'model_configured': modelConfigured,
-        if (complete) ...{
+        if (notMember) ...{
+          'tenant': {'id': 'tenant_first', 'name': 'First'},
+          'workspace': {
+            'id': workspace,
+            'tenant_id': 'tenant_first',
+            'name': 'Workspace $workspace',
+          },
+          'membership': null,
+        } else if (complete) ...{
           'tenant': {'id': 'tenant_first', 'name': 'First'},
           'workspace': {
             'id': workspace,
@@ -378,6 +390,32 @@ void main() {
       expect(find.text('Sign in with another account'), findsOneWidget);
     });
 
+    testWidgets(
+        'a second person on a set-up workspace is asked for an invitation, '
+        'not shown a setup form that would be refused', (tester) async {
+      final h = _Harness(workspaceClaim: 'workspace_ops');
+      h.transport.notMember = true;
+      await h.controller.signInWithOidc();
+      expect(h.controller.phase, AuthPhase.noWorkspace);
+      await _pumpFlow(tester, h.controller);
+
+      expect(find.text('You are not in a workspace'), findsOneWidget);
+      expect(find.textContaining('Ask the owner of Workspace workspace_ops'),
+          findsOneWidget);
+      expect(find.text('Set up your workspace'), findsNothing);
+      expect(
+          h.transport.requests.where(
+              (r) => r.uri.path == '/api/v1/onboarding' && r.method == 'PUT'),
+          isEmpty);
+
+      // Invited and accepted meanwhile: checking again opens the workspace.
+      h.transport.notMember = false;
+      h.transport.modelConfigured = true;
+      await tester.tap(find.text('Check again'));
+      await tester.pumpAndSettle();
+      expect(h.controller.phase, AuthPhase.ready);
+    });
+
     test('the secure store keeps one choice per tenant and user', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       FlutterSecureStorage.setMockInitialValues({});
@@ -411,6 +449,10 @@ void main() {
       expect(h.controller.modelAvailability?.canSkip, isFalse);
       h.controller.useServerModel();
       expect(h.controller.phase, AuthPhase.modelSetup);
+      // Nobody is kept out for want of a model: AI answers are then
+      // placeholders, with a banner where they appear.
+      h.controller.continueWithoutModel();
+      expect(h.controller.phase, AuthPhase.ready);
     });
 
     test('a server model can be skipped to', () async {
@@ -435,7 +477,7 @@ void main() {
       expect(h.controller.phase, AuthPhase.ready);
     });
 
-    testWidgets('owner without any model: no skip button, the reason instead',
+    testWidgets('owner without any model can continue without one',
         (tester) async {
       final h = await atModelStep();
       await h.controller.signInWithOidc();
@@ -443,7 +485,33 @@ void main() {
 
       expect(find.text('Test, save, and continue'), findsOneWidget);
       expect(find.textContaining('Skip and use'), findsNothing);
-      expect(find.textContaining('Skipping is not available'), findsOneWidget);
+      expect(find.textContaining('AI answers are placeholders until you'),
+          findsOneWidget);
+      final go = find.text('Continue without a model');
+      // The step is longer than a phone screen: bring the action into view.
+      await tester.drag(find.byType(ListView).first, const Offset(0, -600));
+      await tester.pumpAndSettle();
+      await tester.tap(go);
+      await tester.pumpAndSettle();
+      expect(h.controller.phase, AuthPhase.ready);
+    });
+
+    testWidgets('a failed check still lets the person continue',
+        (tester) async {
+      final h = await atModelStep();
+      h.transport.routingFailures = 1;
+      await h.controller.signInWithOidc();
+      await _pumpFlow(tester, h.controller);
+
+      expect(find.textContaining('Could not check whether the server'),
+          findsOneWidget);
+      final go = find.text('Continue without a model');
+      // The step is longer than a phone screen: bring the action into view.
+      await tester.drag(find.byType(ListView).first, const Offset(0, -600));
+      await tester.pumpAndSettle();
+      await tester.tap(go);
+      await tester.pumpAndSettle();
+      expect(h.controller.phase, AuthPhase.ready);
     });
 
     testWidgets('owner with a server model sees the skip button',
@@ -503,8 +571,9 @@ void main() {
       await _pumpFlow(tester, h.controller);
 
       expect(find.text('Test, save, and continue'), findsNothing);
-      expect(find.textContaining('Ask a workspace owner to connect one'),
+      expect(find.textContaining('until a workspace owner connects one'),
           findsOneWidget);
+      expect(find.text('Continue without a model'), findsOneWidget);
       expect(find.textContaining('Skip and use'), findsNothing);
 
       // An owner connects one meanwhile: checking again offers to continue.

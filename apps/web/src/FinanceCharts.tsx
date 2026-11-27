@@ -99,11 +99,11 @@ export function FlowChart({ rows, currency, title, highlight }: { rows: readonly
       </>}</Tooltip>
     </div>
     <details className="finChartTable"><summary>{t('frep.chart.table')}</summary>
-      <table id={tableId} className="finGrid"><caption className="visuallyHidden">{title}</caption>
+      <div className="finTableWrap" tabIndex={0}><table id={tableId} className="finGrid"><caption className="visuallyHidden">{title}</caption>
         <thead><tr><th scope="col">{t('frep.col.month')}</th><th scope="col" className="num">{t('frep.chart.income')}</th><th scope="col" className="num">{t('frep.chart.expenses')}</th><th scope="col" className="num">{t('frep.chart.net')}</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.month}><th scope="row">{monthLabel(row.month)}</th><td className="num"><bdi>{formatAmount(row.income, currency)}</bdi></td>
           <td className="num"><bdi>{formatAmount(row.expenses, currency)}</bdi></td><td className="num"><bdi>{formatAmount(row.net, currency)}</bdi></td></tr>)}</tbody>
-      </table>
+      </table></div>
     </details>
   </figure>;
 }
@@ -158,12 +158,12 @@ export function RunwayChart({ points, currency, title, reserve = null }: { point
       </>}</Tooltip>
     </div>
     <details className="finChartTable"><summary>{t('frep.chart.table')}</summary>
-      <table id={tableId} className="finGrid"><caption className="visuallyHidden">{title}</caption>
+      <div className="finTableWrap" tabIndex={0}><table id={tableId} className="finGrid"><caption className="visuallyHidden">{title}</caption>
         <thead><tr><th scope="col">{t('fsafe.col.day')}</th><th scope="col" className="num">{t('fsafe.chart.balance')}</th><th scope="col" className="num">{t('ffc.chart.low')}</th><th scope="col" className="num">{t('ffc.chart.high')}</th><th scope="col">{t('fsafe.col.bills')}</th></tr></thead>
         <tbody>{points.map((pt) => <tr key={pt.day}><th scope="row"><bdi>{pt.day}</bdi></th><td className="num"><bdi>{formatAmount(pt.balance, currency)}</bdi></td>
           <td className="num"><bdi>{formatAmount(pt.low, currency)}</bdi></td><td className="num"><bdi>{formatAmount(pt.high, currency)}</bdi></td>
           <td>{pt.bills.map((b) => `${b.name} ${formatAmount(b.amount, currency)}`).join(', ') || '-'}</td></tr>)}</tbody>
-      </table>
+      </table></div>
     </details>
   </figure>;
 }

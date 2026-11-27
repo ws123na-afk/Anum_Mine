@@ -469,6 +469,9 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_requests_per_minute: int = 600
     rate_limit_burst: int = 120
+    # Signed-in requests are limited per credential; all of them from one address together
+    # may use this many times the limit (an office or carrier network shares one address).
+    rate_limit_address_multiplier: int = Field(default=10, ge=1, le=1000)
     # "memory" keeps limits per process; "valkey" shares them across API replicas.
     rate_limit_backend: str = Field(default="memory", pattern="^(memory|valkey)$")
     # OpenTelemetry (anum_api/telemetry.py, docs/observability.md). Export is off unless

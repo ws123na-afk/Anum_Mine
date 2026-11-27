@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'agent_controls_strings.dart';
 import 'admin_depth_strings.dart';
 import 'app_lock_strings.dart';
+import 'auth_strings.dart';
 import 'approvals_strings.dart';
 import 'calls_strings.dart';
 import 'contacts_strings.dart';
@@ -26,6 +27,7 @@ import 'marketing_ops_strings.dart';
 import 'agent_skills_strings.dart';
 import 'owner_desk_strings.dart';
 import 'system_health_strings.dart';
+import 'model_status_strings.dart';
 
 class AnumLocalizations {
   const AnumLocalizations(this.locale);
@@ -58,6 +60,8 @@ class AnumLocalizations {
       (isArabic ? adminDepthAr : adminDepthEn)[key] ??
       (isArabic ? ownerDeskAr : ownerDeskEn)[key] ??
       (isArabic ? systemHealthAr : systemHealthEn)[key] ??
+      (isArabic ? modelStatusAr : modelStatusEn)[key] ??
+      (isArabic ? authAr : authEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -81,6 +85,8 @@ class AnumLocalizations {
       adminDepthEn[key] ??
       ownerDeskEn[key] ??
       systemHealthEn[key] ??
+      modelStatusEn[key] ??
+      authEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

@@ -426,7 +426,7 @@ class IntegrationRegistry:
         definition = self._definition(integration_id)
         with self._open_store(context) as store:
             stored = store.get(context, integration_id)
-        value = stored or IntegrationConfiguration(enabled=definition.configured and definition.default_enabled, endpoint=definition.endpoint)
+        value = stored or IntegrationConfiguration(enabled=definition.configured and definition.default_enabled, endpoint=_safe_endpoint(definition.endpoint))
         return IntegrationConfigurationView(id=integration_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, **value.model_dump())
 
     def set_credential(self, integration_id: str, context: TenantContext, secret: str) -> WorkspaceCredentialView:
@@ -588,7 +588,7 @@ class IntegrationRegistry:
             name=definition.name,
             kind=definition.kind,
             status=status,
-            endpoint=definition.endpoint,
+            endpoint=_safe_endpoint(definition.endpoint) or "",
             latency_ms=latency_ms,
             detail=detail,
             credentials=definition.credentials,
@@ -920,13 +920,24 @@ async def _postgres_probe(database_url: str) -> None:
 
 
 def _host_port(endpoint: str, default_port: int) -> tuple[str, int]:
-    value = endpoint.split("://", 1)[-1].split("/", 1)[0]
+    value = endpoint.split("://", 1)[-1].split("/", 1)[0].rsplit("@", 1)[-1]
     host, separator, port = value.partition(":")
     return host, int(port) if separator else default_port
 
 
-def _safe_endpoint(database_url: str) -> str:
-    if "@" not in database_url:
-        return database_url
-    scheme, location = database_url.split("://", 1)
-    return f"{scheme}://***@{location.split('@', 1)[1]}"
+def _safe_endpoint(url: str | None) -> str | None:
+    """The endpoint as shown to a workspace: any ``user:password@`` replaced by ``***@``.
+
+    Every reported endpoint passes through this, so a password in ANUM_VALKEY_URL, ANUM_NATS_URL or a
+    future setting is never returned to a viewer.
+    """
+    if not url or "@" not in url:
+        return url
+    scheme, separator, rest = url.partition("://")
+    if not separator:
+        scheme, rest = "", url
+    authority, slash, tail = rest.partition("/")
+    if "@" not in authority:
+        return url
+    host = authority.rsplit("@", 1)[1]
+    return f"{scheme}{separator}***@{host}{slash}{tail}"
