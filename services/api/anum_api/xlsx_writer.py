@@ -117,6 +117,9 @@ def _sheet_name(name: str, taken: set[str]) -> str:
     return candidate
 
 
+_ENTRY_TIME = (1980, 1, 1, 0, 0, 0)  # the earliest time a zip entry can carry
+
+
 def workbook(sheets: list[Sheet]) -> bytes:
     """The .xlsx file's bytes."""
     if not sheets:
@@ -147,15 +150,17 @@ def workbook(sheets: list[Sheet]) -> bytes:
                            f'Target="worksheets/sheet{i}.xml"/>' for i in range(1, len(sheets) + 1))
                  + f'<Relationship Id="rId{len(sheets) + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
                    'Target="styles.xml"/></Relationships>')
+    parts = [("[Content_Types].xml", content_types), ("_rels/.rels", root_rels), ("xl/workbook.xml", book),
+             ("xl/_rels/workbook.xml.rels", book_rels), ("xl/styles.xml", _STYLES),
+             *((f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheet)) for index, sheet in enumerate(sheets, start=1))]
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", content_types)
-        archive.writestr("_rels/.rels", root_rels)
-        archive.writestr("xl/workbook.xml", book)
-        archive.writestr("xl/_rels/workbook.xml.rels", book_rels)
-        archive.writestr("xl/styles.xml", _STYLES)
-        for index, sheet in enumerate(sheets, start=1):
-            archive.writestr(f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheet))
+        for name, text in parts:
+            # A fixed entry time, never the clock: the same sheets give the same bytes, so an approved
+            # attachment's hash still matches when it is rendered again at send time.
+            entry = zipfile.ZipInfo(name, date_time=_ENTRY_TIME)
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(entry, text)
     return out.getvalue()
 
 
