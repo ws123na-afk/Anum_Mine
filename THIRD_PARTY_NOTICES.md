@@ -13,7 +13,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 
 ## Python packages (PyPI)
 
-75 components.
+74 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -69,7 +69,6 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | pydantic | MIT | api, browser | <https://github.com/pydantic/pydantic> |
 | pydantic-core | MIT | api, browser | <https://github.com/pydantic/pydantic/tree/main/pydantic-core> |
 | pydantic-settings | MIT | api, browser | <https://github.com/pydantic/pydantic-settings> |
-| pyee | MIT | browser | <https://github.com/jfhbrook/pyee> |
 | pyjwt | MIT | api, browser | <https://github.com/jpadilla/pyjwt> |
 | pypdf | BSD-3-Clause | api, browser | <https://github.com/py-pdf/pypdf> |
 | python-dateutil | Apache-2.0 AND BSD-3-Clause | api, browser | <https://github.com/dateutil/dateutil> |
@@ -1100,18 +1099,18 @@ the reason given (docs/licenses.md).
 
 - License: LGPL-3.0-only
 - Used in: api, backup, browser
-- Source: <https://github.com/psycopg/psycopg/tree/3.3.8>
+- Source: <https://github.com/psycopg/psycopg/tree/3.3.9>
 - Why it is accepted: PostgreSQL driver, used unmodified as a separate Python package that loads at run time and can be replaced; ANUM's code is not linked into it. Its LICENSE ships inside the package and in licenses/third-party/.
-- Approved versions: 3.3.8, 3.2.3 (another version or license is reviewed again)
+- Approved versions: 3.3.9, 3.2.3 (another version or license is reviewed again)
 - Notice: psycopg is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.8-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above.
 
 ### psycopg-binary (Python packages (PyPI))
 
 - License: LGPL-3.0-only
 - Used in: api, backup, browser
-- Source: <https://github.com/psycopg/psycopg/tree/3.3.8/psycopg_c>
+- Source: <https://github.com/psycopg/psycopg/tree/3.3.9/psycopg_c>
 - Why it is accepted: Prebuilt C extension of psycopg, used unmodified as a separate shared library that can be replaced (for example by building psycopg[c]). It bundles libpq, OpenSSL and other native libraries, listed with their licenses and notices in scripts/licenses/bundled.toml.
-- Approved versions: 3.3.8, 3.2.3 (another version or license is reviewed again)
+- Approved versions: 3.3.9, 3.2.3 (another version or license is reviewed again)
 - Notice: psycopg-binary is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.8-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above; the libraries it bundles are listed under Native libraries bundled inside packages.
 
 ## Native libraries bundled inside packages
@@ -1157,24 +1156,24 @@ Notices these licenses ask for:
 - libjpeg-turbo (libjpeg.so.62): This software is based in part on the work of the Independent JPEG Group.
 - Zstandard (libzstd.so.1): Used under BSD-3-Clause (chosen from BSD-3-Clause OR GPL-2.0-only).
 
-### playwright 1.64.1 (Python packages (PyPI))
+### playwright 1.65.2 (Python packages (PyPI))
 
 - Used in: browser
-- Reviewed: 2026-11-10, for versions 1.64.1
-- Browser image only (services/api/Dockerfile with ANUM_BROWSER=1). Read from the 1.64.1 manylinux1 x86_64 wheel: `playwright/driver/` holds a Node.js binary and the playwright-core npm package (driver build 1.64.0-beta-1791568591000), each with its own license files, copied verbatim. playwright-core now inlines its npm dependencies into `lib/utilsBundle.js` and `lib/serverRegistry.js` and ships a WebP codec (`lib/webp_codec.wasm`); each has a sidecar license file listing every inlined package with its full license text (all MIT, ISC or BSD-3-Clause), copied verbatim too. At image build time `playwright install --with-deps --only-shell chromium` also downloads the Chromium headless shell (revision 1248, Chromium 156.0.8078.4) into /opt/ms-playwright and installs its Debian runtime packages; those Debian packages are in the image's Trivy SBOM. Chromium's own third-party components are NOT enumerated here: the download could not be fetched for review (its host is blocked from the review machine), so the Chromium row points at Chromium's license and credits instead.
-- Full license texts: [`licenses/third-party/playwright-1.64.1/nodejs-24.22.1-LICENSE.txt`](licenses/third-party/playwright-1.64.1/nodejs-24.22.1-LICENSE.txt), [`licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-LICENSE.txt`](licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-LICENSE.txt), [`licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-NOTICE.txt`](licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-NOTICE.txt), [`licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-ThirdPartyNotices.txt`](licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-ThirdPartyNotices.txt), [`licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-utilsBundle.js.LICENSE.txt`](licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-utilsBundle.js.LICENSE.txt), [`licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-serverRegistry.js.LICENSE.txt`](licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-serverRegistry.js.LICENSE.txt), [`licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-webp_codec.LICENSE.txt`](licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-webp_codec.LICENSE.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
+- Reviewed: 2026-11-27, for versions 1.65.2
+- Browser image only (services/api/Dockerfile with ANUM_BROWSER=1). Read from the 1.65.2 manylinux1 x86_64 wheel: `playwright/driver/` holds a Node.js 26.13.1 binary and the playwright-core 1.65.1 npm package, each with its own license files, copied verbatim. playwright-core inlines its npm dependencies into `lib/utilsBundle.js` and `lib/serverRegistry.js` and ships a WebP codec (`lib/webp_codec.wasm`); each has a sidecar license file listing every inlined package with its full license text (MIT, ISC, BSD and BlueOak-1.0.0 for minimatch; new since 1.64.1: hono 4.13.12, MIT), copied verbatim too. At image build time `playwright install --with-deps --only-shell chromium` also downloads the Chromium headless shell (revision 1255, Chromium 159.0.8154.6) into /opt/ms-playwright and installs its Debian runtime packages; those Debian packages are in the image's Trivy SBOM. Chromium's own third-party components are NOT enumerated here: the download could not be fetched for review (its host is blocked from the review machine), so the Chromium row points at Chromium's license and credits instead.
+- Full license texts: [`licenses/third-party/playwright-1.65.2/nodejs-26.13.1-LICENSE.txt`](licenses/third-party/playwright-1.65.2/nodejs-26.13.1-LICENSE.txt), [`licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-LICENSE.txt`](licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-LICENSE.txt), [`licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-NOTICE.txt`](licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-NOTICE.txt), [`licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-ThirdPartyNotices.txt`](licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-ThirdPartyNotices.txt), [`licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-utilsBundle.js.LICENSE.txt`](licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-utilsBundle.js.LICENSE.txt), [`licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-serverRegistry.js.LICENSE.txt`](licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-serverRegistry.js.LICENSE.txt), [`licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-webp_codec.LICENSE.txt`](licenses/third-party/playwright-1.65.2/playwright-core-1.65.1-webp_codec.LICENSE.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
 
 | Library | License | Copyright | Source |
 |---|---|---|---|
-| Node.js 24.22.1 (playwright/driver/node) | MIT | Node.js contributors; Joyent, Inc. and other Node contributors | <https://nodejs.org/download/release/v24.22.1/> |
-| playwright-core 1.64.0 (playwright/driver/package) | Apache-2.0 | Microsoft Corporation | <https://github.com/microsoft/playwright/tree/v1.64.0> |
-| Chromium headless shell 156.0.8078.4 (revision 1248, downloaded at image build time) | BSD-3-Clause | The Chromium Authors, plus third-party components under their own licenses (not enumerated) | <https://chromium.googlesource.com/chromium/src/+/refs/tags/156.0.8078.4/LICENSE> |
+| Node.js 26.13.1 (playwright/driver/node) | MIT | Node.js contributors; Joyent, Inc. and other Node contributors | <https://nodejs.org/download/release/v26.13.1/> |
+| playwright-core 1.65.1 (playwright/driver/package) | Apache-2.0 | Microsoft Corporation | <https://github.com/microsoft/playwright/tree/v1.65.1> |
+| Chromium headless shell 159.0.8154.6 (revision 1255, downloaded at image build time) | BSD-3-Clause | The Chromium Authors, plus third-party components under their own licenses (not enumerated) | <https://chromium.googlesource.com/chromium/src/+/refs/tags/159.0.8154.6/LICENSE> |
 
 Notices these licenses ask for:
 
-- Node.js 24.22.1 (playwright/driver/node): Node.js bundles V8, ICU, OpenSSL, libuv, zlib, npm and other components under their own permissive licenses; all are listed with their full texts in nodejs-24.22.1-LICENSE.txt.
-- playwright-core 1.64.0 (playwright/driver/package): Playwright. Copyright (c) Microsoft Corporation. This software contains code derived from the Puppeteer project (https://github.com/puppeteer/puppeteer), available under the Apache 2.0 license. playwright-core inlines the npm packages listed, with their licenses, in playwright-core-1.64.0-utilsBundle.js.LICENSE.txt and playwright-core-1.64.0-serverRegistry.js.LICENSE.txt, and ships libwebp (BSD-3-Clause) and Emscripten glue (MIT) as listed in playwright-core-1.64.0-webp_codec.LICENSE.txt.
-- Chromium headless shell 156.0.8078.4 (revision 1248, downloaded at image build time): Chromium's third-party components and their licenses are listed in Chromium's credits (generated from the README.chromium files in its source tree at that tag); they are not enumerated in this file yet.
+- Node.js 26.13.1 (playwright/driver/node): Node.js bundles V8, ICU, OpenSSL, libuv, zlib, npm and other components under their own permissive licenses; all are listed with their full texts in nodejs-26.13.1-LICENSE.txt.
+- playwright-core 1.65.1 (playwright/driver/package): Playwright. Copyright (c) Microsoft Corporation. This software contains code derived from the Puppeteer project (https://github.com/puppeteer/puppeteer), available under the Apache 2.0 license. playwright-core inlines the npm packages listed, with their licenses, in playwright-core-1.65.1-utilsBundle.js.LICENSE.txt and playwright-core-1.65.1-serverRegistry.js.LICENSE.txt, and ships libwebp (BSD-3-Clause) and Emscripten glue (MIT) as listed in playwright-core-1.65.1-webp_codec.LICENSE.txt.
+- Chromium headless shell 159.0.8154.6 (revision 1255, downloaded at image build time): Chromium's third-party components and their licenses are listed in Chromium's credits (generated from the README.chromium files in its source tree at that tag); they are not enumerated in this file yet.
 
 ### psycopg-binary 3.2.3 (Python packages (PyPI))
 
@@ -1200,30 +1199,26 @@ Notices these licenses ask for:
 - keyutils (libkeyutils.so.1): Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the backup image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it).
 - Cyrus SASL (libsasl2.so.3): This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/).
 
-### psycopg-binary 3.3.8 (Python packages (PyPI))
+### psycopg-binary 3.3.9 (Python packages (PyPI))
 
 - Used in: api, browser
-- Reviewed: 2026-11-10, for versions 3.3.8
-- Read from the 3.3.8 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). The libraries come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64; their exact source is those distributions' source packages. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified.
-- Full license texts: [`licenses/third-party/psycopg-3.3.8-LICENSE.txt`](licenses/third-party/psycopg-3.3.8-LICENSE.txt), [`licenses/third-party/GPL-3.0-only.txt`](licenses/third-party/GPL-3.0-only.txt), [`licenses/third-party/LGPL-2.1-or-later.txt`](licenses/third-party/LGPL-2.1-or-later.txt), [`licenses/third-party/PostgreSQL.txt`](licenses/third-party/PostgreSQL.txt), [`licenses/third-party/Apache-2.0.txt`](licenses/third-party/Apache-2.0.txt), [`licenses/third-party/OpenSSL.txt`](licenses/third-party/OpenSSL.txt), [`licenses/third-party/OLDAP-2.8.txt`](licenses/third-party/OLDAP-2.8.txt), [`licenses/third-party/BSD-Attribution-HPND-disclaimer.txt`](licenses/third-party/BSD-Attribution-HPND-disclaimer.txt), [`licenses/third-party/MIT.txt`](licenses/third-party/MIT.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
+- Reviewed: 2026-11-27, for versions 3.3.9
+- Read from the 3.3.9 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). OpenSSL 3.5.9 and MIT Kerberos 1.22.2 (with its own com_err, libcom_err.so.3) are built from source; libcrypt, keyutils, OpenLDAP, Cyrus SASL and the e2fsprogs com_err (libcom_err.so.2, which Cyrus SASL needs) come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64, whose exact source is those distributions' source packages. Since 3.3.8 the wheels no longer carry OpenSSL 1.1.1k, PCRE or libselinux. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml; its 3.3.9 LICENSE.txt is the same text as licenses/third-party/psycopg-3.3.8-LICENSE.txt). Used unmodified.
+- Full license texts: [`licenses/third-party/psycopg-3.3.8-LICENSE.txt`](licenses/third-party/psycopg-3.3.8-LICENSE.txt), [`licenses/third-party/GPL-3.0-only.txt`](licenses/third-party/GPL-3.0-only.txt), [`licenses/third-party/LGPL-2.1-or-later.txt`](licenses/third-party/LGPL-2.1-or-later.txt), [`licenses/third-party/PostgreSQL.txt`](licenses/third-party/PostgreSQL.txt), [`licenses/third-party/Apache-2.0.txt`](licenses/third-party/Apache-2.0.txt), [`licenses/third-party/OLDAP-2.8.txt`](licenses/third-party/OLDAP-2.8.txt), [`licenses/third-party/BSD-Attribution-HPND-disclaimer.txt`](licenses/third-party/BSD-Attribution-HPND-disclaimer.txt), [`licenses/third-party/MIT.txt`](licenses/third-party/MIT.txt)
 
 | Library | License | Copyright | Source |
 |---|---|---|---|
 | libpq 18 (libpq.so.5.18) | PostgreSQL | PostgreSQL Global Development Group; The Regents of the University of California | <https://www.postgresql.org/ftp/source/> |
-| OpenSSL 3 (libssl.so.3, libcrypto.so.3) | Apache-2.0 | The OpenSSL Project Authors | <https://www.openssl.org/source/> |
-| OpenSSL 1.1.1k (libcrypto.so.1.1.1k, aarch64 wheel only) | OpenSSL | The OpenSSL Project; Eric Young | <https://www.openssl.org/source/old/1.1.1/> |
-| MIT Kerberos (libkrb5, libgssapi_krb5, libk5crypto, libkrb5support) | MIT | Massachusetts Institute of Technology and other contributors | <https://web.mit.edu/kerberos/> |
-| com_err (libcom_err.so.2) | MIT | Massachusetts Institute of Technology | <https://e2fsprogs.sourceforge.net/> |
+| OpenSSL 3.5.9 (libssl.so.3, libcrypto.so.3) | Apache-2.0 | The OpenSSL Project Authors | <https://www.openssl.org/source/> |
+| MIT Kerberos 1.22.2 (libkrb5, libgssapi_krb5, libk5crypto, libkrb5support, and its com_err libcom_err.so.3) | MIT | Massachusetts Institute of Technology and other contributors | <https://web.mit.edu/kerberos/> |
+| com_err (libcom_err.so.2, e2fsprogs) | MIT | Massachusetts Institute of Technology | <https://e2fsprogs.sourceforge.net/> |
 | libcrypt (glibc libcrypt.so.1 on x86_64, libxcrypt libcrypt.so.1.1.0 on aarch64) | LGPL-2.1-or-later | Free Software Foundation, Inc. and the libxcrypt contributors | <https://github.com/besser82/libxcrypt> |
 | keyutils (libkeyutils.so.1) | LGPL-2.1-or-later | Red Hat, Inc. | <https://people.redhat.com/~dhowells/keyutils/> |
 | OpenLDAP (libldap, liblber) | OLDAP-2.8 | The OpenLDAP Foundation | <https://www.openldap.org/software/download/> |
 | Cyrus SASL (libsasl2.so.3) | BSD-Attribution-HPND-disclaimer | Carnegie Mellon University | <https://www.cyrusimap.org/sasl/> |
-| PCRE (libpcre.so.1 on x86_64, libpcre2-8.so.0 on aarch64) | BSD-3-Clause | University of Cambridge | <https://www.pcre.org/> |
-| libselinux (libselinux.so.1) | LicenseRef-public-domain | National Security Agency (public domain) | <https://github.com/SELinuxProject/selinux> |
 
 Notices these licenses ask for:
 
-- OpenSSL 1.1.1k (libcrypto.so.1.1.1k, aarch64 wheel only): This product includes software developed by the OpenSSL Project for use in the OpenSSL Toolkit (http://www.openssl.org/). This product includes cryptographic software written by Eric Young (eay@cryptsoft.com).
 - libcrypt (glibc libcrypt.so.1 on x86_64, libxcrypt libcrypt.so.1.1.0 on aarch64): Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the API image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it).
 - keyutils (libkeyutils.so.1): Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the API image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it).
 - Cyrus SASL (libsasl2.so.3): This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/).

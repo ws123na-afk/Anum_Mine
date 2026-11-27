@@ -12,37 +12,37 @@ description = "ANUM FastAPI backend foundation"
 requires-python = ">=3.11"
 dependencies = [
   "alembic==1.20.1",
-  "boto3==1.43.126",
+  "boto3==1.44.9",
   "cryptography==50.0.2",
   "defusedxml==0.7.1",
   "dnspython==2.9.2",
-  "fastapi==0.162.0",
+  "fastapi==0.165.0",
   "httpx==0.28.1",
-  "nats-py==2.16.0",
+  "nats-py==2.17.0",
   "opentelemetry-api==1.45.2",
   "opentelemetry-exporter-otlp-proto-http==1.45.2",
   "opentelemetry-instrumentation-fastapi==0.66b2",
   "opentelemetry-instrumentation-httpx==0.66b2",
   "opentelemetry-instrumentation-sqlalchemy==0.66b2",
   "opentelemetry-sdk==1.45.2",
-  "psycopg[binary]==3.3.8",
-  "pydantic-settings==2.16.2",
+  "psycopg[binary]==3.3.9",
+  "pydantic-settings==2.16.3",
   "pdfminer.six==20260107",
-  "pypdf==7.0.0",
+  "pypdf==7.1.1",
   "Pillow==13.0.0",
   "PyJWT[crypto]==2.15.1",
   "redis==8.1.0",
-  "sentry-sdk==2.74.0",
-  "sqlalchemy==2.1.8",
+  "sentry-sdk==2.75.0",
+  "sqlalchemy==2.1.9",
   "starlette==1.10.0",
-  "temporalio==1.35.0",
+  "temporalio==1.36.1",
   "uvicorn[standard]==0.54.0"
 ]
 
 [project.optional-dependencies]
 # Only the browser image installs it (docs/browser-research.md#the-browser-image).
 browser = [
-  "playwright==1.64.1"
+  "playwright==1.65.2"
 ]
 test = [
   "moto[s3]==5.2.5",
