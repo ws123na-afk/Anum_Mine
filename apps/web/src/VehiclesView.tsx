@@ -7,7 +7,7 @@ import { CalendarClock, CarFront, ChevronLeft, ChevronRight, Download, FileUp, F
 import type { Vehicle, VehicleFuelEntry, VehicleOverview, VehiclePage, VehiclePreferences, VehicleRecordKind, VehicleReport, VehicleServiceRecord, VehicleTrip } from '@anum/contracts';
 import * as api from './lib/vehiclesApi';
 import {
-  PAGE_SIZE, VEHICLE_TABS, dueLabel, vehicleFromHash, dueText, hashForTab, km, litres, moneyList, paymentText, purposeLabel, serviceLabel, tabFromHash, typeLabel, vehicleName, type VehicleTab,
+  PAGE_SIZE, VEHICLE_TABS, dueLabel, vehicleFromHash, dueText, hashForTab, km, litres, moneyList, paymentText, spendSplit, purposeLabel, serviceLabel, tabFromHash, typeLabel, vehicleName, type VehicleTab,
 } from './lib/vehicles';
 import { amountIn, previousMonthName, kmIn, kmPerLitre, mainCurrency, newestFirst, nextDue, papers, usageRows, vehicleStatus, type RecentRecord } from './lib/ops';
 import { formatAmount, monthLabel } from './lib/finance';
@@ -143,7 +143,7 @@ function OverviewPanel({ month, onOpen, onAdd, onDenied, onList }: { month: stri
       <KpiCard icon={<CarFront />} label={t('ops.veh.kpi.active')} value={formatNumber(value.months.vehicles)} hint={t('veh.fig.vehiclesHint')} />
       <KpiCard icon={<Route />} label={t('ops.veh.kpi.distance')} value={km(kmNow)} delta={delta(kmNow, kmBefore)} deltaText={deltaWords(delta(kmNow, kmBefore), vsBefore)} />
       <KpiCard icon={<Fuel />} label={t('ops.veh.kpi.spend')} value={<bdi>{formatAmount(spendNow, spendCurrency)}</bdi>} delta={delta(spendNow, spendBefore, false)}
-        deltaText={deltaWords(delta(spendNow, spendBefore, false), vsBefore)} hint={otherSpend.length ? moneyList(otherSpend) : t('veh.fig.spendHint')} />
+        deltaText={deltaWords(delta(spendNow, spendBefore, false), vsBefore)} hint={otherSpend.length ? moneyList(otherSpend) : spendSplit(value.month.spend_basis, spendCurrency) ?? t('veh.fig.spendHint')} />
       <KpiCard icon={<Wrench />} label={t('ops.veh.kpi.due')} value={formatNumber(value.months.due.length)} tone={value.months.due.some((d) => (d.days_left ?? 1) < 0) ? 'bad' : value.months.due.length ? 'warn' : ''}
         hint={value.months.unlinked_records ? t('veh.fig.waiting', { count: value.months.unlinked_records }) : t('veh.fig.dueHint')} />
     </KpiRow>

@@ -15,7 +15,7 @@ function job(overrides: Json = {}): Json {
   };
 }
 
-interface Options { viewer?: boolean; failFirst?: boolean; noExports?: boolean; orgScheduled?: boolean }
+interface Options { viewer?: boolean; failFirst?: boolean; noExports?: boolean; orgScheduled?: boolean; noWorkspaceName?: boolean }
 
 async function mockApi(page: Page, options: Options = {}) {
   const calls: { method: string; path: string; body: unknown }[] = [];
@@ -47,7 +47,7 @@ async function mockApi(page: Page, options: Options = {}) {
       }
       return json({
         can_manage_organisation: !options.viewer, can_delete_workspace: !options.viewer,
-        organisation_confirmation: 'tenant_local', workspace_confirmation: 'Foundation',
+        organisation_confirmation: 'tenant_local', workspace_confirmation: options.noWorkspaceName ? null : 'Foundation',
         cooling_off_hours: 168, export_link_ttl_seconds: 900, export_retention_hours: 168,
         exports, organisation_deletion: organisationDeletion, workspace_deletion: workspaceDeletion,
       });
@@ -98,6 +98,16 @@ async function mockApi(page: Page, options: Options = {}) {
 }
 
 const section = (page: Page) => page.getByRole('region', { name: 'Data export and deletion' });
+
+test('Settings still opens when the workspace has no stored name (workspace_confirmation null)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await mockApi(page, { noWorkspaceName: true });
+  await page.goto('/#settings');
+  await expect(section(page).getByRole('region', { name: 'Export organisation data' })).toBeVisible();
+  await expect(page.getByText('This page hit an error')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
 
 test('an owner sees exports, requests one that becomes ready, and downloads a ready one', async ({ page }) => {
   const calls = await mockApi(page);

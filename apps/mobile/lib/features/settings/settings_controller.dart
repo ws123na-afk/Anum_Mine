@@ -75,6 +75,10 @@ class SettingsController extends ChangeNotifier {
   SettingsPhase phase = SettingsPhase.initial;
   LocalSession? session;
   ModelConfiguration? model;
+
+  /// Whether AI answers are placeholders (docs/model-gateway.md#placeholder-answers).
+  /// Null when it could not be read: nothing then claims the answers are fake.
+  ModelStatus? modelStatus;
   NotificationPreferences notifications = const NotificationPreferences();
   String? message;
 
@@ -96,6 +100,7 @@ class SettingsController extends ChangeNotifier {
     phase = SettingsPhase.initial;
     session = null;
     model = null;
+    modelStatus = null;
     notifications = const NotificationPreferences();
     message = null;
     modelError = null;
@@ -126,6 +131,7 @@ class SettingsController extends ChangeNotifier {
       } on Object {
         model = null;
       }
+      await refreshModelStatus(notify: false);
       phase = SettingsPhase.ready;
     } on Object catch (error) {
       _fail(error);
@@ -267,6 +273,16 @@ class SettingsController extends ChangeNotifier {
 
   /// Saves a new model for this workspace and checks it answers. Task runs and
   /// voice answers use it from the next request.
+  /// Reads [modelStatus] again; a failure leaves it null (unknown).
+  Future<void> refreshModelStatus({bool notify = true}) async {
+    try {
+      modelStatus = await repository.modelStatus();
+    } on Object {
+      modelStatus = null;
+    }
+    if (notify) notifyListeners();
+  }
+
   Future<bool> changeModel({
     required String provider,
     required String model,
@@ -295,6 +311,7 @@ class SettingsController extends ChangeNotifier {
         }
         rethrow;
       }
+      await refreshModelStatus(notify: false);
       phase = SettingsPhase.ready;
       message = saved.provider == 'anthropic'
           ? 'Saved. ${saved.fastModel} answers chat and voice, '

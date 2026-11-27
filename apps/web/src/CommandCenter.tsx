@@ -7,6 +7,7 @@
 // Start. The overview of the day is Home (HomeView.tsx). Every API call goes through lib/commandApi.ts;
 // the pure rules are in lib/commands.ts and lib/commandCenter.ts.
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { ModelPlaceholderBanner } from './ModelPlaceholderBanner';
 import {
   ArrowDown, ArrowRight, ArrowUp, BarChart3, Bot, ChevronLeft, ChevronRight, Circle, CircleAlert, CircleCheck, Download, FileText, Files, Globe, Keyboard,
   LayoutGrid, Lightbulb, ListTodo, LoaderCircle, Mail, MessageCircle, MessageSquare, Mic, Paperclip, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search,
@@ -308,6 +309,7 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
         {COMMAND_MODES.map((m) => <button key={m} type="button" aria-pressed={mode === m} className={mode === m ? 'on' : ''} onClick={() => chooseMode(m)}>{MODE_ICON[m]}<span>{t(`command.mode.${m}` as MessageKey)}</span></button>)}
       </div>}
     </header>
+    <ModelPlaceholderBanner />
 
     <section className="commandStage" aria-label={t('command.stage')}>
       <ul className="orbChips start" aria-label={t('command.chips')}>{ORB_CHIPS.slice(0, 4).map(chip)}</ul>

@@ -130,12 +130,12 @@ def _lines(summary: dict[str, Any], t: dict[str, str]) -> dict[str, list[list[An
             vehicles.append([row["registration"], _vehicle(row), _km(row["distance_km"]), row["litres_per_100km"] or "-", cost["currency"],
                              *(_amount(cost[c]) for c in CATEGORY_KEYS), _amount(cost["total"]),
                              _amount(cost["cost_per_km"]) if cost["cost_per_km"] else "-"])
-    worst = [[w["registration"], w.get("nickname") or "-", w["currency"], _amount(w["cost_per_km"]), _amount(w["total"]), _km(w["distance_km"])]
+    worst = [[w["registration"], _vehicle(w), w["currency"], _amount(w["cost_per_km"]), _amount(w["total"]), _km(w["distance_km"])]
              for w in summary["worst"]]
     trend = [[month_name(item["month"], t["_lang"]), item["currency"], *(_amount(item[c]) for c in CATEGORY_KEYS), _amount(item["total"]),  # type: ignore[arg-type]
               _km(item["distance_km"]), _amount(item["cost_per_km"]) if item["cost_per_km"] else "-"]
              for item in summary["trend"]]
-    renewals = [[r["registration"], r.get("nickname") or "-", _renewal(r["kind"], t), r["due_on"], _days(r["days_left"], t)] for r in summary["renewals"]]
+    renewals = [[r["registration"], _vehicle(r), _renewal(r["kind"], t), r["due_on"], _days(r["days_left"], t)] for r in summary["renewals"]]
     tyres = summary.get("tyres") or {}
     tyre_rows = [[r["registration"], r["tyre_vehicle"], f"{_amount(r['tyre_cost'])} {tyres.get('currency', '')}".strip(), str(r["tyres_due"]),
                   r["next_removal"] or "-"] for r in tyres.get("vehicles", [])] if tyres.get("status") == "ok" else []
@@ -268,7 +268,7 @@ def _numbers(summary: dict[str, Any]) -> dict[str, list[list[Any]]]:
         for cost in row["costs"]:
             vehicles.append([row["registration"], _vehicle(row), Decimal(row["distance_km"]), _decimal(row["litres_per_100km"]), cost["currency"],
                              *(Decimal(cost[c]) for c in CATEGORY_KEYS), Decimal(cost["total"]), _decimal(cost["cost_per_km"])])
-    worst = [[w["registration"], w.get("nickname") or "", w["currency"], _decimal(w["cost_per_km"]), Decimal(w["total"]), Decimal(w["distance_km"])]
+    worst = [[w["registration"], " ".join(p for p in (w.get("nickname"), w.get("make"), w.get("model")) if p), w["currency"], _decimal(w["cost_per_km"]), Decimal(w["total"]), Decimal(w["distance_km"])]
              for w in summary["worst"]]
     trend = [[item["month"], item["currency"], *(Decimal(item[c]) for c in CATEGORY_KEYS), Decimal(item["total"]), Decimal(item["distance_km"]),
               _decimal(item["cost_per_km"])] for item in summary["trend"]]

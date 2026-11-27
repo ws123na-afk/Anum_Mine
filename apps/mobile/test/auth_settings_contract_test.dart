@@ -14,6 +14,20 @@ void main() {
       "'loginTitle'",
       "'signupTitle'",
       "'onboarding1Title'",
+      // Sign-in and first run read their words from the catalog
+      // (auth_strings.dart), in English and Arabic.
+      "'auth.signIn.title'",
+      "'auth.setup.title'",
+      "'auth.model.title'",
+      "'auth.failure.offline'",
+      "'auth.failure.permission'",
+      "'auth.failure.session'",
+    ]) {
+      expect(source, contains(label));
+    }
+    final catalog =
+        File('lib/src/localization/auth_strings.dart').readAsStringSync();
+    for (final label in <String>[
       'Sign in to ANUM',
       'Set up your workspace',
       'Connect a model',
@@ -21,7 +35,7 @@ void main() {
       'Access denied',
       'Session expired',
     ]) {
-      expect(source, contains(label));
+      expect(catalog, contains(label));
     }
     expect(source, contains('EdgeInsetsDirectional'));
     expect(source, contains('AlignmentDirectional'));

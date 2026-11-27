@@ -28,12 +28,12 @@ async function mockApi(page: Page, options: { empty?: boolean; denied?: boolean;
     const body = request.postData() ? request.postDataJSON() : null;
     if (request.method() !== 'GET') sent.push({ method: request.method(), path, body });
     if (path === '/api/v1/finance/installment-email/mailboxes' && request.method() === 'GET')
-      return json([{ id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', selected: true }]);
+      return json([{ id: 'gmail_llc', address: 'bills@example.com', selected: true }]);
     if (path === '/api/v1/email/accounts/gmail_llc/sync' && request.method() === 'POST')
-      return json({ id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', provider: 'gmail', status: 'connected' });
+      return json({ id: 'gmail_llc', address: 'bills@example.com', provider: 'gmail', status: 'connected' });
     if (path === '/api/v1/finance/installment-email/preview' && request.method() === 'GET')
       return json({
-        account_id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', messages_checked: 4,
+        account_id: 'gmail_llc', address: 'bills@example.com', messages_checked: 4,
         messages_matched: 3, warnings: [],
         rows: [
           { provider: 'Tamara', order_id: 'jarir-gmail-1', merchant: 'Jarir', purchase_on: '2026-10-15',
@@ -315,12 +315,12 @@ test('full statement keeps completed orders, excludes refund cases from monthly 
   await expect(section.getByRole('button', { name: 'Export statement CSV' })).toBeVisible();
 });
 
-test('Gmail sync for preferred LLC account previews and imports only pending installments', async ({ page }) => {
+test('Gmail sync for the owner\'s own mailbox previews and imports only pending installments', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-bills');
   await page.getByRole('button', { name: 'Sync Gmail' }).click();
   const dialog = page.getByRole('dialog', { name: 'Import Tamara payments from connected Gmail' });
-  await expect(dialog.getByLabel('Gmail mailbox')).toContainText('shahzeb.rahmanllc@gmail.com');
+  await expect(dialog.getByLabel('Gmail mailbox')).toContainText('bills@example.com');
   await dialog.getByRole('button', { name: 'Preview Tamara emails' }).click();
   await expect(dialog.getByText('Installments found: 2.')).toBeVisible();
   await expect(dialog.getByText('New Bills: 1.')).toBeVisible();

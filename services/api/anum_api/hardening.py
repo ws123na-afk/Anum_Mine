@@ -12,6 +12,7 @@ The middlewares are pure ASGI so they never buffer streaming (SSE) responses.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import threading
@@ -277,32 +278,74 @@ def client_key(scope: Scope) -> str:
     return "ip:unknown"
 
 
+def credential_key(scope: Scope) -> str | None:
+    """Identify a signed-in caller by a digest of the bearer credential they sent.
+
+    The credential is not verified here (that happens later, in the route), so the key
+    is the credential itself, never a user id read from it: nobody can spend another
+    person's allowance without holding their token. Someone who invents new tokens to
+    get fresh buckets is still held by the per-address ceiling in ``RateLimitMiddleware``.
+    """
+    value = _header(scope, b"authorization")
+    if not value:
+        return None
+    scheme, _, token = value.partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return "cred:" + hashlib.sha256(token.encode("utf-8", "replace")).hexdigest()[:32]
+
+
 class RateLimitMiddleware:
+    """Token-bucket rate limit, per signed-in credential where there is one.
+
+    A request with a bearer credential spends from that credential's bucket and from a
+    looser per-address ceiling (``network_backend``), so colleagues behind one office or
+    mobile-carrier address no longer share one person's allowance. A request without a
+    credential spends from its address's bucket in ``backend``.
+    """
+
     def __init__(
         self,
         app: ASGIApp,
         *,
         backend: RateLimitBackend,
+        network_backend: RateLimitBackend | None = None,
         exempt_paths: Iterable[str] = ("/health",),
         key_func: Callable[[Scope], str] = client_key,
+        credential_func: Callable[[Scope], str | None] = credential_key,
     ) -> None:
         self.app = app
         self.backend = backend
+        self.network_backend = network_backend
         self.exempt_paths = frozenset(exempt_paths)
         self.key_func = key_func
+        self.credential_func = credential_func
+
+    @staticmethod
+    async def _acquire(backend: RateLimitBackend, key: str) -> RateLimitDecision:
+        if getattr(backend, "blocking", False):
+            return await anyio.to_thread.run_sync(backend.acquire, key)
+        return backend.acquire(key)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope.get("method") == "OPTIONS" or scope.get("path") in self.exempt_paths:
             await self.app(scope, receive, send)
             return
-        key = self.key_func(scope)
-        if getattr(self.backend, "blocking", False):
-            decision = await anyio.to_thread.run_sync(self.backend.acquire, key)
+        address = self.key_func(scope)
+        credential = self.credential_func(scope) if self.network_backend is not None else None
+        if credential is None:
+            decision, backend, scope_name = await self._acquire(self.backend, address), self.backend, "address"
         else:
-            decision = self.backend.acquire(key)
+            decision, backend, scope_name = await self._acquire(self.backend, credential), self.backend, "credential"
+            if decision.allowed:
+                assert self.network_backend is not None  # nosec B101: narrowed above
+                backend, scope_name = self.network_backend, "address_ceiling"
+                decision = await self._acquire(self.network_backend, address)
         if not decision.allowed:
             telemetry.rate_limit_rejections.add(
-                1, {"anum.rate_limit.backend": getattr(self.backend, "metric_name", "memory")}
+                1,
+                {"anum.rate_limit.backend": getattr(backend, "metric_name", "memory"), "anum.rate_limit.scope": scope_name},
             )
             await _send_error(
                 scope,
@@ -506,8 +549,10 @@ def install_hardening(
         from .valkey import build_rate_limit_backend
 
         limiter = build_rate_limit_backend(config)
+        ceiling = build_rate_limit_backend(config, scale=config.rate_limit_address_multiplier, name="address")
         app.state.rate_limiter = limiter
-        app.add_middleware(RateLimitMiddleware, backend=limiter)
+        app.state.rate_limit_ceiling = ceiling
+        app.add_middleware(RateLimitMiddleware, backend=limiter, network_backend=ceiling)
     app.add_middleware(SecurityHeadersMiddleware, environment=config.environment)
 
 

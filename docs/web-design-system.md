@@ -70,6 +70,8 @@ All tokens live in the first two blocks of `apps/web/src/styles.css` (dark in `:
 
 <a id="shared-list-parts"></a>The shared list parts (`Notice`, `Empty`, `Pager` in `PageParts.tsx`) replace the local copies page by page: Favorites, the Notifications page, Calls & Meetings, the Document vault, the audit log, Skills and the customer portal block use them (November 2026); other pages move when they are next changed, so untouched pages are not churned.
 
+<a id="page-errors"></a>**Page errors.** The open page renders inside `ViewErrorBoundary` (`ViewErrorBoundary.tsx`), keyed by view in `main.tsx`. A render error in one page shows the `Empty` look with "This page hit an error", Try again and Reload app, while the sidebar and header keep working; opening another page starts clean. Before it, one unexpected `null` from the API (Settings, `workspace_confirmation`, November 2026) blanked the whole app until a reload. The boundary is a safety net: pages still map API fields defensively and show `PaneProblem` for failed loads.
+
 ## Pages
 
 The second pass recomposed the most used pages on these tokens. Each keeps its routes, test ids and API calls.

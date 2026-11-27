@@ -184,8 +184,10 @@
 .invAddress { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .invParty { color: var(--d-muted); font-size: var(--text-xs); margin: 0 0 var(--d-s1); }
 .bzSpanAll { grid-column: 1 / -1; }
-@media (min-width: 640px) { .invLineRow { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (min-width: 1200px) { .invLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, 1.5fr) 40px; } }
+/* Sized by the form's own width (container), not the screen: in the ~560px dialog a screen rule gave seven columns a few pixels each. */
+.bzRows:has(> .invLineRow) { container-type: inline-size; }
+@container (min-width: 480px) { .invLineRow { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (min-width: 900px) { .invLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, 1.5fr) 40px; } }
 .invAccess > li { display: grid; gap: 2px; }
 .invCodeSignIn { border-block-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
 .invCodeSignIn > p { margin: 0; }
