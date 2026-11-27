@@ -19,8 +19,12 @@ const tyresRoute = '/tyres';
 /// ANUM Command: speak or type one request, confirm the plan, follow the
 /// agents live and act on the results (docs/command.md).
 class CommandScreen extends StatefulWidget {
-  const CommandScreen({required this.controller, super.key});
+  const CommandScreen({required this.controller, this.banner, super.key});
   final CommandController controller;
+
+  /// Shown under the top bar: the placeholder-answers banner while the
+  /// workspace's model is the built-in placeholder.
+  final Widget? banner;
 
   @override
   State<CommandScreen> createState() => _CommandScreenState();
@@ -120,6 +124,7 @@ class _CommandScreenState extends State<CommandScreen> {
                   onQuick: _openQuickCommands,
                   strings: strings,
                 ),
+                if (widget.banner case final banner?) banner,
                 Expanded(child: _stage(strings)),
               ],
             ),

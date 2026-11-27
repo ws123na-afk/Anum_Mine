@@ -290,16 +290,24 @@ class NoWorkspaceScreen extends StatelessWidget {
   final AuthController controller;
 
   @override
-  Widget build(BuildContext context) => _Page(
+  Widget build(BuildContext context) {
+    final existing = controller.workspaceName;
+    return _Page(
       eyebrow: 'No workspace yet',
       title: 'You are not in a workspace',
-      subtitle: 'Your account signed in, but it is not an active member of any '
-          'workspace in your organization, and no default workspace is set '
-          'for it.',
+      subtitle: existing != null
+          ? 'Your account signed in, and the workspace $existing is already '
+              'set up by its owner, but you are not a member of it yet.'
+          : 'Your account signed in, but it is not an active member of any '
+              'workspace in your organization, and no default workspace is '
+              'set for it.',
       body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Text('Ask a workspace owner to invite you, or ask your '
-            'administrator to set the default_workspace_id attribute on your '
-            'account. Then check again.'),
+        Text(existing != null
+            ? 'Ask the owner of $existing to invite you from Members. When you '
+                'have accepted the invitation, check again.'
+            : 'Ask a workspace owner to invite you, or ask your '
+                'administrator to set the default_workspace_id attribute on '
+                'your account. Then check again.'),
         const SizedBox(height: AnumSpacing.lg),
         FilledButton.icon(
             onPressed: controller.checkWorkspacesAgain,
@@ -309,7 +317,9 @@ class NoWorkspaceScreen extends StatelessWidget {
         TextButton(
             onPressed: controller.signOut,
             child: const Text('Sign in with another account')),
-      ]));
+      ]),
+    );
+  }
 }
 
 class WorkspaceSetupScreen extends StatefulWidget {
@@ -539,9 +549,10 @@ class _ModelState extends State<ModelConnectionScreen> {
           ])));
 }
 
-/// The skip action, shown only when a model answers without this step: the
-/// workspace already saved one or the server is configured with one. While
-/// that is being checked, or when the check fails, it says so instead.
+/// How to go on without this step: use the workspace's or the server's model
+/// when one answers, else continue without a model (AI answers are then
+/// placeholders, with a banner on the screens where they appear). Nobody is
+/// kept out of the app for want of a model.
 class _SkipStatus extends StatelessWidget {
   const _SkipStatus({required this.controller, required this.owner});
   final AuthController controller;
@@ -567,12 +578,16 @@ class _SkipStatus extends StatelessWidget {
     if (error != null || availability == null) {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('Could not check whether the server already has a model: '
-            '${error ?? 'no answer'}. Check your connection and try again.'),
+            '${error ?? 'no answer'}. Check your connection and try again, '
+            'or continue and set up a model later in Settings.'),
         const SizedBox(height: AnumSpacing.sm),
         OutlinedButton.icon(
             onPressed: controller.checkModelAvailability,
             icon: const Icon(Icons.refresh),
             label: const Text('Check again')),
+        TextButton(
+            onPressed: controller.continueWithoutModel,
+            child: const Text('Continue without a model')),
       ]);
     }
     if (availability.canSkip) {
@@ -586,13 +601,22 @@ class _SkipStatus extends StatelessWidget {
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text(owner
-          ? 'Skipping is not available: neither this workspace nor the ANUM '
-              'server has a model configured, so agents would have nothing '
-              'to answer with. Connect one above to continue.'
-          : 'Neither this workspace nor the ANUM server has a model '
-              'configured yet. Ask a workspace owner to connect one in '
-              'Settings, Model connection, then check again.'),
+          ? 'Neither this workspace nor the ANUM server has a model yet. You '
+              'can continue without one: everything that does not need AI '
+              'works, and AI answers are placeholders until you connect a '
+              'model above or later in Settings, Model connection.'
+          : 'Neither this workspace nor the ANUM server has a model yet. You '
+              'can continue: everything that does not need AI works, and AI '
+              'answers are placeholders until a workspace owner connects one '
+              'in Settings, Model connection.'),
       const SizedBox(height: AnumSpacing.sm),
+      owner
+          ? TextButton(
+              onPressed: controller.continueWithoutModel,
+              child: const Text('Continue without a model'))
+          : FilledButton(
+              onPressed: controller.continueWithoutModel,
+              child: const Text('Continue without a model')),
       OutlinedButton.icon(
           onPressed: controller.checkModelAvailability,
           icon: const Icon(Icons.refresh),
