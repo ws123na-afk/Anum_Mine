@@ -21,13 +21,17 @@ async function serious(page: Page) {
   return results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id);
 }
 
-test('the placeholder model shows the banner on Home and in the Assistant, and it opens Settings', async ({ page }) => {
+test('the placeholder model shows the banner on Home, in Command and in the Assistant, and it opens Settings', async ({ page }) => {
   await withModelStatus(page, { placeholder: true, provider: 'mock', source: 'server' });
   await page.goto('/#home');
   const banner = page.getByTestId('model-placeholder-banner');
   await expect(banner).toContainText('AI answers are placeholders: the server has no AI model set up.');
   await expect(banner).toContainText('Model gateway');
   expect(await serious(page)).toEqual([]);
+
+  // ANUM Command too: a placeholder plan there otherwise reads as work done.
+  await page.goto('/#command');
+  await expect(page.getByTestId('model-placeholder-banner')).toContainText('AI answers are placeholders');
 
   await page.goto('/#assistant');
   await expect(page.getByTestId('model-placeholder-banner')).toContainText('AI answers are placeholders');

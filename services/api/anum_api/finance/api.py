@@ -563,7 +563,8 @@ def export_transactions(
             str(t.amount), t.currency, safe_cell(t.notes or ""), TT.effective(t, kinds.get(t.account_id)).value,
         ])
     return Response(
-        content=buffer.getvalue(),
+        # The byte order mark makes Excel read the file as UTF-8, so Arabic merchant names do not garble.
+        content="\ufeff" + buffer.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="anum-transactions.csv"', "Cache-Control": "no-store"},
     )

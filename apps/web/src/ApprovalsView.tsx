@@ -5,7 +5,7 @@ import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Hourglass, Route, Sea
 import type { Approval } from '@anum/contracts';
 import * as api from './lib/api';
 import { APPROVAL_FILTERS, approvalSignal,APPROVAL_PAGE_SIZE, APPROVAL_SEARCH_DELAY_MS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from './lib/approvalPaging';
-import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, cardCodeValid, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, needsCardCode, needsOwnConfirmation, normalizeReason, shortHash } from './lib/approvals';
+import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, cardCodeValid, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, needsCardCode, needsOwnConfirmation, normalizeReason, proposedAction, shortHash } from './lib/approvals';
 import { mayApprove, mayReject, routingView, suppressedText } from './lib/approvalRules';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t } from './lib/i18n';
@@ -179,7 +179,7 @@ export function ApprovalsView({ items, busy, decide, empty, userId, onOpenRules,
                   {pending.map((a) => (
                     <tr key={a.id} className={`risk-${a.riskLevel}`}>
                       <th scope="row"><button type="button" className={`approvalQueueItem risk-${a.riskLevel}`} onClick={() => jumpTo(a.id)}>
-                        <strong dir="ltr">{a.action}</strong>
+                        <strong dir="auto" title={a.action}>{proposedAction(a) ?? a.action}</strong>
                         <small>{a.requestedBy ? t('approvals.requestedBy', { who: a.requestedBy }) : riskLabel(a.riskLevel)}</small>
                       </button></th>
                       <td><StatusChip tone={a.riskLevel === 'high' ? 'bad' : a.riskLevel === 'medium' ? 'warn' : 'muted'}>{riskLabel(a.riskLevel)}</StatusChip></td>
@@ -206,7 +206,7 @@ export function ApprovalsView({ items, busy, decide, empty, userId, onOpenRules,
             <details className="approvalHistoryRow" key={a.id}>
               <summary>
                 <span className={`statusBadge ${status(a) === 'approved' ? 'success' : 'dangerTone'}`}>{statusLabel(status(a))}</span>
-                <strong dir="ltr">{a.action}</strong>
+                <strong dir="auto" title={a.action}>{proposedAction(a) ?? a.action}</strong>
                 <small>{decisionSummary(a, formatDate, now)}</small>
               </summary>
               {a.decisionReason && <p className="approvalReason"><span>{t('approvals.reason')}</span> <bdi>{a.decisionReason}</bdi></p>}

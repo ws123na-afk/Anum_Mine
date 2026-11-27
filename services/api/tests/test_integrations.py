@@ -135,3 +135,27 @@ def test_health_never_probes_a_tenant_saved_endpoint(monkeypatch) -> None:  # ty
     assert health["valkey"].status == IntegrationStatus.CONNECTED
     assert health["valkey"].endpoint == settings.valkey_url
     assert health["minio"].status == IntegrationStatus.DISABLED
+
+
+def test_no_endpoint_reports_a_password_and_probes_reach_the_host(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Every role, viewers included, reads the integration list: a password in ANUM_VALKEY_URL or ANUM_NATS_URL
+    # must never come back, and the probe must still reach the host behind the user:password@ part.
+    from anum_api import integrations
+    from anum_api.integrations import default_integration_registry
+    from anum_api.settings import Settings
+
+    probed: list[tuple[str, int]] = []
+
+    async def record(host: str, port: int, payload: bytes | None = None) -> None:
+        probed.append((host, port))
+
+    monkeypatch.setattr(integrations, "tcp_probe", record)
+    settings = Settings(valkey_url="redis://:example@valkey.internal:6379/0", nats_url="nats://natsuser:example@nats.internal:4222",
+                        event_bus="nats")
+    registry = default_integration_registry(settings)
+    health = {item.id: item for item in asyncio.run(registry.health(context()))}
+    assert health["valkey"].endpoint == "redis://***@valkey.internal:6379/0"
+    assert health["nats"].endpoint == "nats://***@nats.internal:4222"
+    assert registry.configuration("valkey", context()).endpoint == "redis://***@valkey.internal:6379/0"
+    assert ("valkey.internal", 6379) in probed and ("nats.internal", 4222) in probed
+    assert all("example" not in item.model_dump_json() for item in health.values())

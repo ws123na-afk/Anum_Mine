@@ -36,7 +36,7 @@ Rollback: `alembic downgrade 0168_files_folders_tags` drops the five tables and 
 
 ## Matching and the directory build
 
-Matching is on normalised identifiers only: a phone number as `+` and digits (`00` and UAE `05x` numbers read as `+971...`, Arabic digits converted, through `suppression.normalize`) and an e-mail address in lower case. Names are never a reason to merge.
+Matching is on normalised identifiers only: a phone number as `+` and digits (`00` read as `+`; a local `05x` mobile number takes the workspace's country from Books settings, `+966...` or `+971...`, and Saudi when none is set; Arabic digits converted, through `suppression.normalize`), so a Saudi and a UAE number with the same local digits are two people and an e-mail address in lower case. Names are never a reason to merge.
 
 The build (`service.build_directory`) takes, per source, the records that have no link yet (at most `limit` per source and run, 500 by default) and for each one:
 

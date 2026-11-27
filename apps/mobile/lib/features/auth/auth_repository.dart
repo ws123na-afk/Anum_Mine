@@ -390,6 +390,9 @@ class AuthRepository {
       ModelConfiguration.fromJson(
           await api.request('GET', '/api/v1/model-config'));
 
+  Future<ModelStatus> modelStatus() async =>
+      ModelStatus.fromJson(await api.request('GET', '/api/v1/model-status'));
+
   Future<void> testModelConnection() async {
     await api.request('POST', '/api/v1/model-config/test');
   }

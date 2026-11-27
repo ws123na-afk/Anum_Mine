@@ -249,7 +249,7 @@ def add_costs(cars: dict[str, dict]) -> None:
 def test_fleet_costs_per_vehicle_and_km_by_category_with_a_twelve_month_trend() -> None:
     cars = fleet_vehicles()
     add_costs(cars)
-    personal = client.post(API, headers=OWNER, json={"registration": "MY 1", "country": "AE", "fuel_type": "petrol_95"}).json()
+    personal = client.post(API, headers=OWNER, json={"registration": "MY 1", "country": "AE", "fuel_type": "petrol_95", "ownership": "personal"}).json()
     client.post(f"{API}/{personal['id']}/fuel", headers=OWNER, json={"filled_at": month_ago(1, 10).isoformat() + "T10:00:00Z", "litres": "40", "total": "120"})
     month = month_ago(1, 1).strftime("%Y-%m")
     summary = client.get(f"{FLEET}/costs", headers=OWNER, params={"month": month}).json()

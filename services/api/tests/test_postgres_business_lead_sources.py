@@ -23,6 +23,7 @@ from anum_api.business.store import business_store
 from anum_api.db import session as db_session
 from anum_api.main import app
 from anum_api.settings import settings
+from anum_api import suppression as suppression_module
 
 pytestmark = pytest.mark.database
 BASE = "/api/v1/business"
@@ -34,6 +35,13 @@ def headers(tenant_id: str = TENANT_A, workspace_id: str = WORKSPACE_A, user: st
 
 A, A2, B = headers(), headers(workspace_id=WORKSPACE_A2), headers(TENANT_B, WORKSPACE_B)
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _uae_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These scenarios are a UAE workspace: a typed 05... number is a UAE mobile. The Saudi default and
+    # the workspace country from Books settings are covered in test_phone_country.py.
+    monkeypatch.setattr(suppression_module, "DEFAULT_PHONE_COUNTRY", "AE")
 
 
 @pytest.fixture

@@ -24,6 +24,7 @@ from ..authorization import Permission
 from ..schemas import RiskLevel
 from ..dependencies import has_permission
 from ..schemas import TenantContext, new_id, utc_now
+from ..suppression import opt_out_readings
 from . import ai
 from .config import call_settings
 from .phone import PhoneNumberError, masked, normalized, opt_out_hash
@@ -183,7 +184,14 @@ def ai_caps(account: ProviderAccount) -> tuple[int, int]:
 
 
 def opted_out(store: CallsStore, context: TenantContext, number: str) -> OptOut | None:
-    return store.find_opt_out(opt_out_hash(context.tenant_id, context.workspace_id, number))
+    """The opt-out of this number, also under the other Gulf reading of a mobile number
+    (``suppression.opt_out_readings``): a local number typed before the workspace's country
+    was read, or in another workspace country, may have been stored under either code."""
+    for reading in opt_out_readings(number):
+        found = store.find_opt_out(opt_out_hash(context.tenant_id, context.workspace_id, reading))
+        if found is not None:
+            return found
+    return None
 
 
 def record_opt_out(store: CallsStore, context: TenantContext, number: str, source: OptOutSource, note: str | None, actor: str) -> OptOut:

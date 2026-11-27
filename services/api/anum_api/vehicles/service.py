@@ -81,6 +81,11 @@ def require_record_edit(context: TenantContext, record: Any) -> None:
 # -- cleaning ----------------------------------------------------------------------------------------
 
 
+def odometer_seen(reading: OdometerReading) -> str:
+    """"84,650 km was recorded on 7 Nov 2026": how an odometer refusal names the reading it collides with."""
+    return f"{reading.reading_km.normalize():,f} km was recorded on {reading.read_at:%-d %b %Y}"
+
+
 def clean(value: str | None, limit: int) -> str | None:
     text = " ".join((value or "").split())[:limit]
     return text or None
@@ -214,7 +219,7 @@ def add_reading(store: VehicleStore, context: TenantContext, vehicle: Vehicle, *
     if before is not None or after is not None:
         other = before or after
         assert other is not None  # nosec B101: one of the two is set
-        raise VehicleError(409, (f"The odometer cannot go down: {other.reading_km} km was recorded on {other.read_at.date().isoformat()}. "
+        raise VehicleError(409, (f"The odometer cannot go down: {odometer_seen(other)}. "
                                  "If the odometer was replaced or a reading was wrong, add a correction with a reason."), "odometer_decrease",
                            {"reading_km": str(other.reading_km), "read_at": other.read_at.isoformat(), "direction": "before" if before else "after"})
     try:

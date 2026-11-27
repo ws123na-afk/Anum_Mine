@@ -125,7 +125,7 @@ def record_view(context: TenantContext, record: Any) -> dict[str, Any]:
 class VehicleInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ownership: Literal["personal", "business"] = "personal"
+    ownership: Literal["personal", "business"] = "business"
     registration: str = Field(min_length=1, max_length=20)
     vin: str | None = Field(default=None, max_length=20)
     nickname: str | None = Field(default=None, max_length=60)
@@ -212,7 +212,10 @@ def create_vehicle(body: VehicleInput, context: TenantContext = Depends(tenant_c
             raise S.VehicleError(409, "A vehicle with this registration is already in this workspace.", "duplicate_registration") from None
         odometer = None
         if body.odometer_km is not None:
-            odometer = S.add_reading(store, context, vehicle, km=body.odometer_km, read_at=now, source="manual", source_id=None).reading_km
+            # Whole minute: the fuel, trip and service forms send minutes, so a fill logged in the same minute as
+            # the vehicle was added counts as after this reading, not before it.
+            odometer = S.add_reading(store, context, vehicle, km=body.odometer_km, read_at=now.replace(second=0, microsecond=0),
+                                     source="manual", source_id=None).reading_km
     _audit(repository, context, "vehicle.create", vehicle.id, {"ownership": vehicle.ownership.value})
     return JSONResponse(status_code=201, content=vehicle_view(context, vehicle, odometer=odometer, full_vin=True))
 
@@ -595,7 +598,7 @@ def _check_readings(store: VehicleStore, context: TenantContext, kind: RecordKin
         before, after = check_odometer(others, probe)
         if before is not None or after is not None:
             other = before or after
-            raise S.VehicleError(409, (f"The odometer cannot go down: {other.reading_km} km was recorded on {other.read_at.date().isoformat()}. "  # type: ignore[union-attr]
+            raise S.VehicleError(409, (f"The odometer cannot go down: {S.odometer_seen(other)}. "  # type: ignore[arg-type]
                                        "If the odometer was replaced or a reading was wrong, add a correction with a reason."), "odometer_decrease",
                                  {"reading_km": str(other.reading_km), "read_at": other.read_at.isoformat()})  # type: ignore[union-attr]
 

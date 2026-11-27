@@ -42,8 +42,14 @@ class VehiclesController extends ChangeNotifier {
   }
 
   /// A vehicle changed on its page: refresh its row and what is due.
+  /// An archived or restored vehicle leaves the list it no longer belongs to.
   Future<void> changed(Vehicle vehicle) async {
-    vehicles.upsert(vehicle, (v) => v.id == vehicle.id);
+    final archivedList = vehicles.filter == 'archived';
+    if ((vehicle.archivedAt != null) == archivedList) {
+      vehicles.upsert(vehicle, (v) => v.id == vehicle.id);
+    } else {
+      vehicles.remove((v) => v.id == vehicle.id);
+    }
     await loadReminders();
   }
 
@@ -108,6 +114,32 @@ class VehicleDetailController extends ChangeNotifier {
     lists[kind]!.upsert(record, (r) => r.id == record.id);
     await _refreshVehicle();
     return record;
+  }
+
+  /// Saves the vehicle's changed fields; the list row and reminders follow.
+  Future<void> updateVehicle(Map<String, Object?> changes) async {
+    final current = vehicle!;
+    vehicle = await repository.update(current.id, current.version, changes);
+    _notify();
+    onChanged?.call(vehicle!);
+  }
+
+  /// Archives the vehicle (or restores it with [archived] false).
+  Future<void> archive({bool archived = true}) async {
+    final current = vehicle!;
+    vehicle = await repository.archive(current.id, current.version,
+        archived: archived);
+    _notify();
+    onChanged?.call(vehicle!);
+  }
+
+  /// Saves a record's changed fields with the version the person loaded.
+  Future<void> update(VehicleRecordKind kind, VehicleRecord record,
+      Map<String, Object?> changes) async {
+    final saved =
+        await repository.updateRecord(kind, record.id, record.version, changes);
+    lists[kind]!.upsert(saved, (r) => r.id == saved.id);
+    await _refreshVehicle();
   }
 
   Future<void> addReading(String km,

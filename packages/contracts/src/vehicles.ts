@@ -244,14 +244,18 @@ export interface VehiclePage<T> { items: T[]; total: number; limit: number; offs
 
 export interface VehicleMoney { currency: string; amount: string }
 
+/** How much of a currency's spend is linked payments and how much the figures written on records (pump and receipt totals). */
+export interface VehicleSpendBasis { currency: string; linked: string; recorded: string }
+
 export interface VehicleReport {
   vehicle_id: string;
   start: string | null;
   end: string | null;
   odometer_km: string | null;
   distance_km: string;
-  /** Per currency, never added across currencies. */
+  /** Per currency, never added across currencies: each record once, its linked payment or else its own figure. */
   spend: VehicleMoney[];
+  spend_basis: VehicleSpendBasis[];
   cost_per_km: VehicleMoney[];
   monthly: { month: string; currency: string; amount: string }[];
   by_category: { currency: string; category: string; amount: string }[];
@@ -279,6 +283,7 @@ export interface VehicleOverview {
   end: string | null;
   vehicles: number;
   spend: VehicleMoney[];
+  spend_basis: VehicleSpendBasis[];
   monthly: { month: string; currency: string; amount: string }[];
   by_vehicle: { vehicle_id: string; registration: string; currency: string; amount: string }[];
   due: VehicleDueItem[];
