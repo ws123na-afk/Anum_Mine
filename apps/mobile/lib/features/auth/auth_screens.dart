@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../src/localization/anum_localizations.dart';
+import '../../src/localization/auth_strings.dart';
 import '../../src/widgets/brand.dart';
 import '../../src/widgets/depth.dart';
 
@@ -149,67 +151,75 @@ class _SignInState extends State<SignInScreen> {
           startWithRegistration: widget.startWithRegistration)
       : _localSignIn(context);
 
-  Widget _localSignIn(BuildContext context) => _Page(
-      eyebrow: 'Welcome back',
-      title: 'Sign in to ANUM',
-      subtitle:
-          'Use your local workspace. Enterprise identity is configured by your administrator.',
-      body: Form(
-          key: form,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            if (widget.controller.sessionEnded) ...[
-              const SessionEndedNotice(),
-              const SizedBox(height: AnumSpacing.md),
-            ],
-            _id(tenant, 'Organization ID', Icons.apartment_outlined),
-            const SizedBox(height: AnumSpacing.md),
-            _id(workspace, 'Workspace ID', Icons.workspaces_outlined),
-            const SizedBox(height: AnumSpacing.md),
-            _id(user, 'User ID', Icons.person_outline),
-            const SizedBox(height: AnumSpacing.md),
-            TextFormField(
-                controller: password,
-                obscureText: !revealPassword,
-                decoration: InputDecoration(
-                    labelText: 'Password (if configured)',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                        tooltip:
-                            revealPassword ? 'Hide password' : 'Show password',
-                        onPressed: () =>
-                            setState(() => revealPassword = !revealPassword),
-                        icon: Icon(revealPassword
-                            ? Icons.visibility_off
-                            : Icons.visibility)))),
-            const SizedBox(height: AnumSpacing.lg),
-            FilledButton.icon(
-                onPressed: () {
-                  if (form.currentState!.validate()) {
-                    widget.controller.signIn(
-                        tenant.text, workspace.text, user.text,
-                        password: password.text);
-                  }
-                },
-                icon: const Icon(Icons.login),
-                label: const Text('Continue')),
-            const SizedBox(height: 8),
-            Wrap(alignment: WrapAlignment.center, children: [
-              TextButton(
-                  onPressed: _otp, child: const Text('Use one-time code')),
-              TextButton(
-                  onPressed: _forgotPassword,
-                  child: const Text('Forgot password?'))
-            ])
-          ])));
-  Widget _id(
-          TextEditingController c, String label, IconData icon) =>
+  Widget _localSignIn(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return _Page(
+        eyebrow: l.t('auth.signIn.eyebrow'),
+        title: l.t('auth.signIn.title'),
+        subtitle: l.t('auth.signIn.subtitle'),
+        body: Form(
+            key: form,
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.controller.sessionEnded) ...[
+                    const SessionEndedNotice(),
+                    const SizedBox(height: AnumSpacing.md),
+                  ],
+                  _id(tenant, l.t('auth.signIn.organizationId'),
+                      Icons.apartment_outlined, l),
+                  const SizedBox(height: AnumSpacing.md),
+                  _id(workspace, l.t('auth.signIn.workspaceId'),
+                      Icons.workspaces_outlined, l),
+                  const SizedBox(height: AnumSpacing.md),
+                  _id(user, l.t('auth.signIn.userId'), Icons.person_outline, l),
+                  const SizedBox(height: AnumSpacing.md),
+                  TextFormField(
+                      controller: password,
+                      obscureText: !revealPassword,
+                      decoration: InputDecoration(
+                          labelText: l.t('auth.signIn.password'),
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                              tooltip: l.t(revealPassword
+                                  ? 'auth.signIn.hidePassword'
+                                  : 'auth.signIn.showPassword'),
+                              onPressed: () => setState(
+                                  () => revealPassword = !revealPassword),
+                              icon: Icon(revealPassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility)))),
+                  const SizedBox(height: AnumSpacing.lg),
+                  FilledButton.icon(
+                      onPressed: () {
+                        if (form.currentState!.validate()) {
+                          widget.controller.signIn(
+                              tenant.text, workspace.text, user.text,
+                              password: password.text);
+                        }
+                      },
+                      icon: const Icon(Icons.login),
+                      label: Text(l.t('auth.continue'))),
+                  const SizedBox(height: 8),
+                  Wrap(alignment: WrapAlignment.center, children: [
+                    TextButton(
+                        onPressed: _otp, child: Text(l.t('auth.signIn.otp'))),
+                    TextButton(
+                        onPressed: _forgotPassword,
+                        child: Text(l.t('auth.signIn.forgot')))
+                  ])
+                ])));
+  }
+
+  Widget _id(TextEditingController c, String label, IconData icon,
+          AnumLocalizations l) =>
       TextFormField(
           controller: c,
           textInputAction: TextInputAction.next,
           decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
-          validator: (v) =>
-              (v?.trim().length ?? 0) < 3 ? 'Use at least 3 characters' : null);
+          validator: (v) => (v?.trim().length ?? 0) < 3
+              ? l.t('auth.signIn.minLength')
+              : null);
 
   Future<void> _otp() async {
     if (!form.currentState!.validate()) return;
@@ -224,8 +234,9 @@ class _SignInState extends State<SignInScreen> {
       // of failing silently.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'No code was sent: ${error is ApiException ? error.readable : error}')));
+          content: Text(AnumLocalizations.maybeOf(context).f(
+              'auth.signIn.noCode',
+              {'reason': error is ApiException ? error.readable : error}))));
       return;
     }
     if (!mounted) return;
@@ -257,29 +268,34 @@ class WorkspacePickerScreen extends StatelessWidget {
   final AuthController controller;
 
   @override
-  Widget build(BuildContext context) => _Page(
-      eyebrow: 'Choose a workspace',
-      title: 'Where do you want to work?',
-      subtitle: 'You are a member of several workspaces. ANUM opens the one '
-          'you choose next time; switch any time in Settings.',
-      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final membership in controller.workspaceChoices) ...[
-          AccountPanel(
-              key: ValueKey('choose-${membership.workspaceId}'),
-              title: membership.workspaceName ?? membership.workspaceId,
-              subtitle: _membershipLine(membership),
-              onTap: () => controller.chooseWorkspace(membership.workspaceId)),
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return _Page(
+        eyebrow: l.t('auth.picker.eyebrow'),
+        title: l.t('auth.picker.title'),
+        subtitle: l.t('auth.picker.subtitle'),
+        body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          for (final membership in controller.workspaceChoices) ...[
+            AccountPanel(
+                key: ValueKey('choose-${membership.workspaceId}'),
+                title: membership.workspaceName ?? membership.workspaceId,
+                subtitle: _membershipLine(l, membership),
+                onTap: () =>
+                    controller.chooseWorkspace(membership.workspaceId)),
+            const SizedBox(height: AnumSpacing.sm),
+          ],
           const SizedBox(height: AnumSpacing.sm),
-        ],
-        const SizedBox(height: AnumSpacing.sm),
-        TextButton(
-            onPressed: controller.signOut,
-            child: const Text('Sign in with another account')),
-      ]));
+          TextButton(
+              onPressed: controller.signOut,
+              child: Text(l.t('auth.otherAccount'))),
+        ]));
+  }
 
-  static String _membershipLine(CallerMembership membership) => [
+  static String _membershipLine(
+          AnumLocalizations l, CallerMembership membership) =>
+      [
         if (membership.workspaceName != null) membership.workspaceId,
-        'Your role: ${membership.role}',
+        l.f('auth.role', {'role': authRoleLabel(l, membership.role)}),
       ].join(' · ');
 }
 
@@ -292,31 +308,26 @@ class NoWorkspaceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final existing = controller.workspaceName;
+    final l = AnumLocalizations.maybeOf(context);
     return _Page(
-      eyebrow: 'No workspace yet',
-      title: 'You are not in a workspace',
+      eyebrow: l.t('auth.none.eyebrow'),
+      title: l.t('auth.none.title'),
       subtitle: existing != null
-          ? 'Your account signed in, and the workspace $existing is already '
-              'set up by its owner, but you are not a member of it yet.'
-          : 'Your account signed in, but it is not an active member of any '
-              'workspace in your organization, and no default workspace is '
-              'set for it.',
+          ? l.f('auth.none.subtitleExisting', {'name': existing})
+          : l.t('auth.none.subtitle'),
       body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text(existing != null
-            ? 'Ask the owner of $existing to invite you from Members. When you '
-                'have accepted the invitation, check again.'
-            : 'Ask a workspace owner to invite you, or ask your '
-                'administrator to set the default_workspace_id attribute on '
-                'your account. Then check again.'),
+            ? l.f('auth.none.askExisting', {'name': existing})
+            : l.t('auth.none.ask')),
         const SizedBox(height: AnumSpacing.lg),
         FilledButton.icon(
             onPressed: controller.checkWorkspacesAgain,
             icon: const Icon(Icons.refresh),
-            label: const Text('Check again')),
+            label: Text(l.t('auth.checkAgain'))),
         const SizedBox(height: AnumSpacing.sm),
         TextButton(
             onPressed: controller.signOut,
-            child: const Text('Sign in with another account')),
+            child: Text(l.t('auth.otherAccount'))),
       ]),
     );
   }
@@ -341,41 +352,44 @@ class _WorkspaceState extends State<WorkspaceSetupScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => _Page(
-      eyebrow: 'Step 2 of 3',
-      title: 'Set up your workspace',
-      subtitle:
-          'Create an isolated place for agents, files, approvals, and automations.',
-      body: Form(
-          key: form,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TextFormField(
-                controller: organization,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                    labelText: 'Organization name',
-                    prefixIcon: Icon(Icons.apartment_outlined)),
-                validator: _required),
-            const SizedBox(height: AnumSpacing.md),
-            TextFormField(
-                controller: workspace,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                    labelText: 'Workspace name',
-                    prefixIcon: Icon(Icons.workspaces_outlined)),
-                validator: _required),
-            const SizedBox(height: AnumSpacing.lg),
-            FilledButton.icon(
-                onPressed: () {
-                  if (form.currentState!.validate()) {
-                    widget.controller
-                        .createWorkspace(organization.text, workspace.text);
-                  }
-                },
-                icon: const Icon(Icons.arrow_forward),
-                label: const Text('Create workspace'))
-          ])));
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return _Page(
+        eyebrow: l.t('auth.setup.eyebrow'),
+        title: l.t('auth.setup.title'),
+        subtitle: l.t('auth.setup.subtitle'),
+        body: Form(
+            key: form,
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextFormField(
+                      controller: organization,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: InputDecoration(
+                          labelText: l.t('auth.setup.organization'),
+                          prefixIcon: const Icon(Icons.apartment_outlined)),
+                      validator: (v) => _required(l, v)),
+                  const SizedBox(height: AnumSpacing.md),
+                  TextFormField(
+                      controller: workspace,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: InputDecoration(
+                          labelText: l.t('auth.setup.workspace'),
+                          prefixIcon: const Icon(Icons.workspaces_outlined)),
+                      validator: (v) => _required(l, v)),
+                  const SizedBox(height: AnumSpacing.lg),
+                  FilledButton.icon(
+                      onPressed: () {
+                        if (form.currentState!.validate()) {
+                          widget.controller.createWorkspace(
+                              organization.text, workspace.text);
+                        }
+                      },
+                      icon: const Icon(Icons.arrow_forward),
+                      label: Text(l.t('auth.setup.create')))
+                ])));
+  }
 }
 
 class ModelConnectionScreen extends StatefulWidget {
@@ -438,115 +452,128 @@ class _ModelState extends State<ModelConnectionScreen> {
       : _memberWait(context);
 
   /// Members and viewers may not save the workspace's model (owners only).
-  Widget _memberWait(BuildContext context) => _Page(
-      eyebrow: 'Step 3 of 3',
-      title: 'Connect a model',
-      subtitle: 'Only a workspace owner can connect this workspace to a model.',
-      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _SkipStatus(controller: widget.controller, owner: false),
-        const SizedBox(height: AnumSpacing.sm),
-        TextButton(
-            onPressed: widget.controller.signOut,
-            child: const Text('Sign in with another account')),
-      ]));
+  Widget _memberWait(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return _Page(
+        eyebrow: l.t('auth.model.eyebrow'),
+        title: l.t('auth.model.title'),
+        subtitle: l.t('auth.model.memberSubtitle'),
+        body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _SkipStatus(controller: widget.controller, owner: false),
+          const SizedBox(height: AnumSpacing.sm),
+          TextButton(
+              onPressed: widget.controller.signOut,
+              child: Text(l.t('auth.otherAccount'))),
+        ]));
+  }
 
-  Widget _ownerSetup(BuildContext context) => _Page(
-      eyebrow: 'Step 3 of 3',
-      title: 'Connect a model',
-      subtitle: 'Credentials are write-only and are never returned by the API.',
-      body: Form(
-          key: form,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            DropdownButtonFormField<String>(
-                initialValue: provider,
-                decoration: const InputDecoration(
-                    labelText: 'Provider',
-                    prefixIcon: Icon(Icons.hub_outlined)),
-                isExpanded: true,
-                items: providerItems(),
-                onChanged: (v) {
-                  if (v != null) _selectProvider(v);
-                }),
-            if (!_claude) ...[
-              const SizedBox(height: AnumSpacing.md),
-              TextFormField(
-                  controller: model,
-                  decoration: const InputDecoration(
-                      labelText: 'Model',
-                      prefixIcon: Icon(Icons.smart_toy_outlined)),
-                  validator: _required),
-            ],
-            const SizedBox(height: AnumSpacing.md),
-            TextFormField(
-                controller: url,
-                textDirection: TextDirection.ltr,
-                keyboardType: TextInputType.url,
-                decoration: InputDecoration(
-                    labelText: _claude ? 'Base URL (optional)' : 'Base URL',
-                    prefixIcon: const Icon(Icons.link),
-                    helperMaxLines: 3,
-                    helperText: provider == 'ollama'
-                        ? 'The ANUM server calls this address, not your phone. '
-                            'Keep localhost when Ollama runs on the same '
-                            'computer as the ANUM server.'
-                        : _claude
-                            ? 'Leave empty for api.anthropic.com.'
-                            : null),
-                validator: (v) => validateBaseUrl(provider, v)),
-            if (_needsKey) ...[
-              const SizedBox(height: AnumSpacing.md),
-              TextFormField(
-                  controller: key,
-                  textDirection: TextDirection.ltr,
-                  obscureText: !reveal,
-                  decoration: InputDecoration(
-                      labelText: _claude ? 'Anthropic API key' : 'API key',
-                      prefixIcon: const Icon(Icons.key_outlined),
-                      suffixIcon: IconButton(
-                          tooltip: reveal ? 'Hide API key' : 'Show API key',
-                          onPressed: () => setState(() => reveal = !reveal),
-                          icon: Icon(reveal
-                              ? Icons.visibility_off
-                              : Icons.visibility))),
-                  validator: _required)
-            ],
-            if (_claude) ...[
-              const SizedBox(height: AnumSpacing.md),
-              ClaudeRoutingFields(
-                  fastModel: fastModel,
-                  capableModel: capableModel,
-                  fastEffort: fastEffort,
-                  capableEffort: capableEffort,
-                  onFastEffort: (v) => setState(() => fastEffort = v),
-                  onCapableEffort: (v) => setState(() => capableEffort = v)),
-            ],
-            const SizedBox(height: AnumSpacing.lg),
-            FilledButton.icon(
-                onPressed: () {
-                  if (form.currentState!.validate()) {
-                    widget.controller.connectModel(
-                        provider: provider,
-                        // Claude's planning model is the workspace default.
-                        model: _claude
-                            ? capableModel.text.trim()
-                            : model.text.trim(),
-                        baseUrl: url.text.trim(),
-                        apiKey: _needsKey ? key.text.trim() : '',
-                        routing: _claude
-                            ? ModelRouting(
-                                fastModel: fastModel.text,
-                                capableModel: capableModel.text,
-                                fastEffort: fastEffort,
-                                capableEffort: capableEffort)
-                            : null);
-                  }
-                },
-                icon: const Icon(Icons.cable),
-                label: const Text('Test, save, and continue')),
-            const SizedBox(height: AnumSpacing.md),
-            _SkipStatus(controller: widget.controller, owner: true),
-          ])));
+  Widget _ownerSetup(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return _Page(
+        eyebrow: l.t('auth.model.eyebrow'),
+        title: l.t('auth.model.title'),
+        subtitle: l.t('auth.model.ownerSubtitle'),
+        body: Form(
+            key: form,
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<String>(
+                      initialValue: provider,
+                      decoration: InputDecoration(
+                          labelText: l.t('auth.model.provider'),
+                          prefixIcon: const Icon(Icons.hub_outlined)),
+                      isExpanded: true,
+                      items: providerItems(),
+                      onChanged: (v) {
+                        if (v != null) _selectProvider(v);
+                      }),
+                  if (!_claude) ...[
+                    const SizedBox(height: AnumSpacing.md),
+                    TextFormField(
+                        controller: model,
+                        decoration: InputDecoration(
+                            labelText: l.t('auth.model.model'),
+                            prefixIcon: const Icon(Icons.smart_toy_outlined)),
+                        validator: (v) => _required(l, v)),
+                  ],
+                  const SizedBox(height: AnumSpacing.md),
+                  TextFormField(
+                      controller: url,
+                      textDirection: TextDirection.ltr,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                          labelText: l.t(_claude
+                              ? 'auth.model.baseUrlOptional'
+                              : 'auth.model.baseUrl'),
+                          prefixIcon: const Icon(Icons.link),
+                          helperMaxLines: 3,
+                          helperText: provider == 'ollama'
+                              ? l.t('auth.model.ollamaHelp')
+                              : _claude
+                                  ? l.t('auth.model.claudeHelp')
+                                  : null),
+                      validator: (v) => validateBaseUrl(provider, v)),
+                  if (_needsKey) ...[
+                    const SizedBox(height: AnumSpacing.md),
+                    TextFormField(
+                        controller: key,
+                        textDirection: TextDirection.ltr,
+                        obscureText: !reveal,
+                        decoration: InputDecoration(
+                            labelText: l.t(_claude
+                                ? 'auth.model.anthropicKey'
+                                : 'auth.model.apiKey'),
+                            prefixIcon: const Icon(Icons.key_outlined),
+                            suffixIcon: IconButton(
+                                tooltip: l.t(reveal
+                                    ? 'auth.model.hideKey'
+                                    : 'auth.model.showKey'),
+                                onPressed: () =>
+                                    setState(() => reveal = !reveal),
+                                icon: Icon(reveal
+                                    ? Icons.visibility_off
+                                    : Icons.visibility))),
+                        validator: (v) => _required(l, v))
+                  ],
+                  if (_claude) ...[
+                    const SizedBox(height: AnumSpacing.md),
+                    ClaudeRoutingFields(
+                        fastModel: fastModel,
+                        capableModel: capableModel,
+                        fastEffort: fastEffort,
+                        capableEffort: capableEffort,
+                        onFastEffort: (v) => setState(() => fastEffort = v),
+                        onCapableEffort: (v) =>
+                            setState(() => capableEffort = v)),
+                  ],
+                  const SizedBox(height: AnumSpacing.lg),
+                  FilledButton.icon(
+                      onPressed: () {
+                        if (form.currentState!.validate()) {
+                          widget.controller.connectModel(
+                              provider: provider,
+                              // Claude's planning model is the workspace default.
+                              model: _claude
+                                  ? capableModel.text.trim()
+                                  : model.text.trim(),
+                              baseUrl: url.text.trim(),
+                              apiKey: _needsKey ? key.text.trim() : '',
+                              routing: _claude
+                                  ? ModelRouting(
+                                      fastModel: fastModel.text,
+                                      capableModel: capableModel.text,
+                                      fastEffort: fastEffort,
+                                      capableEffort: capableEffort)
+                                  : null);
+                        }
+                      },
+                      icon: const Icon(Icons.cable),
+                      label: Text(l.t('auth.model.save'))),
+                  const SizedBox(height: AnumSpacing.md),
+                  _SkipStatus(controller: widget.controller, owner: true),
+                ])));
+  }
 }
 
 /// How to go on without this step: use the workspace's or the server's model
@@ -561,66 +588,57 @@ class _SkipStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final availability = controller.modelAvailability;
+    final l = AnumLocalizations.maybeOf(context);
     if (controller.checkingModel) {
       return Semantics(
           liveRegion: true,
-          child: const Row(children: [
-            SizedBox.square(
+          child: Row(children: [
+            const SizedBox.square(
                 dimension: 20,
                 child: CircularProgressIndicator(strokeWidth: 2)),
-            SizedBox(width: AnumSpacing.md),
-            Expanded(
-                child: Text('Checking whether the server already has a '
-                    'model...'))
+            const SizedBox(width: AnumSpacing.md),
+            Expanded(child: Text(l.t('auth.model.checking')))
           ]));
     }
     final error = controller.modelCheckError;
     if (error != null || availability == null) {
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('Could not check whether the server already has a model: '
-            '${error ?? 'no answer'}. Check your connection and try again, '
-            'or continue and set up a model later in Settings.'),
+        Text(l.f('auth.model.checkFailed',
+            {'reason': error ?? l.t('auth.model.noAnswer')})),
         const SizedBox(height: AnumSpacing.sm),
         OutlinedButton.icon(
             onPressed: controller.checkModelAvailability,
             icon: const Icon(Icons.refresh),
-            label: const Text('Check again')),
+            label: Text(l.t('auth.checkAgain'))),
         TextButton(
             onPressed: controller.continueWithoutModel,
-            child: const Text('Continue without a model')),
+            child: Text(l.t('auth.model.continueWithout'))),
       ]);
     }
     if (availability.canSkip) {
       final label = availability.workspaceConfigured
-          ? "Continue with this workspace's model"
-          : "Skip and use the server's model (${availability.serverModel})";
+          ? l.t('auth.model.useWorkspace')
+          : l.f(
+              'auth.model.useServer', {'model': '${availability.serverModel}'});
       return owner
           ? TextButton(onPressed: controller.useServerModel, child: Text(label))
           : FilledButton(
               onPressed: controller.useServerModel, child: Text(label));
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text(owner
-          ? 'Neither this workspace nor the ANUM server has a model yet. You '
-              'can continue without one: everything that does not need AI '
-              'works, and AI answers are placeholders until you connect a '
-              'model above or later in Settings, Model connection.'
-          : 'Neither this workspace nor the ANUM server has a model yet. You '
-              'can continue: everything that does not need AI works, and AI '
-              'answers are placeholders until a workspace owner connects one '
-              'in Settings, Model connection.'),
+      Text(l.t(owner ? 'auth.model.noneOwner' : 'auth.model.noneMember')),
       const SizedBox(height: AnumSpacing.sm),
       owner
           ? TextButton(
               onPressed: controller.continueWithoutModel,
-              child: const Text('Continue without a model'))
+              child: Text(l.t('auth.model.continueWithout')))
           : FilledButton(
               onPressed: controller.continueWithoutModel,
-              child: const Text('Continue without a model')),
+              child: Text(l.t('auth.model.continueWithout'))),
       OutlinedButton.icon(
           onPressed: controller.checkModelAvailability,
           icon: const Icon(Icons.refresh),
-          label: const Text('Check again')),
+          label: Text(l.t('auth.checkAgain'))),
     ]);
   }
 }
@@ -628,14 +646,17 @@ class _SkipStatus extends StatelessWidget {
 class _Busy extends StatelessWidget {
   const _Busy();
   @override
-  Widget build(BuildContext context) => const _Page(
-      eyebrow: 'Please wait',
-      title: 'Securing your workspace',
-      body: Row(children: [
-        CircularProgressIndicator(),
-        SizedBox(width: AnumSpacing.md),
-        Expanded(child: Text('Checking access and configuration...'))
-      ]));
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return _Page(
+        eyebrow: l.t('auth.busy.eyebrow'),
+        title: l.t('auth.busy.title'),
+        body: Row(children: [
+          const CircularProgressIndicator(),
+          const SizedBox(width: AnumSpacing.md),
+          Expanded(child: Text(l.t('auth.busy.body')))
+        ]));
+  }
 }
 
 class _Failure extends StatelessWidget {
@@ -643,35 +664,40 @@ class _Failure extends StatelessWidget {
   final AuthController controller;
   @override
   Widget build(BuildContext context) {
-    final (icon, title) = switch (controller.issue) {
-      AuthIssue.offline => (Icons.cloud_off_outlined, 'You are offline'),
-      AuthIssue.permission => (Icons.lock_outline, 'Access denied'),
+    final l = AnumLocalizations.maybeOf(context);
+    final (icon, titleKey) = switch (controller.issue) {
+      AuthIssue.offline => (Icons.cloud_off_outlined, 'auth.failure.offline'),
+      AuthIssue.permission => (Icons.lock_outline, 'auth.failure.permission'),
       AuthIssue.invalidSession => (
           Icons.no_accounts_outlined,
-          'Session expired'
+          'auth.failure.session'
         ),
-      AuthIssue.validation => (Icons.edit_outlined, 'Check your details'),
-      _ => (Icons.error_outline, 'Something went wrong')
+      AuthIssue.validation => (Icons.edit_outlined, 'auth.failure.validation'),
+      _ => (Icons.error_outline, 'auth.failure.other')
     };
+    final message = controller.message;
+    final messageKey = message == null ? null : authMessageKeys[message];
     return _Page(
-        eyebrow: 'Unable to continue',
-        title: title,
+        eyebrow: l.t('auth.failure.eyebrow'),
+        title: l.t(titleKey),
         body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Icon(icon, size: 42, color: Theme.of(context).colorScheme.error),
           const SizedBox(height: AnumSpacing.md),
-          Text(controller.message ?? 'Try again.'),
+          Text(messageKey != null
+              ? l.t(messageKey)
+              : message ?? l.t('auth.failure.tryAgainText')),
           const SizedBox(height: AnumSpacing.lg),
           FilledButton.icon(
               onPressed: controller.retry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Try again')),
+              label: Text(l.t('auth.tryAgain'))),
           if (controller.issue == AuthIssue.invalidSession)
             TextButton(
                 onPressed: controller.signOut,
-                child: const Text('Return to sign in'))
+                child: Text(l.t('auth.failure.backToSignIn')))
         ]));
   }
 }
 
-String? _required(String? value) =>
-    value == null || value.trim().isEmpty ? 'This field is required' : null;
+String? _required(AnumLocalizations l, String? value) =>
+    value == null || value.trim().isEmpty ? l.t('auth.required') : null;

@@ -1,11 +1,25 @@
 import 'package:flutter/material.dart';
 
 import '../../data/api_models.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 
 import 'auth_controller.dart';
 import 'auth_repository.dart';
+
+/// A membership role in the user's language. English keeps the API's word
+/// ("owner"), as the role line always has.
+String authRoleLabel(AnumLocalizations l, String role) {
+  if (!l.isArabic) return role;
+  final key = switch (role) {
+    'owner' => 'roleOwner',
+    'member' => 'roleMember',
+    'viewer' => 'roleViewer',
+    _ => null,
+  };
+  return key == null ? role : l.t(key);
+}
 
 /// Page shell for account flows: depth background, readable column, no fake chrome.
 class AccountPage extends StatelessWidget {
@@ -98,33 +112,37 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => AccountPage(
-          eyebrow: 'Security check',
-          title: 'Enter verification code',
-          subtitle: 'We sent a six-digit code to your configured work account.',
-          children: [
-            TextField(
-                controller: code,
-                maxLength: 6,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: AnumType.xl,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 12),
-                decoration: const InputDecoration(
-                    counterText: '',
-                    helperText: 'Codes expire after 10 minutes')),
-            FilledButton(
-                onPressed: busy ? null : _verify,
-                child: Text(busy ? 'Verifying...' : 'Verify')),
-            OutlinedButton(
-                onPressed: busy ? null : () => Navigator.pop(context),
-                child: const Text('Send another code')),
-            const AccountPanel(
-                title: 'Use another method',
-                subtitle: 'Password · Recovery code')
-          ]);
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return AccountPage(
+        eyebrow: l.t('auth.otp.eyebrow'),
+        title: l.t('auth.otp.title'),
+        subtitle: l.t('auth.otp.subtitle'),
+        children: [
+          TextField(
+              controller: code,
+              maxLength: 6,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: AnumType.xl,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 12),
+              decoration: InputDecoration(
+                  counterText: '', helperText: l.t('auth.otp.expiry'))),
+          FilledButton(
+              onPressed: busy ? null : _verify,
+              child:
+                  Text(l.t(busy ? 'auth.otp.verifying' : 'auth.otp.verify'))),
+          OutlinedButton(
+              onPressed: busy ? null : () => Navigator.pop(context),
+              child: Text(l.t('auth.otp.resend'))),
+          AccountPanel(
+              title: l.t('auth.otp.other'),
+              subtitle: l.t('auth.otp.otherMethods'))
+        ]);
+  }
+
   Future<void> _verify() async {
     setState(() => busy = true);
     await widget.controller.completeExternalSignIn(() => widget
@@ -150,24 +168,28 @@ class PasswordRecoveryScreen extends StatefulWidget {
 class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
   bool busy = false;
   @override
-  Widget build(BuildContext context) => AccountPage(
-          eyebrow: 'Account recovery',
-          title: 'Reset your password',
-          subtitle:
-              'Send a recovery challenge for the work account associated with ANUM.',
-          children: [
-            AccountPanel(title: 'Work account', subtitle: widget.userId),
-            FilledButton(
-                onPressed: busy ? null : _send,
-                child: Text(busy ? 'Sending...' : 'Send recovery link')),
-            OutlinedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Back to sign in')),
-            const AccountPanel(
-                title: 'Enterprise account',
-                subtitle:
-                    'Contact your organization administrator if sign-in is managed by SSO.')
-          ]);
+  Widget build(BuildContext context) {
+    final l = AnumLocalizations.maybeOf(context);
+    return AccountPage(
+        eyebrow: l.t('auth.recover.eyebrow'),
+        title: l.t('auth.recover.title'),
+        subtitle: l.t('auth.recover.subtitle'),
+        children: [
+          AccountPanel(
+              title: l.t('auth.recover.account'), subtitle: widget.userId),
+          FilledButton(
+              onPressed: busy ? null : _send,
+              child: Text(
+                  l.t(busy ? 'auth.recover.sending' : 'auth.recover.send'))),
+          OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l.t('auth.recover.back'))),
+          AccountPanel(
+              title: l.t('auth.recover.enterprise'),
+              subtitle: l.t('auth.recover.enterpriseText'))
+        ]);
+  }
+
   Future<void> _send() async {
     setState(() => busy = true);
     final challenge = await widget.controller.repository.requestPasswordReset(
@@ -175,9 +197,11 @@ class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
         workspaceId: widget.workspaceId,
         userId: widget.userId);
     if (!mounted) return;
-    final token = await _entry(context, 'Reset token');
+    final l = AnumLocalizations.maybeOf(context);
+    final token = await _entry(context, l.t('auth.recover.token'));
     if (token == null || !mounted) return;
-    final password = await _entry(context, 'New password', obscure: true);
+    final password =
+        await _entry(context, l.t('auth.recover.newPassword'), obscure: true);
     if (password != null) {
       await widget.controller.completeExternalSignIn(() =>
           widget.controller.repository.resetPassword(
@@ -210,7 +234,8 @@ Future<String?> _entry(BuildContext context, String label,
                 const SizedBox(height: 16),
                 FilledButton(
                     onPressed: () => Navigator.pop(context, c.text.trim()),
-                    child: const Text('Continue'))
+                    child: Text(
+                        AnumLocalizations.maybeOf(context).t('auth.continue')))
               ])));
   c.dispose();
   return result == null || result.isEmpty ? null : result;
@@ -279,8 +304,8 @@ class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
       if (mounted) Navigator.pop(context);
     } on Object {
       if (mounted) {
-        setState(() => _error =
-            'You are not an active member of “$id”, or it does not exist.');
+        setState(() => _error = AnumLocalizations.maybeOf(context)
+            .f('auth.switch.notMember', {'id': id}));
       }
     } finally {
       if (mounted) {
@@ -295,13 +320,13 @@ class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
   String _title(CallerMembership membership) =>
       membership.workspaceName ?? membership.workspaceId;
 
-  String _subtitle(CallerMembership membership) {
+  String _subtitle(AnumLocalizations l, CallerMembership membership) {
     final current = membership.workspaceId == widget.currentWorkspaceId;
     final parts = <String>[
-      if (current) 'Current workspace',
+      if (current) l.t('auth.switch.current'),
       if (membership.workspaceName != null) membership.workspaceId,
-      'Your role: ${membership.role}',
-      if (_switching == membership.workspaceId) 'Checking membership...',
+      l.f('auth.role', {'role': authRoleLabel(l, membership.role)}),
+      if (_switching == membership.workspaceId) l.t('auth.switch.checking'),
     ];
     return parts.join(' · ');
   }
@@ -312,29 +337,31 @@ class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
     final listed =
         memberships?.any((m) => m.workspaceId == widget.currentWorkspaceId) ??
             false;
+    final l = AnumLocalizations.maybeOf(context);
     return AccountPage(
-        eyebrow: 'Workspace',
-        title: 'Switch workspace',
-        subtitle: 'Your role and what agents may do change with the workspace.',
+        eyebrow: l.t('auth.switch.eyebrow'),
+        title: l.t('auth.switch.title'),
+        subtitle: l.t('auth.switch.subtitle'),
         children: [
           if (!listed)
             AccountPanel(
                 title: widget.currentWorkspaceId,
-                subtitle: 'Current workspace · ${widget.role}',
+                subtitle:
+                    '${l.t('auth.switch.current')} · ${authRoleLabel(l, widget.role)}',
                 selected: true),
           if (memberships == null && !_listFailed)
             Center(
                 child: Padding(
                     padding: const EdgeInsets.all(8),
                     child: Semantics(
-                        label: 'Loading your workspaces',
+                        label: l.t('auth.switch.loading'),
                         child: const CircularProgressIndicator()))),
           if (memberships != null)
             for (final membership in memberships)
               AccountPanel(
                   key: ValueKey('workspace-${membership.workspaceId}'),
                   title: _title(membership),
-                  subtitle: _subtitle(membership),
+                  subtitle: _subtitle(l, membership),
                   selected: membership.workspaceId == widget.currentWorkspaceId,
                   onTap: _busy ||
                           membership.workspaceId == widget.currentWorkspaceId
@@ -347,19 +374,20 @@ class _WorkspaceSwitcherScreenState extends State<WorkspaceSwitcherScreen> {
               controller: _id,
               textDirection: TextDirection.ltr,
               decoration: InputDecoration(
-                  labelText: 'Workspace ID to switch to',
+                  labelText: l.t('auth.switch.idLabel'),
                   errorText: _id.text.trim().isEmpty ? null : _error),
               onSubmitted: (_) => _switch()),
           FilledButton(
               onPressed: _busy ? null : _switch,
-              child: Text(_busy ? 'Switching...' : 'Switch workspace')),
+              child: Text(
+                  l.t(_busy ? 'auth.switch.switching' : 'auth.switch.title'))),
           AccountPanel(
-              title: _listFailed
-                  ? 'Your workspace list could not be loaded'
-                  : 'Not listed?',
-              subtitle: _listFailed
-                  ? 'Type the ID of a workspace you belong to; ANUM checks your membership before switching.'
-                  : 'The list shows every workspace in your organization where you are an active member. To create one, sign out and sign in with a new workspace ID; you become its owner during setup.'),
+              title: l.t(_listFailed
+                  ? 'auth.switch.listFailed'
+                  : 'auth.switch.notListed'),
+              subtitle: l.t(_listFailed
+                  ? 'auth.switch.listFailedText'
+                  : 'auth.switch.notListedText')),
         ]);
   }
 }
