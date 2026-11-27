@@ -67,7 +67,7 @@ def _add(recipient: str, who: dict[str, str] = OWNER, **extra: Any) -> Any:
     [
         ("+971 50 123 4567", ("phone", "+971501234567")),
         ("00971501234567", ("phone", "+971501234567")),
-        ("050 123 4567", ("phone", "+971501234567")),
+        ("050 123 4567", ("phone", "+966501234567")),  # no country given: Saudi (test_phone_country.py)
         ("971501234567", ("phone", "+971501234567")),
         (" <Ahmed@Example.COM> ", ("email", "ahmed@example.com")),
         ("not a contact", None),

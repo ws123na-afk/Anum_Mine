@@ -24,6 +24,7 @@ from typing import Any
 from sqlalchemy import text
 
 from ..schemas import TenantContext
+from ..suppression import workspace_phone_country
 from . import service
 from .store import MemoryContactsStore, memory_data
 
@@ -81,14 +82,16 @@ def run(*, dry_run: bool = False, batch_size: int = service.DEFAULT_BUILD_LIMIT)
                     session.rollback()
             report["scanned"] += pending
             continue
+        country = workspace_phone_country(context)  # before any unit opens: it reads the books store
         if settings.repository_backend == "memory":
-            built = service.build_directory(MemoryContactsStore(memory_data, context), context, limit=batch_size, actor=SYSTEM_ACTOR)
+            built = service.build_directory(MemoryContactsStore(memory_data, context), context, limit=batch_size, actor=SYSTEM_ACTOR, country=country)
         else:
             from ..db.contacts_repository import SqlAlchemyContactsStore
             from ..maintenance import default_session_factory, scoped_unit
 
             with scoped_unit(default_session_factory, tenant_id, workspace_id) as session:
-                built = service.build_directory(SqlAlchemyContactsStore(session, context), context, limit=batch_size, actor=SYSTEM_ACTOR)
+                built = service.build_directory(SqlAlchemyContactsStore(session, context), context, limit=batch_size, actor=SYSTEM_ACTOR,
+                                                  country=country)
         for key in ("scanned", "linked", "people_created", "proposals_created"):
             report[key] += getattr(built, key)
         if not built.complete:

@@ -233,6 +233,7 @@ def test_transactions_search_paging_edit_delete_and_safe_export() -> None:
     export = client.get(f"{API}/transactions/export.csv", headers=OWNER)
     assert export.status_code == 200 and export.headers["content-type"].startswith("text/csv")
     assert "'=HYPERLINK(example)" in export.text and "\n=HYPERLINK" not in export.text
+    assert export.content.startswith(b"\xef\xbb\xbfdate,account,")  # UTF-8 byte order mark: Excel shows Arabic names
 
 
 def test_summary_is_per_currency_with_spend_income_bills_and_debts() -> None:

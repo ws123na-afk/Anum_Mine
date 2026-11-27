@@ -316,8 +316,9 @@ test('empty: a new person is led to add an account, then to import', async ({ pa
   await page.getByRole('button', { name: 'Add account' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Add account' });
   await dialog.getByLabel('Name').fill('Salary account');
+  // A pasted full number keeps its last four digits, the ones printed on the card.
   await dialog.getByLabel('Last four digits').fill('12345678');
-  await expect(dialog.getByLabel('Last four digits')).toHaveValue('1234');
+  await expect(dialog.getByLabel('Last four digits')).toHaveValue('5678');
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Salary account added.')).toBeVisible();
 });

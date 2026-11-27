@@ -105,8 +105,8 @@ def note_unread(context: TenantContext, found: list[tuple[str, date]]) -> int:
 def installment_mailboxes(context: TenantContext = Depends(tenant_context)) -> list[ConnectedMailbox]:
     _manage(context)
     accounts = _owner_gmail_accounts(context)
-    return [ConnectedMailbox(id=a.id, address=a.address,
-        selected=a.address.casefold() == "shahzeb.rahmanllc@gmail.com") for a in accounts]
+    # The first of the caller's own Gmail mailboxes is preselected; no address is preferred by name.
+    return [ConnectedMailbox(id=a.id, address=a.address, selected=index == 0) for index, a in enumerate(accounts)]
 
 
 @router.get("/installment-email/preview", response_model=TamaraEmailPreview)

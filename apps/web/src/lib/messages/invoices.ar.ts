@@ -112,6 +112,7 @@ export const invoicesAr: Record<keyof typeof invoicesEn, Message> = {
   'inv.form.lineKind': 'النوع',
   'inv.form.lineQty': 'الكمية',
   'inv.form.linePrice': 'سعر الوحدة',
+  'inv.form.linePriceInvalid': 'اكتب سعر الوحدة لكل بند رقمًا بخانتين عشريتين على الأكثر، مثل 33.34.',
   'inv.form.lineTax': 'الضريبة (%)',
   'inv.form.addLine': 'إضافة بند',
   'inv.form.removeLine': 'حذف البند',

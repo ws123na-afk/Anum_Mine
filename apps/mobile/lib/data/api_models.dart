@@ -292,6 +292,31 @@ class ModelRouting {
       };
 }
 
+/// `GET /api/v1/model-status` (docs/model-gateway.md#placeholder-answers):
+/// whether the model answering this workspace is the built-in placeholder.
+class ModelStatus {
+  const ModelStatus(
+      {required this.placeholder,
+      required this.provider,
+      required this.source});
+
+  factory ModelStatus.fromJson(JsonMap json) {
+    final r = JsonReader(json);
+    return ModelStatus(
+      placeholder: r.boolean('placeholder'),
+      provider: r.optString('provider') ?? '',
+      source: r.optString('source') ?? 'server',
+    );
+  }
+
+  /// True only when that model is `mock`: answers are placeholder text.
+  final bool placeholder;
+  final String provider;
+
+  /// `workspace` when the workspace saved its own model, else `server`.
+  final String source;
+}
+
 class ModelConfiguration {
   const ModelConfiguration({
     required this.provider,

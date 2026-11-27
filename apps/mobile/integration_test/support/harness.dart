@@ -1,6 +1,7 @@
 import 'package:anum_mobile/features/push/push_messaging.dart';
 import 'package:anum_mobile/src/anum_app.dart';
 import 'package:anum_mobile/src/app_environment.dart';
+import 'package:anum_mobile/src/localization/auth_strings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,15 +115,21 @@ Future<void> openFromMenu(WidgetTester tester, FakeAnumApi api, String entry,
 }
 
 /// Signs in with the local development sign-in (the build has no OIDC
-/// issuer) and waits for the signed-in workspace.
-Future<void> signIn(WidgetTester tester, FakeAnumApi api) async {
-  await waitFor(tester, find.text('Sign in to ANUM'), api: api);
+/// issuer) and waits for the signed-in workspace. Pass `arabic: true` when the
+/// app starts in Arabic: the sign-in page then speaks Arabic too.
+Future<void> signIn(WidgetTester tester, FakeAnumApi api,
+    {bool arabic = false}) async {
+  final text = arabic ? authAr : authEn;
+  await waitFor(tester, find.text(text['auth.signIn.title']!), api: api);
   await tester.enterText(
-      find.widgetWithText(TextFormField, 'Organization ID'), Fx.tenantId);
+      find.widgetWithText(TextFormField, text['auth.signIn.organizationId']!),
+      Fx.tenantId);
   await tester.enterText(
-      find.widgetWithText(TextFormField, 'Workspace ID'), Fx.workspaceId);
+      find.widgetWithText(TextFormField, text['auth.signIn.workspaceId']!),
+      Fx.workspaceId);
   await tester.enterText(
-      find.widgetWithText(TextFormField, 'User ID'), Fx.userId);
-  await tapOn(tester, find.text('Continue'));
+      find.widgetWithText(TextFormField, text['auth.signIn.userId']!),
+      Fx.userId);
+  await tapOn(tester, find.text(text['auth.continue']!));
   await pumpFor(tester, const Duration(seconds: 1));
 }

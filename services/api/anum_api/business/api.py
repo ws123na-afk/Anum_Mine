@@ -456,11 +456,13 @@ def _account(context: TenantContext, payload: AccountInput, now: datetime) -> Ac
     )
 
 
-def _contact(context: TenantContext, account_id: str, payload: ContactInput, now: datetime, source: RecordSource = RecordSource.MANUAL) -> Contact:
+def _contact(context: TenantContext, account_id: str, payload: ContactInput, now: datetime, source: RecordSource = RecordSource.MANUAL, *,
+             country: str) -> Contact:
+    # ``country`` (workspace_phone_country) is read before the caller opens its store: it opens the books store.
     email = normal_email(payload.email) if payload.email else None
     if payload.email and email is None:
         raise http_error(422, "Enter a valid e-mail address, or leave it empty.")
-    phone = normal_phone(payload.phone) if payload.phone else None
+    phone = normal_phone(payload.phone, country) if payload.phone else None
     if payload.phone and phone is None:
         raise http_error(422, "Enter the phone number with its country code, or leave it empty.")
     profile = clean_url(payload.profile_url) if payload.profile_url else None
@@ -483,7 +485,7 @@ class Duplicate(BaseModel):
 
 
 def find_duplicates(store: BusinessStore, *, name: str | None = None, website: str | None = None, email: str | None = None,
-                    phone: str | None = None, product_id: str | None = None) -> list[Duplicate]:
+                    phone: str | None = None, product_id: str | None = None, phone_country: str | None = None) -> list[Duplicate]:
     found: list[Duplicate] = []
     accounts: dict[str, Account] = {}
     domain = domain_of(website) if website else None
@@ -497,7 +499,7 @@ def find_duplicates(store: BusinessStore, *, name: str | None = None, website: s
             if item.id not in accounts:
                 accounts[item.id] = item
                 found.append(Duplicate(kind="account", id=item.id, label=item.name, reason="Same company name."))
-    for value, field in ((normal_email(email), "email"), (normal_phone(phone), "phone")):
+    for value, field in ((normal_email(email), "email"), (normal_phone(phone, phone_country), "phone")):
         if value:
             item = store.first("contacts", **{field: value})
             if item is not None:
@@ -517,8 +519,9 @@ def check_duplicates(
     product_id: str | None = Q(default=None, max_length=80), context: TenantContext = Depends(tenant_context),
 ) -> list[Duplicate]:
     read(context)
+    country = suppression.workspace_phone_country(context) if phone else None
     with open_business_store(context) as store:
-        return find_duplicates(store, name=name, website=website, email=email, phone=phone, product_id=product_id)
+        return find_duplicates(store, name=name, website=website, email=email, phone=phone, product_id=product_id, phone_country=country)
 
 
 # The columns the account list can be ordered by (the web table's sortable headers). Counts (contacts,
@@ -662,9 +665,10 @@ def account_do_not_contact(account_id: str, payload: DoNotContact, context: Tena
 @router.post("/accounts/{account_id}/contacts", response_model=AccountDetail, status_code=status.HTTP_201_CREATED)
 def add_contact(account_id: str, payload: ContactInput, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> AccountDetail:
     write(context)
+    country = suppression.workspace_phone_country(context)
     with open_business_store(context) as store:
         account = get_or_404(store, "accounts", account_id, "Account", for_update=True)
-        contact = _contact(context, account_id, payload, utc_now())
+        contact = _contact(context, account_id, payload, utc_now(), country=country)
         if contact.email and store.first("contacts", email=contact.email):
             raise http_error(409, "A contact with this e-mail address already exists.")
         store.add("contacts", contact)
@@ -680,10 +684,11 @@ def update_contact(contact_id: str, payload: ContactUpdate, context: TenantConte
     write(context)
     changes = payload.model_dump(exclude_unset=True)
     now = utc_now()
+    country = suppression.workspace_phone_country(context)
     with open_business_store(context) as store:
         contact = get_or_404(store, "contacts", contact_id, "Contact", for_update=True)
         merged = ContactInput(**{**contact.model_dump(include=set(ContactInput.model_fields)), **{k: v for k, v in changes.items() if v is not None or k in {"email", "phone", "profile_url"}}})
-        fresh = _contact(context, contact.account_id, merged, now)
+        fresh = _contact(context, contact.account_id, merged, now, country=country)
         if fresh.email and fresh.email != contact.email:
             other = store.first("contacts", email=fresh.email)
             if other is not None and other.id != contact_id:
@@ -888,7 +893,7 @@ def list_leads(
     return Page[LeadView](items=views, total=total, limit=limit, offset=offset)
 
 
-def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCreate, now: datetime) -> tuple[Lead, Account]:
+def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCreate, now: datetime, *, country: str) -> tuple[Lead, Account]:
     if payload.account_id:
         account = get_or_404(store, "accounts", payload.account_id, "Account", for_update=True)
     else:
@@ -913,7 +918,7 @@ def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCr
             raise http_error(422, "That contact belongs to another account.")
         contact_id = contact.id
     elif payload.contact is not None:
-        contact = _contact(context, account.id, payload.contact, now, payload.source)
+        contact = _contact(context, account.id, payload.contact, now, payload.source, country=country)
         if contact.email and store.first("contacts", email=contact.email):
             raise http_error(409, "A contact with this e-mail address already exists. Choose that contact instead.")
         store.add("contacts", contact)
@@ -931,8 +936,9 @@ def create_lead_in(store: BusinessStore, context: TenantContext, payload: LeadCr
 @router.post("/leads", response_model=LeadDetail, status_code=status.HTTP_201_CREATED)
 def create_lead(payload: LeadCreate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> LeadDetail:
     write(context)
+    country = suppression.workspace_phone_country(context)
     with open_business_store(context) as store:
-        lead, _ = create_lead_in(store, context, payload, utc_now())
+        lead, _ = create_lead_in(store, context, payload, utc_now(), country=country)
         detail = lead_detail(context, store, lead)
     audit(repository, context, "business.lead.created", lead.id, metadata={"source": lead.source.value})
     return detail
@@ -1409,6 +1415,7 @@ def import_leads(payload: ImportRequest, context: TenantContext = Depends(tenant
     reader.fieldnames = columns
     rows: list[ImportRow] = []
     now = utc_now()
+    country = suppression.workspace_phone_country(context)
     with open_business_store(context) as store:
         if payload.product_id:
             get_or_404(store, "products", payload.product_id, "Product")
@@ -1434,12 +1441,13 @@ def import_leads(payload: ImportRequest, context: TenantContext = Depends(tenant
             if row.get("email") and normal_email(row.get("email")) is None:
                 rows.append(ImportRow(row=index, company=company, status="invalid", message="The e-mail address is not valid."))
                 continue
-            if row.get("phone") and normal_phone(row.get("phone")) is None:
+            if row.get("phone") and normal_phone(row.get("phone"), country) is None:
                 rows.append(ImportRow(row=index, company=company, status="invalid", message="The phone number needs its country code."))
                 continue
             domain = domain_of(website)
             key = name_key(company)
-            duplicates = find_duplicates(store, name=company, website=website, email=row.get("email"), phone=row.get("phone"), product_id=payload.product_id)
+            duplicates = find_duplicates(store, name=company, website=website, email=row.get("email"), phone=row.get("phone"), product_id=payload.product_id,
+                                         phone_country=country)
             if (domain and domain in seen_domains) or key in seen_names:
                 rows.append(ImportRow(row=index, company=company, status="duplicate", message="The same company appears earlier in this file."))
                 continue
@@ -1455,7 +1463,7 @@ def import_leads(payload: ImportRequest, context: TenantContext = Depends(tenant
                 contact_input = ContactInput(name=row.get("contact_name") or company, role_title=row.get("role", "")[:160], email=row.get("email") or None,
                                              phone=row.get("phone") or None, consent_basis=basis)
             probe = Contact(id="probe", tenant_id=context.tenant_id, workspace_id=context.workspace_id, account_id="probe", name=company,
-                            email=normal_email(row.get("email")), phone=normal_phone(row.get("phone")), created_by="probe", created_at=now, updated_at=now)
+                            email=normal_email(row.get("email")), phone=normal_phone(row.get("phone"), country), created_by="probe", created_at=now, updated_at=now)
             opted_out = contact_suppressed(context, probe) if contact_input else []
             same_name = next((item for item in duplicates if item.kind == "account"), None)
             if payload.dry_run:
@@ -1471,7 +1479,7 @@ def import_leads(payload: ImportRequest, context: TenantContext = Depends(tenant
                 contact=contact_input, product_id=payload.product_id, source=RecordSource.CSV_IMPORT,
             )
             try:
-                lead, _ = create_lead_in(store, context, create, now)
+                lead, _ = create_lead_in(store, context, create, now, country=country)
             except Exception as exc:  # an HTTP refusal for this row only
                 detail = getattr(exc, "detail", None)
                 if detail is None:

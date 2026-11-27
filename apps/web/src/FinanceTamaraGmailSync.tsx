@@ -5,7 +5,6 @@ import { syncEmailAccount } from './lib/emailApi';
 import * as plan from './lib/financePlanningApi';
 import { describeError } from './lib/errors';
 
-const TARGET = 'shahzeb.rahmanllc@gmail.com';
 type Preview = plan.TamaraGmailPreview;
 const format = (n: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'SAR' }).format(n);
 const orderKey = (r: FinanceInstallmentStatementEntry) => r.provider.toLowerCase() + '/' + r.order_id.toLowerCase() + '/' + r.installment;
@@ -29,7 +28,7 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
         if (!active) return;
         setMailboxes(found);
         setSaved(statement.items);
-        setAccount(found.find(m => m.address.toLowerCase() === TARGET)?.id ?? found[0]?.id ?? '');
+        setAccount(found.find(m => m.selected)?.id ?? found[0]?.id ?? '');
       })
       .catch(e => { if (active) setError(describeError(e)); });
     return () => { active = false; };
@@ -123,11 +122,11 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
     <label className="field"><span>Gmail mailbox</span>
       <select value={account} onChange={e => { setAccount(e.target.value); setPreview(null); }}>
         {mailboxes.length === 0 && <option value="">No connected Gmail account</option>}
-        {mailboxes.map(m => <option key={m.id} value={m.id}>{m.address}{m.address.toLowerCase() === TARGET ? ' (LLC preferred)' : ''}</option>)}
+        {mailboxes.map(m => <option key={m.id} value={m.id}>{m.address}</option>)}
       </select>
     </label>
-    {!mailboxes.some(m => m.address.toLowerCase() === TARGET) &&
-      <p role="status">The LLC Gmail account ({TARGET}) is not connected to ANUM Email yet. Connect it there with a private mailbox grant, then return to Finance. <a href="#email/connections">Open Email connections</a></p>}
+    {mailboxes.length === 0 &&
+      <p role="status">No Gmail mailbox of yours is connected to ANUM Email yet. Connect the one that gets your Tamara emails there with a private mailbox grant, then return to Finance. <a href="#email/connections">Open Email connections</a></p>}
     <div className="finFormActions">
       <button type="button" disabled={loading || busy || !account} onClick={() => void examine()}>{loading ? 'Reading Gmail…' : 'Preview Tamara emails'}</button>
       <button type="button" onClick={onClose}>Close</button>
