@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { VehicleDueItem, VehiclePayment } from '@anum/contracts';
-import { decimal, dueText, fromLocalInput, hashForTab, km, localInput, moneyList, newKey, paymentState, paymentText, tabFromHash, vehicleName } from '../src/lib/vehicles.ts';
+import { decimal, dueText, fromLocalInput, hashForTab, km, localInput, moneyList, newKey, spendSplit, paymentState, paymentText, tabFromHash, vehicleName } from '../src/lib/vehicles.ts';
 import { guideFor } from '../src/lib/iphoneIntegrations.ts';
 import { setLocale } from '../src/lib/i18n.ts';
 import { vehiclesAr } from '../src/lib/messages/vehicles.ar.ts';
@@ -96,5 +96,16 @@ describe('vehicle helpers', () => {
       assert.deepEqual([...new Set(names((vehiclesAr as Record<string, unknown>)[key]))], [...new Set(names(value))], key);
     }
     for (const text of [...Object.values(vehiclesEn), ...Object.values(vehiclesAr)]) assert.ok(!/[–—]/.test(JSON.stringify(text)));
+  });
+});
+
+describe('spendSplit', () => {
+  test('names the linked and recorded parts per currency, and nothing when every cost is linked', () => {
+    setLocale('en');
+    const rows = [{ currency: 'AED', linked: '0.00', recorded: '70.00' }, { currency: 'SAR', linked: '150.00', recorded: '90.00' }];
+    assert.match(spendSplit(rows, 'SAR') ?? '', /150\.00 linked, .*90\.00 from record totals/);
+    assert.equal(spendSplit(rows)?.split(' · ').length, 2);
+    assert.equal(spendSplit([{ currency: 'SAR', linked: '150.00', recorded: '0.00' }]), null);
+    assert.equal(spendSplit(undefined), null);
   });
 });

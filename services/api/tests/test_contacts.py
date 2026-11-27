@@ -24,6 +24,7 @@ from anum_api.schemas import TenantContext
 from anum_api.store import store as memory_repository
 from anum_api.suppression import suppression_store
 from anum_api.whatsapp_store import whatsapp_store
+from anum_api import suppression as suppression_module
 
 from test_calls import ACCOUNT_SID, AUTH_TOKEN, KEY_SECRET, FakeGateway, Twilio, _clean as _calls_clean, gateway  # noqa: F401
 from test_mail_center import OWNER as MAIL_OWNER, FakeServer, Stored, connect as connect_mailbox, fake, raw_message  # noqa: F401
@@ -46,6 +47,13 @@ OTHER_TENANT = headers("member_ct", tenant="tenant_contacts_other")
 CONTEXT = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="member_ct", roles=["member"])
 
 client = TestClient(main.app)
+
+
+@pytest.fixture(autouse=True)
+def _uae_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These scenarios are a UAE workspace: a typed 05... number is a UAE mobile. The Saudi default and
+    # the workspace country from Books settings are covered in test_phone_country.py.
+    monkeypatch.setattr(suppression_module, "DEFAULT_PHONE_COUNTRY", "AE")
 
 
 @pytest.fixture(autouse=True)

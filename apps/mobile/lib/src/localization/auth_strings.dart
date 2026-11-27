@@ -1,0 +1,273 @@
+/// Sign-in, first run (workspace choice, workspace setup, model step), one-time
+/// code, password recovery and the workspace switcher (docs/mobile.md#first-run).
+const authEn = <String, String>{
+  'auth.continue': 'Continue',
+  'auth.checkAgain': 'Check again',
+  'auth.tryAgain': 'Try again',
+  'auth.otherAccount': 'Sign in with another account',
+  'auth.required': 'This field is required',
+  'auth.role': 'Your role: {role}',
+  'auth.signIn.eyebrow': 'Welcome back',
+  'auth.signIn.title': 'Sign in to ANUM',
+  'auth.signIn.subtitle':
+      'Use your local workspace. Enterprise identity is configured by your administrator.',
+  'auth.signIn.organizationId': 'Organization ID',
+  'auth.signIn.workspaceId': 'Workspace ID',
+  'auth.signIn.userId': 'User ID',
+  'auth.signIn.password': 'Password (if configured)',
+  'auth.signIn.hidePassword': 'Hide password',
+  'auth.signIn.showPassword': 'Show password',
+  'auth.signIn.otp': 'Use one-time code',
+  'auth.signIn.forgot': 'Forgot password?',
+  'auth.signIn.minLength': 'Use at least 3 characters',
+  'auth.signIn.noCode': 'No code was sent: {reason}',
+  'auth.picker.eyebrow': 'Choose a workspace',
+  'auth.picker.title': 'Where do you want to work?',
+  'auth.picker.subtitle':
+      'You are a member of several workspaces. ANUM opens the one you choose next time; switch any time in Settings.',
+  'auth.none.eyebrow': 'No workspace yet',
+  'auth.none.title': 'You are not in a workspace',
+  'auth.none.subtitleExisting':
+      'Your account signed in, and the workspace {name} is already set up by its owner, but you are not a member of it yet.',
+  'auth.none.subtitle':
+      'Your account signed in, but it is not an active member of any workspace in your organization, and no default workspace is set for it.',
+  'auth.none.askExisting':
+      'Ask the owner of {name} to invite you from Members. When you have accepted the invitation, check again.',
+  'auth.none.ask':
+      'Ask a workspace owner to invite you, or ask your administrator to set the default_workspace_id attribute on your account. Then check again.',
+  'auth.setup.eyebrow': 'Step 2 of 3',
+  'auth.setup.title': 'Set up your workspace',
+  'auth.setup.subtitle':
+      'Create an isolated place for agents, files, approvals, and automations.',
+  'auth.setup.organization': 'Organization name',
+  'auth.setup.workspace': 'Workspace name',
+  'auth.setup.create': 'Create workspace',
+  'auth.model.eyebrow': 'Step 3 of 3',
+  'auth.model.title': 'Connect a model',
+  'auth.model.memberSubtitle':
+      'Only a workspace owner can connect this workspace to a model.',
+  'auth.model.ownerSubtitle':
+      'Credentials are write-only and are never returned by the API.',
+  'auth.model.provider': 'Provider',
+  'auth.model.model': 'Model',
+  'auth.model.baseUrl': 'Base URL',
+  'auth.model.baseUrlOptional': 'Base URL (optional)',
+  'auth.model.ollamaHelp':
+      'The ANUM server calls this address, not your phone. Keep localhost when Ollama runs on the same computer as the ANUM server.',
+  'auth.model.claudeHelp': 'Leave empty for api.anthropic.com.',
+  'auth.model.apiKey': 'API key',
+  'auth.model.anthropicKey': 'Anthropic API key',
+  'auth.model.hideKey': 'Hide API key',
+  'auth.model.showKey': 'Show API key',
+  'auth.model.save': 'Test, save, and continue',
+  'auth.model.checking': 'Checking whether the server already has a model...',
+  'auth.model.checkFailed':
+      'Could not check whether the server already has a model: {reason}. Check your connection and try again, or continue and set up a model later in Settings.',
+  'auth.model.noAnswer': 'no answer',
+  'auth.model.continueWithout': 'Continue without a model',
+  'auth.model.useWorkspace': "Continue with this workspace's model",
+  'auth.model.useServer': "Skip and use the server's model ({model})",
+  'auth.model.noneOwner':
+      'Neither this workspace nor the ANUM server has a model yet. You can continue without one: everything that does not need AI works, and AI answers are placeholders until you connect a model above or later in Settings, Model connection.',
+  'auth.model.noneMember':
+      'Neither this workspace nor the ANUM server has a model yet. You can continue: everything that does not need AI works, and AI answers are placeholders until a workspace owner connects one in Settings, Model connection.',
+  'auth.busy.eyebrow': 'Please wait',
+  'auth.busy.title': 'Securing your workspace',
+  'auth.busy.body': 'Checking access and configuration...',
+  'auth.failure.eyebrow': 'Unable to continue',
+  'auth.failure.offline': 'You are offline',
+  'auth.failure.permission': 'Access denied',
+  'auth.failure.session': 'Session expired',
+  'auth.failure.validation': 'Check your details',
+  'auth.failure.other': 'Something went wrong',
+  'auth.failure.tryAgainText': 'Try again.',
+  'auth.failure.backToSignIn': 'Return to sign in',
+  // Fixed messages the controller and the sign-in adapter set.
+  'auth.msg.invalidIds':
+      'Enter valid organization, workspace, and user identifiers.',
+  'auth.msg.sessionEnded': 'Your session ended. Sign in again.',
+  'auth.msg.namesRequired': 'Organization and workspace names are required.',
+  'auth.msg.cancelled': 'Sign-in was cancelled',
+  'auth.msg.providerEnded': 'The identity provider ended this session',
+  'auth.msg.noOrganization': 'Your account is not part of an organization yet',
+  'auth.otp.eyebrow': 'Security check',
+  'auth.otp.title': 'Enter verification code',
+  'auth.otp.subtitle':
+      'We sent a six-digit code to your configured work account.',
+  'auth.otp.expiry': 'Codes expire after 10 minutes',
+  'auth.otp.verifying': 'Verifying...',
+  'auth.otp.verify': 'Verify',
+  'auth.otp.resend': 'Send another code',
+  'auth.otp.other': 'Use another method',
+  'auth.otp.otherMethods': 'Password · Recovery code',
+  'auth.recover.eyebrow': 'Account recovery',
+  'auth.recover.title': 'Reset your password',
+  'auth.recover.subtitle':
+      'Send a recovery challenge for the work account associated with ANUM.',
+  'auth.recover.account': 'Work account',
+  'auth.recover.sending': 'Sending...',
+  'auth.recover.send': 'Send recovery link',
+  'auth.recover.back': 'Back to sign in',
+  'auth.recover.enterprise': 'Enterprise account',
+  'auth.recover.enterpriseText':
+      'Contact your organization administrator if sign-in is managed by SSO.',
+  'auth.recover.token': 'Reset token',
+  'auth.recover.newPassword': 'New password',
+  'auth.switch.eyebrow': 'Workspace',
+  'auth.switch.title': 'Switch workspace',
+  'auth.switch.subtitle':
+      'Your role and what agents may do change with the workspace.',
+  'auth.switch.current': 'Current workspace',
+  'auth.switch.loading': 'Loading your workspaces',
+  'auth.switch.checking': 'Checking membership...',
+  'auth.switch.notMember':
+      'You are not an active member of “{id}”, or it does not exist.',
+  'auth.switch.idLabel': 'Workspace ID to switch to',
+  'auth.switch.switching': 'Switching...',
+  'auth.switch.listFailed': 'Your workspace list could not be loaded',
+  'auth.switch.notListed': 'Not listed?',
+  'auth.switch.listFailedText':
+      'Type the ID of a workspace you belong to; ANUM checks your membership before switching.',
+  'auth.switch.notListedText':
+      'The list shows every workspace in your organization where you are an active member. To create one, sign out and sign in with a new workspace ID; you become its owner during setup.',
+};
+
+const authAr = <String, String>{
+  'auth.continue': 'متابعة',
+  'auth.checkAgain': 'تحقق مرة أخرى',
+  'auth.tryAgain': 'حاول مرة أخرى',
+  'auth.otherAccount': 'تسجيل الدخول بحساب آخر',
+  'auth.required': 'هذا الحقل مطلوب',
+  'auth.role': 'دورك: {role}',
+  'auth.signIn.eyebrow': 'مرحبًا بعودتك',
+  'auth.signIn.title': 'تسجيل الدخول إلى أنوم',
+  'auth.signIn.subtitle':
+      'استخدم مساحة العمل المحلية. يضبط المسؤول لديك هوية المؤسسة.',
+  'auth.signIn.organizationId': 'معرّف المؤسسة',
+  'auth.signIn.workspaceId': 'معرّف مساحة العمل',
+  'auth.signIn.userId': 'معرّف المستخدم',
+  'auth.signIn.password': 'كلمة المرور (إن وُجدت)',
+  'auth.signIn.hidePassword': 'إخفاء كلمة المرور',
+  'auth.signIn.showPassword': 'إظهار كلمة المرور',
+  'auth.signIn.otp': 'استخدام رمز لمرة واحدة',
+  'auth.signIn.forgot': 'نسيت كلمة المرور؟',
+  'auth.signIn.minLength': 'استخدم 3 أحرف على الأقل',
+  'auth.signIn.noCode': 'لم يُرسل أي رمز: {reason}',
+  'auth.picker.eyebrow': 'اختر مساحة عمل',
+  'auth.picker.title': 'أين تريد أن تعمل؟',
+  'auth.picker.subtitle':
+      'أنت عضو في عدة مساحات عمل. يفتح أنوم المساحة التي تختارها في المرة القادمة، ويمكنك التبديل في أي وقت من الإعدادات.',
+  'auth.none.eyebrow': 'لا توجد مساحة عمل بعد',
+  'auth.none.title': 'لست عضوًا في أي مساحة عمل',
+  'auth.none.subtitleExisting':
+      'تم تسجيل دخول حسابك، ومساحة العمل {name} أعدّها مالكها بالفعل، لكنك لست عضوًا فيها بعد.',
+  'auth.none.subtitle':
+      'تم تسجيل دخول حسابك، لكنه ليس عضوًا نشطًا في أي مساحة عمل في مؤسستك، ولم تُحدَّد له مساحة عمل افتراضية.',
+  'auth.none.askExisting':
+      'اطلب من مالك {name} أن يدعوك من صفحة الأعضاء. بعد قبول الدعوة، تحقق مرة أخرى.',
+  'auth.none.ask':
+      'اطلب من مالك مساحة عمل أن يدعوك، أو اطلب من المسؤول ضبط السمة default_workspace_id في حسابك. ثم تحقق مرة أخرى.',
+  'auth.setup.eyebrow': 'الخطوة 2 من 3',
+  'auth.setup.title': 'أعدّ مساحة عملك',
+  'auth.setup.subtitle':
+      'أنشئ مكانًا معزولًا للوكلاء والملفات والموافقات والأتمتة.',
+  'auth.setup.organization': 'اسم المؤسسة',
+  'auth.setup.workspace': 'اسم مساحة العمل',
+  'auth.setup.create': 'إنشاء مساحة العمل',
+  'auth.model.eyebrow': 'الخطوة 3 من 3',
+  'auth.model.title': 'ربط نموذج',
+  'auth.model.memberSubtitle':
+      'لا يستطيع ربط مساحة العمل هذه بنموذج إلا مالكها.',
+  'auth.model.ownerSubtitle':
+      'بيانات الاعتماد تُكتب فقط، ولا تعيدها الواجهة البرمجية أبدًا.',
+  'auth.model.provider': 'المزوّد',
+  'auth.model.model': 'النموذج',
+  'auth.model.baseUrl': 'عنوان URL الأساسي',
+  'auth.model.baseUrlOptional': 'عنوان URL الأساسي (اختياري)',
+  'auth.model.ollamaHelp':
+      'خادم أنوم هو من يتصل بهذا العنوان، لا هاتفك. أبقِ localhost عندما يعمل Ollama على الحاسوب نفسه الذي يعمل عليه خادم أنوم.',
+  'auth.model.claudeHelp': 'اتركه فارغًا لاستخدام api.anthropic.com.',
+  'auth.model.apiKey': 'مفتاح API',
+  'auth.model.anthropicKey': 'مفتاح Anthropic API',
+  'auth.model.hideKey': 'إخفاء مفتاح API',
+  'auth.model.showKey': 'إظهار مفتاح API',
+  'auth.model.save': 'اختبار وحفظ ومتابعة',
+  'auth.model.checking': 'جارٍ التحقق مما إذا كان لدى الخادم نموذج بالفعل...',
+  'auth.model.checkFailed':
+      'تعذّر التحقق مما إذا كان لدى الخادم نموذج: {reason}. تحقق من اتصالك وحاول مرة أخرى، أو تابع واضبط نموذجًا لاحقًا من الإعدادات.',
+  'auth.model.noAnswer': 'لا يوجد رد',
+  'auth.model.continueWithout': 'المتابعة بدون نموذج',
+  'auth.model.useWorkspace': 'المتابعة بنموذج مساحة العمل هذه',
+  'auth.model.useServer': 'تخطَّ واستخدم نموذج الخادم ({model})',
+  'auth.model.noneOwner':
+      'لا تملك مساحة العمل هذه ولا خادم أنوم نموذجًا بعد. يمكنك المتابعة بدونه: كل ما لا يحتاج إلى الذكاء الاصطناعي يعمل، وتبقى إجابات الذكاء الاصطناعي مؤقتة حتى تربط نموذجًا أعلاه أو لاحقًا من الإعدادات، ربط النموذج.',
+  'auth.model.noneMember':
+      'لا تملك مساحة العمل هذه ولا خادم أنوم نموذجًا بعد. يمكنك المتابعة: كل ما لا يحتاج إلى الذكاء الاصطناعي يعمل، وتبقى إجابات الذكاء الاصطناعي مؤقتة حتى يربط مالك مساحة العمل نموذجًا من الإعدادات، ربط النموذج.',
+  'auth.busy.eyebrow': 'يُرجى الانتظار',
+  'auth.busy.title': 'جارٍ تأمين مساحة عملك',
+  'auth.busy.body': 'جارٍ التحقق من الوصول والإعدادات...',
+  'auth.failure.eyebrow': 'تعذّرت المتابعة',
+  'auth.failure.offline': 'أنت غير متصل',
+  'auth.failure.permission': 'تم رفض الوصول',
+  'auth.failure.session': 'انتهت الجلسة',
+  'auth.failure.validation': 'تحقق من بياناتك',
+  'auth.failure.other': 'حدث خطأ ما',
+  'auth.failure.tryAgainText': 'حاول مرة أخرى.',
+  'auth.failure.backToSignIn': 'العودة إلى تسجيل الدخول',
+  'auth.msg.invalidIds': 'أدخل معرّفات صحيحة للمؤسسة ومساحة العمل والمستخدم.',
+  'auth.msg.sessionEnded': 'انتهت جلستك. سجّل الدخول مرة أخرى.',
+  'auth.msg.namesRequired': 'اسم المؤسسة واسم مساحة العمل مطلوبان.',
+  'auth.msg.cancelled': 'أُلغي تسجيل الدخول',
+  'auth.msg.providerEnded': 'أنهى مزوّد الهوية هذه الجلسة',
+  'auth.msg.noOrganization': 'حسابك ليس ضمن مؤسسة بعد',
+  'auth.otp.eyebrow': 'فحص الأمان',
+  'auth.otp.title': 'أدخل رمز التحقق',
+  'auth.otp.subtitle': 'أرسلنا رمزًا من ستة أرقام إلى حساب العمل المضبوط لديك.',
+  'auth.otp.expiry': 'تنتهي صلاحية الرموز بعد 10 دقائق',
+  'auth.otp.verifying': 'جارٍ التحقق...',
+  'auth.otp.verify': 'تحقق',
+  'auth.otp.resend': 'إرسال رمز آخر',
+  'auth.otp.other': 'استخدام طريقة أخرى',
+  'auth.otp.otherMethods': 'كلمة المرور · رمز الاسترداد',
+  'auth.recover.eyebrow': 'استرداد الحساب',
+  'auth.recover.title': 'إعادة تعيين كلمة المرور',
+  'auth.recover.subtitle': 'أرسل طلب استرداد لحساب العمل المرتبط بأنوم.',
+  'auth.recover.account': 'حساب العمل',
+  'auth.recover.sending': 'جارٍ الإرسال...',
+  'auth.recover.send': 'إرسال رابط الاسترداد',
+  'auth.recover.back': 'العودة إلى تسجيل الدخول',
+  'auth.recover.enterprise': 'حساب المؤسسة',
+  'auth.recover.enterpriseText':
+      'تواصل مع مسؤول مؤسستك إذا كان تسجيل الدخول يُدار عبر الدخول الموحّد (SSO).',
+  'auth.recover.token': 'رمز إعادة التعيين',
+  'auth.recover.newPassword': 'كلمة المرور الجديدة',
+  'auth.switch.eyebrow': 'مساحة العمل',
+  'auth.switch.title': 'تبديل مساحة العمل',
+  'auth.switch.subtitle':
+      'يتغيّر دورك وما يُسمح للوكلاء بفعله بتغيّر مساحة العمل.',
+  'auth.switch.current': 'مساحة العمل الحالية',
+  'auth.switch.loading': 'جارٍ تحميل مساحات عملك',
+  'auth.switch.checking': 'جارٍ التحقق من العضوية...',
+  'auth.switch.notMember': 'لست عضوًا نشطًا في «{id}»، أو أنها غير موجودة.',
+  'auth.switch.idLabel': 'معرّف مساحة العمل المطلوب التبديل إليها',
+  'auth.switch.switching': 'جارٍ التبديل...',
+  'auth.switch.listFailed': 'تعذّر تحميل قائمة مساحات عملك',
+  'auth.switch.notListed': 'غير مدرجة؟',
+  'auth.switch.listFailedText':
+      'اكتب معرّف مساحة عمل تنتمي إليها، ويتحقق أنوم من عضويتك قبل التبديل.',
+  'auth.switch.notListedText':
+      'تعرض القائمة كل مساحة عمل في مؤسستك أنت عضو نشط فيها. لإنشاء مساحة جديدة، سجّل الخروج ثم سجّل الدخول بمعرّف مساحة عمل جديد، فتصبح مالكها أثناء الإعداد.',
+};
+
+/// The catalog key of a fixed English message the auth controller or the
+/// sign-in adapter sets, so the failure page can show it in the user's
+/// language. Messages from the server have no key and are shown as sent.
+const authMessageKeys = <String, String>{
+  'Enter valid organization, workspace, and user identifiers.':
+      'auth.msg.invalidIds',
+  'Your session ended. Sign in again.': 'auth.msg.sessionEnded',
+  'Organization and workspace names are required.': 'auth.msg.namesRequired',
+  'Sign-in was cancelled': 'auth.msg.cancelled',
+  'The identity provider ended this session': 'auth.msg.providerEnded',
+  'Your account is not part of an organization yet': 'auth.msg.noOrganization',
+};

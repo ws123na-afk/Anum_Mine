@@ -70,7 +70,8 @@ def _rows(app_session: Callable[..., Iterator[Session]], user: str, sql: str, pa
 
 
 def _vehicle(api: TestClient, headers: dict = ME, **body: object) -> dict:
-    response = api.post(API, headers=headers, json={"registration": "ABC 1234", "country": "SA", "fuel_type": "petrol_91", **body})
+    # Personal unless a test says otherwise (the API's default is business).
+    response = api.post(API, headers=headers, json={"registration": "ABC 1234", "country": "SA", "fuel_type": "petrol_91", "ownership": "personal", **body})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -175,7 +176,10 @@ def test_a_linked_fuel_payment_adds_no_posting_and_follows_correction_and_undo(c
     assert _rows(app_session, "user_test", payment_sql, {"id": entry["id"]})[0][0] == "needs_review"
     assert client.post(f"{FIN}/sms/messages/{message_id}/reverse", headers=ME).status_code == 200
     assert _rows(app_session, "user_test", payment_sql, {"id": entry["id"]})[0][0] == "void"
-    assert client.get(f"{API}/{car['id']}/report", headers=ME).json()["spend"] == []
+    # A void payment no longer counts; the fill falls back to its pump total (docs/vehicles.md#fleet-costs).
+    after = client.get(f"{API}/{car['id']}/report", headers=ME).json()
+    assert after["spend"] == [{"currency": "SAR", "amount": "150.00"}]
+    assert after["spend_basis"] == [{"currency": "SAR", "linked": "0.00", "recorded": "150.00"}]
 
 
 def test_cash_is_one_finance_transaction_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:

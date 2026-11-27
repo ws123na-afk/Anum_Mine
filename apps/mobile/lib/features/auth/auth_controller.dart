@@ -282,7 +282,14 @@ class AuthController extends ChangeNotifier {
   }
 
   void _routeOnboarded(OnboardingStatus status) {
-    if (!status.complete) {
+    if (!status.complete &&
+        status.workspace != null &&
+        status.membership == null) {
+      // The workspace exists and has its owner; this person is not a member.
+      // Setting it up again would be refused (403), so they are asked to get
+      // an invitation instead.
+      phase = AuthPhase.noWorkspace;
+    } else if (!status.complete) {
       phase = AuthPhase.onboarding;
     } else if (status.modelConfigured) {
       phase = AuthPhase.ready;
@@ -321,6 +328,13 @@ class AuthController extends ChangeNotifier {
   /// the server's configured one (docs/mobile.md#first-run).
   void useServerModel() {
     if (modelAvailability?.canSkip != true) return;
+    continueWithoutModel();
+  }
+
+  /// Opens the app with no model connected, as the web does: everything that
+  /// does not need AI works, and the screens where AI answers appear carry a
+  /// "placeholder answers" banner with Set up model (docs/mobile.md#first-run).
+  void continueWithoutModel() {
     message = null;
     issue = AuthIssue.none;
     phase = AuthPhase.ready;

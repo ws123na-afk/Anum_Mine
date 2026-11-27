@@ -109,6 +109,7 @@ class VehiclesApi {
   bool empty, business, proposal;
   bool decreaseOnce = false;
   final fuel = <Map<String, Object?>>[fuelJson('vfuel_1')];
+  final vehicleChanges = <String, Object?>{};
   late final api = FakeApi(route);
 
   ApiResponse? route(ApiRequest r) {
@@ -131,9 +132,42 @@ class VehiclesApi {
       });
     }
     if (r.method == 'GET' && path == '/api/v1/vehicles/veh_1') {
-      return ok(vehicleJson('veh_1',
-          due: [dueJson('veh_1')],
-          ownership: business ? 'business' : 'personal'));
+      return ok({
+        ...vehicleJson('veh_1',
+            due: [dueJson('veh_1')],
+            ownership: business ? 'business' : 'personal'),
+        ...vehicleChanges,
+      });
+    }
+    // Edit and archive (docs/vehicles.md#mobile): the changed fields and the
+    // version the person loaded.
+    if (r.method == 'PATCH' && path == '/api/v1/vehicles/veh_1') {
+      vehicleChanges.addAll({...r.body!}..remove('version'));
+      vehicleChanges['version'] = (r.body!['version']! as int) + 1;
+      return ok({...vehicleJson('veh_1'), ...vehicleChanges});
+    }
+    if (r.method == 'POST' && path == '/api/v1/vehicles/veh_1/archive') {
+      vehicleChanges['archived_at'] =
+          r.body!['archived'] == true ? '2026-11-27T10:00:00Z' : null;
+      vehicleChanges['version'] = (r.body!['version']! as int) + 1;
+      return ok({...vehicleJson('veh_1'), ...vehicleChanges});
+    }
+    if (r.method == 'PATCH' && path == '/api/v1/vehicles/fuel/vfuel_1') {
+      if (decreaseOnce) {
+        decreaseOnce = false;
+        return refuse(
+            409,
+            'The odometer cannot go down: 42,000 km was recorded on 2 Nov 2026. '
+                'If the odometer was replaced or a reading was wrong, add a correction with a reason.',
+            'odometer_decrease');
+      }
+      final index = fuel.indexWhere((f) => f['id'] == 'vfuel_1');
+      fuel[index] = {
+        ...fuel[index],
+        ...r.body!,
+        'version': (r.body!['version']! as int) + 1
+      };
+      return ok(fuel[index]);
     }
     // A business vehicle's cost from a business allocation
     // (docs/vehicles.md#business-allocations).
@@ -349,7 +383,7 @@ void main() {
       expect(find.text('3 of 3'), findsOneWidget);
       expect(find.byKey(const Key('records-more')), findsNothing);
       await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
-      expect(find.text('45.000 L'), findsOneWidget);
+      expect(find.text('45 L'), findsOneWidget);
       expect(find.text('No payment linked'), findsOneWidget);
       expectClean(tester);
     });
@@ -530,10 +564,120 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(VehicleDetailHost), findsOneWidget);
       expect(find.byType(VehicleDetailScreen), findsNothing);
-      expect(find.text('45.000 L'), findsOneWidget);
+      expect(find.text('45 L'), findsOneWidget);
       expectClean(tester);
       await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    });
+
+    testWidgets('tablet with no vehicle chosen asks to choose one',
+        (tester) async {
+      await pumpVehicles(tester, VehiclesApi(), size: tablet);
+      expect(find.byKey(const Key('vehicles-choose')), findsOneWidget);
+      expect(find.text('Choose a vehicle'), findsOneWidget);
+      expectClean(tester);
+    });
+
+    testWidgets('kilometres and litres read with separators, no .0',
+        (tester) async {
+      await pumpVehicles(tester, VehiclesApi());
+      expect(find.textContaining('42,000 km'), findsWidgets);
+      expect(find.textContaining('42000.0'), findsNothing);
+    });
+
+    testWidgets('edits a vehicle and sends only what changed', (tester) async {
+      final fake = VehiclesApi();
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('vehicle-edit')));
+      await tester.enterText(
+          find.byKey(const Key('field-registration_expires_on')), '2027-03-01');
+      await tester.enterText(find.byKey(const Key('field-nickname')), '');
+      // The focused field keeps its caret in view; let go of it first.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      final sent =
+          fake.api.sent('PATCH', '/api/v1/vehicles/veh_1').single.body!;
+      // The masked VIN and the other untouched fields are never sent back.
+      expect(sent, {
+        'registration_expires_on': '2027-03-01',
+        'nickname': null,
+        'version': 1,
+      });
+      expect(find.text('Mon, Mar 1'), findsOneWidget);
+      expectClean(tester);
+    });
+
+    testWidgets('archives a vehicle after a confirm, then restores it',
+        (tester) async {
+      final fake = VehiclesApi();
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('vehicle-archive')));
+      expect(find.textContaining('Archive this vehicle?'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('confirm-archive')));
+      expect(
+          fake.api.sent('POST', '/api/v1/vehicles/veh_1/archive').single.body,
+          {'version': 1, 'archived': true});
+      expect(find.byKey(const Key('vehicle-archived-note')), findsOneWidget);
+      // An archived vehicle takes no new records.
+      expect(find.byKey(const Key('vehicle-add-fuel')), findsNothing);
+      await tapVisible(tester, find.byKey(const Key('vehicle-archive')));
+      expect(fake.api.sent('POST', '/api/v1/vehicles/veh_1/archive').last.body,
+          {'version': 2, 'archived': false});
+      expect(find.byKey(const Key('vehicle-archived-note')), findsNothing);
+      expect(find.byKey(const Key('vehicle-add-fuel')), findsOneWidget);
+      expectClean(tester);
+    });
+
+    testWidgets('edits a fuel entry with its version', (tester) async {
+      final fake = VehiclesApi();
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('record-menu-vfuel_1')));
+      await tester.tap(find.byKey(const Key('menu-edit')));
+      await tester.pumpAndSettle();
+      final litres =
+          tester.widget<TextFormField>(find.byKey(const Key('field-litres')));
+      expect(litres.controller!.text, '45');
+      await tester.enterText(find.byKey(const Key('field-litres')), '50');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(
+          fake.api.sent('PATCH', '/api/v1/vehicles/fuel/vfuel_1').single.body,
+          {'litres': '50', 'version': 1});
+      expect(find.text('50 L'), findsOneWidget);
+      expectClean(tester);
+    });
+
+    testWidgets('an edit refused by the odometer rule says why',
+        (tester) async {
+      final fake = VehiclesApi()..decreaseOnce = true;
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('record-menu-vfuel_1')));
+      await tester.tap(find.byKey(const Key('menu-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('field-odometer_km')), '41000');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(find.textContaining('The odometer cannot go down: 42,000 km'),
+          findsOneWidget);
+      expect(find.byKey(const Key('odometer-correction')), findsOneWidget);
+    });
+
+    testWidgets('a negative fuel total says it must be above zero',
+        (tester) async {
+      final fake = VehiclesApi();
+      await pumpVehicles(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('vehicle-add-fuel')));
+      await tester.enterText(find.byKey(const Key('field-litres')), '20');
+      await tester.enterText(find.byKey(const Key('field-total')), '-5');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(
+          find.text('Enter a number above zero, such as 12.5'), findsOneWidget);
+      expect(fake.api.sent('POST', '/api/v1/vehicles/veh_1/fuel'), isEmpty);
     });
   });
 }

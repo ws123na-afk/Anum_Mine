@@ -76,7 +76,10 @@ def test_a_personal_payment_allocated_to_the_business_becomes_the_business_vehic
     rows = client.get(f"{VEH}/{car['id']}/fuel", headers=OWNER).json()["items"]
     mine = next(r for r in rows if r["id"] == entry["id"])
     assert (mine["payment"]["status"], mine["payment"]["status_reason"]) == ("void", "allocation_removed")
-    assert client.get(f"{VEH}/overview", headers=OWNER).json()["spend"] == []
+    # Both records now count their own pump totals (one cost per record), none of it linked.
+    overview = client.get(f"{VEH}/overview", headers=OWNER).json()
+    assert overview["spend"] == [{"currency": "SAR", "amount": "300.00"}]
+    assert overview["spend_basis"] == [{"currency": "SAR", "linked": "0.00", "recorded": "300.00"}]
     assert client.get(f"{VEH}/{car['id']}/report", headers=OWNER).json()["unlinked_records"] == 2
     # Releasing it clears the record; repeating changes nothing.
     assert client.delete(f"{VEH}/costs/fuel_entry/{entry['id']}/allocation", headers=OWNER).status_code == 204

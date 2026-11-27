@@ -53,6 +53,27 @@ def fit(text: str, width: float, size: float, bold: bool = False) -> str:
     return (text[:low].rstrip() + "~") if low else "~"
 
 
+def column_widths(needs: Sequence[float], width: float) -> list[float]:
+    """Each column's width: what its widest cell or header needs, with any room left shared out.
+
+    When the needs add up to more than ``width``, only the widest columns give way (a long name is cut,
+    never an amount or a short header), down to the one cap that makes the table fit.
+    """
+    if not needs:
+        return []
+    total = sum(needs)
+    if total <= width:
+        return [need + (width - total) * need / total for need in needs] if total else [width / len(needs)] * len(needs)
+    ordered = sorted(needs)
+    used = 0.0
+    for index, need in enumerate(ordered):
+        cap = (width - used) / (len(ordered) - index)
+        if need >= cap:
+            return [min(need, cap) for need in needs]
+        used += need
+    return list(needs)
+
+
 def wrap(text: str, width: float, size: float, bold: bool = False) -> list[str]:
     """Lines of at most ``width`` points, broken between words (a too long word is cut)."""
     lines: list[str] = []
@@ -209,13 +230,9 @@ class PdfDocument:
         english = [c[0] if isinstance(c, tuple) else c for c in columns]
         arabic = [c[1] if isinstance(c, tuple) else "" for c in columns]
         bilingual = any(arabic)
-        weights = []
-        for index, column in enumerate(english):
-            longest = max([text_width(column, 1.0, True), text_width(arabic[index], 1.0, True)]
-                          + [text_width(row[index], 1.0) for row in texts if index < len(row)])
-            weights.append(min(max(longest, 2.2), 22.0))
-        total = sum(weights) or 1
-        widths = [width * weight / total for weight in weights]
+        needs = [max([text_width(column, size, True), text_width(arabic[index], size, True)]
+                      + [text_width(row[index], size) for row in texts if index < len(row)]) + 4 for index, column in enumerate(english)]
+        widths = column_widths(needs, width)
         self._need(size * 4 + 20 + (size + 2 if bilingual else 0))
         self.y -= 12
         if title_ar:

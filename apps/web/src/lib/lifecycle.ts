@@ -36,7 +36,7 @@ export interface ApiLifecyclePage {
   can_manage_organisation: boolean;
   can_delete_workspace: boolean;
   organisation_confirmation: string;
-  workspace_confirmation: string;
+  workspace_confirmation: string | null;
   cooling_off_hours: number;
   export_link_ttl_seconds: number;
   export_retention_hours: number;
@@ -109,7 +109,7 @@ export function mapLifecycle(page: ApiLifecyclePage): LifecyclePage {
     canManageOrganisation: Boolean(page.can_manage_organisation),
     canDeleteWorkspace: Boolean(page.can_delete_workspace),
     organisationConfirmation: page.organisation_confirmation,
-    workspaceConfirmation: page.workspace_confirmation,
+    workspaceConfirmation: page.workspace_confirmation ?? '',
     coolingOffHours: page.cooling_off_hours,
     exportLinkTtlSeconds: page.export_link_ttl_seconds,
     exportRetentionHours: page.export_retention_hours,

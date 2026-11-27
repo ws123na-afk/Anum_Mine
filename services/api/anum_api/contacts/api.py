@@ -16,6 +16,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..audit import AuditRecord
+from ..suppression import workspace_phone_country
 from ..authorization import Permission
 from ..dependencies import has_permission, tenant_context
 from ..schemas import TenantContext, new_id, utc_now
@@ -174,8 +175,9 @@ def dismiss_proposal(proposal_id: str, context: TenantContext = Depends(tenant_c
 def rebuild_directory(context: TenantContext = Depends(tenant_context)) -> BuildReport:
     """Link every Phone calls, Business and WhatsApp contact not yet in the directory (bounded; run again when ``complete`` is false)."""
     _write(context)
+    country = workspace_phone_country(context)
     with open_contacts_store(context) as store:
-        report = service.build_directory(store, context)
+        report = service.build_directory(store, context, country=country)
         _audit(store, context, "contacts.directory_built", f"workspace:{context.workspace_id}", report.model_dump())
     return report
 
@@ -183,8 +185,9 @@ def rebuild_directory(context: TenantContext = Depends(tenant_context)) -> Build
 @router.post("", response_model=PersonDetail, status_code=status.HTTP_201_CREATED)
 def create_person(payload: PersonInput, context: TenantContext = Depends(tenant_context)) -> PersonDetail:
     _write(context)
+    country = workspace_phone_country(context)
     with open_contacts_store(context) as store:
-        person, proposals = service.create_person(store, context, payload)
+        person, proposals = service.create_person(store, context, payload, country=country)
         _audit(store, context, "contacts.created", f"contact:{person.id}",
                {"phones": len(payload.phones), "emails": len(payload.emails), "proposals": proposals})
         return service.person_detail(store, context, person, can_write=True, can_manage=can_manage(context))
@@ -201,9 +204,10 @@ def get_person(contact_id: str, context: TenantContext = Depends(tenant_context)
 @router.patch("/{contact_id}", response_model=PersonDetail)
 def update_person(contact_id: str, payload: PersonPatch, context: TenantContext = Depends(tenant_context)) -> PersonDetail:
     _write(context)
+    country = workspace_phone_country(context)
     with open_contacts_store(context) as store:
         person = _person_or_404(store, contact_id)
-        person, proposals = service.update_person(store, context, person, payload)
+        person, proposals = service.update_person(store, context, person, payload, country=country)
         _audit(store, context, "contacts.updated", f"contact:{person.id}",
                {"fields": sorted(k for k, v in payload.model_dump().items() if v is not None), "proposals": proposals})
         return service.person_detail(store, context, person, can_write=True, can_manage=can_manage(context))
