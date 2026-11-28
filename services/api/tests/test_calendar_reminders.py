@@ -116,7 +116,8 @@ def test_recipients_are_the_creator_and_members_whose_profile_email_is_invited()
 
 
 def test_all_day_reminders_name_the_day_and_the_sweep_runs_the_pass() -> None:
-    now = utc_now().replace(microsecond=0)
+    # Midday, so the pass an hour later never crosses midnight into the day of the event (it failed after 23:00 UTC).
+    now = utc_now().replace(hour=12, minute=0, second=0, microsecond=0)
     body = meeting(all_day=True, timezone="UTC", start_date=(now + timedelta(days=1)).date().isoformat(), reminders=[1440])
     body.pop("starts_at"), body.pop("ends_at")
     assert client.post("/api/v1/calendar/events", headers=MEMBER, json=body).status_code == 201
